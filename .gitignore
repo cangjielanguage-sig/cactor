@@ -1,0 +1,145 @@
+# 仓颉Actor系统 - Git忽略文件
+
+# 编译输出
+build/
+target/
+*.so
+*.dylib
+*.dll
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+
+# 仓颉编译器生成的文件
+*.cjpkg
+*.cjmod
+*.cjir
+*.ll
+*.bc
+*.cjo
+*.bchir*
+CangjieMagic
+# 临时文件
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# IDE和编辑器文件
+.vscode/
+.idea/
+*.sublime-*
+*.code-workspace
+notepad*
+# 临时笔记文件
+notepad*
+notepad
+*.notepad
+# 日志文件
+*.log
+logs/
+
+# 测试输出
+test-results/
+coverage/
+
+# 包管理器缓存
+.cjpm/
+node_modules/
+.npm/
+.yarn/
+
+# 系统文件
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 文档目录（排除官方文档）
+cangjie-0.53.4-docs-html/
+docs-html/
+*.html
+*.pdf
+
+# 其他项目目录
+CangjieMagic/
+notepad
+
+# 备份文件
+*.bak
+*.backup
+*.orig
+
+# 运行时文件
+*.pid
+*.lock
+
+# 性能分析文件
+*.prof
+*.pprof
+
+# 调试文件
+*.dSYM/
+*.pdb
+
+# 环境配置文件
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# 依赖目录
+vendor/
+third_party/
+
+# 输出目录
+out/
+dist/
+bin/
+
+# 缓存目录
+.cache/
+tmp/
+
+# 特定于项目的忽略
+# 如果有其他需要忽略的文件，可以在这里添加
+**/*.macrocall
+
+# CActor项目编译生成的二进制文件
+actor_dsl_test
+test_advanced_dispatcher
+test_supervision_system
+test_advanced_mailbox
+verify_actor_config
+macro_test
+actor_config_test
+
+# 通用测试二进制文件模式
+test_*
+verify_*
+benchmark_*
+
+# 临时编译输出文件
+*.cj.out
+*.cj.exe
+
+# 基准测试相关文件
+/tmp/actor_test_*.txt
+benchmark_results_*.txt
+performance_*.log
+rust_benchmark/target/
+go_protoactor_benchmark/protoactor_benchmark
+go_protoactor_benchmark/go.sum
+
+# 外部基准测试项目
+rust_benchmark/Cargo.lock
+go_protoactor_benchmark/go.mod
