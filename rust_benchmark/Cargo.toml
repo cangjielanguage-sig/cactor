@@ -1,0 +1,39 @@
+[package]
+name = "rust_actor_benchmark"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Actix Actor 框架
+actix = "0.13"
+actix-rt = "2.9"
+
+# 异步运行时
+tokio = { version = "1.0", features = ["full"] }
+
+# 其他工具
+rand = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.0", features = ["derive"] }
+
+# 性能测试工具
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bin]]
+name = "actix_benchmark"
+path = "src/actix_benchmark.rs"
+
+[[bin]]
+name = "tokio_benchmark"
+path = "src/tokio_benchmark.rs"
+
+[[bin]]
+name = "comparison_runner"
+path = "src/main.rs"
+
+[[bin]]
+name = "pure_rust_benchmark"
+path = "src/pure_rust_benchmark.rs"
+
+
