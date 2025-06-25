@@ -120,7 +120,13 @@ output-type = "executable"
 [package.package-configuration."cactor.integration.testing.plan10_advanced_supervision_test"]
 output-type = "executable"
 
+# === Macro Tests ===
+[package.package-configuration."cactor.examples.macro_test_demo"]
+output-type = "executable"
 
+# === Macros Package ===
+[package.package-configuration."cactor.macros"]
+output-type = "static"
 
 [package.package-configuration."cactor.integration.testing.simple_realistic_benchmark"]
 output-type = "executable"
