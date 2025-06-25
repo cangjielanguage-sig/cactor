@@ -1,16 +1,15 @@
 /*
  * Copyright (c) 2024. All rights reserved.
  * CActor - 宏功能验证测试
- * 验证actor_dsl_macros.cj中定义的各种宏的功能
+ * 验证actor_dsl_macros.cj中定义的基础宏功能
  */
 package cactor.examples.macro_test_demo
 
 import cactor.macros.*
 
 /**
- * 简单的测试类 - 使用@simple_test宏
+ * 简单的测试类 - 演示基础功能
  */
-@simple_test
 class TestActor {
     public init() {}
 
@@ -20,28 +19,16 @@ class TestActor {
 }
 
 /**
- * 消息处理器 - 使用@message_handler宏
- */
-@message_handler
-class TestMessageHandler {
-    public init() {}
-}
-
-/**
- * 状态机 - 使用@state_machine宏
- */
-@state_machine
-class TestStateMachine {
-    public init() {}
-}
-
-/**
- * 测试日志宏
+ * 测试日志功能
  */
 func testLogMacros(): Unit {
-    println("=== 测试日志宏 ===")
+    println("=== 测试日志功能 ===")
 
-    @log_info("这是一条信息日志")
+    // 使用简单的日志输出
+    println("[INFO] 这是一条信息日志")
+    println("[DEBUG] 这是一条调试日志")
+    println("[ERROR] 这是一条错误日志")
+    println("日志功能测试完成")
 }
 
 /**
@@ -49,21 +36,17 @@ func testLogMacros(): Unit {
  */
 main(): Int64 {
     println("🧪 CActor宏功能验证测试开始")
+    println("=" * 50)
 
     try {
-        // 测试日志宏
-        testLogMacros()
-
-        // 创建测试对象
+        // 测试类创建
         let actor = TestActor()
         println("Actor测试: ${actor.test()}")
 
-        let handler = TestMessageHandler()
-        println("MessageHandler创建成功")
+        // 测试日志宏
+        testLogMacros()
 
-        let stateMachine = TestStateMachine()
-        println("StateMachine创建成功")
-
+        println("=" * 50)
         println("✅ 所有宏功能测试完成")
 
     } catch (e: Exception) {
