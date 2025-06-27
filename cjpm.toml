@@ -124,12 +124,12 @@ output-type = "executable"
 [package.package-configuration."cactor.examples.macro_test_demo"]
 output-type = "executable"
 
-# [package.package-configuration."cactor.examples.comprehensive_macro_test"]
-# output-type = "executable"
+[package.package-configuration."cactor.examples.comprehensive_macro_test"]
+output-type = "executable"
 
 # === Macros Package ===
 [package.package-configuration."cactor.macros"]
-output-type = "static"
+output-type = "dynamic"
 
 [package.package-configuration."cactor.integration.testing.simple_realistic_benchmark"]
 output-type = "executable"
