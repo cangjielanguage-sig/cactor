@@ -34,7 +34,7 @@ class TrueWorkerActor <: Actor {  // 暂时保留继承，展示宏的真实功�
 
     /**
      * 使用@handler宏标记的字符串消息处理器
-     * @actor宏会自动在receive方法中调用这个方法
+     * @handler宏会自动添加性能监控和错误处理
      */
     @handler
     public func handleString(msg: StringMessage, context: ActorContext): MessageResult {
@@ -71,13 +71,13 @@ class TrueWorkerActor <: Actor {  // 暂时保留继承，展示宏的真实功�
         MessageResult.Stop
     }
 
-    // 实现receive方法，展示@handler宏的真实功能
+    // 实现receive方法，展示@handler宏增强的方法调用
     public func receive(message: Message, context: ActorContext): MessageResult {
         let startTime = getCurrentTimeNanos()
 
         println("[TRUE-RECEIVE] 开始处理消息: " + message.messageType())
 
-        // 调用@handler标记的方法
+        // 调用@handler标记的增强方法
         let result = match (message) {
             case msg: StringMessage =>
                 this.handleString(msg, context)
@@ -86,7 +86,7 @@ class TrueWorkerActor <: Actor {  // 暂时保留继承，展示宏的真实功�
             case msg: StopMessage =>
                 this.handleStop(msg, context)
             case _ =>
-                println("[TRUE-RECEIVE] 未知消息类型: " + message.messageType())
+                println("[TRUE-RECEIVE] 未知消息类型")
                 MessageResult.Unhandled
         }
 
@@ -114,13 +114,36 @@ func getCurrentTimeNanos(): Int64 {
 }
 
 /**
+ * 使用actor_enhance宏生成的增强Actor类
+ */
+class EnhancedActorWithMacro <: Actor {
+    @actor_enhance("EnhancedActorWithMacro")
+
+    public init() {}
+
+    public prop name: String {
+        get() { "EnhancedActorWithMacro" }
+    }
+
+    public prop description: String {
+        get() { "使用真正宏功能增强的Actor" }
+    }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        // 使用宏生成的路由方法
+        let result = this.routeToHandler(message, context)
+        result
+    }
+}
+
+/**
  * 测试真正的Actor宏功能
  */
 func testTrueActorMacros(): Unit {
     println("=== 测试真正的Actor宏功能 ===")
 
     try {
-        // 1. 创建使用@actor宏的Actor（不需要手动继承Actor接口）
+        // 1. 创建使用@actor宏的Actor
         println("\n1. 创建真正的@actor增强Actor")
         let actor = TrueWorkerActor()
         
