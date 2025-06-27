@@ -14,7 +14,9 @@ import std.time.*
 
 /**
  * 使用@actor宏增强的Worker Actor
+ * 这个类将通过@actor宏自动实现Actor接口
  */
+@actor
 class EnhancedWorkerActor <: Actor {
     private var messageCount: Int64 = 0
     private var totalProcessingTime: Int64 = 0
