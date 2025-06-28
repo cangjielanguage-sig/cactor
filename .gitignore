@@ -43,7 +43,7 @@ notepad
 # 日志文件
 *.log
 logs/
-
+plan*
 # 测试输出
 test-results/
 coverage/
