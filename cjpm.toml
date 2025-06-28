@@ -71,6 +71,10 @@ output-type = "static"
 [package.package-configuration."cactor.api.extensions"]
 output-type = "static"
 
+# === Patterns Layer ===
+[package.package-configuration."cactor.patterns.ask"]
+output-type = "static"
+
 # === Integration Tests ===
 [package.package-configuration."cactor.integration.testing.plan10_comprehensive_test"]
 output-type = "executable"
@@ -134,6 +138,12 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor.examples.true_actor_macro_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.typed_actor_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.comprehensive_improvement_test"]
 output-type = "executable"
 
 # === Macros Package ===
