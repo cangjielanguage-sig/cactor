@@ -61,8 +61,11 @@ public class NetworkMessageSerializer {
         // 序列化目标Actor
         let targetBytes = serializationManager.serializeString(networkMessage.targetActor)
         writeInt32(result, Int32(targetBytes.size))
-        result.appendAll(targetBytes)
-        
+        // 替代appendAll：逐个添加字节
+        for (byte in targetBytes) {
+            result.add(byte)
+        }
+
         // 序列化发送者
         let senderStr = match (networkMessage.sender) {
             case Some(s) => s
@@ -70,21 +73,29 @@ public class NetworkMessageSerializer {
         }
         let senderBytes = serializationManager.serializeString(senderStr)
         writeInt32(result, Int32(senderBytes.size))
-        result.appendAll(senderBytes)
-        
+        for (byte in senderBytes) {
+            result.add(byte)
+        }
+
         // 序列化消息ID
         let messageIdBytes = serializationManager.serializeString(networkMessage.messageId)
         writeInt32(result, Int32(messageIdBytes.size))
-        result.appendAll(messageIdBytes)
-        
+        for (byte in messageIdBytes) {
+            result.add(byte)
+        }
+
         // 序列化时间戳
         let timestampBytes = serializationManager.serializeInt(networkMessage.timestamp)
-        result.appendAll(timestampBytes)
-        
+        for (byte in timestampBytes) {
+            result.add(byte)
+        }
+
         // 序列化消息内容
         let messageBytes = messageSerializer.serialize(networkMessage.message)
         writeInt32(result, Int32(messageBytes.size))
-        result.appendAll(messageBytes)
+        for (byte in messageBytes) {
+            result.add(byte)
+        }
         
         result.toArray()
     }
@@ -138,10 +149,10 @@ public class NetworkMessageSerializer {
     }
 
     private func writeInt32(buffer: ArrayList<UInt8>, value: Int32): Unit {
-        buffer.append(UInt8((value >> 24) & 0xFF))
-        buffer.append(UInt8((value >> 16) & 0xFF))
-        buffer.append(UInt8((value >> 8) & 0xFF))
-        buffer.append(UInt8(value & 0xFF))
+        buffer.add(UInt8((value >> 24) & 0xFF))
+        buffer.add(UInt8((value >> 16) & 0xFF))
+        buffer.add(UInt8((value >> 8) & 0xFF))
+        buffer.add(UInt8(value & 0xFF))
     }
 
     private func readInt32(data: Array<UInt8>, offset: Int64): Int32 {

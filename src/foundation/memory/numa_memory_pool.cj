@@ -306,7 +306,7 @@ public class GlobalMemoryPool <: MemoryPool {
     private var totalAllocated: UInt64
     
     public init() {
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.totalAllocated = 0
     }
     

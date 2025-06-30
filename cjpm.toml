@@ -153,23 +153,7 @@ output-type = "dynamic"
 [package.package-configuration."cactor.integration.testing.simple_realistic_benchmark"]
 output-type = "executable"
 
-# === Target Configuration for stdx support ===
 [target.aarch64-apple-darwin]
-compile-option = "--cfg \"ohos=false\""
-[target.aarch64-apple-darwin.bin-dependencies]
-path-option = [ "${CANGJIE_HOME}/../stdx/static/stdx" ]
-
-[target.x86_64-apple-darwin]
-compile-option = "--cfg \"ohos=false\""
-[target.x86_64-apple-darwin.bin-dependencies]
-path-option = [ "${CANGJIE_HOME}/../stdx/static/stdx" ]
-
-[target.x86_64-unknown-linux-gnu]
-compile-option = "--cfg \"ohos=false\""
-[target.x86_64-unknown-linux-gnu.bin-dependencies]
-path-option = [ "${CANGJIE_HOME}/../stdx/static/stdx" ]
-
-[target.aarch64-unknown-linux-gnu]
-compile-option = "--cfg \"ohos=false\""
-[target.aarch64-unknown-linux-gnu.bin-dependencies]
-path-option = [ "${CANGJIE_HOME}/../stdx/static/stdx" ]
+    compile-option = "--cfg \"ohos=false\""
+    [target.aarch64-apple-darwin.bin-dependencies]
+      path-option = [ "${AARCH64_MACOS_LIBS}", "${AARCH64_MACOS_MACRO_LIBS}", "/Users/louloulin/Documents/linchong/cj/CangjieSDK-Darwin/darwin_aarch64_llvm/static/stdx" ]

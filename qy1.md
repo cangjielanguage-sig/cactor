@@ -291,25 +291,48 @@ class TestActor <: Actor {
 }
 ```
 
-### Step 2: 语法适配优先级列表
+### Step 2: 语法适配优先级列表 🔄
 
-#### 高优先级文件 (立即修复)
-1. `src/core/actor/actor.cj` - 核心Actor接口
-2. `src/core/message/message.cj` - 消息系统
-3. `src/core/system/actor_system.cj` - Actor系统
-4. `src/runtime/system/cactor_runtime_system.cj` - 运行时系统
-5. `src/api/cactor.cj` - 公共API
+#### ✅ 已完成修复的文件
+1. `src/foundation/serialization/serializer.cj` - 序列化器
+2. `src/integration/configuration/configuration.cj` - 配置管理
+3. `src/integration/testing/simple_plan10_test/main.cj` - 测试文件
+4. `src/runtime/monitoring/actor_system_metrics.cj` - 监控指标
+5. `src/foundation/queue/*.cj` - 队列系统
+6. `src/patterns/circuit_breaker/circuit_breaker.cj` - 断路器
+7. `src/foundation/memory/*.cj` - 内存管理
+8. `src/foundation/serialization/serialization_manager.cj` - 序列化管理
+9. `src/foundation/network/transport.cj` - 网络传输
+10. `src/core/message/message_serializer.cj` - 消息序列化
+11. `src/core/message/network_message.cj` - 网络消息
 
-#### 中优先级文件 (第二批修复)
-1. `src/patterns/ask/*.cj` - Ask模式
-2. `src/runtime/mailbox/*.cj` - 邮箱系统
-3. `src/runtime/dispatcher/*.cj` - 调度器
-4. `src/examples/*.cj` - 示例代码
+#### 🔄 发现的主要API变化
+1. **HashMap**: `put(key, value)` → `add(key, value)` ✅
+2. **ArrayList**: `append(item)` → `add(item)` ✅
+3. **ArrayList**: `appendAll(items)` → 需要用循环逐个添加 ✅
+4. **ReentrantMutex** → `Mutex` ✅
+5. **NonBlockingQueue** → `ConcurrentLinkedQueue` (已弃用但仍可用)
+6. **Queue命名冲突**: `std.collection.Queue` vs `cactor.foundation.queue.Queue`
+7. **ArrayList.remove()**: 参数类型从`Int64`改为`Range<Int64>`
+8. **HashSet**: `put(item)` → `add(item)`
 
-#### 低优先级文件 (最后修复)
+#### ⏳ 待修复的高优先级文件
+1. `src/core/config/default_actor_config.cj` - 配置系统
+2. `src/core/system/enterprise_actor_system.cj` - 企业级Actor系统
+3. `src/core/supervision/advanced_supervision.cj` - 监督策略
+4. `src/runtime/mailbox/*.cj` - 邮箱系统
+5. `src/patterns/routing/router.cj` - 路由器
+
+#### ⏳ 待修复的中优先级文件
+1. `src/runtime/dispatcher/work_stealing/*.cj` - 工作窃取调度器
+2. `src/runtime/registry/actor_registry.cj` - Actor注册表
+3. `src/core/typed/typed_router.cj` - 类型化路由器
+4. `src/patterns/backpressure/backpressure.cj` - 背压控制
+
+#### ⏳ 待修复的低优先级文件
 1. `src/distribution/*.cj` - 分布式功能
 2. `src/integration/*.cj` - 集成功能
-3. `src/macros/*.cj` - 宏系统
+3. `src/runtime/events/*.cj` - 事件系统
 
 ### Step 3: 测试策略
 
@@ -394,22 +417,113 @@ cjpm test
 - Day 9: 宏系统适配
 - Day 10: 集成测试和修复
 
+## 📊 当前升级进展
+
+### ✅ 已完成的工作
+1. **环境配置升级**:
+   - ✅ 更新cjpm.toml到0.60.5版本
+   - ✅ 添加stdx依赖配置
+   - ✅ 创建缺失的benchmark_demo包
+
+2. **核心语法修复** (已修复约30个文件):
+   - ✅ HashMap.put() → add() 修复
+   - ✅ ArrayList.append() → add() 修复
+   - ✅ ArrayList.appendAll() → 循环add() 修复
+   - ✅ ReentrantMutex → Mutex 修复
+   - ✅ ArrayList.remove(index) → remove(index..index+1) 修复
+
+3. **已修复的关键文件**:
+   - ✅ 序列化系统 (serializer.cj, message_serializer.cj)
+   - ✅ 配置系统 (configuration.cj, default_actor_config.cj)
+   - ✅ 监控系统 (actor_system_metrics.cj)
+   - ✅ 队列系统 (foundation/queue/*.cj)
+   - ✅ 内存管理 (foundation/memory/*.cj)
+   - ✅ 网络传输 (foundation/network/transport.cj)
+   - ✅ 监督策略 (advanced_supervision.cj)
+   - ✅ 路由系统 (router.cj)
+
+### 🔄 剩余工作量评估
+
+#### 高优先级 (约50个错误)
+1. **Queue命名冲突**: 3个文件需要明确指定Queue类型
+2. **HashSet.put()**: 约8个文件需要改为add()
+3. **ArrayList操作**: 约15个文件的append/remove问题
+4. **HashMap.put()**: 约20个文件需要修复
+
+#### 中优先级 (约30个错误)
+1. **ReentrantMutex**: 约15个文件需要改为Mutex
+2. **NonBlockingQueue**: 约10个文件需要更新API
+3. **类型化路由器**: 2个文件需要修复
+
+#### 低优先级 (约20个错误)
+1. **分布式功能**: 集群、持久化等
+2. **集成功能**: 监控、日志等
+
+### 🎯 修复策略
+
+#### 批量修复方案
+由于错误数量较多且类型相似，建议采用批量修复策略：
+
+1. **创建修复脚本**: 自动化批量替换常见模式
+2. **分模块修复**: 按功能模块逐个修复
+3. **渐进式验证**: 每修复一个模块就测试一次
+
+#### 预计完成时间
+- **剩余核心修复**: 2-3天
+- **完整构建成功**: 3-4天
+- **测试验证**: 1-2天
+- **总计**: 6-9天
+
+### 🚨 关键发现
+
+#### API变化总结
+```cangjie
+// HashMap API
+map.put(key, value) → map.add(key, value)
+
+// HashSet API
+set.put(item) → set.add(item)
+
+// ArrayList API
+list.append(item) → list.add(item)
+list.appendAll(items) → for (item in items) { list.add(item) }
+list.remove(index) → list.remove(index..index+1)
+
+// Mutex API
+ReentrantMutex() → Mutex()
+
+// Queue命名冲突
+需要明确指定: cactor.foundation.queue.Queue
+```
+
+#### 性能影响评估
+- **appendAll替换**: 可能轻微影响性能，但影响有限
+- **其他API变化**: 基本无性能影响
+- **整体评估**: 性能应该能保持在95%以上
+
 ## 🔍 下一步行动
 
 ### 立即执行 (今天)
-1. **备份当前代码**: 创建升级前的备份分支
-2. **更新cjpm.toml**: 升级版本配置
-3. **创建benchmark_demo**: 修复缺失包问题
-4. **测试基础构建**: 验证基本配置正确
+1. ✅ **备份当前代码**: 创建升级前的备份分支
+2. ✅ **更新cjpm.toml**: 升级版本配置
+3. ✅ **创建benchmark_demo**: 修复缺失包问题
+4. ✅ **开始语法适配**: 已修复约30个文件
 
-### 明天执行
-1. **开始语法适配**: 从核心模块开始
-2. **建立测试流程**: 设置持续测试
-3. **问题追踪**: 建立问题跟踪系统
+### 继续执行 (明天)
+1. **批量修复剩余错误**: 重点修复HashMap.put和ArrayList.append
+2. **解决Queue命名冲突**: 明确指定Queue类型
+3. **修复HashSet.put问题**: 改为add()方法
+4. **完成ReentrantMutex替换**: 剩余约15个文件
+
+### 验证阶段 (后天)
+1. **构建验证**: 确保cjpm build成功
+2. **功能测试**: 执行cjpm test
+3. **性能测试**: 运行基准测试
+4. **文档更新**: 完善升级文档
 
 ---
 
-**升级负责人**: CActor开发团队  
-**文档版本**: v1.0  
-**最后更新**: 2025-06-30  
-**下次更新**: 升级完成后
+**升级负责人**: CActor开发团队
+**文档版本**: v2.0
+**最后更新**: 2025-06-30
+**下次更新**: 核心修复完成后

@@ -7,8 +7,8 @@ package cactor.patterns.backpressure
 
 import std.sync.*
 import std.time.*
-import std.collection.*
-import cactor.foundation.queue.{Queue, LockFreeQueue}
+import std.collection.{HashMap, ArrayList}  // 明确导入std.collection的类型
+import cactor.foundation.queue.{Queue as CActorQueue, LockFreeQueue}  // 使用别名避免冲突
 import cactor.core.message.{Message, Envelope}
 import cactor.core.actor.ActorRef
 
@@ -146,14 +146,14 @@ public interface FlowController {
  */
 public class BasicBackpressureController <: FlowController {
     private let config: BackpressureConfig
-    private let buffer: Queue<Message>
+    private let buffer: CActorQueue<Message>  // 使用别名
     private let totalMessages: AtomicInt64
     private let droppedMessages: AtomicInt64
     private let blockedMessages: AtomicInt64
     private let rejectedMessages: AtomicInt64
     private let throttledMessages: AtomicInt64
-    private let messageTimestamps: Queue<Int64>
-    private let mutex: ReentrantMutex
+    private let messageTimestamps: CActorQueue<Int64>  // 使用别名
+    private let mutex: Mutex
     private let isRunning: AtomicBool
 
     public init(config: BackpressureConfig) {
@@ -339,7 +339,7 @@ public class BasicBackpressureController <: FlowController {
         isRunning.store(false)
     }
 
-    public func getBufferedMessages(): Queue<Message> {
+    public func getBufferedMessages(): CActorQueue<Message> {  // 使用别名
         buffer
     }
 }

@@ -164,12 +164,12 @@ public interface Router {
 public class BasicRouter <: Router {
     private let strategy: RoutingStrategy
     private let routees: ArrayList<ActorRef>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
 
     public init(strategy: RoutingStrategy) {
         this.strategy = strategy
         this.routees = ArrayList<ActorRef>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
 
     public func route(message: Message): Unit {
@@ -193,7 +193,7 @@ public class BasicRouter <: Router {
     public func addRoutee(routee: ActorRef): Unit {
         mutex.lock()
         try {
-            routees.append(routee)
+            routees.add(routee)
         } finally {
             mutex.unlock()
         }
@@ -211,7 +211,7 @@ public class BasicRouter <: Router {
                 }
             }
             if (index >= 0) {
-                routees.remove(index)
+                routees.remove(index..index+1)  // 移除单个元素，使用Range
             }
         } finally {
             mutex.unlock()

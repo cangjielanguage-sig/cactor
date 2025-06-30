@@ -26,7 +26,10 @@ public class MessageSerializer <: Serializer<Message> {
         // 写入消息类型长度和类型
         let typeBytes = serializationManager.serializeString(messageType)
         writeInt32(result, Int32(typeBytes.size))
-        result.appendAll(typeBytes)
+        // 替代appendAll：逐个添加字节
+        for (byte in typeBytes) {
+            result.add(byte)
+        }
         
         // 根据消息类型序列化具体内容
         match (messageType) {
@@ -35,23 +38,34 @@ public class MessageSerializer <: Serializer<Message> {
                     case Some(msg) =>
                         let contentBytes = serializationManager.serializeString(msg.getContent())
                         writeInt32(result, Int32(contentBytes.size))
-                        result.appendAll(contentBytes)
+                        // 替代appendAll：逐个添加字节
+                        for (byte in contentBytes) {
+                            result.add(byte)
+                        }
                     case None => throw SerializationException("消息类型转换失败")
                 }
             case "PingMessage" =>
                 match (message as PingMessage) {
                     case Some(msg) =>
                         let idBytes = serializationManager.serializeInt(msg.getId())
-                        result.appendAll(idBytes)
+                        // 替代appendAll：逐个添加字节
+                        for (byte in idBytes) {
+                            result.add(byte)
+                        }
                         let timestampBytes = serializationManager.serializeInt(msg.timestamp())
-                        result.appendAll(timestampBytes)
+                        for (byte in timestampBytes) {
+                            result.add(byte)
+                        }
                     case None => throw SerializationException("消息类型转换失败")
                 }
             case "PongMessage" =>
                 match (message as PongMessage) {
                     case Some(msg) =>
                         let idBytes = serializationManager.serializeInt(msg.getOriginalId())
-                        result.appendAll(idBytes)
+                        // 替代appendAll：逐个添加字节
+                        for (byte in idBytes) {
+                            result.add(byte)
+                        }
                     case None => throw SerializationException("消息类型转换失败")
                 }
             case "StopMessage" =>
@@ -59,7 +73,10 @@ public class MessageSerializer <: Serializer<Message> {
                     case Some(msg) =>
                         let reasonBytes = serializationManager.serializeString(msg.getReason())
                         writeInt32(result, Int32(reasonBytes.size))
-                        result.appendAll(reasonBytes)
+                        // 替代appendAll：逐个添加字节
+                        for (byte in reasonBytes) {
+                            result.add(byte)
+                        }
                     case None => throw SerializationException("消息类型转换失败")
                 }
             case _ =>
@@ -160,10 +177,10 @@ public class MessageSerializer <: Serializer<Message> {
     }
 
     private func writeInt32(buffer: ArrayList<UInt8>, value: Int32): Unit {
-        buffer.append(UInt8((value >> 24) & 0xFF))
-        buffer.append(UInt8((value >> 16) & 0xFF))
-        buffer.append(UInt8((value >> 8) & 0xFF))
-        buffer.append(UInt8(value & 0xFF))
+        buffer.add(UInt8((value >> 24) & 0xFF))
+        buffer.add(UInt8((value >> 16) & 0xFF))
+        buffer.add(UInt8((value >> 8) & 0xFF))
+        buffer.add(UInt8(value & 0xFF))
     }
 
     private func readInt32(data: Array<UInt8>, offset: Int64): Int32 {
@@ -201,7 +218,7 @@ public class MessageSerializer <: Serializer<Message> {
         // 提取子字符串
         let chars = ArrayList<Rune>()
         for (i in start..end + 1) {
-            chars.append(Rune(Int32(str[i])))
+            chars.add(Rune(Int32(str[i])))
         }
         String(chars.toArray())
     }
