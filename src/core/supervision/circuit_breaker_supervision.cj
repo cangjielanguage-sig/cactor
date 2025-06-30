@@ -71,7 +71,7 @@ public class CircuitBreakerSupervisionStrategy <: SupervisionStrategy {
                     config.resetTimeout
                 )
                 let newBreaker = BasicCircuitBreaker<Unit>(breakerConfig)
-                circuitBreakers.put(actorKey, newBreaker)
+                circuitBreakers.add(actorKey, newBreaker)
                 newBreaker
         }
     }

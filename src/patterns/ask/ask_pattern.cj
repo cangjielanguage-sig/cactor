@@ -105,7 +105,7 @@ public class AskFuture<T> {
     private let startTime: Int64
     private var result: Option<Result<T>>
     private let completed: AtomicBool
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
 
     public init(requestId: String, timeout: Duration) {
         this.requestId = requestId
@@ -113,7 +113,7 @@ public class AskFuture<T> {
         this.startTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
         this.result = None
         this.completed = AtomicBool(false)
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
 
     public func complete(value: T): Unit {
@@ -224,7 +224,7 @@ public class AskPatternManager {
     public func handleResponse(response: AskResponse): Unit {
         let requestId = response.getRequestId()
         
-        match (pendingRequests.remove(requestId)) {
+        match (pendingRequests.remove(requestId..requestId+1)) {
             case Some(future) => 
                 if (response.isSuccess()) {
                     future.complete(response.getResponse())
@@ -261,12 +261,12 @@ public class AskPatternManager {
         
         for ((requestId, future) in pendingRequests) {
             if (future.isTimedOut()) {
-                toRemove.append(requestId)
+                toRemove.add(requestId)
             }
         }
         
         for (requestId in toRemove) {
-            match (pendingRequests.remove(requestId)) {
+            match (pendingRequests.remove(requestId..requestId+1)) {
                 case Some(future) => 
                     future.completeWithError(AskTimeoutException(requestId, defaultTimeout))
                 case None => ()

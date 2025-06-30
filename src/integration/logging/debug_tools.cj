@@ -101,13 +101,13 @@ public struct MessageTrace {
  */
 public class PerformanceProfiler {
     private let samples: ArrayList<PerformanceSample>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let maxSamples: Int64
     private let isEnabled: AtomicBool
     
     public init(maxSamples: Int64) {
         this.samples = ArrayList<PerformanceSample>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.maxSamples = maxSamples
         this.isEnabled = AtomicBool(false)
     }
@@ -127,18 +127,18 @@ public class PerformanceProfiler {
             let sample = PerformanceSample(actorPath, operation, duration)
             
             mutex.lock()
-            samples.append(sample)
+            samples.add(sample)
             
             // 保持样本数量在限制内
             while (samples.size > maxSamples) {
                 // 简化实现：清空重建
                 let newSamples = ArrayList<PerformanceSample>()
                 for (i in 1..samples.size) {
-                    newSamples.append(samples[i])
+                    newSamples.add(samples[i])
                 }
                 samples.clear()
                 for (sample in newSamples) {
-                    samples.append(sample)
+                    samples.add(sample)
                 }
                 break
             }
@@ -150,7 +150,7 @@ public class PerformanceProfiler {
         mutex.lock()
         let currentSamples = ArrayList<PerformanceSample>()
         for (sample in samples) {
-            currentSamples.append(sample)
+            currentSamples.add(sample)
         }
         mutex.unlock()
         
@@ -236,14 +236,14 @@ public struct PerformanceReport {
  */
 public class MessageTracer {
     private let traces: ArrayList<MessageTrace>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let maxTraces: Int64
     private let isEnabled: AtomicBool
     private let messageIdCounter: AtomicInt64
     
     public init(maxTraces: Int64) {
         this.traces = ArrayList<MessageTrace>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.maxTraces = maxTraces
         this.isEnabled = AtomicBool(false)
         this.messageIdCounter = AtomicInt64(0)
@@ -266,18 +266,18 @@ public class MessageTracer {
             let trace = MessageTrace(messageId, messageType, sender, receiver, processingTime, status)
             
             mutex.lock()
-            traces.append(trace)
+            traces.add(trace)
             
             // 保持跟踪记录数量在限制内
             while (traces.size > maxTraces) {
                 // 简化实现：清空重建
                 let newTraces = ArrayList<MessageTrace>()
                 for (i in 1..traces.size) {
-                    newTraces.append(traces[i])
+                    newTraces.add(traces[i])
                 }
                 traces.clear()
                 for (trace in newTraces) {
-                    traces.append(trace)
+                    traces.add(trace)
                 }
                 break
             }
@@ -289,7 +289,7 @@ public class MessageTracer {
         mutex.lock()
         let currentTraces = ArrayList<MessageTrace>()
         for (trace in traces) {
-            currentTraces.append(trace)
+            currentTraces.add(trace)
         }
         mutex.unlock()
         currentTraces.toArray()
@@ -300,7 +300,7 @@ public class MessageTracer {
         let actorTraces = ArrayList<MessageTrace>()
         for (trace in traces) {
             if (trace.sender == actorPath || trace.receiver == actorPath) {
-                actorTraces.append(trace)
+                actorTraces.add(trace)
             }
         }
         mutex.unlock()
@@ -323,14 +323,14 @@ public class SystemDiagnostics {
     private let profiler: PerformanceProfiler
     private let tracer: MessageTracer
     private let actorRegistry: HashMap<String, ActorSnapshot>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init() {
         this.logger = LoggerFactory.getLogger("cactor.debug")
         this.profiler = PerformanceProfiler(1000)
         this.tracer = MessageTracer(1000)
         this.actorRegistry = HashMap<String, ActorSnapshot>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     public func enableProfiling(): Unit {
@@ -368,7 +368,7 @@ public class SystemDiagnostics {
         var totalMemory = Int64(0)
         
         for ((_, snapshot) in actorRegistry) {
-            actors.append(snapshot)
+            actors.add(snapshot)
             totalActors += 1
             if (snapshot.state == "RUNNING") {
                 activeActors += 1

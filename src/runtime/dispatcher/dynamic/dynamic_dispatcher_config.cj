@@ -50,7 +50,7 @@ public class DynamicDispatcherConfigManager {
      * 注册动态配置
      */
     public func registerConfig(name: String, config: DynamicDispatcherConfig): Unit {
-        configs.put(name, config)
+        configs.add(name, config)
         configVersion.fetchAdd(1)
         println("[DYNAMIC-CONFIG] 注册动态配置: ${name}")
     }
@@ -100,10 +100,10 @@ public class DynamicDispatcherConfigManager {
                         listener
                     }
                 })
-                listeners.put(name, newArray)
+                listeners.add(name, newArray)
             case None =>
                 let newArray = Array<ConfigChangeListener>(1, { i => listener })
-                listeners.put(name, newArray)
+                listeners.add(name, newArray)
         }
     }
     
@@ -130,7 +130,7 @@ public class DynamicDispatcherConfigManager {
     public func getAllConfigNames(): Array<String> {
         let names = ArrayList<String>()
         for ((name, _) in configs) {
-            names.append(name)
+            names.add(name)
         }
         names.toArray()
     }
@@ -153,7 +153,7 @@ public class DynamicDispatcherConfig {
     private var currentDeadlineMs: AtomicInt64
     private var currentCorePoolSize: AtomicInt32
     private var currentMaxPoolSize: AtomicInt32
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
 
     public init(baseConfig: DispatcherConfig) {
         this.baseConfig = baseConfig
@@ -161,7 +161,7 @@ public class DynamicDispatcherConfig {
         this.currentDeadlineMs = AtomicInt64(baseConfig.throughputDeadlineTime.toMilliseconds())
         this.currentCorePoolSize = AtomicInt32(baseConfig.executorConfig.corePoolSize)
         this.currentMaxPoolSize = AtomicInt32(baseConfig.executorConfig.maxPoolSize)
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     /**

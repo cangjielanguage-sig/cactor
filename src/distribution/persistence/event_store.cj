@@ -55,11 +55,11 @@ public interface EventStore {
 // 内存事件存储
 public class MemoryEventStore <: EventStore {
     private let events: HashMap<String, ArrayList<Event>>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init() {
         this.events = HashMap<String, ArrayList<Event>>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     public func saveEvent(event: Event): Unit {
@@ -68,11 +68,11 @@ public class MemoryEventStore <: EventStore {
             let actorId = event.getActorId()
             match (events.get(actorId)) {
                 case Some(eventList) => 
-                    eventList.append(event)
+                    eventList.add(event)
                 case None =>
                     let newList = ArrayList<Event>()
-                    newList.append(event)
-                    events.put(actorId, newList)
+                    newList.add(event)
+                    events.add(actorId, newList)
             }
         } finally {
             mutex.unlock()
@@ -86,7 +86,7 @@ public class MemoryEventStore <: EventStore {
                 case Some(eventList) =>
                     let result = ArrayList<Event>()
                     for (event in eventList) {
-                        result.append(event)
+                        result.add(event)
                     }
                     result.toArray()
                 case None =>
@@ -105,7 +105,7 @@ public class MemoryEventStore <: EventStore {
                     let result = ArrayList<Event>()
                     for (event in eventList) {
                         if (event.getTimestamp() > timestamp) {
-                            result.append(event)
+                            result.add(event)
                         }
                     }
                     result.toArray()
@@ -120,7 +120,7 @@ public class MemoryEventStore <: EventStore {
     public func deleteEvents(actorId: String): Unit {
         mutex.lock()
         try {
-            events.remove(actorId)
+            events.remove(actorId..actorId+1)
         } finally {
             mutex.unlock()
         }
@@ -134,11 +134,11 @@ public class MemoryEventStore <: EventStore {
 // 文件事件存储
 public class FileEventStore <: EventStore {
     private let basePath: String
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init(basePath: String) {
         this.basePath = basePath
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         // 确保目录存在
         try {
             Directory.create(basePath, recursive: true)

@@ -425,39 +425,49 @@ cjpm test
    - ✅ 添加stdx依赖配置
    - ✅ 创建缺失的benchmark_demo包
 
-2. **核心语法修复** (已修复约30个文件):
+2. **核心语法修复** (已修复约50个文件):
    - ✅ HashMap.put() → add() 修复
    - ✅ ArrayList.append() → add() 修复
    - ✅ ArrayList.appendAll() → 循环add() 修复
    - ✅ ReentrantMutex → Mutex 修复
    - ✅ ArrayList.remove(index) → remove(index..index+1) 修复
+   - ✅ Queue命名冲突解决 (使用别名)
 
 3. **已修复的关键文件**:
-   - ✅ 序列化系统 (serializer.cj, message_serializer.cj)
+   - ✅ 序列化系统 (serializer.cj, message_serializer.cj, network_message.cj)
    - ✅ 配置系统 (configuration.cj, default_actor_config.cj)
    - ✅ 监控系统 (actor_system_metrics.cj)
    - ✅ 队列系统 (foundation/queue/*.cj)
    - ✅ 内存管理 (foundation/memory/*.cj)
    - ✅ 网络传输 (foundation/network/transport.cj)
-   - ✅ 监督策略 (advanced_supervision.cj)
+   - ✅ 监督策略 (advanced_supervision.cj, escalation_supervision.cj, supervision_strategy.cj)
    - ✅ 路由系统 (router.cj)
+   - ✅ 类型化系统 (typed_router.cj)
+   - ✅ 批处理调度器 (batch_processor.cj)
+   - ✅ 背压控制 (backpressure.cj)
 
-### 🔄 剩余工作量评估
+### 🔄 剩余工作量评估 (接近完成！)
 
-#### 高优先级 (约50个错误)
-1. **Queue命名冲突**: 3个文件需要明确指定Queue类型
-2. **HashSet.put()**: 约8个文件需要改为add()
-3. **ArrayList操作**: 约15个文件的append/remove问题
-4. **HashMap.put()**: 约20个文件需要修复
+#### 🎯 当前状态: 约40个错误 (从100+减少到40)
 
-#### 中优先级 (约30个错误)
-1. **ReentrantMutex**: 约15个文件需要改为Mutex
-2. **NonBlockingQueue**: 约10个文件需要更新API
-3. **类型化路由器**: 2个文件需要修复
+#### 🚀 重大进展
+- **核心模块**: 已全部修复完成 ✅
+- **运行时系统**: 大部分修复完成 ✅
+- **调度器系统**: 已修复完成 ✅
+- **监督策略**: 已修复完成 ✅
 
-#### 低优先级 (约20个错误)
-1. **分布式功能**: 集群、持久化等
-2. **集成功能**: 监控、日志等
+#### 剩余错误分布 (约40个)
+1. **ArrayList.append()**: 约20个错误 (主要在分布式和集成模块)
+2. **HashMap.put()**: 约15个错误 (主要在注册表和配置模块)
+3. **HashSet.put()**: 约3个错误 (注册表模块)
+4. **Queue命名冲突**: 1个错误 (mailbox模块)
+5. **ArrayList.remove()**: 1个错误 (路由模块)
+
+#### 剩余模块
+1. **分布式模块** (约15个错误): persistence, cluster
+2. **集成模块** (约15个错误): logging, monitoring
+3. **运行时模块** (约8个错误): events, mailbox, registry, guardian
+4. **模式模块** (约2个错误): ask, routing.advanced
 
 ### 🎯 修复策略
 
@@ -509,13 +519,18 @@ ReentrantMutex() → Mutex()
 3. ✅ **创建benchmark_demo**: 修复缺失包问题
 4. ✅ **开始语法适配**: 已修复约30个文件
 
-### 继续执行 (明天)
-1. **批量修复剩余错误**: 重点修复HashMap.put和ArrayList.append
-2. **解决Queue命名冲突**: 明确指定Queue类型
-3. **修复HashSet.put问题**: 改为add()方法
-4. **完成ReentrantMutex替换**: 剩余约15个文件
+### 继续执行 (今天完成)
+1. ✅ **批量修复核心错误**: 已修复HashMap.put和ArrayList.append的大部分问题
+2. ✅ **解决Queue命名冲突**: 已在backpressure模块解决，剩余1个
+3. ✅ **修复HashSet.put问题**: 大部分已改为add()方法
+4. ✅ **完成ReentrantMutex替换**: 大部分已完成
 
-### 验证阶段 (后天)
+### 最后冲刺 (今天内完成)
+1. **修复剩余40个错误**: 主要集中在分布式和集成模块
+2. **解决最后的Queue冲突**: mailbox模块
+3. **完成最后的API替换**: 剩余的append和put调用
+
+### 验证阶段 (今天晚些时候)
 1. **构建验证**: 确保cjpm build成功
 2. **功能测试**: 执行cjpm test
 3. **性能测试**: 运行基准测试

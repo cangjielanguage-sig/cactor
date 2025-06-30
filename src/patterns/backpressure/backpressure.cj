@@ -165,7 +165,7 @@ public class BasicBackpressureController <: FlowController {
         this.rejectedMessages = AtomicInt64(0)
         this.throttledMessages = AtomicInt64(0)
         this.messageTimestamps = LockFreeQueue<Int64>(1000)
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.isRunning = AtomicBool(true)
     }
 
