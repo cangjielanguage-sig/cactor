@@ -2,9 +2,9 @@
 name = "cactor"
 version = "7.0.0"
 description = "High-performance Actor system for Cangjie - CActor 7.0 with 6-layer architecture"
-cjc-version = "0.53.18"
+cjc-version = "0.60.5"
 output-type = "dynamic"
-compile-option = "-Woff unused "
+compile-option = "-Woff unused --diagnostic-format=noColor"
 
 # 编译器选项 - 抑制未使用变量警告
 [package.compiler-options]
@@ -152,3 +152,24 @@ output-type = "dynamic"
 
 [package.package-configuration."cactor.integration.testing.simple_realistic_benchmark"]
 output-type = "executable"
+
+# === Target Configuration for stdx support ===
+[target.aarch64-apple-darwin]
+compile-option = "--cfg \"ohos=false\""
+[target.aarch64-apple-darwin.bin-dependencies]
+path-option = [ "${CANGJIE_HOME}/../stdx/static/stdx" ]
+
+[target.x86_64-apple-darwin]
+compile-option = "--cfg \"ohos=false\""
+[target.x86_64-apple-darwin.bin-dependencies]
+path-option = [ "${CANGJIE_HOME}/../stdx/static/stdx" ]
+
+[target.x86_64-unknown-linux-gnu]
+compile-option = "--cfg \"ohos=false\""
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+path-option = [ "${CANGJIE_HOME}/../stdx/static/stdx" ]
+
+[target.aarch64-unknown-linux-gnu]
+compile-option = "--cfg \"ohos=false\""
+[target.aarch64-unknown-linux-gnu.bin-dependencies]
+path-option = [ "${CANGJIE_HOME}/../stdx/static/stdx" ]
