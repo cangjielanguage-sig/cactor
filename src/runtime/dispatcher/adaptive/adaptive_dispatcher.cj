@@ -174,10 +174,10 @@ public class PerformanceMonitor {
         this.isRunning = AtomicBool(false)
 
         // 初始化优先级统计
-        priorityStats.put("Critical", PriorityStats())
-        priorityStats.put("High", PriorityStats())
-        priorityStats.put("Normal", PriorityStats())
-        priorityStats.put("Low", PriorityStats())
+        priorityStats.add("Critical", PriorityStats())
+        priorityStats.add("High", PriorityStats())
+        priorityStats.add("Normal", PriorityStats())
+        priorityStats.add("Low", PriorityStats())
     }
     
     public func start(): Unit {
