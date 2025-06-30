@@ -61,7 +61,7 @@ public class TypedActorSystemImpl <: TypedActorSystem {
         let typedActorRef = TypedActorRefImpl<U>(actorRef, name)
 
         // 注册到注册表
-        actorRegistry.put(name, name)
+        actorRegistry.add(name, name)
 
         return typedActorRef
     }
@@ -322,7 +322,7 @@ internal class TypedActorContextImpl<T> <: TypedActorContext<T> {
         // 创建子Actor（简化实现）
         // 暂时使用简化的实现，返回一个虚拟的ActorRef
         let childRef = createDummyTypedActorRef<Any>(name)
-        childrenMap.put(name, childRef)
+        childrenMap.add(name, childRef)
 
         log().info("创建子Actor: ${name}")
         return childRef
@@ -343,7 +343,7 @@ internal class TypedActorContextImpl<T> <: TypedActorContext<T> {
 
     public func watchActor(other: TypedActorRef<Any>): Unit {
         let actorPath = other.pathString()
-        watchedActors.put(actorPath)
+        watchedActors.add(actorPath)
         log().info("开始监视Actor: ${actorPath}")
     }
 
