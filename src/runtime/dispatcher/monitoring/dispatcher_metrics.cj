@@ -51,7 +51,7 @@ public class DispatcherMetricsCollector {
      */
     public func registerDispatcher(name: String, dispatcher: AdvancedMessageDispatcher): Unit {
         let dispatcherMetrics = DispatcherMetrics(name, dispatcher)
-        metrics.put(name, dispatcherMetrics)
+        metrics.add(name, dispatcherMetrics)
         println("[METRICS] 注册调度器指标: ${name}")
     }
     
@@ -115,7 +115,7 @@ public class DispatcherMetricsCollector {
         
         for ((name, dispatcherMetrics) in metrics) {
             let summary = dispatcherMetrics.getSummary()
-            dispatcherSummaries.append(summary)
+            dispatcherSummaries.add(summary)
         }
         
         MetricsSummary(dispatcherSummaries.toArray(), globalMetrics.getSummary())
@@ -139,24 +139,24 @@ public class DispatcherMetricsCollector {
         let summary = getMetricsSummary()
         let report = StringBuilder()
         
-        report.append("=== 调度器指标报告 ===\n")
-        report.append("生成时间: ${DateTime.now().toString()}\n\n")
+        report.add("=== 调度器指标报告 ===\n")
+        report.add("生成时间: ${DateTime.now().toString()}\n\n")
         
         // 全局指标
-        report.append("全局指标:\n")
-        report.append("  总分发数: ${summary.globalSummary.totalDispatches}\n")
-        report.append("  成功率: ${summary.globalSummary.successRate}\n")
-        report.append("  平均延迟: ${summary.globalSummary.averageLatency}ms\n")
-        report.append("  总吞吐量: ${summary.globalSummary.throughput}\n\n")
+        report.add("全局指标:\n")
+        report.add("  总分发数: ${summary.globalSummary.totalDispatches}\n")
+        report.add("  成功率: ${summary.globalSummary.successRate}\n")
+        report.add("  平均延迟: ${summary.globalSummary.averageLatency}ms\n")
+        report.add("  总吞吐量: ${summary.globalSummary.throughput}\n\n")
         
         // 各调度器指标
-        report.append("各调度器指标:\n")
+        report.add("各调度器指标:\n")
         for (dispatcherSummary in summary.dispatcherSummaries) {
-            report.append("  调度器: ${dispatcherSummary.name}\n")
-            report.append("    分发数: ${dispatcherSummary.totalDispatches}\n")
-            report.append("    成功率: ${dispatcherSummary.successRate}\n")
-            report.append("    平均延迟: ${dispatcherSummary.averageLatency}ms\n")
-            report.append("    吞吐量: ${dispatcherSummary.throughput}\n\n")
+            report.add("  调度器: ${dispatcherSummary.name}\n")
+            report.add("    分发数: ${dispatcherSummary.totalDispatches}\n")
+            report.add("    成功率: ${dispatcherSummary.successRate}\n")
+            report.add("    平均延迟: ${dispatcherSummary.averageLatency}ms\n")
+            report.add("    吞吐量: ${dispatcherSummary.throughput}\n\n")
         }
         
         report.toString()
@@ -189,10 +189,10 @@ public class DispatcherMetrics {
         this.startTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
 
         // 初始化优先级计数器
-        priorityCounters.put("Critical", AtomicInt64(0))
-        priorityCounters.put("High", AtomicInt64(0))
-        priorityCounters.put("Normal", AtomicInt64(0))
-        priorityCounters.put("Low", AtomicInt64(0))
+        priorityCounters.add("Critical", AtomicInt64(0))
+        priorityCounters.add("High", AtomicInt64(0))
+        priorityCounters.add("Normal", AtomicInt64(0))
+        priorityCounters.add("Low", AtomicInt64(0))
     }
     
     /**

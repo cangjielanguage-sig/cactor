@@ -93,13 +93,13 @@ public open class BaseGuardianActor <: GuardianActor {
         // 从children中移除
         for ((name, childRef) in children) {
             if (childRef.path.toString() == childPath) {
-                children.remove(name..name+1)
+                children.remove(name)
                 break
             }
         }
         
         // 移除监督策略
-        supervisionStrategies.remove(childPath..childPath+1)
+        supervisionStrategies.remove(childPath)
         stopCounter.fetchAdd(1)
         
         // 执行停止逻辑（由子类实现）

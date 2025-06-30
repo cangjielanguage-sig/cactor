@@ -187,7 +187,7 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
         snapshotStore.deleteSnapshots(actorName)
         
         mutex.lock()
-        sequenceNumbers.remove(actorName..actorName+1)
+        sequenceNumbers.remove(actorName)
         mutex.unlock()
         
         println("${actorName}: 持久化数据已清理")

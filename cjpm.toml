@@ -6,9 +6,6 @@ cjc-version = "0.60.5"
 output-type = "dynamic"
 compile-option = "-Woff unused --diagnostic-format=noColor"
 
-# 编译器选项 - 抑制未使用变量警告
-[package.compiler-options]
-cjc-flags = ["-Wno-unused"]
 
 # === Foundation Layer ===
 [package.package-configuration."cactor.foundation.memory"]

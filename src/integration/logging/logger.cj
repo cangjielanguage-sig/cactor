@@ -88,10 +88,10 @@ public interface LogAppender {
  * 控制台日志输出器
  */
 public class ConsoleAppender <: LogAppender {
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init() {
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     public func append(record: LogRecord): Unit {
@@ -114,20 +114,20 @@ public class ConsoleAppender <: LogAppender {
  */
 public class FileAppender <: LogAppender {
     private let filename: String
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let buffer: ArrayList<String>
     private let maxBufferSize: Int64
     
     public init(filename: String, maxBufferSize: Int64) {
         this.filename = filename
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.buffer = ArrayList<String>()
         this.maxBufferSize = maxBufferSize
     }
     
     public func append(record: LogRecord): Unit {
         mutex.lock()
-        buffer.append(record.toString())
+        buffer.add(record.toString())
         
         if (buffer.size >= maxBufferSize) {
             flushBuffer()
@@ -161,14 +161,14 @@ public class FileAppender <: LogAppender {
 public class AsyncAppender <: LogAppender {
     private let targetAppender: LogAppender
     private let queue: ArrayList<LogRecord>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let isRunning: AtomicBool
     private let maxQueueSize: Int64
     
     public init(targetAppender: LogAppender, maxQueueSize: Int64) {
         this.targetAppender = targetAppender
         this.queue = ArrayList<LogRecord>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.isRunning = AtomicBool(true)
         this.maxQueueSize = maxQueueSize
         
@@ -179,19 +179,19 @@ public class AsyncAppender <: LogAppender {
     public func append(record: LogRecord): Unit {
         mutex.lock()
         if (queue.size < maxQueueSize) {
-            queue.append(record)
+            queue.add(record)
         } else {
             // 队列满时丢弃最旧的记录
             // 简化实现：清空队列重新添加
             let newQueue = ArrayList<LogRecord>()
             for (i in 1..queue.size) {
-                newQueue.append(queue[i])
+                newQueue.add(queue[i])
             }
             queue.clear()
             for (record in newQueue) {
-                queue.append(record)
+                queue.add(record)
             }
-            queue.append(record)
+            queue.add(record)
         }
         mutex.unlock()
     }
@@ -214,7 +214,7 @@ public class AsyncAppender <: LogAppender {
         mutex.lock()
         let recordsToProcess = ArrayList<LogRecord>()
         for (record in queue) {
-            recordsToProcess.append(record)
+            recordsToProcess.add(record)
         }
         queue.clear()
         mutex.unlock()
@@ -244,18 +244,18 @@ public class Logger {
     private let name: String
     private let level: LogLevel
     private let appenders: ArrayList<LogAppender>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init(name: String, level: LogLevel) {
         this.name = name
         this.level = level
         this.appenders = ArrayList<LogAppender>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     public func addAppender(appender: LogAppender): Unit {
         mutex.lock()
-        appenders.append(appender)
+        appenders.add(appender)
         mutex.unlock()
     }
     
@@ -334,7 +334,7 @@ public class Logger {
  */
 public class LoggerFactory {
     private static let loggers: HashMap<String, Logger> = HashMap<String, Logger>()
-    private static let mutex: ReentrantMutex = ReentrantMutex()
+    private static let mutex: Mutex = Mutex()
     private static var defaultLevel: LogLevel = LogLevel.INFO
     
     public static func getLogger(name: String): Logger {

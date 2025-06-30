@@ -283,7 +283,7 @@ public class DistributedTracer {
         span.finish()
         
         // 从活跃span列表中移除
-        activeSpans.remove(span.spanId.value..span.spanId.value+1)
+        activeSpans.remove(span.spanId.value)
         
         if (sampler.shouldSample(span)) {
             spanCollector.collect(span)

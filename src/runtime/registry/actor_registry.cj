@@ -148,15 +148,15 @@ public class ActorRegistry {
                     let name = extractActorName(path)
                     
                     // 移除主要存储
-                    pathToActor.remove(path..path+1)
-                    actorPathToPath.remove(actorRef.path.toString(..actorRef.path.toString(+1))
-                    
+                    pathToActor.remove(path)
+                    actorPathToPath.remove(actorRef.path.toString())
+
                     // 移除名称索引
                     match (nameToPath.get(name)) {
                         case Some(paths) =>
-                            paths.remove(path..path+1)
+                            paths.remove(path)
                             if (paths.isEmpty()) {
-                                nameToPath.remove(name..name+1)
+                                nameToPath.remove(name)
                             }
                         case None =>
                             // 索引不一致，忽略
@@ -166,12 +166,12 @@ public class ActorRegistry {
                     // 移除父子关系
                     match (childToParent.get(path)) {
                         case Some(parent) =>
-                            childToParent.remove(path..path+1)
+                            childToParent.remove(path)
                             match (parentToChildren.get(parent)) {
                                 case Some(children) =>
-                                    children.remove(path..path+1)
+                                    children.remove(path)
                                     if (children.isEmpty()) {
-                                        parentToChildren.remove(parent..parent+1)
+                                        parentToChildren.remove(parent)
                                     }
                                 case None =>
                                     // 索引不一致，忽略

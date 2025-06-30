@@ -224,7 +224,7 @@ public class AskPatternManager {
     public func handleResponse(response: AskResponse): Unit {
         let requestId = response.getRequestId()
         
-        match (pendingRequests.remove(requestId..requestId+1)) {
+        match (pendingRequests.remove(requestId)) {
             case Some(future) => 
                 if (response.isSuccess()) {
                     future.complete(response.getResponse())
@@ -266,7 +266,7 @@ public class AskPatternManager {
         }
         
         for (requestId in toRemove) {
-            match (pendingRequests.remove(requestId..requestId+1)) {
+            match (pendingRequests.remove(requestId)) {
                 case Some(future) => 
                     future.completeWithError(AskTimeoutException(requestId, defaultTimeout))
                 case None => ()

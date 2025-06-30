@@ -120,7 +120,7 @@ public class MemoryEventStore <: EventStore {
     public func deleteEvents(actorId: String): Unit {
         mutex.lock()
         try {
-            events.remove(actorId..actorId+1)
+            events.remove(actorId)
         } finally {
             mutex.unlock()
         }

@@ -134,7 +134,7 @@ public class ClusterState {
 
     public func removeNode(nodeId: NodeId): Unit {
         mutex.lock()
-        nodes.remove(nodeId.id..nodeId.id+1)
+        nodes.remove(nodeId.id)
         mutex.unlock()
         println("移除集群节点: ${nodeId.toString()}")
     }

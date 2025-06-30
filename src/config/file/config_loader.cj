@@ -802,8 +802,8 @@ public class ConfigurationManager {
      */
     public func reloadConfig(filePath: String): ActorSystemConfig {
         // 清除缓存
-        configCache.remove(filePath..filePath+1)
-        loadedConfigs.remove(filePath..filePath+1)
+        configCache.remove(filePath)
+        loadedConfigs.remove(filePath)
 
         // 重新加载
         loadConfig(filePath)

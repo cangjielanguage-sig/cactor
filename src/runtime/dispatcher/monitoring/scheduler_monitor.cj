@@ -127,13 +127,13 @@ public class ThroughputCalculator {
     private let windowSizeMs: Int64
     private let samples: ArrayList<Int64>
     private let timestamps: ArrayList<Int64>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init(windowSizeMs: Int64) {
         this.windowSizeMs = windowSizeMs
         this.samples = ArrayList<Int64>()
         this.timestamps = ArrayList<Int64>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     /**
@@ -144,8 +144,8 @@ public class ThroughputCalculator {
         
         mutex.lock()
         try {
-            samples.append(count)
-            timestamps.append(currentTime)
+            samples.add(count)
+            timestamps.add(currentTime)
             
             // 清理过期数据
             cleanupOldSamples(currentTime)
@@ -191,8 +191,8 @@ public class ThroughputCalculator {
         let cutoffTime = currentTime - windowSizeMs
         
         while (!timestamps.isEmpty() && timestamps[0] < cutoffTime) {
-            timestamps.remove(0)
-            samples.remove(0)
+            timestamps.remove(0..1)
+            samples.remove(0..1)
         }
     }
 }

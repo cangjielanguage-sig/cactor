@@ -299,7 +299,7 @@ public class ResponseTimeTracker {
         // 保留最近的响应时间
         recentTimes.add(responseTimeMs)
         if (recentTimes.size > Int64(maxRecentCount)) {
-            recentTimes.remove(0..1..0..1+1)
+            recentTimes.remove(0..1)
         }
     }
     
@@ -395,7 +395,7 @@ public class FailoverRoutingStrategy <: RoutingStrategy {
     public func recoverActor(actor: ActorRef): Unit {
         mutex.lock()
         try {
-            failedActors.remove(actor.path.toString(..actor.path.toString(+1))
+            failedActors.remove(actor.path.toString())
         } finally {
             mutex.unlock()
         }
@@ -462,7 +462,7 @@ public class ContentBasedRoutingStrategy <: RoutingStrategy {
     public func removeRoutingRule(content: String): Unit {
         mutex.lock()
         try {
-            routingTable.remove(content..content+1)
+            routingTable.remove(content)
         } finally {
             mutex.unlock()
         }
@@ -716,7 +716,7 @@ public class RouterHealthChecker {
         mutex.lock()
         try {
             let actorKey = actor.path.toString()
-            actorHealth.remove(actorKey..actorKey+1)
+            actorHealth.remove(actorKey)
         } finally {
             mutex.unlock()
         }

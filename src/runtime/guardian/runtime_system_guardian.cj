@@ -117,7 +117,7 @@ public class RuntimeSystemGuardian <: BaseGuardianActor {
         // 从系统Actor列表中移除
         for ((name, actorRef) in systemActors) {
             if (actorRef.equals(child)) {
-                systemActors.remove(name..name+1)
+                systemActors.remove(name)
                 break
             }
         }

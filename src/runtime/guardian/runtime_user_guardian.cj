@@ -154,7 +154,7 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         // 从用户Actor列表中移除
         for ((name, actorRef) in userActors) {
             if (actorRef.equals(child)) {
-                userActors.remove(name..name+1)
+                userActors.remove(name)
                 break
             }
         }

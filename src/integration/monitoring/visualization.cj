@@ -33,13 +33,13 @@ public class TimeSeries {
     public let name: String
     private let dataPoints: ArrayList<DataPoint>
     private let maxPoints: Int64
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init(name: String, maxPoints: Int64) {
         this.name = name
         this.dataPoints = ArrayList<DataPoint>()
         this.maxPoints = maxPoints
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     public func addDataPoint(value: Float64, label: String): Unit {
@@ -51,14 +51,14 @@ public class TimeSeries {
             // 移除最老的数据点 - 简化实现：清空并重新添加
             let newPoints = ArrayList<DataPoint>()
             for (i in 1..dataPoints.size) {
-                newPoints.append(dataPoints[i])
+                newPoints.add(dataPoints[i])
             }
             dataPoints.clear()
             for (p in newPoints) {
-                dataPoints.append(p)
+                dataPoints.add(p)
             }
         }
-        dataPoints.append(point)
+        dataPoints.add(point)
         mutex.unlock()
     }
     
@@ -120,7 +120,7 @@ public class DashboardComponent {
     public let componentType: DashboardComponentType
     private let timeSeries: ArrayList<TimeSeries>
     private let config: HashMap<String, String>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init(id: String, title: String, componentType: DashboardComponentType) {
         this.id = id
@@ -128,12 +128,12 @@ public class DashboardComponent {
         this.componentType = componentType
         this.timeSeries = ArrayList<TimeSeries>()
         this.config = HashMap<String, String>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     public func addTimeSeries(series: TimeSeries): Unit {
         mutex.lock()
-        timeSeries.append(series)
+        timeSeries.add(series)
         mutex.unlock()
     }
     
@@ -142,12 +142,12 @@ public class DashboardComponent {
         let newTimeSeries = ArrayList<TimeSeries>()
         for (series in timeSeries) {
             if (series.name != name) {
-                newTimeSeries.append(series)
+                newTimeSeries.add(series)
             }
         }
         timeSeries.clear()
         for (series in newTimeSeries) {
-            timeSeries.append(series)
+            timeSeries.add(series)
         }
         mutex.unlock()
     }
@@ -184,7 +184,7 @@ public class DashboardComponent {
                 let startIndex = points.size - 5
                 let result = ArrayList<DataPoint>()
                 for (i in startIndex..points.size) {
-                    result.append(points[i])
+                    result.add(points[i])
                 }
                 result.toArray()
             } else {
@@ -207,14 +207,14 @@ public class MonitoringDashboard {
     private let components: HashMap<String, DashboardComponent>
     private let updateInterval: Int64  // 毫秒
     private let isRunning: AtomicBool
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init(name: String, updateInterval: Int64) {
         this.name = name
         this.components = HashMap<String, DashboardComponent>()
         this.updateInterval = updateInterval
         this.isRunning = AtomicBool(false)
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     public func addComponent(component: DashboardComponent): Unit {
@@ -242,7 +242,7 @@ public class MonitoringDashboard {
         mutex.lock()
         let result = ArrayList<DashboardComponent>()
         for ((_, component) in components) {
-            result.append(component)
+            result.add(component)
         }
         mutex.unlock()
         return result.toArray()
@@ -298,14 +298,14 @@ public class VisualizationManager {
     private let dashboards: HashMap<String, MonitoringDashboard>
     private let performanceAnalyzer: SystemPerformanceAnalyzer
     private let distributedTracer: DistributedTracer
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let isRunning: AtomicBool
     
     public init(performanceAnalyzer: SystemPerformanceAnalyzer, distributedTracer: DistributedTracer) {
         this.dashboards = HashMap<String, MonitoringDashboard>()
         this.performanceAnalyzer = performanceAnalyzer
         this.distributedTracer = distributedTracer
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.isRunning = AtomicBool(false)
         
         // 创建默认仪表板
