@@ -41,7 +41,8 @@ public class ConcurrentHashMap<K, V> where K <: Hashable & Equatable<K> {
      */
     public func put(key: K, value: V): Option<V> {
         acquireLock()
-        let result = map.put(key, value)
+        map.add(key, value)
+        let result = None<V>  // HashMap.add() 不返回旧值，简化处理
         releaseLock()
         return result
     }

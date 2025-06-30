@@ -28,8 +28,8 @@ public class SimplePlan10Test {
         try {
             // 测试HashMap
             let map = HashMap<String, Int32>()
-            map.put("test1", 100)
-            map.put("test2", 200)
+            map.add("test1", 100)
+            map.add("test2", 200)
             
             match (map.get("test1")) {
                 case Some(value) =>
@@ -83,9 +83,9 @@ public class SimplePlan10Test {
         try {
             // 测试ArrayList
             let list = ArrayList<String>()
-            list.append("item1")
-            list.append("item2")
-            list.append("item3")
+            list.add("item1")
+            list.add("item2")
+            list.add("item3")
             
             if (list.size == 3 && list[0] == "item1") {
                 println("✅ ArrayList测试通过")

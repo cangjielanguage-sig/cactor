@@ -39,14 +39,14 @@ public class NumaAwareMemoryPool <: MemoryPool {
     private let localPools: Array<LocalMemoryPool>
     private let globalPool: GlobalMemoryPool
     private let stats: MemoryPoolStats
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init() {
         this.nodeCount = getNumaNodeCount()
         this.localPools = Array<LocalMemoryPool>(Int64(nodeCount), { i => LocalMemoryPool(Int32(i)) })
         this.globalPool = GlobalMemoryPool()
         this.stats = MemoryPoolStats()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
 
         // 为每个NUMA节点创建本地内存池
         for (i in 0..Int64(nodeCount)) {
@@ -60,7 +60,7 @@ public class NumaAwareMemoryPool <: MemoryPool {
         this.localPools = Array<LocalMemoryPool>(Int64(nodeCount), { i => LocalMemoryPool(Int32(i), poolSize) })
         this.globalPool = GlobalMemoryPool()
         this.stats = MemoryPoolStats()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
 
         // 为每个NUMA节点创建本地内存池
         for (i in 0..Int64(nodeCount)) {
@@ -74,7 +74,7 @@ public class NumaAwareMemoryPool <: MemoryPool {
         this.localPools = Array<LocalMemoryPool>(Int64(nodeCount), { i => LocalMemoryPool(Int32(i), poolSize) })
         this.globalPool = GlobalMemoryPool()
         this.stats = MemoryPoolStats()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
 
         // 为每个NUMA节点创建本地内存池
         for (i in 0..Int64(nodeCount)) {
@@ -179,7 +179,7 @@ public class NumaAwareMemoryPool <: MemoryPool {
 public class LocalMemoryPool {
     private let numaNode: Int32
     private let freeBlocks: HashMap<UInt64, ArrayList<MemoryBlock>>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let chunkSize: UInt64
     private var totalAllocated: UInt64
     private var totalUsed: UInt64
@@ -187,7 +187,7 @@ public class LocalMemoryPool {
     public init(numaNode: Int32, chunkSize: UInt64) {
         this.numaNode = numaNode
         this.freeBlocks = HashMap<UInt64, ArrayList<MemoryBlock>>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.chunkSize = chunkSize
         this.totalAllocated = 0
         this.totalUsed = 0
@@ -196,7 +196,7 @@ public class LocalMemoryPool {
     public init(numaNode: Int32) {
         this.numaNode = numaNode
         this.freeBlocks = HashMap<UInt64, ArrayList<MemoryBlock>>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.chunkSize = 64 * 1024 * 1024  // 64MB chunks
         this.totalAllocated = 0
         this.totalUsed = 0
@@ -255,11 +255,11 @@ public class LocalMemoryPool {
         // 简化实现：获取或创建块列表
         match (freeBlocks.get(block.size)) {
             case Some(blockList) =>
-                blockList.append(block)
+                blockList.add(block)
             case None =>
                 let newList = ArrayList<MemoryBlock>()
-                newList.append(block)
-                freeBlocks.put(block.size, newList)
+                newList.add(block)
+                freeBlocks.add(block.size, newList)
         }
     }
 
@@ -302,7 +302,7 @@ public class LocalMemoryPool {
 
 // 全局内存池（后备分配器）
 public class GlobalMemoryPool <: MemoryPool {
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private var totalAllocated: UInt64
     
     public init() {

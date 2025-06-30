@@ -32,7 +32,7 @@ public enum QueueMode {
 public class AtomicSlot<T> {
     private let state: AtomicInt64  // 0=空, 1=有数据, 2=正在写入, 3=正在读取
     private var data: Option<T>     // 存储的数据
-    private let mutex: ReentrantMutex  // 保护data的访问
+    private let mutex: Mutex  // 保护data的访问
 
     // 状态常量
     public static let EMPTY: Int64 = 0
@@ -43,7 +43,7 @@ public class AtomicSlot<T> {
     public init() {
         this.state = AtomicInt64(EMPTY)
         this.data = None
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
 
     /**
@@ -639,7 +639,7 @@ public class LockFreeQueue<T> <: Queue<T> {
                 if (slot.tryStartRead()) {
                     match (slot.finishRead()) {
                         case Some(item) =>
-                            results.append(item)
+                            results.add(item)
                             successCount += 1
                             success = true
                         case None => break
