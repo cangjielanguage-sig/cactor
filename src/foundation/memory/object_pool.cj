@@ -72,7 +72,7 @@ public class CangjieFriendlyObjectPool<T> <: ObjectPool<T> {
     public func acquire(): T {
         totalAcquired.fetchAdd(1)
         
-        match (pool.dequeue()) {
+        match (pool.remove()) {
             case Some(obj) => 
                 currentSize.fetchAdd(-1)
                 obj
@@ -87,7 +87,7 @@ public class CangjieFriendlyObjectPool<T> <: ObjectPool<T> {
         
         if (currentSize.load() < maxPoolSize) {
             resetFunction(obj)  // 重置对象状态
-            if (pool.enqueue(obj)) {
+            if (pool.add(obj)) {
                 currentSize.fetchAdd(1)
             }
         }
@@ -99,7 +99,7 @@ public class CangjieFriendlyObjectPool<T> <: ObjectPool<T> {
     }
 
     public func clear(): Unit {
-        while (pool.dequeue().isSome()) {
+        while (pool.remove().isSome()) {
             currentSize.fetchAdd(-1)
         }
     }

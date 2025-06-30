@@ -134,14 +134,14 @@ public class WorkStealingQueue<T> {
 public class WorkerThread {
     private let workerId: Int32
     private let localQueue: WorkStealingQueue<ActorTask>
-    private let globalQueue: NonBlockingQueue<ActorTask>
+    private let globalQueue: ConcurrentLinkedQueue<ActorTask>
     private let otherWorkers: Array<WorkerThread>
     private let isRunning: AtomicBool
     private let tasksProcessed: AtomicInt64
     private let stealAttempts: AtomicInt64
     private let successfulSteals: AtomicInt64
 
-    public init(workerId: Int32, globalQueue: NonBlockingQueue<ActorTask>) {
+    public init(workerId: Int32, globalQueue: ConcurrentLinkedQueue<ActorTask>) {
         this.workerId = workerId
         this.localQueue = WorkStealingQueue<ActorTask>(1000)
         this.globalQueue = globalQueue
@@ -196,7 +196,7 @@ public class WorkerThread {
             case Some(task) => Some(task)
             case None => 
                 // 2. 尝试从全局队列获取任务
-                match (globalQueue.dequeue()) {
+                match (globalQueue.remove()) {
                     case Some(task) => Some(task)
                     case None => 
                         // 3. 尝试从其他工作线程窃取任务
@@ -362,7 +362,7 @@ func getCurrentTimeNanos(): Int64 {
 public class WorkStealingDispatcher {
     private let workerCount: Int32
     private let workers: Array<WorkerThread>
-    private let globalQueue: NonBlockingQueue<ActorTask>
+    private let globalQueue: ConcurrentLinkedQueue<ActorTask>
     private let roundRobinCounter: AtomicInt64
     private let isStarted: AtomicBool
     private let totalTasksSubmitted: AtomicInt64
@@ -370,7 +370,7 @@ public class WorkStealingDispatcher {
 
     public init(workerCount: Int32) {
         this.workerCount = workerCount
-        this.globalQueue = NonBlockingQueue<ActorTask>()
+        this.globalQueue = ConcurrentLinkedQueue<ActorTask>()
         this.roundRobinCounter = AtomicInt64(0)
         this.isStarted = AtomicBool(false)
         this.totalTasksSubmitted = AtomicInt64(0)
@@ -419,7 +419,7 @@ public class WorkStealingDispatcher {
 
         if (!targetWorker.submitTask(task)) {
             // 本地队列满，提交到全局队列
-            globalQueue.enqueue(task)
+            globalQueue.add(task)
         }
     }
 
