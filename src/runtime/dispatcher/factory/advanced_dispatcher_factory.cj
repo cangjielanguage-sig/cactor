@@ -163,7 +163,7 @@ public class DefaultAdvancedDispatcherFactory <: AdvancedDispatcherFactory {
     public func getCreationStats(): String {
         let stats = ArrayList<String>()
         for ((typeName, count) in creationStats) {
-            stats.append("${typeName}: ${count}")
+            stats.add("${typeName}: ${count}")
         }
         
         if (stats.isEmpty()) {
@@ -258,7 +258,7 @@ public class DefaultAdvancedDispatcherFactory <: AdvancedDispatcherFactory {
             case Some(count) => count
             case None => 0
         }
-        creationStats.put(typeName, currentCount + 1)
+        creationStats.add(typeName, currentCount + 1)
     }
 }
 
@@ -273,7 +273,7 @@ public class StringBuilder {
     }
     
     public func append(str: String): Unit {
-        parts.append(str)
+        parts.add(str)
     }
     
     public func toString(): String {
@@ -309,7 +309,7 @@ public class DispatcherFactoryRegistry {
      * 注册调度器工厂
      */
     public func registerFactory(name: String, factory: AdvancedDispatcherFactory): Unit {
-        factories.put(name, factory)
+        factories.add(name, factory)
     }
     
     /**
@@ -335,7 +335,7 @@ public class DispatcherFactoryRegistry {
     public func getFactoryNames(): Array<String> {
         let names = ArrayList<String>()
         for ((name, _) in factories) {
-            names.append(name)
+            names.add(name)
         }
         Array<String>(Int64(names.size), { i => names[i] })
     }

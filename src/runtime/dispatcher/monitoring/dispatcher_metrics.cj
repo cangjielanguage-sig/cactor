@@ -139,24 +139,24 @@ public class DispatcherMetricsCollector {
         let summary = getMetricsSummary()
         let report = StringBuilder()
         
-        report.add("=== 调度器指标报告 ===\n")
-        report.add("生成时间: ${DateTime.now().toString()}\n\n")
-        
+        report.append("=== 调度器指标报告 ===\n")
+        report.append("生成时间: ${DateTime.now().toString()}\n\n")
+
         // 全局指标
-        report.add("全局指标:\n")
-        report.add("  总分发数: ${summary.globalSummary.totalDispatches}\n")
-        report.add("  成功率: ${summary.globalSummary.successRate}\n")
-        report.add("  平均延迟: ${summary.globalSummary.averageLatency}ms\n")
-        report.add("  总吞吐量: ${summary.globalSummary.throughput}\n\n")
-        
+        report.append("全局指标:\n")
+        report.append("  总分发数: ${summary.globalSummary.totalDispatches}\n")
+        report.append("  成功率: ${summary.globalSummary.successRate}\n")
+        report.append("  平均延迟: ${summary.globalSummary.averageLatency}ms\n")
+        report.append("  总吞吐量: ${summary.globalSummary.throughput}\n\n")
+
         // 各调度器指标
-        report.add("各调度器指标:\n")
+        report.append("各调度器指标:\n")
         for (dispatcherSummary in summary.dispatcherSummaries) {
-            report.add("  调度器: ${dispatcherSummary.name}\n")
-            report.add("    分发数: ${dispatcherSummary.totalDispatches}\n")
-            report.add("    成功率: ${dispatcherSummary.successRate}\n")
-            report.add("    平均延迟: ${dispatcherSummary.averageLatency}ms\n")
-            report.add("    吞吐量: ${dispatcherSummary.throughput}\n\n")
+            report.append("  调度器: ${dispatcherSummary.name}\n")
+            report.append("    分发数: ${dispatcherSummary.totalDispatches}\n")
+            report.append("    成功率: ${dispatcherSummary.successRate}\n")
+            report.append("    平均延迟: ${dispatcherSummary.averageLatency}ms\n")
+            report.append("    吞吐量: ${dispatcherSummary.throughput}\n\n")
         }
         
         report.toString()

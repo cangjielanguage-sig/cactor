@@ -146,7 +146,7 @@ public class TypedActorContextWrapper<T> <: TypedActorContext<T> {
     public func spawnChild(behavior: TypedBehavior<Any>, name: String): TypedActorRef<Any> {
         // 简化实现：创建虚拟的子Actor引用
         let childRef = createDummyTypedActorRef<Any>(name)
-        childrenMap.put(name, childRef)
+        childrenMap.add(name, childRef)
         return childRef
     }
 
@@ -154,7 +154,7 @@ public class TypedActorContextWrapper<T> <: TypedActorContext<T> {
         // 简化实现：创建匿名子Actor
         let name = "anonymous-${DateTime.now().toUnixTimeStamp().toNanoseconds()}"
         let childRef = createDummyTypedActorRef<Any>(name)
-        childrenMap.put(name, childRef)
+        childrenMap.add(name, childRef)
         return childRef
     }
     

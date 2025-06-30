@@ -252,7 +252,7 @@ public class DefaultAdvancedMailboxFactory <: AdvancedMailboxFactory {
             case Some(count) => count
             case None => 0
         }
-        creationStats.put(typeName, currentCount + 1)
+        creationStats.add(typeName, currentCount + 1)
     }
     
     /**
@@ -261,7 +261,7 @@ public class DefaultAdvancedMailboxFactory <: AdvancedMailboxFactory {
     public func getCreationStats(): String {
         let stats = ArrayList<String>()
         for ((typeName, count) in creationStats) {
-            stats.append("${typeName}: ${count}")
+            stats.add("${typeName}: ${count}")
         }
         
         if (stats.isEmpty()) {
@@ -291,7 +291,7 @@ public class StringBuilder {
     }
     
     public func append(str: String): Unit {
-        parts.append(str)
+        parts.add(str)
     }
     
     public func toString(): String {
@@ -327,7 +327,7 @@ public class MailboxFactoryRegistry {
      * 注册邮箱工厂
      */
     public func registerFactory(name: String, factory: AdvancedMailboxFactory): Unit {
-        factories.put(name, factory)
+        factories.add(name, factory)
     }
     
     /**

@@ -159,7 +159,7 @@ public class SupervisionManager {
     
     // 管理器状态
     private let isRunning: AtomicBool
-    private let managerLock: ReadWriteLock
+    private let managerLock: Mutex  // 简化为普通Mutex
     
     public init(config: SupervisionConfig) {
         this.config = config
@@ -173,7 +173,7 @@ public class SupervisionManager {
         this.circuitBreakerTrips = AtomicInt64(0)
         
         this.isRunning = AtomicBool(true)
-        this.managerLock = ReadWriteLock()
+        this.managerLock = Mutex()
     }
     
     /**
@@ -184,7 +184,7 @@ public class SupervisionManager {
         let currentTime = getCurrentTimeNanos()
         
         try {
-            managerLock.writeLock()
+            managerLock.lock()
             let info = ActorSupervisionInfo(
                 actorRef,
                 strategy,
@@ -199,7 +199,7 @@ public class SupervisionManager {
             supervisionInfos.add(path, info)
             totalSupervised.fetchAdd(1)
         } finally {
-            managerLock.writeMutex.unlock()
+            managerLock.unlock()
         }
     }
     
@@ -210,10 +210,10 @@ public class SupervisionManager {
         let path = actorRef.path.toString()
         
         try {
-            managerLock.writeMutex.lock()
+            managerLock.lock()
             supervisionInfos.remove(path)
         } finally {
-            managerLock.writeMutex.unlock()
+            managerLock.unlock()
         }
     }
     
@@ -225,7 +225,7 @@ public class SupervisionManager {
         let currentTime = getCurrentTimeNanos()
         
         try {
-            managerLock.readMutex.lock()
+            managerLock.lock()
             match (supervisionInfos.get(path)) {
                 case Some(info) =>
                     // 检查断路器状态
@@ -258,7 +258,7 @@ public class SupervisionManager {
                     return SupervisionDirective.Stop
             }
         } finally {
-            managerLock.readMutex.unlock()
+            managerLock.unlock()
         }
     }
     

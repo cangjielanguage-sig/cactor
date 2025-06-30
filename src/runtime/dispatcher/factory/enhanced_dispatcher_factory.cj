@@ -214,7 +214,7 @@ public class EnhancedDispatcherFactory {
     public func getAllDispatcherNames(): Array<String> {
         let names = ArrayList<String>()
         for ((name, _) in createdDispatchers) {
-            names.append(name)
+            names.add(name)
         }
         names.toArray()
     }
