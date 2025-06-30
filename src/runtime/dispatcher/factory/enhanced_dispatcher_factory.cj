@@ -124,7 +124,7 @@ public class EnhancedDispatcherFactory {
         
         // 注册到指标收集器
         metricsCollector.registerDispatcher(name, monitoredDispatcher)
-        createdDispatchers.put(name, monitoredDispatcher)
+        createdDispatchers.add(name, monitoredDispatcher)
         
         println("[ENHANCED-FACTORY] 创建监控调度器: ${name}")
         monitoredDispatcher
@@ -146,7 +146,7 @@ public class EnhancedDispatcherFactory {
         
         // 注册到指标收集器
         metricsCollector.registerDispatcher(name, adaptiveDispatcher)
-        createdDispatchers.put(name, adaptiveDispatcher)
+        createdDispatchers.add(name, adaptiveDispatcher)
         
         println("[ENHANCED-FACTORY] 创建完全增强调度器: ${name}")
         adaptiveDispatcher
