@@ -146,6 +146,9 @@ output-type = "executable"
 [package.package-configuration."cactor.examples.hello_world_demo"]
 output-type = "executable"
 
+[package.package-configuration."cactor.examples.ask_pattern_demo"]
+output-type = "executable"
+
 # === Macros Package ===
 [package.package-configuration."cactor.macros"]
 output-type = "dynamic"
