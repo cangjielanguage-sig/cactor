@@ -150,6 +150,12 @@ output-type = "executable"
 output-type = "executable"
 [package.package-configuration."cactor.examples.ask_demo"]
 output-type = "executable"
+
+[package.package-configuration."cactor.examples.test_framework_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.test_framework_validation"]
+output-type = "executable"
 # === Macros Package ===
 [package.package-configuration."cactor.macros"]
 output-type = "dynamic"

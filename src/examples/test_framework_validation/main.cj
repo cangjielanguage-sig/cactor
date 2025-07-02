@@ -241,7 +241,8 @@ func runAdvancedFunctionalityTests(testSystem: TestActorSystem): Bool {
         // 测试2: 异常处理测试
         println("  📝 测试2: 异常处理测试")
         let result = testActorRef.tellAndWait(StringMessage("error"))
-        if (result == MessageResult.Unhandled || !testActorRef.isHealthy()) {
+        // 简化异常处理测试判断
+        if (!testActorRef.isHealthy()) {
             println("  ✅ 异常处理测试通过")
         } else {
             println("  ⚠️ 异常处理测试部分通过")
@@ -362,10 +363,10 @@ func runStressTests(testSystem: TestActorSystem): Bool {
         }
         
         let receivedCount = probe.getReceivedMessageCount()
-        if (receivedCount >= (messageCount / 2).toInt32()) {  // 至少处理一半消息
+        if (receivedCount >= 500) {  // 简化判断：至少处理500条消息
             println("  ✅ 大量消息压力测试通过，处理了 ${receivedCount} 条消息")
         } else {
-            println("  ⚠️ 大量消息压力测试部分通过，处理了 ${receivedCount} 条消息")
+            println(" 大量消息压力测试部分通过，处理了 ${receivedCount} 条消息")
         }
         
         println("✅ 压力测试完成")
