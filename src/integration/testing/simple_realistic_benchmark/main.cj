@@ -380,8 +380,8 @@ public class RealisticActor <: Actor {
 
             for (i in startIdx..endIdx) {
                 if (i < data.size) {
-                    hashMap.put(data[i], Int64(i))
-                    hashMap.put(Int64(i), data[i])
+                    hashMap.add(data[i], Int64(i))
+                    hashMap.add(Int64(i), data[i])
                 }
             }
         }

@@ -84,12 +84,12 @@ public struct QueueStats {
  */
 public class SimpleQueue<T> <: Queue<T> {
     private let items: ArrayList<T>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let maxCapacity: Int64
     
     public init(capacity: Int64) {
         this.items = ArrayList<T>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.maxCapacity = capacity
     }
     
@@ -99,7 +99,7 @@ public class SimpleQueue<T> <: Queue<T> {
             mutex.unlock()
             return false
         }
-        items.append(item)
+        items.add(item)
         mutex.unlock()
         return true
     }
@@ -115,11 +115,11 @@ public class SimpleQueue<T> <: Queue<T> {
         let item = items[0]
         let newItems = ArrayList<T>()
         for (i in 1..items.size) {
-            newItems.append(items[i])
+            newItems.add(items[i])
         }
         items.clear()
         for (newItem in newItems) {
-            items.append(newItem)
+            items.add(newItem)
         }
 
         mutex.unlock()

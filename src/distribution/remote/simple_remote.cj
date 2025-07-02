@@ -92,7 +92,7 @@ public class SimpleRemoteReceiver {
     private let networkMessageSerializer: NetworkMessageSerializer
     private let isStarted: AtomicBool
     private let messageHandlers: HashMap<String, (Message) -> Unit>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
 
     public init(localAddress: NetworkAddress, protocol: TransportProtocol) {
         this.transport = TransportFactory.createTransport(protocol, localAddress)
@@ -100,7 +100,7 @@ public class SimpleRemoteReceiver {
         this.networkMessageSerializer = NetworkMessageSerializer()
         this.isStarted = AtomicBool(false)
         this.messageHandlers = HashMap<String, (Message) -> Unit>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
 
         // 设置数据处理器
         transport.setDataHandler(handleReceivedData)

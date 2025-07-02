@@ -79,7 +79,7 @@ public class SimpleActorSystem <: ActorSystem {
         let actorRef = createActorRef(actor, name)
 
         // 注册Actor
-        actors.put(name, actorRef)
+        actors.add(name, actorRef)
 
         return actorRef
     }

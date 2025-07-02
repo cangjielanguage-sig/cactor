@@ -206,7 +206,7 @@ public class TypedBasicRouter<T> <: TypedRouter<T> {
     }
     
     public func addRoutee(routee: TypedActorRef<T>): Unit {
-        routees.append(routee)
+        routees.add(routee)
     }
     
     public func removeRoutee(routee: TypedActorRef<T>): Unit {
@@ -219,7 +219,7 @@ public class TypedBasicRouter<T> <: TypedRouter<T> {
             }
         }
         if (index >= 0) {
-            routees.remove(index)
+            routees.remove(index..index+1)  // 移除单个元素，使用Range
         }
     }
     

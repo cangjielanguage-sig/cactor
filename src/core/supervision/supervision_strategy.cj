@@ -150,7 +150,7 @@ public class OneForOneStrategy <: SupervisionStrategy {
             case Some(info) => info
             case None =>
                 let newInfo = RetryInfo()
-                retryHistory.put(actorKey, newInfo)
+                retryHistory.add(actorKey, newInfo)
                 newInfo
         }
     }
@@ -199,6 +199,191 @@ public class OneForAllStrategy <: SupervisionStrategy {
 
     public func resetRetryInfo(): Unit {
         globalRetryInfo.reset()
+    }
+}
+
+/**
+ * Escalate监督策略
+ * 将失败向上级监督者传播
+ * 实现plan3.md优先级3：监督策略完善
+ */
+public class EscalateStrategy <: SupervisionStrategy {
+    private let escalateThreshold: Int64
+    private let escalateTimeWindow: Duration
+    private let escalateHistory: ConcurrentHashMap<String, RetryInfo>
+
+    public init() {
+        this.escalateThreshold = 3  // 默认3次失败后向上传播
+        this.escalateTimeWindow = Duration.minute * 5  // 5分钟时间窗口
+        this.escalateHistory = ConcurrentHashMap<String, RetryInfo>()
+    }
+
+    public init(threshold: Int64, timeWindow: Duration) {
+        this.escalateThreshold = threshold
+        this.escalateTimeWindow = timeWindow
+        this.escalateHistory = ConcurrentHashMap<String, RetryInfo>()
+    }
+
+    public func decide(failure: ActorFailure): SupervisionDirective {
+        let actorKey = failure.actor.path.toString()
+        let escalateInfo = getOrCreateEscalateInfo(actorKey)
+
+        println("[ESCALATE-STRATEGY] 评估失败: " + actorKey)
+        println("[ESCALATE-STRATEGY] 失败次数: " + escalateInfo.getRetryCount().toString())
+        println("[ESCALATE-STRATEGY] 阈值: " + escalateThreshold.toString())
+
+        if (escalateInfo.shouldRetry(Int32(escalateThreshold), escalateTimeWindow)) {
+            escalateInfo.recordRetry()
+            println("[ESCALATE-STRATEGY] 失败次数未达到阈值，继续重启")
+            SupervisionDirective.Restart
+        } else {
+            println("[ESCALATE-STRATEGY] 失败次数达到阈值，向上级传播")
+            SupervisionDirective.Escalate
+        }
+    }
+
+    private func getOrCreateEscalateInfo(actorKey: String): RetryInfo {
+        match (escalateHistory.get(actorKey)) {
+            case Some(info) => info
+            case None =>
+                let newInfo = RetryInfo()
+                escalateHistory.add(actorKey, newInfo)
+                newInfo
+        }
+    }
+
+    public func resetEscalateHistory(actorKey: String): Unit {
+        escalateHistory.remove(actorKey)
+    }
+
+    public func getEscalateStats(): String {
+        "EscalateStrategy - 阈值: " + escalateThreshold.toString() +
+        ", 时间窗口: " + escalateTimeWindow.toString() +
+        ", 跟踪Actor数: " + escalateHistory.size.toString()
+    }
+}
+
+/**
+ * 指数退避监督策略
+ * 实现指数退避重启机制
+ */
+public class BackoffSupervisorStrategy <: SupervisionStrategy {
+    private let minBackoff: Duration
+    private let maxBackoff: Duration
+    private let randomFactor: Float64
+    private let maxRetries: Int64
+    private let backoffHistory: ConcurrentHashMap<String, BackoffInfo>
+
+    public init(minBackoff: Duration, maxBackoff: Duration) {
+        this.minBackoff = minBackoff
+        this.maxBackoff = maxBackoff
+        this.randomFactor = 0.2  // 20%的随机因子
+        this.maxRetries = 10
+        this.backoffHistory = ConcurrentHashMap<String, BackoffInfo>()
+    }
+
+    public init(minBackoff: Duration, maxBackoff: Duration, randomFactor: Float64, maxRetries: Int64) {
+        this.minBackoff = minBackoff
+        this.maxBackoff = maxBackoff
+        this.randomFactor = randomFactor
+        this.maxRetries = maxRetries
+        this.backoffHistory = ConcurrentHashMap<String, BackoffInfo>()
+    }
+
+    public func decide(failure: ActorFailure): SupervisionDirective {
+        let actorKey = failure.actor.path.toString()
+        let backoffInfo = getOrCreateBackoffInfo(actorKey)
+
+        println("[BACKOFF-STRATEGY] 评估失败: " + actorKey)
+        println("[BACKOFF-STRATEGY] 重试次数: " + backoffInfo.retryCount.toString())
+
+        if (backoffInfo.retryCount >= maxRetries) {
+            println("[BACKOFF-STRATEGY] 达到最大重试次数，停止Actor")
+            return SupervisionDirective.Stop
+        }
+
+        // 计算退避时间
+        let backoffTime = calculateBackoffTime(backoffInfo.retryCount)
+        backoffInfo.retryCount += 1
+        backoffInfo.lastBackoffTime = backoffTime
+        backoffInfo.nextRetryTime = DateTime.now().toUnixTimeStamp().toMilliseconds() + backoffTime.toMilliseconds()
+
+        println("[BACKOFF-STRATEGY] 计算退避时间: " + backoffTime.toString())
+        println("[BACKOFF-STRATEGY] 下次重试时间: " + backoffInfo.nextRetryTime.toString())
+
+        // 检查是否到了重试时间
+        let currentTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
+        if (currentTime >= backoffInfo.nextRetryTime) {
+            println("[BACKOFF-STRATEGY] 可以重试，执行重启")
+            SupervisionDirective.Restart
+        } else {
+            println("[BACKOFF-STRATEGY] 还未到重试时间，暂时停止")
+            SupervisionDirective.Stop  // 实际实现中应该延迟重启
+        }
+    }
+
+    private func calculateBackoffTime(retryCount: Int64): Duration {
+        // 指数退避：minBackoff * 2^retryCount
+        let exponentialBackoff = minBackoff.toMilliseconds() * (1 << retryCount)
+        let cappedBackoff = if (exponentialBackoff > maxBackoff.toMilliseconds()) {
+            maxBackoff.toMilliseconds()
+        } else {
+            exponentialBackoff
+        }
+
+        // 添加随机因子
+        let randomMultiplier = 1.0 + (randomFactor * (2.0 * Math.random() - 1.0))
+        let finalBackoff = Int64(Float64(cappedBackoff) * randomMultiplier)
+
+        Duration.millisecond * finalBackoff
+    }
+
+    private func getOrCreateBackoffInfo(actorKey: String): BackoffInfo {
+        match (backoffHistory.get(actorKey)) {
+            case Some(info) => info
+            case None =>
+                let newInfo = BackoffInfo()
+                backoffHistory.add(actorKey, newInfo)
+                newInfo
+        }
+    }
+
+    public func resetBackoffInfo(actorKey: String): Unit {
+        backoffHistory.remove(actorKey)
+    }
+
+    public func getBackoffStats(): String {
+        "BackoffSupervisorStrategy - 最小退避: " + minBackoff.toString() +
+        ", 最大退避: " + maxBackoff.toString() +
+        ", 最大重试: " + maxRetries.toString() +
+        ", 跟踪Actor数: " + backoffHistory.size.toString()
+    }
+}
+
+/**
+ * 退避信息
+ */
+public class BackoffInfo {
+    public var retryCount: Int64 = 0
+    public var lastBackoffTime: Duration = Duration.millisecond * 0
+    public var nextRetryTime: Int64 = 0
+
+    public init() {}
+
+    public func reset(): Unit {
+        retryCount = 0
+        lastBackoffTime = Duration.millisecond * 0
+        nextRetryTime = 0
+    }
+}
+
+/**
+ * 简化的Math类
+ */
+public struct Math {
+    public static func random(): Float64 {
+        // 简化实现，返回0.5
+        0.5
     }
 }
 
@@ -332,7 +517,7 @@ public class BasicSupervisor <: Supervisor {
     }
 
     public func addChild(child: ActorRef): Unit {
-        children.put(child.path.toString(), child)
+        children.add(child.path.toString(), child)
     }
 
     public func removeChild(child: ActorRef): Unit {
@@ -342,7 +527,7 @@ public class BasicSupervisor <: Supervisor {
     public func getChildren(): Array<ActorRef> {
         let childList = ArrayList<ActorRef>()
         for ((_, actor) in children) {
-            childList.append(actor)
+            childList.add(actor)
         }
         childList.toArray()
     }

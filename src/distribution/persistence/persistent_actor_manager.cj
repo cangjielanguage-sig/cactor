@@ -11,19 +11,19 @@ import std.sync.*
 public class PersistentActorManager {
     private let persistencePlugin: PersistencePlugin
     private let actors: HashMap<String, Actor>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init(persistencePlugin: PersistencePlugin) {
         this.persistencePlugin = persistencePlugin
         this.actors = HashMap<String, Actor>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     // 注册Actor进行持久化管理
     public func registerActor(actor: Actor): Unit {
         mutex.lock()
         try {
-            actors.put(actor.name, actor)
+            actors.add(actor.name, actor)
             if (persistencePlugin.isEnabled()) {
                 startRecovery(actor)
             }

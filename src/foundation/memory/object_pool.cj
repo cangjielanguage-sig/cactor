@@ -39,7 +39,7 @@ public interface ObjectPool<T> {
  * 针对仓颉的垃圾回收器优化
  */
 public class CangjieFriendlyObjectPool<T> <: ObjectPool<T> {
-    private let pool: NonBlockingQueue<T>
+    private let pool: ConcurrentLinkedQueue<T>
     private let factory: () -> T
     private let resetFunction: (T) -> Unit
     private let maxPoolSize: Int64
@@ -48,7 +48,7 @@ public class CangjieFriendlyObjectPool<T> <: ObjectPool<T> {
     private let totalReleased: AtomicInt64
 
     public init(factory: () -> T, resetFunction: (T) -> Unit, maxSize: Int64) {
-        this.pool = NonBlockingQueue<T>()
+        this.pool = ConcurrentLinkedQueue<T>()
         this.factory = factory
         this.resetFunction = resetFunction
         this.maxPoolSize = maxSize
@@ -64,16 +64,15 @@ public class CangjieFriendlyObjectPool<T> <: ObjectPool<T> {
         let warmupSize = maxPoolSize / 4  // 预热25%的容量
         for (_ in 0..warmupSize) {
             let obj = factory()
-            if (pool.enqueue(obj)) {
-                currentSize.fetchAdd(1)
-            }
+            pool.add(obj)
+            currentSize.fetchAdd(1)
         }
     }
 
     public func acquire(): T {
         totalAcquired.fetchAdd(1)
         
-        match (pool.dequeue()) {
+        match (pool.remove()) {
             case Some(obj) => 
                 currentSize.fetchAdd(-1)
                 obj
@@ -88,7 +87,7 @@ public class CangjieFriendlyObjectPool<T> <: ObjectPool<T> {
         
         if (currentSize.load() < maxPoolSize) {
             resetFunction(obj)  // 重置对象状态
-            if (pool.enqueue(obj)) {
+            if (pool.add(obj)) {
                 currentSize.fetchAdd(1)
             }
         }
@@ -100,7 +99,7 @@ public class CangjieFriendlyObjectPool<T> <: ObjectPool<T> {
     }
 
     public func clear(): Unit {
-        while (pool.dequeue().isSome()) {
+        while (pool.remove().isSome()) {
             currentSize.fetchAdd(-1)
         }
     }

@@ -85,7 +85,7 @@ public class EscalationSupervisionStrategy <: SupervisionStrategy {
             case Some(info) => info
             case None =>
                 let newInfo = EscalationInfo(actor)
-                escalationHistory.put(actorKey, newInfo)
+                escalationHistory.add(actorKey, newInfo)
                 newInfo
         }
     }
@@ -214,11 +214,11 @@ public class EscalationInfo {
             firstFailureTime.store(DateTime.now().toUnixTimeStamp().toMilliseconds())
         }
         
-        failures.append(failure)
+        failures.add(failure)
         
         // 限制历史记录大小
         if (failures.size > 100) {
-            failures.remove(0)
+            failures.remove(0..1)  // 移除第一个元素，使用Range
         }
     }
     

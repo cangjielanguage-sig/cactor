@@ -82,7 +82,7 @@ public class LogAggregatorActor <: Actor {
                 let content = msg.getContent()
                 
                 if (content.startsWith("LOG:")) {
-                    logBuffer.append(content)
+                    logBuffer.add(content)
                     println("📝 日志聚合 #${logCount}: ${content}")
                     
                     // 每100条日志批量处理一次

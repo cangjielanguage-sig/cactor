@@ -83,7 +83,7 @@ public class PerformanceCounter {
     private var min: Float64
     private var max: Float64
     private let values: ArrayList<Float64>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let maxSamples: Int64
 
     public init(maxSamples: Int64) {
@@ -92,7 +92,7 @@ public class PerformanceCounter {
         this.min = 999999999.0  // 大数值作为初始最小值
         this.max = -999999999.0  // 小数值作为初始最大值
         this.values = ArrayList<Float64>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.maxSamples = maxSamples
     }
 
@@ -115,14 +115,14 @@ public class PerformanceCounter {
             // 移除最老的样本 - 简化实现
             let newValues = ArrayList<Float64>()
             for (i in 1..values.size) {
-                newValues.append(values[i])
+                newValues.add(values[i])
             }
             values.clear()
             for (v in newValues) {
-                values.append(v)
+                values.add(v)
             }
         }
-        values.append(value)
+        values.add(value)
 
         mutex.unlock()
     }
@@ -168,7 +168,7 @@ public class ActorPerformanceMonitor {
     private var totalMessages: Int64
     private let actorPath: ActorPath
     private let startTime: Int64
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
 
     public init(actorPath: ActorPath) {
         this.messageProcessingTime = PerformanceCounter(1000)
@@ -177,7 +177,7 @@ public class ActorPerformanceMonitor {
         this.totalMessages = 0
         this.actorPath = actorPath
         this.startTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
 
     public func recordMessageProcessed(processingTimeMs: Float64): Unit {
@@ -283,7 +283,7 @@ public class SystemPerformanceAnalyzer {
             case Some(monitor) => monitor
             case None =>
                 let newMonitor = ActorPerformanceMonitor(actorPath)
-                actorMonitors.put(pathStr, newMonitor)
+                actorMonitors.add(pathStr, newMonitor)
                 newMonitor
         }
     }

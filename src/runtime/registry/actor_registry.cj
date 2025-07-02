@@ -55,7 +55,7 @@ public class ActorRegistry {
     private let registrationCount: AtomicInt64
 
     // 互斥锁
-    private let registryLock: ReentrantMutex
+    private let registryLock: Mutex
     
     public init() {
         this.pathToActor = HashMap<String, ActorRegistryEntry>()
@@ -65,7 +65,7 @@ public class ActorRegistry {
         this.childToParent = HashMap<String, String>()
         this.totalActors = AtomicInt64(0)
         this.registrationCount = AtomicInt64(0)
-        this.registryLock = ReentrantMutex()
+        this.registryLock = Mutex()
     }
     
     /**
@@ -88,30 +88,30 @@ public class ActorRegistry {
         let entry = ActorRegistryEntry(actorRef, currentTime, parentPath)
 
         // 主要存储
-        pathToActor.put(path, entry)
-        actorPathToPath.put(actorRef.path.toString(), path)
+        pathToActor.add(path, entry)
+        actorPathToPath.add(actorRef.path.toString(), path)
 
         // 名称索引
         match (nameToPath.get(name)) {
             case Some(paths) =>
-                paths.put(path)
+                paths.add(path)
             case None =>
                 let newPaths = HashSet<String>()
-                newPaths.put(path)
-                nameToPath.put(name, newPaths)
+                newPaths.add(path)
+                nameToPath.add(name, newPaths)
         }
 
         // 父子关系
         match (parentPath) {
             case Some(parent) =>
-                childToParent.put(path, parent)
+                childToParent.add(path, parent)
                 match (parentToChildren.get(parent)) {
                     case Some(children) =>
-                        children.put(path)
+                        children.add(path)
                     case None =>
                         let newChildren = HashSet<String>()
-                        newChildren.put(path)
-                        parentToChildren.put(parent, newChildren)
+                        newChildren.add(path)
+                        parentToChildren.add(parent, newChildren)
                 }
             case None =>
                 ()  // 根级Actor，无父Actor
@@ -150,7 +150,7 @@ public class ActorRegistry {
                     // 移除主要存储
                     pathToActor.remove(path)
                     actorPathToPath.remove(actorRef.path.toString())
-                    
+
                     // 移除名称索引
                     match (nameToPath.get(name)) {
                         case Some(paths) =>
@@ -265,7 +265,7 @@ public class ActorRegistry {
                     for (path in paths) {
                         match (pathToActor.get(path)) {
                             case Some(entry) =>
-                                result.append(entry.actorRef)
+                                result.add(entry.actorRef)
                             case None =>
                                 // 索引不一致，忽略
                                 ()
@@ -297,7 +297,7 @@ public class ActorRegistry {
                             for (childPath in children) {
                                 match (pathToActor.get(childPath)) {
                                     case Some(entry) =>
-                                        result.append(entry.actorRef)
+                                        result.add(entry.actorRef)
                                     case None =>
                                         // 索引不一致，忽略
                                         ()
@@ -388,7 +388,7 @@ public class ActorRegistry {
         registryLock.lock()
         try {
             for ((path, entry) in pathToActor) {
-                result.append(entry.actorRef)
+                result.add(entry.actorRef)
             }
         } finally {
             registryLock.unlock()

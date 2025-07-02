@@ -94,7 +94,7 @@ public class Span {
     public var finishTime: Int64
     private let tags: HashMap<String, String>
     private let logs: ArrayList<SpanLog>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
 
     public init(traceId: TraceId, spanId: SpanId, parentSpanId: Option<SpanId>, operationName: String, startTime: Int64) {
         this.traceId = traceId
@@ -105,7 +105,7 @@ public class Span {
         this.finishTime = 0
         this.tags = HashMap<String, String>()
         this.logs = ArrayList<SpanLog>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
 
     public func setTag(key: String, value: String): Unit {
@@ -124,7 +124,7 @@ public class Span {
     public func log(message: String): Unit {
         mutex.lock()
         let logEntry = SpanLog(DateTime.now().toUnixTimeStamp().toMilliseconds(), message)
-        logs.append(logEntry)
+        logs.add(logEntry)
         mutex.unlock()
     }
 
@@ -197,12 +197,12 @@ public interface SpanCollector {
 // 内存Span收集器
 public class MemorySpanCollector <: SpanCollector {
     private let spans: ArrayList<Span>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let maxSpans: Int64
     
     public init(maxSpans: Int64) {
         this.spans = ArrayList<Span>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.maxSpans = maxSpans
     }
     
@@ -213,15 +213,15 @@ public class MemorySpanCollector <: SpanCollector {
             // 移除最老的span - 简化实现
             let newSpans = ArrayList<Span>()
             for (i in 1..spans.size) {
-                newSpans.append(spans[i])
+                newSpans.add(spans[i])
             }
             spans.clear()
             for (s in newSpans) {
-                spans.append(s)
+                spans.add(s)
             }
         }
 
-        spans.append(span)
+        spans.add(span)
         mutex.unlock()
     }
     
@@ -274,7 +274,7 @@ public class DistributedTracer {
         )
         
         // 添加到活跃span列表
-        activeSpans.put(span.spanId.value, span)
+        activeSpans.add(span.spanId.value, span)
         
         return span
     }

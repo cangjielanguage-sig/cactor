@@ -65,7 +65,7 @@ public class EnhancedDispatcherFactory {
         
         // 注册到指标收集器
         metricsCollector.registerDispatcher(name, baseDispatcher)
-        createdDispatchers.put(name, baseDispatcher)
+        createdDispatchers.add(name, baseDispatcher)
         
         println("[ENHANCED-FACTORY] 创建标准调度器: ${name}")
         baseDispatcher
@@ -84,7 +84,7 @@ public class EnhancedDispatcherFactory {
         
         // 注册到指标收集器
         metricsCollector.registerDispatcher(name, baseDispatcher)
-        createdDispatchers.put(name, baseDispatcher)
+        createdDispatchers.add(name, baseDispatcher)
         
         println("[ENHANCED-FACTORY] 创建动态配置调度器: ${name}")
         baseDispatcher
@@ -106,7 +106,7 @@ public class EnhancedDispatcherFactory {
         
         // 注册到指标收集器
         metricsCollector.registerDispatcher(name, adaptiveDispatcher)
-        createdDispatchers.put(name, adaptiveDispatcher)
+        createdDispatchers.add(name, adaptiveDispatcher)
         
         println("[ENHANCED-FACTORY] 创建自适应调度器: ${name}")
         adaptiveDispatcher
@@ -124,7 +124,7 @@ public class EnhancedDispatcherFactory {
         
         // 注册到指标收集器
         metricsCollector.registerDispatcher(name, monitoredDispatcher)
-        createdDispatchers.put(name, monitoredDispatcher)
+        createdDispatchers.add(name, monitoredDispatcher)
         
         println("[ENHANCED-FACTORY] 创建监控调度器: ${name}")
         monitoredDispatcher
@@ -146,7 +146,7 @@ public class EnhancedDispatcherFactory {
         
         // 注册到指标收集器
         metricsCollector.registerDispatcher(name, adaptiveDispatcher)
-        createdDispatchers.put(name, adaptiveDispatcher)
+        createdDispatchers.add(name, adaptiveDispatcher)
         
         println("[ENHANCED-FACTORY] 创建完全增强调度器: ${name}")
         adaptiveDispatcher
@@ -214,7 +214,7 @@ public class EnhancedDispatcherFactory {
     public func getAllDispatcherNames(): Array<String> {
         let names = ArrayList<String>()
         for ((name, _) in createdDispatchers) {
-            names.append(name)
+            names.add(name)
         }
         names.toArray()
     }

@@ -51,7 +51,7 @@ public class DispatcherMetricsCollector {
      */
     public func registerDispatcher(name: String, dispatcher: AdvancedMessageDispatcher): Unit {
         let dispatcherMetrics = DispatcherMetrics(name, dispatcher)
-        metrics.put(name, dispatcherMetrics)
+        metrics.add(name, dispatcherMetrics)
         println("[METRICS] 注册调度器指标: ${name}")
     }
     
@@ -115,7 +115,7 @@ public class DispatcherMetricsCollector {
         
         for ((name, dispatcherMetrics) in metrics) {
             let summary = dispatcherMetrics.getSummary()
-            dispatcherSummaries.append(summary)
+            dispatcherSummaries.add(summary)
         }
         
         MetricsSummary(dispatcherSummaries.toArray(), globalMetrics.getSummary())
@@ -141,14 +141,14 @@ public class DispatcherMetricsCollector {
         
         report.append("=== 调度器指标报告 ===\n")
         report.append("生成时间: ${DateTime.now().toString()}\n\n")
-        
+
         // 全局指标
         report.append("全局指标:\n")
         report.append("  总分发数: ${summary.globalSummary.totalDispatches}\n")
         report.append("  成功率: ${summary.globalSummary.successRate}\n")
         report.append("  平均延迟: ${summary.globalSummary.averageLatency}ms\n")
         report.append("  总吞吐量: ${summary.globalSummary.throughput}\n\n")
-        
+
         // 各调度器指标
         report.append("各调度器指标:\n")
         for (dispatcherSummary in summary.dispatcherSummaries) {
@@ -189,10 +189,10 @@ public class DispatcherMetrics {
         this.startTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
 
         // 初始化优先级计数器
-        priorityCounters.put("Critical", AtomicInt64(0))
-        priorityCounters.put("High", AtomicInt64(0))
-        priorityCounters.put("Normal", AtomicInt64(0))
-        priorityCounters.put("Low", AtomicInt64(0))
+        priorityCounters.add("Critical", AtomicInt64(0))
+        priorityCounters.add("High", AtomicInt64(0))
+        priorityCounters.add("Normal", AtomicInt64(0))
+        priorityCounters.add("Low", AtomicInt64(0))
     }
     
     /**

@@ -6,8 +6,8 @@
 package cactor.runtime.mailbox
 
 import std.sync.*
-import std.collection.*
-import cactor.foundation.queue.{Queue, LockFreeQueue, SimpleQueue, QueueStats}
+import std.collection.{HashMap, ArrayList}  // 明确导入std.collection的类型
+import cactor.foundation.queue.{Queue as CActorQueue, LockFreeQueue, SimpleQueue, QueueStats}  // 使用别名避免冲突
 import cactor.core.message.{Message, Envelope}
 
 /**
@@ -15,18 +15,18 @@ import cactor.core.message.{Message, Envelope}
  * 使用Foundation层的高性能队列作为底层存储
  */
 public class FoundationMailbox <: Mailbox {
-    private let queue: Queue<Envelope>
+    private let queue: CActorQueue<Envelope>  // 使用别名
     private let mailboxCapacity: Int64
     private let mailboxType: String
     private let stats: MailboxStats
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let closed: AtomicBool
 
     public init(capacity: Int64, useHighPerformance: Bool) {
         this.mailboxCapacity = capacity
         this.mailboxType = if (useHighPerformance) { "LockFree" } else { "Simple" }
         this.stats = MailboxStats()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.closed = AtomicBool(false)
         
         // 根据性能需求选择队列实现
@@ -46,7 +46,7 @@ public class FoundationMailbox <: Mailbox {
         this.mailboxCapacity = capacity
         this.mailboxType = "LockFree"
         this.stats = MailboxStats()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.closed = AtomicBool(false)
 
         let actualCapacity = FoundationMailbox.nextPowerOfTwo(capacity)

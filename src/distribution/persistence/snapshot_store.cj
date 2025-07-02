@@ -51,11 +51,11 @@ public interface SnapshotStore {
 // 内存快照存储
 public class MemorySnapshotStore <: SnapshotStore {
     private let snapshots: HashMap<String, ArrayList<Snapshot>>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     
     public init() {
         this.snapshots = HashMap<String, ArrayList<Snapshot>>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
     
     public func saveSnapshot(snapshot: Snapshot): Unit {
@@ -64,20 +64,20 @@ public class MemorySnapshotStore <: SnapshotStore {
             let actorId = snapshot.getActorId()
             match (snapshots.get(actorId)) {
                 case Some(snapshotList) => 
-                    snapshotList.append(snapshot)
+                    snapshotList.add(snapshot)
                     // 保持最新的5个快照
                     if (snapshotList.size > 5) {
                         // 简化实现：重新创建列表保持最新的5个
                         let newList = ArrayList<Snapshot>()
                         for (i in (snapshotList.size - 5)..snapshotList.size) {
-                            newList.append(snapshotList[i])
+                            newList.add(snapshotList[i])
                         }
-                        snapshots.put(actorId, newList)
+                        snapshots.add(actorId, newList)
                     }
                 case None =>
                     let newList = ArrayList<Snapshot>()
-                    newList.append(snapshot)
-                    snapshots.put(actorId, newList)
+                    newList.add(snapshot)
+                    snapshots.add(actorId, newList)
             }
         } finally {
             mutex.unlock()
@@ -138,12 +138,12 @@ public class MemorySnapshotStore <: SnapshotStore {
 // 文件快照存储（简化实现）
 public class FileSnapshotStore <: SnapshotStore {
     private let basePath: String
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
     private let snapshots: HashMap<String, ArrayList<Snapshot>>
 
     public init(basePath: String) {
         this.basePath = basePath
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
         this.snapshots = HashMap<String, ArrayList<Snapshot>>()
         println("文件快照存储初始化: ${basePath}")
     }
@@ -154,19 +154,19 @@ public class FileSnapshotStore <: SnapshotStore {
             let actorId = snapshot.getActorId()
             match (snapshots.get(actorId)) {
                 case Some(snapshotList) =>
-                    snapshotList.append(snapshot)
+                    snapshotList.add(snapshot)
                     // 保持最新的5个快照
                     if (snapshotList.size > 5) {
                         let newList = ArrayList<Snapshot>()
                         for (i in (snapshotList.size - 5)..snapshotList.size) {
-                            newList.append(snapshotList[i])
+                            newList.add(snapshotList[i])
                         }
-                        snapshots.put(actorId, newList)
+                        snapshots.add(actorId, newList)
                     }
                 case None =>
                     let newList = ArrayList<Snapshot>()
-                    newList.append(snapshot)
-                    snapshots.put(actorId, newList)
+                    newList.add(snapshot)
+                    snapshots.add(actorId, newList)
             }
             println("文件快照已保存: ${snapshot.toString()}")
         } finally {

@@ -75,9 +75,9 @@ public class StringSerializer <: Serializer<String> {
             // Rune类型转换为Int32，然后转为UInt8
             let runeValue = Int32(char)
             if (runeValue <= 127) {
-                bytes.append(UInt8(runeValue))
+                bytes.add(UInt8(runeValue))
             } else {
-                bytes.append(UInt8(63))  // '?' 字符作为替代
+                bytes.add(UInt8(63))  // '?' 字符作为替代
             }
         }
         bytes.toArray()
@@ -91,7 +91,7 @@ public class StringSerializer <: Serializer<String> {
             let byte = data[i]
             if (byte <= 127) {
                 // ASCII字符
-                chars.append(Rune(Int32(byte)))
+                chars.add(Rune(Int32(byte)))
                 i += 1
             } else {
                 // 非ASCII字符，跳过
@@ -177,9 +177,9 @@ public class JsonSerializer <: Serializer<String> {
             // Rune类型转换为Int32，然后转为UInt8
             let runeValue = Int32(char)
             if (runeValue <= 127) {
-                bytes.append(UInt8(runeValue))
+                bytes.add(UInt8(runeValue))
             } else {
-                bytes.append(UInt8(63))  // '?' 字符作为替代
+                bytes.add(UInt8(63))  // '?' 字符作为替代
             }
         }
         bytes.toArray()
@@ -193,14 +193,14 @@ public class JsonSerializer <: Serializer<String> {
             let byte = bytes[i]
             if (byte <= 127) {
                 // ASCII字符
-                chars.append(Rune(Int32(byte)))
+                chars.add(Rune(Int32(byte)))
                 i += 1
             } else if ((byte & 0xE0) == 0xC0) {
                 // 两字节UTF-8字符
                 if (i + 1 < bytes.size) {
                     let byte2 = bytes[i + 1]
                     let codePoint = ((Int32(byte) & 0x1F) << 6) | (Int32(byte2) & 0x3F)
-                    chars.append(Rune(codePoint))
+                    chars.add(Rune(codePoint))
                     i += 2
                 } else {
                     i += 1
@@ -254,14 +254,14 @@ public class IntSerializer <: Serializer<Int64> {
     }
 
     private func writeInt64(buffer: ArrayList<UInt8>, value: Int64): Unit {
-        buffer.append(UInt8((value >> 56) & 0xFF))
-        buffer.append(UInt8((value >> 48) & 0xFF))
-        buffer.append(UInt8((value >> 40) & 0xFF))
-        buffer.append(UInt8((value >> 32) & 0xFF))
-        buffer.append(UInt8((value >> 24) & 0xFF))
-        buffer.append(UInt8((value >> 16) & 0xFF))
-        buffer.append(UInt8((value >> 8) & 0xFF))
-        buffer.append(UInt8(value & 0xFF))
+        buffer.add(UInt8((value >> 56) & 0xFF))
+        buffer.add(UInt8((value >> 48) & 0xFF))
+        buffer.add(UInt8((value >> 40) & 0xFF))
+        buffer.add(UInt8((value >> 32) & 0xFF))
+        buffer.add(UInt8((value >> 24) & 0xFF))
+        buffer.add(UInt8((value >> 16) & 0xFF))
+        buffer.add(UInt8((value >> 8) & 0xFF))
+        buffer.add(UInt8(value & 0xFF))
     }
 
     private func readInt64(data: Array<UInt8>, offset: Int64): Int64 {

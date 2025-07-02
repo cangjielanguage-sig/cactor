@@ -10,7 +10,7 @@ import cactor.core.message.*
 import cactor.core.context.ActorContext
 import std.collection.*
 import std.time.*
-import std.sync.sleep
+// import std.sync.sleep  // 暂时注释掉，使用替代方案
 
 // 流元素接口
 public interface StreamElement {
@@ -312,7 +312,7 @@ public class StreamSinkActor <: Actor {
     
     private func collectElement(element: StreamElement): Unit {
         receivedCount += 1
-        receivedElements.append(element)
+        receivedElements.add(element)
         println("${actorName}: 收集元素 ${element.toString()}")
     }
     

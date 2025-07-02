@@ -159,7 +159,7 @@ public class SupervisionManager {
     
     // 管理器状态
     private let isRunning: AtomicBool
-    private let managerLock: ReentrantReadWriteMutex
+    private let managerLock: Mutex  // 简化为普通Mutex
     
     public init(config: SupervisionConfig) {
         this.config = config
@@ -173,7 +173,7 @@ public class SupervisionManager {
         this.circuitBreakerTrips = AtomicInt64(0)
         
         this.isRunning = AtomicBool(true)
-        this.managerLock = ReentrantReadWriteMutex()
+        this.managerLock = Mutex()
     }
     
     /**
@@ -184,7 +184,7 @@ public class SupervisionManager {
         let currentTime = getCurrentTimeNanos()
         
         try {
-            managerLock.writeMutex.lock()
+            managerLock.lock()
             let info = ActorSupervisionInfo(
                 actorRef,
                 strategy,
@@ -196,10 +196,10 @@ public class SupervisionManager {
                 0       // circuitBreakerOpenTime
             )
 
-            supervisionInfos.put(path, info)
+            supervisionInfos.add(path, info)
             totalSupervised.fetchAdd(1)
         } finally {
-            managerLock.writeMutex.unlock()
+            managerLock.unlock()
         }
     }
     
@@ -210,10 +210,10 @@ public class SupervisionManager {
         let path = actorRef.path.toString()
         
         try {
-            managerLock.writeMutex.lock()
+            managerLock.lock()
             supervisionInfos.remove(path)
         } finally {
-            managerLock.writeMutex.unlock()
+            managerLock.unlock()
         }
     }
     
@@ -225,7 +225,7 @@ public class SupervisionManager {
         let currentTime = getCurrentTimeNanos()
         
         try {
-            managerLock.readMutex.lock()
+            managerLock.lock()
             match (supervisionInfos.get(path)) {
                 case Some(info) =>
                     // 检查断路器状态
@@ -258,7 +258,7 @@ public class SupervisionManager {
                     return SupervisionDirective.Stop
             }
         } finally {
-            managerLock.readMutex.unlock()
+            managerLock.unlock()
         }
     }
     
@@ -276,7 +276,7 @@ public class SupervisionManager {
     public func getAllSupervisionInfos(): ArrayList<ActorSupervisionInfo> {
         let result = ArrayList<ActorSupervisionInfo>()
         for ((path, info) in supervisionInfos) {
-            result.append(info)
+            result.add(info)
         }
         result
     }
@@ -402,7 +402,7 @@ public class SupervisionManager {
                     oldInfo.escalationCount,
                     oldInfo.circuitBreakerOpenTime
                 )
-                supervisionInfos.put(path, newInfo)
+                supervisionInfos.add(path, newInfo)
             case None =>
                 // Actor不存在，忽略
                 ()
@@ -423,7 +423,7 @@ public class SupervisionManager {
                     oldInfo.escalationCount,
                     oldInfo.circuitBreakerOpenTime
                 )
-                supervisionInfos.put(path, newInfo)
+                supervisionInfos.add(path, newInfo)
             case None =>
                 // Actor不存在，忽略
                 ()
@@ -444,7 +444,7 @@ public class SupervisionManager {
                     oldInfo.escalationCount + 1,
                     oldInfo.circuitBreakerOpenTime
                 )
-                supervisionInfos.put(path, newInfo)
+                supervisionInfos.add(path, newInfo)
             case None =>
                 // Actor不存在，忽略
                 ()
@@ -465,7 +465,7 @@ public class SupervisionManager {
                     oldInfo.escalationCount,
                     oldInfo.circuitBreakerOpenTime
                 )
-                supervisionInfos.put(path, newInfo)
+                supervisionInfos.add(path, newInfo)
             case None =>
                 // Actor不存在，忽略
                 ()
@@ -493,7 +493,7 @@ public class SupervisionManager {
                         info.escalationCount,
                         currentTime
                     )
-                    supervisionInfos.put(path, newInfo)
+                    supervisionInfos.add(path, newInfo)
                 }
             case None =>
                 // Actor不存在，忽略

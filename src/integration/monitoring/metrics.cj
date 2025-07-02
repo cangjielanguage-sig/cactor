@@ -268,14 +268,14 @@ public class MetricRegistry {
     private let gauges: ConcurrentHashMap<String, Gauge>
     private let histograms: ConcurrentHashMap<String, Histogram>
     private let timers: ConcurrentHashMap<String, Timer>
-    private let mutex: ReentrantMutex
+    private let mutex: Mutex
 
     public init() {
         this.counters = ConcurrentHashMap<String, Counter>()
         this.gauges = ConcurrentHashMap<String, Gauge>()
         this.histograms = ConcurrentHashMap<String, Histogram>()
         this.timers = ConcurrentHashMap<String, Timer>()
-        this.mutex = ReentrantMutex()
+        this.mutex = Mutex()
     }
 
     public func counter(name: String): Counter {
@@ -283,7 +283,7 @@ public class MetricRegistry {
             case Some(counter) => counter
             case None => 
                 let newCounter = Counter(name)
-                counters.put(name, newCounter)
+                counters.add(name, newCounter)
                 newCounter
         }
     }
@@ -294,7 +294,7 @@ public class MetricRegistry {
             case Some(counter) => counter
             case None => 
                 let newCounter = Counter(name, tags)
-                counters.put(key, newCounter)
+                counters.add(key, newCounter)
                 newCounter
         }
     }
@@ -304,7 +304,7 @@ public class MetricRegistry {
             case Some(gauge) => gauge
             case None => 
                 let newGauge = Gauge(name)
-                gauges.put(name, newGauge)
+                gauges.add(name, newGauge)
                 newGauge
         }
     }
@@ -314,7 +314,7 @@ public class MetricRegistry {
             case Some(histogram) => histogram
             case None => 
                 let newHistogram = Histogram(name, buckets)
-                histograms.put(name, newHistogram)
+                histograms.add(name, newHistogram)
                 newHistogram
         }
     }
@@ -324,7 +324,7 @@ public class MetricRegistry {
             case Some(timer) => timer
             case None => 
                 let newTimer = Timer(name)
-                timers.put(name, newTimer)
+                timers.add(name, newTimer)
                 newTimer
         }
     }
@@ -337,7 +337,7 @@ public class MetricRegistry {
     public func getAllCounters(): Array<Counter> {
         let result = ArrayList<Counter>()
         for ((_, counter) in counters) {
-            result.append(counter)
+            result.add(counter)
         }
         result.toArray()
     }
@@ -345,7 +345,7 @@ public class MetricRegistry {
     public func getAllGauges(): Array<Gauge> {
         let result = ArrayList<Gauge>()
         for ((_, gauge) in gauges) {
-            result.append(gauge)
+            result.add(gauge)
         }
         result.toArray()
     }
@@ -353,7 +353,7 @@ public class MetricRegistry {
     public func getAllTimers(): Array<Timer> {
         let result = ArrayList<Timer>()
         for ((_, timer) in timers) {
-            result.append(timer)
+            result.add(timer)
         }
         result.toArray()
     }

@@ -2,13 +2,10 @@
 name = "cactor"
 version = "7.0.0"
 description = "High-performance Actor system for Cangjie - CActor 7.0 with 6-layer architecture"
-cjc-version = "0.53.18"
+cjc-version = "0.60.5"
 output-type = "dynamic"
-compile-option = "-Woff unused "
+compile-option = "-Woff unused --diagnostic-format=noColor"
 
-# 编译器选项 - 抑制未使用变量警告
-[package.compiler-options]
-cjc-flags = ["-Wno-unused"]
 
 # === Foundation Layer ===
 [package.package-configuration."cactor.foundation.memory"]
@@ -71,6 +68,10 @@ output-type = "static"
 [package.package-configuration."cactor.api.extensions"]
 output-type = "static"
 
+# === Patterns Layer ===
+[package.package-configuration."cactor.patterns.ask"]
+output-type = "static"
+
 # === Integration Tests ===
 [package.package-configuration."cactor.integration.testing.plan10_comprehensive_test"]
 output-type = "executable"
@@ -120,7 +121,36 @@ output-type = "executable"
 [package.package-configuration."cactor.integration.testing.plan10_advanced_supervision_test"]
 output-type = "executable"
 
+# === Macro Tests ===
+[package.package-configuration."cactor.examples.macro_test_demo"]
+output-type = "executable"
 
+[package.package-configuration."cactor.examples.comprehensive_macro_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.real_macro_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.enhanced_actor_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.true_actor_macro_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.typed_actor_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.comprehensive_improvement_test"]
+output-type = "executable"
+
+# === Macros Package ===
+[package.package-configuration."cactor.macros"]
+output-type = "dynamic"
 
 [package.package-configuration."cactor.integration.testing.simple_realistic_benchmark"]
 output-type = "executable"
+
+[target.aarch64-apple-darwin]
+    compile-option = "--cfg \"ohos=false\""
+    [target.aarch64-apple-darwin.bin-dependencies]
+      path-option = [ "${AARCH64_MACOS_LIBS}", "${AARCH64_MACOS_MACRO_LIBS}", "/Users/louloulin/Documents/linchong/cj/CangjieSDK-Darwin/darwin_aarch64_llvm/static/stdx" ]
