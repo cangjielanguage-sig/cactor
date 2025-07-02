@@ -56,13 +56,16 @@ CActor 是一个基于仓颉语言实现的优先高性能Actor系统，提供�
 ```bash
 # 克隆项目
 git clone <repository-url>
-cd cangjie
+cd cactor
 
 # 构建项目
 cjpm build
 
+# 运行Hello World示例
+cjpm run --name cactor.examples.hello_world_demo
+
 # 运行性能测试
-./target/release/bin/cactor.integration.testing.simple_benchmark_test
+cjpm run --name cactor.integration.testing.simple_benchmark_test
 ```
 
 ### 简单示例
@@ -92,6 +95,8 @@ main(): Int64 {
     return 0
 }
 ```
+
+> 💡 **完整的入门教程**: 运行 `cjpm run --name cactor.examples.hello_world_demo` 查看详细的Hello World示例，包含完整的注释和演示步骤。
 
 ## 📊 性能基准测试
 
@@ -213,17 +218,23 @@ CActor采用6层模块化架构：
 
 ### 功能测试
 ```bash
-# 基础功能测试
-./target/release/bin/cactor.examples.hello_world
+# Hello World入门示例
+cjpm run --name cactor.examples.hello_world_demo
 
 # API演示
-./target/release/bin/cactor.examples.api_demo
+cjpm run --name cactor.examples.api_demo
 
 # 高级调度器示例
-./target/release/bin/cactor.examples.advanced_dispatcher_examples
+cjpm run --name cactor.examples.advanced_dispatcher_examples
 
 # 高级邮箱示例
-./target/release/bin/cactor.examples.advanced_mailbox_examples
+cjpm run --name cactor.examples.advanced_mailbox_examples
+
+# 配置使用示例
+cjpm run --name cactor.examples.configuration_usage_test
+
+# 类型安全Actor示例
+cjpm run --name cactor.examples.typed_actor_demo
 ```
 
 ## 🤝 贡献指南
