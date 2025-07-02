@@ -125,7 +125,7 @@ macro_test
 actor_config_test
 
 # 通用测试二进制文件模式
-test_*
+# test_*
 verify_*
 benchmark_*
 
