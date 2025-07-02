@@ -7,7 +7,7 @@ package cactor.examples.cluster_sharding_demo
 
 import std.time.*
 import std.collection.*
-import cactor.core.actor.{Actor, ActorRef}
+import cactor.core.actor.{Actor, ActorRef, ActorPath}
 import cactor.core.message.{Message, MessageResult, StringMessage}
 import cactor.core.context.{ActorContext}
 import cactor.api.{CActorSystem, CActorSystemFactory}
@@ -85,9 +85,9 @@ func testClusterState(): Unit {
     let clusterState = ClusterState(localNodeId)
     
     // 添加节点
-    let node1 = ClusterNode(NodeId("node-1"), NetworkAddress("127.0.0.1", 8001, TransportProtocol.TCP), ["master"])
-    let node2 = ClusterNode(NodeId("node-2"), NetworkAddress("127.0.0.1", 8002, TransportProtocol.TCP), ["worker"])
-    let node3 = ClusterNode(NodeId("node-3"), NetworkAddress("127.0.0.1", 8003, TransportProtocol.TCP), ["worker"])
+    let node1 = ClusterNode(NodeId("node-1"), NetworkAddress("127.0.0.1", 8001), ["master"])
+    let node2 = ClusterNode(NodeId("node-2"), NetworkAddress("127.0.0.1", 8002), ["worker"])
+    let node3 = ClusterNode(NodeId("node-3"), NetworkAddress("127.0.0.1", 8003), ["worker"])
     
     clusterState.addNode(node1)
     clusterState.addNode(node2)
@@ -114,8 +114,8 @@ func testShardCoordinator(): Unit {
     let clusterState = ClusterState(localNodeId)
     
     // 添加节点
-    let node1 = ClusterNode(NodeId("node-1"), NetworkAddress("127.0.0.1", 8001, TransportProtocol.TCP), ["worker"])
-    let node2 = ClusterNode(NodeId("node-2"), NetworkAddress("127.0.0.1", 8002, TransportProtocol.TCP), ["worker"])
+    let node1 = ClusterNode(NodeId("node-1"), NetworkAddress("127.0.0.1", 8001), ["worker"])
+    let node2 = ClusterNode(NodeId("node-2"), NetworkAddress("127.0.0.1", 8002), ["worker"])
     clusterState.addNode(node1)
     clusterState.addNode(node2)
     
@@ -164,7 +164,7 @@ func testShardRegion(): Unit {
     // 创建集群状态和分片协调器
     let localNodeId = NodeId("region-node")
     let clusterState = ClusterState(localNodeId)
-    let node1 = ClusterNode(localNodeId, NetworkAddress("127.0.0.1", 8001, TransportProtocol.TCP), ["worker"])
+    let node1 = ClusterNode(localNodeId, NetworkAddress("127.0.0.1", 8001), ["worker"])
     clusterState.addNode(node1)
     
     let allocationStrategy = LeastShardsAllocationStrategy()
@@ -270,9 +270,9 @@ func testLoadBalancer(): Unit {
     let clusterState = ClusterState(localNodeId)
     
     // 添加节点
-    let node1 = ClusterNode(NodeId("lb-node-1"), NetworkAddress("127.0.0.1", 8001, TransportProtocol.TCP), ["master"])
-    let node2 = ClusterNode(NodeId("lb-node-2"), NetworkAddress("127.0.0.1", 8002, TransportProtocol.TCP), ["worker"])
-    let node3 = ClusterNode(NodeId("lb-node-3"), NetworkAddress("127.0.0.1", 8003, TransportProtocol.TCP), ["worker"])
+    let node1 = ClusterNode(NodeId("lb-node-1"), NetworkAddress("127.0.0.1", 8001), ["master"])
+    let node2 = ClusterNode(NodeId("lb-node-2"), NetworkAddress("127.0.0.1", 8002), ["worker"])
+    let node3 = ClusterNode(NodeId("lb-node-3"), NetworkAddress("127.0.0.1", 8003), ["worker"])
     
     clusterState.addNode(node1)
     clusterState.addNode(node2)
@@ -308,7 +308,7 @@ func testCompleteShardingFlow(): Unit {
     
     // 创建集群管理器
     let localNodeId = NodeId("complete-node")
-    let localAddress = NetworkAddress("127.0.0.1", 8000, TransportProtocol.TCP)
+    let localAddress = NetworkAddress("127.0.0.1", 8000)
     let clusterManager = SimpleClusterManager(localNodeId, localAddress)
     
     // 启动集群管理器
@@ -318,8 +318,8 @@ func testCompleteShardingFlow(): Unit {
     let clusterState = clusterManager.getClusterState()
     
     // 添加更多节点
-    clusterManager.addNode(NodeId("worker-1"), NetworkAddress("127.0.0.1", 8001, TransportProtocol.TCP), ["worker"])
-    clusterManager.addNode(NodeId("worker-2"), NetworkAddress("127.0.0.1", 8002, TransportProtocol.TCP), ["worker"])
+    clusterManager.addNode(NodeId("worker-1"), NetworkAddress("127.0.0.1", 8001), ["worker"])
+    clusterManager.addNode(NodeId("worker-2"), NetworkAddress("127.0.0.1", 8002), ["worker"])
     
     // 创建分片协调器
     let allocationStrategy = LeastShardsAllocationStrategy()
@@ -373,17 +373,32 @@ func testCompleteShardingFlow(): Unit {
  */
 class VirtualActorRef <: ActorRef {
     private let targetNodeId: NodeId
-    
+
     public init(targetNodeId: NodeId) {
         this.targetNodeId = targetNodeId
     }
-    
+
     public func tell(message: Message): Unit {
         println("虚拟ActorRef向节点 ${targetNodeId.toString()} 发送消息: ${message.messageType()}")
     }
-    
+
+    public func tell(message: Message, sender: Option<String>): Unit {
+        println("虚拟ActorRef向节点 ${targetNodeId.toString()} 发送消息: ${message.messageType()}")
+    }
+
+    public func equals(other: ActorRef): Bool {
+        match (other) {
+            case ref: VirtualActorRef => ref.targetNodeId.equals(this.targetNodeId)
+            case _ => false
+        }
+    }
+
+    public func hashCode(): Int32 {
+        42  // 简化实现
+    }
+
     public prop path: ActorPath {
-        get() { ActorPath("virtual://${targetNodeId.id}/user/virtual") }
+        get() { ActorPath("virtual", targetNodeId.id) }
     }
 }
 

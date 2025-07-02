@@ -110,17 +110,21 @@ public class LeastShardsAllocationStrategy <: ShardAllocationStrategy {
         }
         
         // 找到分片数量最少的节点
-        var minShards = 2147483647  // Int32最大值
+        var minShards: Int32 = 2147483647  // Int32最大值
         var selectedNode: Option<NodeId> = None
 
         for (node in availableNodes) {
-            let shardCount = match (nodeShardCounts.get(node.id)) {
-                case Some(count) => count
-                case None => 0
-            }
-            if (shardCount < minShards) {
-                minShards = shardCount
-                selectedNode = Some(node)
+            match (nodeShardCounts.get(node.id)) {
+                case Some(shardCount) =>
+                    if (shardCount < minShards) {
+                        minShards = shardCount
+                        selectedNode = Some(node)
+                    }
+                case None =>
+                    if (0 < minShards) {
+                        minShards = 0
+                        selectedNode = Some(node)
+                    }
             }
         }
         

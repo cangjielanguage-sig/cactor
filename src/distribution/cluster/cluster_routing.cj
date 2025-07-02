@@ -459,7 +459,12 @@ class VirtualActorRef <: ActorRef {
         // 实际实现中应该通过网络发送消息
     }
 
-    public func equals(other: Object): Bool {
+    public func tell(message: Message, sender: Option<String>): Unit {
+        println("虚拟ActorRef向节点 ${targetNodeId.toString()} 发送消息: ${message.messageType()}")
+        // 实际实现中应该通过网络发送消息
+    }
+
+    public func equals(other: ActorRef): Bool {
         match (other) {
             case ref: VirtualActorRef => ref.targetNodeId.equals(this.targetNodeId)
             case _ => false
