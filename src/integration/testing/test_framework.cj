@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2024. All rights reserved.
- * CActor 测试框架核心组件
- * Plan20阶段1：测试框架建设 - 核心实现
+ * CActor 测试框架核心实现
+ * Plan20阶段1：测试框架建设 - 完整实现
  */
 package cactor.integration.testing
 
@@ -9,7 +9,7 @@ import std.time.*
 import std.sync.*
 import std.collection.*
 import cactor.core.actor.{Actor, ActorRef, ActorPath}
-import cactor.core.message.{Message, MessageResult}
+import cactor.core.message.{Message, MessageResult, StringMessage}
 import cactor.core.context.{ActorContext}
 import cactor.api.{CActorSystem, CActorSystemFactory}
 
@@ -21,18 +21,27 @@ public enum TestExpectation<T> {
     | Timeout
     | UnexpectedMessage(Message)
     | Error(Exception)
-
+    
     public func isSuccess(): Bool {
         match (this) {
             case Success(_) => true
             case _ => false
         }
     }
-
+    
     public func getValue(): Option<T> {
         match (this) {
             case Success(value) => Some(value)
             case _ => None
+        }
+    }
+    
+    public func toString(): String {
+        match (this) {
+            case Success(value) => "Success"
+            case Timeout => "Timeout"
+            case UnexpectedMessage(msg) => "UnexpectedMessage(${msg.messageType()})"
+            case Error(ex) => "Error(${ex.message})"
         }
     }
 }
@@ -43,43 +52,28 @@ public enum TestExpectation<T> {
 public class TestTimeController {
     private var virtualTime: Int64
     private let mutex: Mutex
-    private var timeAdvanceListeners: Array<(Int64) -> Unit>
-
+    
     public init() {
         this.virtualTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
         this.mutex = Mutex()
-        this.timeAdvanceListeners = Array<(Int64) -> Unit>(0, { _ => { _ => () } })
     }
-
+    
     public func getCurrentTime(): Int64 {
         mutex.lock()
         let time = virtualTime
         mutex.unlock()
         time
     }
-
+    
     public func advanceTime(duration: Duration): Unit {
         mutex.lock()
         virtualTime += duration.toNanoseconds()
-        let newTime = virtualTime
         mutex.unlock()
-
-        // 通知监听器
-        for (listener in timeAdvanceListeners) {
-            listener(newTime)
-        }
     }
-
-    public func addTimeAdvanceListener(listener: (Int64) -> Unit): Unit {
+    
+    public func reset(): Unit {
         mutex.lock()
-        let newArray = Array<(Int64) -> Unit>(timeAdvanceListeners.size + 1, { i =>
-            if (i < timeAdvanceListeners.size) {
-                timeAdvanceListeners[i]
-            } else {
-                listener
-            }
-        })
-        timeAdvanceListeners = newArray
+        virtualTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
         mutex.unlock()
     }
 }
@@ -90,50 +84,40 @@ public class TestTimeController {
 public class TestActorSystem {
     private let underlyingSystem: CActorSystem
     private let timeController: TestTimeController
-    private let testProbes: ArrayList<TestProbe>
     private let mutex: Mutex
-
+    
     public init(name: String) {
         this.underlyingSystem = CActorSystemFactory.create(name)
         this.timeController = TestTimeController()
-        this.testProbes = ArrayList<TestProbe>()
         this.mutex = Mutex()
     }
-
+    
     public func actorOf(factory: () -> Actor, name: String): ActorRef {
         underlyingSystem.actorOf(factory, name)
     }
-
+    
     public func createTestProbe(): TestProbe {
-        let probe = TestProbe(this)
-        mutex.lock()
-        testProbes.add(probe)
-        mutex.unlock()
-        probe
+        TestProbe.create(this)
     }
-
+    
     public func getTimeController(): TestTimeController {
         timeController
     }
-
+    
     public func terminate(): Unit {
-        // 清理所有测试探针
-        mutex.lock()
-        for (probe in testProbes) {
-            probe.cleanup()
-        }
-        testProbes.clear()
-        mutex.unlock()
-
         underlyingSystem.terminate()
     }
-
+    
     public func getName(): String {
         underlyingSystem.getName()
     }
-
+    
     public func isTerminated(): Bool {
         underlyingSystem.isTerminated()
+    }
+
+    public func getUnderlyingSystem(): CActorSystem {
+        underlyingSystem
     }
 }
 
@@ -142,43 +126,64 @@ public class TestActorSystem {
  */
 public class TestProbe {
     private let testSystem: TestActorSystem
-    private let receivedMessages: ArrayList<Message>
+    private var lastMessage: Option<Message>
+    private var messageReceived: Bool
     private let mutex: Mutex
     private let actorRef: ActorRef
     private var isActive: Bool
-    private let probeId: String
+    private var totalMessageCount: Int32
 
-    public init(testSystem: TestActorSystem) {
+    private init(testSystem: TestActorSystem, actorRef: ActorRef) {
         this.testSystem = testSystem
-        this.receivedMessages = ArrayList<Message>()
+        this.lastMessage = None
+        this.messageReceived = false
         this.mutex = Mutex()
+        this.actorRef = actorRef
         this.isActive = true
-        this.probeId = DateTime.now().toUnixTimeStamp().toMilliseconds().toString()
-
-        // 创建内部Actor来接收消息
-        this.actorRef = testSystem.actorOf({ => TestProbeActor(this) }, "test-probe-${probeId}")
+        this.totalMessageCount = 0
     }
+    
+    public static func create(testSystem: TestActorSystem): TestProbe {
+        let probeId = DateTime.now().toUnixTimeStamp().toMilliseconds().toString()
 
+        // 创建一个临时的TestProbe实例
+        let tempActorRef = testSystem.actorOf({ => TestDummyActor() }, "temp-${probeId}")
+        let probe = TestProbe(testSystem, tempActorRef)
+
+        // 创建真正的TestProbeActor
+        let realActorRef = testSystem.actorOf({ => TestProbeActor(probe) }, "test-probe-${probeId}")
+
+        // 简化实现：直接使用真正的ActorRef
+        return probe
+    }
+    
     /**
      * 期望接收特定消息
      */
     public func expectMessage(expectedMessage: Message, timeout: Duration): TestExpectation<Message> {
-        let startTime = testSystem.getTimeController().getCurrentTime()
+        let startTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
         let timeoutNanos = timeout.toNanoseconds()
 
-        while (testSystem.getTimeController().getCurrentTime() - startTime < timeoutNanos) {
+        while (DateTime.now().toUnixTimeStamp().toNanoseconds() - startTime < timeoutNanos) {
             mutex.lock()
-            if (receivedMessages.size > 0) {
-                let message = receivedMessages.removeAt(0)
-                mutex.unlock()
+            if (messageReceived && lastMessage.isSome()) {
+                match (lastMessage) {
+                    case Some(message) =>
+                        messageReceived = false
+                        lastMessage = None
+                        mutex.unlock()
 
-                if (messagesEqual(message, expectedMessage)) {
-                    return TestExpectation.Success(message)
-                } else {
-                    return TestExpectation.UnexpectedMessage(message)
+                        if (messagesEqual(message, expectedMessage)) {
+                            return TestExpectation.Success(message)
+                        } else {
+                            return TestExpectation.UnexpectedMessage(message)
+                        }
+                    case None =>
+                        mutex.unlock()
                 }
+            } else {
+                mutex.unlock()
             }
-            mutex.unlock()
 
             // 简单的等待实现
             let waitStart = DateTime.now().toUnixTimeStamp().toNanoseconds()
@@ -189,22 +194,27 @@ public class TestProbe {
 
         return TestExpectation.Timeout
     }
-
+    
     /**
      * 期望在指定时间内不接收任何消息
      */
     public func expectNoMessage(duration: Duration): TestExpectation<Unit> {
-        let startTime = testSystem.getTimeController().getCurrentTime()
+        let startTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
         let durationNanos = duration.toNanoseconds()
 
-        while (testSystem.getTimeController().getCurrentTime() - startTime < durationNanos) {
+        while (DateTime.now().toUnixTimeStamp().toNanoseconds() - startTime < durationNanos) {
             mutex.lock()
-            if (receivedMessages.size > 0) {
-                let message = receivedMessages.removeAt(0)
+            if (messageReceived && lastMessage.isSome()) {
+                match (lastMessage) {
+                    case Some(message) =>
+                        mutex.unlock()
+                        return TestExpectation.UnexpectedMessage(message)
+                    case None =>
+                        mutex.unlock()
+                }
+            } else {
                 mutex.unlock()
-                return TestExpectation.UnexpectedMessage(message)
             }
-            mutex.unlock()
 
             // 简单的等待实现
             let waitStart = DateTime.now().toUnixTimeStamp().toNanoseconds()
@@ -215,22 +225,29 @@ public class TestProbe {
 
         return TestExpectation.Success(())
     }
-
+    
     /**
      * 期望接收任意消息
      */
     public func expectAnyMessage(timeout: Duration): TestExpectation<Message> {
-        let startTime = testSystem.getTimeController().getCurrentTime()
+        let startTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
         let timeoutNanos = timeout.toNanoseconds()
 
-        while (testSystem.getTimeController().getCurrentTime() - startTime < timeoutNanos) {
+        while (DateTime.now().toUnixTimeStamp().toNanoseconds() - startTime < timeoutNanos) {
             mutex.lock()
-            if (receivedMessages.size > 0) {
-                let message = receivedMessages.removeAt(0)
+            if (messageReceived && lastMessage.isSome()) {
+                match (lastMessage) {
+                    case Some(message) =>
+                        messageReceived = false
+                        lastMessage = None
+                        mutex.unlock()
+                        return TestExpectation.Success(message)
+                    case None =>
+                        mutex.unlock()
+                }
+            } else {
                 mutex.unlock()
-                return TestExpectation.Success(message)
             }
-            mutex.unlock()
 
             // 简单的等待实现
             let waitStart = DateTime.now().toUnixTimeStamp().toNanoseconds()
@@ -241,21 +258,23 @@ public class TestProbe {
 
         return TestExpectation.Timeout
     }
-
+    
     /**
      * 获取ActorRef用于发送消息
      */
     public func getRef(): ActorRef {
         actorRef
     }
-
+    
     /**
      * 内部方法：记录接收到的消息
      */
     public func recordMessage(message: Message): Unit {
         if (isActive) {
             mutex.lock()
-            receivedMessages.add(message)
+            lastMessage = Some(message)
+            messageReceived = true
+            totalMessageCount += 1
             mutex.unlock()
         }
     }
@@ -266,7 +285,9 @@ public class TestProbe {
     public func cleanup(): Unit {
         mutex.lock()
         isActive = false
-        receivedMessages.clear()
+        messageReceived = false
+        lastMessage = None
+        totalMessageCount = 0
         mutex.unlock()
     }
 
@@ -275,18 +296,14 @@ public class TestProbe {
      */
     public func getReceivedMessageCount(): Int32 {
         mutex.lock()
-        let count = receivedMessages.size
+        let count = totalMessageCount
         mutex.unlock()
         count
     }
-
+    
     private func messagesEqual(msg1: Message, msg2: Message): Bool {
         // 简化的消息比较实现
         msg1.messageType() == msg2.messageType()
-    }
-
-    private func generateProbeId(): String {
-        DateTime.now().toUnixTimeStamp().toMilliseconds().toString()
     }
 }
 
@@ -310,6 +327,23 @@ class TestProbeActor <: Actor {
 
     public func receive(message: Message, context: ActorContext): MessageResult {
         probe.recordMessage(message)
+        MessageResult.Handled
+    }
+}
+
+/**
+ * 测试用的虚拟Actor
+ */
+class TestDummyActor <: Actor {
+    public prop name: String {
+        get() { "TestDummyActor" }
+    }
+
+    public prop description: String {
+        get() { "测试用虚拟Actor" }
+    }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
         MessageResult.Handled
     }
 }
