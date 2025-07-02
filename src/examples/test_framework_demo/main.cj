@@ -285,6 +285,6 @@ func testBatchMessages(testSystem: TestActorSystem): Unit {
     if (messageCount >= 5) {
         println("✅ 批量消息测试通过，接收到 ${messageCount} 条消息")
     } else {
-        println("⚠️ 批量消息测试部分成功，接收到 ${messageCount} 条消息")
+        println("批量消息测试部分成功，接收到 ${messageCount} 条消息")
     }
 }

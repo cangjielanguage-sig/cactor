@@ -245,7 +245,7 @@ func runAdvancedFunctionalityTests(testSystem: TestActorSystem): Bool {
         if (!testActorRef.isHealthy()) {
             println("  ✅ 异常处理测试通过")
         } else {
-            println("  ⚠️ 异常处理测试部分通过")
+            println("异常处理测试部分通过")
         }
         
         // 测试3: 超时测试
@@ -282,7 +282,7 @@ func runPerformanceTests(testSystem: TestActorSystem): Bool {
         if (lightResult.throughputMsgPerSec > 1000.0) {
             println("  ✅ 轻量级性能测试通过")
         } else {
-            println("  ⚠️ 轻量级性能测试性能较低")
+            println("轻量级性能测试性能较低")
         }
         
         // 延迟测试
@@ -294,7 +294,7 @@ func runPerformanceTests(testSystem: TestActorSystem): Bool {
         if (latencyResult.avgLatencyNanos < 10000000.0) {  // 10ms
             println("  ✅ 延迟测试通过")
         } else {
-            println("  ⚠️ 延迟测试延迟较高")
+            println("延迟测试延迟较高")
         }
         
         println("✅ 性能测试完成")
