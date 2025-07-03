@@ -7,6 +7,7 @@ package cactor.examples.xstate_demo
 
 import std.collection.*
 import std.time.*
+import cactor.xstate.core.engine.{PatternTransitionEngine}
 
 /**
  * XState功能验证器
@@ -60,7 +61,7 @@ public struct XStateValidation {
         if (passedTests == totalTests) {
             println("🎉 所有验证通过!")
         } else {
-            println("⚠️  有验证失败，请检查实现")
+            println("⚠  有验证失败，请检查实现")
         }
     }
     

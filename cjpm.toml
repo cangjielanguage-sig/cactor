@@ -202,7 +202,7 @@ output-type = "static"
 
 # XState示例包
 [package.package-configuration."cactor.examples.xstate_demo"]
-output-type = "static"
+output-type = "executable"
 
 [target.aarch64-apple-darwin]
     compile-option = "--cfg \"ohos=false\""

@@ -108,7 +108,7 @@ public struct StateMachineDefinition {
      * 获取转换数量
      */
     public func getTransitionCount(): Int32 {
-        transitions.size.toInt32()
+        Int32(transitions.size)
     }
 }
 
@@ -234,7 +234,7 @@ public struct StateMachineBuilder {
      * 添加状态
      */
     public mut func addState(state: StateNode): Unit {
-        states.put(state.id, state)
+        states.add(state.id, state)
     }
     
     /**
@@ -257,7 +257,7 @@ public struct StateMachineBuilder {
      * 添加元数据
      */
     public mut func addMeta(key: String, value: String): Unit {
-        metadata.put(key, value)
+        metadata.add(key, value)
     }
     
     /**

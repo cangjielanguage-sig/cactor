@@ -30,19 +30,17 @@ public struct PatternTransitionEngine {
     private mut func buildTransitionCache(): Unit {
         for (transition in machineDefinition.transitions) {
             let key = "${transition.sourceStateId}:${transition.eventType}"
-            
-            match (transitionCache.get(key)) {
-                case Some(existingTransitions) => {
-                    let updatedTransitions = ArrayList<TransitionDefinition>()
-                    for (t in existingTransitions) {
-                        updatedTransitions.add(t)
-                    }
-                    updatedTransitions.add(transition)
-                    transitionCache.put(key, updatedTransitions.toArray())
+
+            if (transitionCache.contains(key)) {
+                let existingTransitions = transitionCache.get(key).getOrThrow()
+                let updatedTransitions = ArrayList<TransitionDefinition>()
+                for (t in existingTransitions) {
+                    updatedTransitions.add(t)
                 }
-                case None => {
-                    transitionCache.put(key, [transition])
-                }
+                updatedTransitions.add(transition)
+                transitionCache.add(key, updatedTransitions.toArray())
+            } else {
+                transitionCache.add(key, [transition])
             }
         }
     }
@@ -185,17 +183,16 @@ public struct PatternTransitionEngine {
      * 执行退出动作
      */
     private func executeExitActions(stateId: String): Unit {
-        match (machineDefinition.getState(stateId)) {
-            case Some(state) => {
-                if (state.hasExitActions()) {
-                    for (action in state.onExit) {
-                        println("执行退出动作: ${action}")
-                    }
+        let stateOption = machineDefinition.getState(stateId)
+        if (stateOption.isSome()) {
+            let state = stateOption.getOrThrow()
+            if (state.hasExitActions()) {
+                for (action in state.onExit) {
+                    println("执行退出动作: ${action}")
                 }
             }
-            case None => {
-                println("警告: 状态'${stateId}'不存在")
-            }
+        } else {
+            println("警告: 状态'${stateId}'不存在")
         }
     }
     
@@ -214,17 +211,16 @@ public struct PatternTransitionEngine {
      * 执行进入动作
      */
     private func executeEntryActions(stateId: String): Unit {
-        match (machineDefinition.getState(stateId)) {
-            case Some(state) => {
-                if (state.hasEntryActions()) {
-                    for (action in state.onEntry) {
-                        println("执行进入动作: ${action}")
-                    }
+        let stateOption = machineDefinition.getState(stateId)
+        if (stateOption.isSome()) {
+            let state = stateOption.getOrThrow()
+            if (state.hasEntryActions()) {
+                for (action in state.onEntry) {
+                    println("执行进入动作: ${action}")
                 }
             }
-            case None => {
-                println("警告: 状态'${stateId}'不存在")
-            }
+        } else {
+            println("警告: 状态'${stateId}'不存在")
         }
     }
     
@@ -250,8 +246,8 @@ public struct PatternTransitionEngine {
     public func getStatistics(): EngineStatistics {
         EngineStatistics(
             machineDefinition.getTransitionCount(),
-            transitionCache.size.toInt32(),
-            machineDefinition.getStateIds().size.toInt32()
+            Int32(transitionCache.size),
+            Int32(machineDefinition.getStateIds().size)
         )
     }
 }
@@ -367,6 +363,6 @@ public struct EngineStatistics {
         if (transitionCount == 0) {
             return 0.0
         }
-        return cacheSize.toFloat64() / transitionCount.toFloat64()
+        return Float64(cacheSize) / Float64(transitionCount)
     }
 }

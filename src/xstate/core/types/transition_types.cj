@@ -205,7 +205,7 @@ public struct TransitionBuilder {
      * 添加元数据
      */
     public mut func withMeta(key: String, value: String): Unit {
-        metadata.put(key, value)
+        metadata.add(key, value)
     }
     
     /**

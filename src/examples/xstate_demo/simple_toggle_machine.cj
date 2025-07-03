@@ -7,11 +7,9 @@ package cactor.examples.xstate_demo
 
 import std.collection.*
 import std.time.*
-import cactor.api.{CActor, CActorSystem}
 import cactor.xstate.core.types.{StateMachineState, StateMachineEvent}
 import cactor.xstate.core.machine.{StateMachineDefinition, StateMachineBuilder, StateNode}
 import cactor.xstate.core.types.{TransitionDefinition, TransitionBuilder}
-import cactor.xstate.core.actor.{StateMachineActor, StateMachineActorFactory, StateMachineMessage}
 import cactor.xstate.core.engine.{PatternTransitionEngine}
 
 /**
@@ -197,11 +195,11 @@ public struct SimpleToggleMachineFactory {
     }
     
     /**
-     * 创建状态机Actor
+     * 创建转换引擎
      */
-    public static func createActor(system: CActorSystem): CActorRef {
+    public static func createEngine(): PatternTransitionEngine {
         let machineDefinition = create()
-        return StateMachineActorFactory.create(system, machineDefinition, "toggle-machine")
+        return PatternTransitionEngine(machineDefinition)
     }
     
     /**
@@ -275,9 +273,9 @@ public struct ToggleMachineDemo {
             println("\n🔄 基本状态转换演示:")
             SimpleToggleMachineFactory.demonstrateTransition()
             
-            // 演示Actor系统集成
-            println("\n🎬 Actor系统集成演示:")
-            demonstrateActorIntegration()
+            // 演示转换引擎集成
+            println("\n🎬 转换引擎集成演示:")
+            demonstrateEngineIntegration()
             
             println("\n✅ 演示完成!")
             
@@ -287,40 +285,38 @@ public struct ToggleMachineDemo {
     }
     
     /**
-     * 演示Actor系统集成
+     * 演示转换引擎集成
      */
-    private static func demonstrateActorIntegration(): Unit {
+    private static func demonstrateEngineIntegration(): Unit {
         try {
-            // 创建Actor系统
-            let system = CActor.system("xstate-demo")
-            println("   ✅ Actor系统已创建: ${system.name}")
-            
-            // 创建状态机Actor
-            let stateMachineActor = SimpleToggleMachineFactory.createActor(system)
-            println("   ✅ 状态机Actor已创建")
-            
-            // 模拟发送事件（简化演示）
-            println("   📤 模拟发送Toggle事件...")
+            // 创建转换引擎
+            let engine = SimpleToggleMachineFactory.createEngine()
+            println("   ✅ 转换引擎已创建")
+
+            // 获取引擎统计信息
+            let stats = engine.getStatistics()
+            println("   📊 引擎统计: 转换数=${stats.transitionCount}, 状态数=${stats.stateCount}")
+
+            // 模拟状态转换
+            println("   🔄 模拟状态转换...")
             let toggleEvent = ToggleEvent.Toggle
-            let message = StateMachineMessage.ProcessEvent(toggleEvent)
-            
             println("   📨 事件类型: ${toggleEvent.getEventType()}")
-            println("   📨 消息类型: ${message.messageType()}")
-            
-            // 注意：实际的消息发送需要完整的Actor系统支持
-            println("   ℹ️  实际消息发送需要完整的Actor系统运行时支持")
-            
-            println("   ✅ Actor集成演示完成")
-            
+
+            // 处理转换
+            let result = engine.processTransition("inactive", toggleEvent)
+
+            if (result.isSuccess()) {
+                println("   ✅ 转换成功: inactive -> ${result.targetStateId}")
+                println("   ⏱  执行时间: ${result.executionTime}ns")
+            } else {
+                println("   ❌ 转换失败: ${result.errorMessage}")
+            }
+
+            println("   ✅ 转换引擎集成演示完成")
+
         } catch (e: Exception) {
-            println("   ❌ Actor集成演示失败: ${e.message}")
+            println("   ❌ 转换引擎集成演示失败: ${e.message}")
         }
     }
 }
 
-/**
- * 主函数 - 运行演示
- */
-main(): Unit {
-    ToggleMachineDemo.run()
-}
