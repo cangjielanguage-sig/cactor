@@ -162,6 +162,11 @@ output-type = "executable"
 
 [package.package-configuration."cactor.examples.persistence_demo"]
 output-type = "executable"
+
+[package.package-configuration."cactor.examples.streams_demo"]
+output-type = "executable"
+
+
 # === Macros Package ===
 [package.package-configuration."cactor.macros"]
 output-type = "dynamic"
