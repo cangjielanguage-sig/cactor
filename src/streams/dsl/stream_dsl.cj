@@ -18,7 +18,7 @@ import std.time.*
 import std.sync.*
 import cactor.core.actor.{ActorRef}
 import cactor.api.{CActorSystem}
-import cactor.streams.core.{NotUsed, Materializer, MaterializerSettings}
+import cactor.streams.core.{NotUsed, Materializer, MaterializerSettings, Materialized}
 
 /**
  * 流源DSL - 高内聚的数据源抽象
@@ -155,10 +155,18 @@ public class StreamSource<T> {
     }
 
     /**
-     * 运行流并返回结果
+     * 运行流并返回结果 - 简化版本
      */
     public func runWith<R>(sink: StreamSink<T, R>): R {
         to(sink).run()
+    }
+
+    /**
+     * 使用物化器运行流并返回结果
+     */
+    public func runWithMaterializer<R>(sink: StreamSink<T, R>, materializer: SimpleMaterializer): R {
+        let graph = to(sink)
+        materializer.materializeAndRun(graph)
     }
     
     // 访问器方法
@@ -264,23 +272,54 @@ public class StreamSink<T, R> {
 
 /**
  * 流图DSL - 高内聚的流图执行抽象
- * 职责：管理完整流图的执行和结果
+ * 职责：管理完整流图的执行和结果，支持物化器
  */
 public class StreamGraph<T, R> {
     private let source: StreamSource<T>
     private let sink: StreamSink<T, R>
+    private let graphId: String
 
     public init(source: StreamSource<T>, sink: StreamSink<T, R>) {
         this.source = source
         this.sink = sink
+        this.graphId = "${source.getSourceId()}->${sink.getSinkId()}"
     }
 
     /**
-     * 运行流图
+     * 运行流图 - 简化版本，直接执行
      */
     public func run(): R {
-        println("运行流图: ${source.getSourceId()} -> ${sink.getSinkId()}")
-        sink.process(source.getElements())
+        println("运行流图: ${graphId}")
+
+        // 记录开始时间用于性能监控
+        let startTime = DateTime.now()
+
+        try {
+            // 执行流处理
+            let result = sink.process(source.getElements())
+
+            // 记录处理时间
+            let endTime = DateTime.now()
+            let processingTime = Duration.nanosecond * (endTime.toUnixTimeStamp().toNanoseconds() - startTime.toUnixTimeStamp().toNanoseconds())
+
+            println("流图执行完成，处理时间: ${processingTime.toNanoseconds()} ns")
+            return result
+
+        } catch (e: Exception) {
+            println("流图执行失败: ${e.message}")
+            throw e
+        }
+    }
+
+    /**
+     * 使用物化器运行流图
+     */
+    public func runWith(materializer: Materializer): R {
+        println("使用物化器运行流图: ${graphId}")
+
+        // 简化实现：暂时直接调用run()
+        // 在完整实现中，这里会通过物化器创建Actor网络
+        return run()
     }
 
     /**
@@ -293,6 +332,21 @@ public class StreamGraph<T, R> {
         )
         StreamGraph<T, R2>(source, mappedSink)
     }
+
+    /**
+     * 获取流图标识
+     */
+    public func getGraphId(): String { graphId }
+
+    /**
+     * 获取源信息
+     */
+    public func getSource(): StreamSource<T> { source }
+
+    /**
+     * 获取汇聚信息
+     */
+    public func getSink(): StreamSink<T, R> { sink }
 }
 
 /**
@@ -768,5 +822,59 @@ public class AdvancedFlowFactory {
     public static func throttle<T>(source: StreamSource<T>, elementsPerSecond: Int64): StreamSource<T> {
         // 简化实现：直接返回原始流（实际应用中会有真正的限流）
         StreamSource<T>(source.getElements(), "${source.getSourceId()}.throttle(${elementsPerSecond}/s)")
+    }
+}
+
+/**
+ * 简化的物化器实现 - 基于现有架构的物化器
+ * 职责：提供流图的物化和执行能力，暂时简化实现
+ */
+public class SimpleMaterializer {
+    private let actorSystem: CActorSystem
+    private let settings: MaterializerSettings
+    private var isShutdownFlag: Bool
+
+    public init(actorSystem: CActorSystem) {
+        this.actorSystem = actorSystem
+        this.settings = MaterializerSettings()
+        this.isShutdownFlag = false
+    }
+
+    public func getActorSystem(): CActorSystem { actorSystem }
+
+    public func getSettings(): MaterializerSettings { settings }
+
+
+
+    public func shutdown(): Unit {
+        if (!isShutdownFlag) {
+            println("关闭SimpleMaterializer")
+            isShutdownFlag = true
+        }
+    }
+
+    /**
+     * 检查是否已关闭
+     */
+    public func isShutdown(): Bool { isShutdownFlag }
+
+    /**
+     * 物化并运行流图 - 扩展方法
+     */
+    public func materializeAndRun<T, R>(graph: StreamGraph<T, R>): R {
+        if (isShutdownFlag) {
+            throw Exception("物化器已关闭")
+        }
+
+        println("物化并运行流图: ${graph.getGraphId()}")
+
+        // 在真实实现中，这里会：
+        // 1. 分析流图结构
+        // 2. 创建对应的Actor网络
+        // 3. 启动流处理
+        // 4. 处理背压和错误
+
+        // 简化实现：直接调用流图的run方法
+        return graph.run()
     }
 }

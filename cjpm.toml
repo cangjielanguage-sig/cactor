@@ -4,7 +4,7 @@ version = "7.0.0"
 description = "High-performance Actor system for Cangjie - CActor 7.0 with 6-layer architecture"
 cjc-version = "0.60.5"
 output-type = "dynamic"
-compile-option = "-Woff unused --diagnostic-format=noColor"
+compile-option = "-Woff unused -Woff parser --diagnostic-format=noColor"
 
 
 # === Foundation Layer ===
@@ -170,6 +170,9 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor.examples.streams_advanced_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.streams_unified_demo"]
 output-type = "executable"
 
 

@@ -278,6 +278,26 @@ public struct StreamStats {
         this.backpressureEvents = 0
         this.errorCount = 0
     }
+
+    public init(
+        elementsProcessed: Int64,
+        elementsDropped: Int64,
+        averageProcessingTime: Duration,
+        maxProcessingTime: Duration,
+        minProcessingTime: Duration,
+        throughputPerSecond: Float64,
+        backpressureEvents: Int64,
+        errorCount: Int64
+    ) {
+        this.elementsProcessed = elementsProcessed
+        this.elementsDropped = elementsDropped
+        this.averageProcessingTime = averageProcessingTime
+        this.maxProcessingTime = maxProcessingTime
+        this.minProcessingTime = minProcessingTime
+        this.throughputPerSecond = throughputPerSecond
+        this.backpressureEvents = backpressureEvents
+        this.errorCount = errorCount
+    }
     
     public func toString(): String {
         "StreamStats(processed=${elementsProcessed}, dropped=${elementsDropped}, " +
@@ -381,24 +401,33 @@ public class SimpleStreamMonitor <: StreamMonitor {
     
     public func getStats(): StreamStats {
         mutex.lock()
-        
-        let elapsedTime = DateTime.now().toUnixTimeStamp().toNanoseconds() - startTime.toUnixTimeStamp().toNanoseconds()
-        let elapsedSeconds = 1.0f64  // 简化实现
 
-        let throughput = if (elapsedSeconds > 0.0f64) {
-            1000.0f64  // 简化实现
+        let elapsedTime = DateTime.now().toUnixTimeStamp().toNanoseconds() - startTime.toUnixTimeStamp().toNanoseconds()
+        let elapsedSeconds = Float64(elapsedTime) / 1000000000.0
+
+        let throughput = if (elapsedSeconds > 0.0) {
+            Float64(elementsProcessed) / elapsedSeconds
         } else {
-            0.0f64
+            0.0
         }
-        
+
         let avgProcessingTime = if (elementsProcessed > 0) {
             Duration.nanosecond * (totalProcessingTime.toNanoseconds() / elementsProcessed)
         } else {
             Duration.nanosecond * 0
         }
-        
-        let result = StreamStats()
-        // 简化实现：返回基础统计信息
+
+        let result = StreamStats(
+            elementsProcessed,
+            elementsDropped,
+            avgProcessingTime,
+            maxProcessingTime,
+            minProcessingTime,
+            throughput,
+            backpressureEvents,
+            errorCount
+        )
+
         mutex.unlock()
         result
     }
