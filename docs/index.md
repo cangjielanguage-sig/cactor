@@ -8,17 +8,22 @@
 
 CActor提供中文和英文两种语言的完整文档：
 
+#### 核心文档 (Core Documentation)
+- [快速开始](QUICK_START.md) - 5分钟上手CActor
+- [功能特性](FEATURES.md) - 完整的功能特性详解
+- [项目状态](../PROJECT_STATUS.md) - 当前项目状态总结
+
 #### 中文文档 (Chinese Documentation)
 - [项目概述](zh/README.md) - CActor项目的完整介绍
-- [架构设计](zh/architecture.md) - 详细的6层架构设计文档
+- [架构设计](zh/architecture.md) - 详细的7层架构设计文档
 - [API参考](zh/api-reference.md) - 完整的API使用指南
-- [性能优化](zh/performance.md) - 优先性能优化指南
+- [性能优化](zh/performance.md) - 世界级性能优化指南
 - [包结构](zh/package-structure.md) - 详细的包结构设计
 - [未来规划](zh/roadmap.md) - 项目发展路线图
 
 #### English Documentation
 - [Project Overview](en/README.md) - Complete introduction to CActor project
-- [Architecture Design](en/architecture.md) - Detailed 6-layer architecture documentation
+- [Architecture Design](en/architecture.md) - Detailed 7-layer architecture documentation
 - [API Reference](en/api-reference.md) - Complete API usage guide
 - [Performance Optimization](en/performance.md) - World-class performance optimization guide
 - [Package Structure](en/package-structure.md) - Detailed package structure design
@@ -26,19 +31,21 @@ CActor提供中文和英文两种语言的完整文档：
 
 ## 🎯 快速导航
 
-### 新手入门
-1. **[项目概述](zh/README.md)** - 了解CActor是什么，为什么选择CActor
-2. **[快速开始](zh/README.md#📦-快速开始)** - 5分钟上手CActor
-3. **[API参考](zh/api-reference.md)** - 学习CActor的核心API
+### 🚀 新手入门
+1. **[快速开始](QUICK_START.md)** - 5分钟上手CActor，包含完整示例
+2. **[功能特性](FEATURES.md)** - 了解CActor的所有功能特性
+3. **[项目概述](zh/README.md)** - 了解CActor是什么，为什么选择CActor
 
-### 深入理解
-1. **[架构设计](zh/architecture.md)** - 理解CActor的6层架构设计
-2. **[包结构](zh/package-structure.md)** - 了解代码组织结构
-3. **[性能优化](zh/performance.md)** - 掌握性能优化技巧
+### 🏗️ 深入理解
+1. **[架构设计](zh/architecture.md)** - 理解CActor的7层架构设计
+2. **[API参考](zh/api-reference.md)** - 学习CActor的核心API
+3. **[包结构](zh/package-structure.md)** - 了解代码组织结构
+4. **[性能优化](zh/performance.md)** - 掌握性能优化技巧
 
-### 项目规划
-1. **[未来规划](zh/roadmap.md)** - 了解CActor的发展方向
-2. **[贡献指南](../CONTRIBUTING.md)** - 参与CActor开发
+### 📋 项目信息
+1. **[项目状态](../PROJECT_STATUS.md)** - 当前项目状态和完成度
+2. **[未来规划](zh/roadmap.md)** - 了解CActor的发展方向
+3. **[贡献指南](../CONTRIBUTING.md)** - 参与CActor开发
 
 ## 🏆 CActor 亮点 (v1.1.0)
 
