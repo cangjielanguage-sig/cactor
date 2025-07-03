@@ -186,6 +186,48 @@ output-type = "dynamic"
 [package.package-configuration."cactor.integration.testing.simple_realistic_benchmark"]
 output-type = "executable"
 
+# === XState Layer - 基于仓颉语言特性的状态机系统 ===
+
+# XState核心类型系统
+[package.package-configuration."cactor.xstate.core.types"]
+output-type = "static"
+
+# XState状态机定义
+[package.package-configuration."cactor.xstate.core.machine"]
+output-type = "static"
+
+# XState转换引擎
+[package.package-configuration."cactor.xstate.core.engine"]
+output-type = "static"
+
+# XState状态机Actor
+[package.package-configuration."cactor.xstate.core.actor"]
+output-type = "dynamic"
+
+# XState语言特性 - 泛型支持
+[package.package-configuration."cactor.xstate.lang.generics"]
+output-type = "static"
+
+# XState语言特性 - 模式匹配
+[package.package-configuration."cactor.xstate.lang.pattern_matching"]
+output-type = "static"
+
+# XState语言特性 - 宏系统
+[package.package-configuration."cactor.xstate.lang.macros"]
+output-type = "static"
+
+# XState语言特性 - 并发原语
+[package.package-configuration."cactor.xstate.lang.concurrency"]
+output-type = "static"
+
+# XState示例 - 简单切换状态机演示
+[package.package-configuration."cactor.examples.xstate_demo.simple_toggle_machine"]
+output-type = "executable"
+
+# XState功能验证
+[package.package-configuration."cactor.examples.xstate_demo.xstate_validation"]
+output-type = "executable"
+
 [target.aarch64-apple-darwin]
     compile-option = "--cfg \"ohos=false\""
     [target.aarch64-apple-darwin.bin-dependencies]
