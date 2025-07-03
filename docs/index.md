@@ -13,6 +13,14 @@ CActor提供中文和英文两种语言的完整文档：
 - [功能特性](FEATURES.md) - 完整的功能特性详解
 - [项目状态](../PROJECT_STATUS.md) - 当前项目状态总结
 
+#### 运维文档 (Operations Documentation)
+- [部署指南](DEPLOYMENT.md) - 完整的部署和运维指南
+- [故障排除](TROUBLESHOOTING.md) - 常见问题诊断和解决
+- [监控日志](MONITORING.md) - 监控、日志和告警系统
+- [安全指南](SECURITY.md) - 多层安全防护机制
+- [迁移指南](MIGRATION.md) - 从其他系统迁移到CActor
+- [最佳实践](BEST_PRACTICES.md) - 开发和部署最佳实践
+
 #### 中文文档 (Chinese Documentation)
 - [项目概述](zh/README.md) - CActor项目的完整介绍
 - [架构设计](zh/architecture.md) - 详细的7层架构设计文档
@@ -42,10 +50,21 @@ CActor提供中文和英文两种语言的完整文档：
 3. **[包结构](zh/package-structure.md)** - 了解代码组织结构
 4. **[性能优化](zh/performance.md)** - 掌握性能优化技巧
 
+### 🚀 运维部署
+1. **[部署指南](DEPLOYMENT.md)** - 单机到集群的完整部署方案
+2. **[监控日志](MONITORING.md)** - 全面的监控和日志系统
+3. **[故障排除](TROUBLESHOOTING.md)** - 快速诊断和解决问题
+4. **[安全指南](SECURITY.md)** - 企业级安全防护
+
+### 🔄 迁移升级
+1. **[迁移指南](MIGRATION.md)** - 从其他系统平滑迁移
+2. **[最佳实践](BEST_PRACTICES.md)** - 开发和部署最佳实践
+3. **[项目状态](../PROJECT_STATUS.md)** - 当前项目状态和完成度
+
 ### 📋 项目信息
-1. **[项目状态](../PROJECT_STATUS.md)** - 当前项目状态和完成度
-2. **[未来规划](zh/roadmap.md)** - 了解CActor的发展方向
-3. **[贡献指南](../CONTRIBUTING.md)** - 参与CActor开发
+1. **[未来规划](zh/roadmap.md)** - 了解CActor的发展方向
+2. **[贡献指南](../CONTRIBUTING.md)** - 参与CActor开发
+3. **[文档结构](DOCUMENTATION_STRUCTURE.md)** - 文档体系说明
 
 ## 🏆 CActor 亮点 (v1.1.0)
 

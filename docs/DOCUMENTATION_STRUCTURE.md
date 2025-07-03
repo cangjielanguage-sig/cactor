@@ -20,6 +20,12 @@ cactor/
 │   ├── index.md                        # 文档导航中心
 │   ├── QUICK_START.md                  # 快速开始指南 ⭐
 │   ├── FEATURES.md                     # 功能特性详解 ⭐
+│   ├── DEPLOYMENT.md                   # 部署指南 ⭐
+│   ├── TROUBLESHOOTING.md              # 故障排除指南 ⭐
+│   ├── MONITORING.md                   # 监控和日志指南 ⭐
+│   ├── SECURITY.md                     # 安全指南 ⭐
+│   ├── MIGRATION.md                    # 迁移指南 ⭐
+│   ├── BEST_PRACTICES.md               # 最佳实践指南 ⭐
 │   ├── DOCUMENTATION_STRUCTURE.md      # 文档结构说明
 │   ├── zh/                             # 中文文档
 │   │   ├── README.md                   # 中文项目概述
@@ -72,6 +78,16 @@ cactor/
 - **api-reference.md** - API文档，开发必备
 - **performance.md** - 性能优化，高级技巧
 
+### 🚀 运维部署文档
+- **DEPLOYMENT.md** - 部署指南，从单机到集群
+- **MONITORING.md** - 监控日志，全面监控体系
+- **TROUBLESHOOTING.md** - 故障排除，快速诊断解决
+- **SECURITY.md** - 安全指南，多层安全防护
+
+### 🔄 迁移升级文档
+- **MIGRATION.md** - 迁移指南，平滑迁移升级
+- **BEST_PRACTICES.md** - 最佳实践，开发部署指南
+
 ### 📊 项目管理文档
 - **PROJECT_STATUS.md** - 项目状态，完成度追踪
 - **plan20.md** - 战略规划，发展方向
@@ -110,14 +126,23 @@ cactor/
 - **想深入架构** → [zh/architecture.md](zh/architecture.md)
 - **想查看API** → [zh/api-reference.md](zh/api-reference.md)
 - **想优化性能** → [zh/performance.md](zh/performance.md)
+- **想部署系统** → [DEPLOYMENT.md](DEPLOYMENT.md)
+- **想监控系统** → [MONITORING.md](MONITORING.md)
+- **想解决问题** → [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- **想保障安全** → [SECURITY.md](SECURITY.md)
+- **想迁移系统** → [MIGRATION.md](MIGRATION.md)
+- **想学习实践** → [BEST_PRACTICES.md](BEST_PRACTICES.md)
 - **想了解进度** → [PROJECT_STATUS.md](../PROJECT_STATUS.md)
 
 ### 按角色查找
 - **新用户** → README.md + QUICK_START.md
-- **开发者** → FEATURES.md + api-reference.md
-- **架构师** → architecture.md + performance.md
+- **开发者** → FEATURES.md + api-reference.md + BEST_PRACTICES.md
+- **架构师** → architecture.md + performance.md + SECURITY.md
+- **运维工程师** → DEPLOYMENT.md + MONITORING.md + TROUBLESHOOTING.md
 - **项目经理** → PROJECT_STATUS.md + plan20.md
 - **贡献者** → CONTRIBUTING.md + package-structure.md
+- **安全专家** → SECURITY.md + BEST_PRACTICES.md
+- **迁移团队** → MIGRATION.md + DEPLOYMENT.md
 
 ### 按语言查找
 - **中文用户** → docs/zh/ 目录下的所有文档
