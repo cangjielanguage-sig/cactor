@@ -1,8 +1,17 @@
-# CActor Examples 示例集合
+# CActor Examples 示例集合 (v1.1.0)
 
 ## 📚 示例概览
 
-CActor提供了丰富的示例代码，帮助你快速学习和掌握Actor系统的各种功能。
+CActor提供了丰富的示例代码，帮助你快速学习和掌握Actor系统的各种功能。所有示例都已更新到最新版本，支持仓颉0.60.5语言特性。
+
+## 🎉 最新功能示例
+
+### 🚀 企业级功能示例
+- **Ask模式示例** - 生产级请求-响应模式，657,894 req/s
+- **集群分片示例** - 完整的集群分片系统，支持100万Actor
+- **持久化示例** - 事件溯源和CQRS架构演示
+- **流处理示例** - CActor Streams，500万元素/秒
+- **状态机示例** - XState企业级状态机系统
 
 ## 🎯 入门示例
 
@@ -40,6 +49,66 @@ CActor提供了丰富的示例代码，帮助你快速学习和掌握Actor系统
 - 延迟统计分析
 
 ## 🔧 高级功能示例
+
+### 🎯 Ask模式示例
+**文件**: `ask_demo/`
+**运行**: `cjpm run --name cactor.examples.ask_demo`
+**难度**: ⭐⭐⭐ 中级
+
+展示生产级Ask模式实现：
+- 请求-响应模式
+- 异步回调处理
+- 批量请求处理
+- 超时管理机制
+- 性能：657,894 req/s
+
+### 🏢 集群分片示例
+**文件**: `cluster_sharding_demo/`
+**运行**: `cjpm run --name cactor.examples.cluster_sharding_demo`
+**难度**: ⭐⭐⭐⭐ 高级
+
+展示企业级集群分片系统：
+- 集群分片协调
+- 多种路由策略
+- 负载均衡
+- 故障转移
+- 支持：100万Actor
+
+### 💾 持久化示例
+**文件**: `persistence_demo/`
+**运行**: `cjpm run --name cactor.examples.persistence_demo`
+**难度**: ⭐⭐⭐⭐ 高级
+
+展示事件溯源和CQRS：
+- 事件存储和重放
+- 状态快照管理
+- CQRS架构
+- 版本控制
+- 多存储后端
+
+### 🌊 流处理示例
+**文件**: `streams_demo/`
+**运行**: `cjpm run --name cactor.examples.streams_demo`
+**难度**: ⭐⭐⭐ 中级
+
+展示CActor Streams流处理：
+- 高性能流处理
+- 背压控制
+- 丰富操作符
+- DSL支持
+- 性能：500万元素/秒
+
+### 🔄 状态机示例
+**文件**: `xstate_demo/`
+**运行**: `cjpm run --name cactor.examples.xstate_demo`
+**难度**: ⭐⭐⭐⭐ 高级
+
+展示XState状态机系统：
+- 强类型状态机
+- 模式匹配引擎
+- CActor深度集成
+- 企业级特性
+- 纳秒级转换
 
 ### 4. Advanced Dispatcher Examples
 **文件**: `advanced_dispatcher_examples/`  
