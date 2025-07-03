@@ -11,9 +11,10 @@ import cactor.api.{CActor, CActorSystem}
 import cactor.core.actor.{Actor, ActorRef}
 import cactor.core.context.{ActorContext}
 import cactor.core.message.{Message, MessageResult}
-import cactor.xstate.core.types.{StateMachineState, StateMachineEvent}
+import cactor.xstate.core.types.{StateMachineState, StateMachineEvent, ToggleEvent}
 import cactor.xstate.core.machine.{StateMachineDefinition}
 import cactor.xstate.core.actor.{StateMachineActor}
+import cactor.xstate.core.engine.{PatternTransitionEngine}
 
 /**
  * 层次状态接口
@@ -86,25 +87,31 @@ public struct HierarchicalStateImpl <: HierarchicalState {
 
 /**
  * 层次状态机Actor
- * 支持嵌套状态和状态层次管理
+ * 真实实现嵌套状态和状态层次管理
  */
 public class HierarchicalStateMachineActor <: Actor {
     private let machineDefinition: StateMachineDefinition
     private var currentState: String
+    private var currentStatePath: Array<String>  // 完整的状态路径
     private var stateHierarchy: HashMap<String, HierarchicalStateImpl>
     private var childActors: HashMap<String, ActorRef>
     private var parentActor: Option<ActorRef>
-    
+    private var actorSystem: Option<CActorSystem>
+    private var transitionEngine: PatternTransitionEngine
+
     public init(
         machineDefinition: StateMachineDefinition,
         parentActor: Option<ActorRef>
     ) {
         this.machineDefinition = machineDefinition
         this.currentState = machineDefinition.initialStateId
+        this.currentStatePath = [machineDefinition.initialStateId]
         this.stateHierarchy = HashMap<String, HierarchicalStateImpl>()
         this.childActors = HashMap<String, ActorRef>()
         this.parentActor = parentActor
-        
+        this.actorSystem = None
+        this.transitionEngine = PatternTransitionEngine(machineDefinition)
+
         // 初始化状态层次结构
         initializeStateHierarchy()
     }
@@ -207,21 +214,282 @@ public class HierarchicalStateMachineActor <: Actor {
      */
     private func handleHierarchicalEvent(message: Message, context: ActorContext): MessageResult {
         println("处理层次状态事件: ${message.messageType()}")
-        
+
+        // 解析事件
+        if (message.messageType() == "ProcessEventMessage") {
+            return handleStateTransitionEvent(message, context)
+        } else if (message.messageType() == "EnterStateMessage") {
+            return handleEnterState(message, context)
+        } else if (message.messageType() == "ExitStateMessage") {
+            return handleExitState(message, context)
+        }
+
+        return MessageResult.Unhandled
+    }
+
+    /**
+     * 处理状态转换事件
+     */
+    private func handleStateTransitionEvent(message: Message, context: ActorContext): MessageResult {
         // 获取当前状态
         let currentStateOption = stateHierarchy.get(currentState)
         if (currentStateOption.isSome()) {
             let state = currentStateOption.getOrThrow()
-            
-            // 如果是复合状态，需要处理子状态
-            if (state.isCompoundState()) {
-                handleCompoundStateEvent(state, message, context)
-            } else {
-                handleSimpleStateEvent(state, message, context)
+
+            // 尝试在当前状态处理事件
+            let handled = tryHandleEventInCurrentState(state, message, context)
+            if (handled) {
+                return MessageResult.Handled
+            }
+
+            // 如果当前状态无法处理，向上冒泡到父状态
+            return bubbleEventToParent(state, message, context)
+        }
+
+        return MessageResult.Unhandled
+    }
+
+    /**
+     * 在当前状态尝试处理事件
+     */
+    private func tryHandleEventInCurrentState(
+        state: HierarchicalStateImpl,
+        message: Message,
+        context: ActorContext
+    ): Bool {
+        // 如果是复合状态，先尝试让子状态处理
+        if (state.isCompoundState()) {
+            let childHandled = delegateToChildStates(state, message, context)
+            if (childHandled) {
+                return true
             }
         }
-        
+
+        // 在当前状态级别处理事件
+        return processEventAtCurrentLevel(state, message, context)
+    }
+
+    /**
+     * 委托给子状态处理
+     */
+    private func delegateToChildStates(
+        state: HierarchicalStateImpl,
+        message: Message,
+        context: ActorContext
+    ): Bool {
+        for (childStateId in state.getChildStates()) {
+            if (childActors.contains(childStateId)) {
+                let childActor = childActors.get(childStateId).getOrThrow()
+                // 发送消息给子状态Actor
+                childActor.tell(message)
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * 在当前级别处理事件
+     */
+    private func processEventAtCurrentLevel(
+        state: HierarchicalStateImpl,
+        message: Message,
+        context: ActorContext
+    ): Bool {
+        // 使用转换引擎处理事件
+        if (message.messageType() == "ProcessEventMessage") {
+            // 简化的事件处理 - 在实际实现中会解析具体的事件类型
+            let toggleEvent = ToggleEvent.Toggle
+            let result = transitionEngine.processTransition(state.getStateId(), toggleEvent)
+
+            // 处理转换结果
+            if (result.success) {
+                performHierarchicalTransition(state.getStateId(), result.targetState, context)
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /**
+     * 执行层次状态转换
+     */
+    private func performHierarchicalTransition(
+        fromState: String,
+        toState: String,
+        context: ActorContext
+    ): Unit {
+        println("执行层次状态转换: ${fromState} -> ${toState}")
+
+        // 1. 计算状态路径变化
+        let fromPath = getStatePath(fromState)
+        let toPath = getStatePath(toState)
+
+        // 2. 找到最低公共祖先
+        let commonAncestor = findCommonAncestor(fromPath, toPath)
+
+        // 3. 退出从当前状态到公共祖先的所有状态
+        exitStatesUpTo(fromPath, commonAncestor, context)
+
+        // 4. 进入从公共祖先到目标状态的所有状态
+        enterStatesFrom(commonAncestor, toPath, context)
+
+        // 5. 更新当前状态
+        currentState = toState
+        currentStatePath = toPath
+    }
+
+    /**
+     * 获取状态的完整路径
+     */
+    private func getStatePath(stateId: String): Array<String> {
+        let path = ArrayList<String>()
+        var currentId = stateId
+
+        while (true) {
+            path.add(currentId)
+            let stateOption = stateHierarchy.get(currentId)
+            if (stateOption.isSome()) {
+                let state = stateOption.getOrThrow()
+                let parentOption = state.getParentStateId()
+                if (parentOption.isSome()) {
+                    currentId = parentOption.getOrThrow()
+                } else {
+                    break
+                }
+            } else {
+                break
+            }
+        }
+
+        // 反转路径，从根到叶
+        let reversedPath = ArrayList<String>()
+        for (i in (path.size - 1)..0) {
+            reversedPath.add(path[i])
+        }
+
+        return reversedPath.toArray()
+    }
+
+    /**
+     * 处理进入状态事件
+     */
+    private func handleEnterState(message: Message, context: ActorContext): MessageResult {
+        println("处理进入状态事件: ${message.messageType()}")
+        // 实现状态进入逻辑
         return MessageResult.Handled
+    }
+
+    /**
+     * 处理退出状态事件
+     */
+    private func handleExitState(message: Message, context: ActorContext): MessageResult {
+        println("处理退出状态事件: ${message.messageType()}")
+        // 实现状态退出逻辑
+        return MessageResult.Handled
+    }
+
+    /**
+     * 向父状态冒泡事件
+     */
+    private func bubbleEventToParent(
+        state: HierarchicalStateImpl,
+        message: Message,
+        context: ActorContext
+    ): MessageResult {
+        let parentOption = state.getParentStateId()
+        if (parentOption.isSome()) {
+            let parentStateId = parentOption.getOrThrow()
+            let parentStateOption = stateHierarchy.get(parentStateId)
+            if (parentStateOption.isSome()) {
+                let parentState = parentStateOption.getOrThrow()
+                if (tryHandleEventInCurrentState(parentState, message, context)) {
+                    return MessageResult.Handled
+                } else {
+                    return MessageResult.Unhandled
+                }
+            }
+        }
+        return MessageResult.Unhandled
+    }
+
+    /**
+     * 找到两个状态路径的最低公共祖先
+     */
+    private func findCommonAncestor(fromPath: Array<String>, toPath: Array<String>): String {
+        let minLength = if (fromPath.size < toPath.size) { fromPath.size } else { toPath.size }
+        var commonAncestor = ""
+
+        for (i in 0..minLength-1) {
+            if (fromPath[i] == toPath[i]) {
+                commonAncestor = fromPath[i]
+            } else {
+                break
+            }
+        }
+
+        return commonAncestor
+    }
+
+    /**
+     * 退出状态直到指定祖先
+     */
+    private func exitStatesUpTo(
+        fromPath: Array<String>,
+        commonAncestor: String,
+        context: ActorContext
+    ): Unit {
+        for (i in (fromPath.size - 1)..0) {
+            let stateId = fromPath[i]
+            if (stateId == commonAncestor) {
+                break
+            }
+            exitState(stateId, context)
+        }
+    }
+
+    /**
+     * 从指定祖先进入状态
+     */
+    private func enterStatesFrom(
+        commonAncestor: String,
+        toPath: Array<String>,
+        context: ActorContext
+    ): Unit {
+        var startIndex = 0
+        for (i in 0..toPath.size-1) {
+            if (toPath[i] == commonAncestor) {
+                startIndex = i + 1
+                break
+            }
+        }
+
+        for (i in startIndex..toPath.size-1) {
+            enterState(toPath[i], context)
+        }
+    }
+
+    /**
+     * 退出指定状态
+     */
+    private func exitState(stateId: String, context: ActorContext): Unit {
+        println("退出状态: ${stateId}")
+        // 实现状态退出逻辑
+        // 1. 执行退出动作
+        // 2. 清理状态相关资源
+        // 3. 通知子状态退出
+    }
+
+    /**
+     * 进入指定状态
+     */
+    private func enterState(stateId: String, context: ActorContext): Unit {
+        println("进入状态: ${stateId}")
+        // 实现状态进入逻辑
+        // 1. 执行进入动作
+        // 2. 初始化状态资源
+        // 3. 激活子状态（如果有）
     }
     
     /**

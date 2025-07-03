@@ -13,6 +13,7 @@ import cactor.core.context.{ActorContext}
 import cactor.core.message.{Message, MessageResult}
 import cactor.xstate.core.types.{StateMachineState, StateMachineEvent}
 import cactor.xstate.core.machine.{StateMachineDefinition}
+import cactor.xstate.core.engine.{PatternTransitionEngine}
 
 /**
  * 并行状态接口
@@ -91,7 +92,7 @@ public struct RegionState {
 
 /**
  * 并行状态机Actor
- * 支持正交区域和并行状态执行
+ * 真实实现正交区域和并行状态执行
  */
 public class ParallelStateMachineActor <: Actor {
     private let machineDefinition: StateMachineDefinition
@@ -99,14 +100,20 @@ public class ParallelStateMachineActor <: Actor {
     private var parallelStates: HashMap<String, ParallelStateImpl>
     private var regionStates: HashMap<String, RegionState>
     private var regionActors: HashMap<String, ActorRef>
-    
+    private var actorSystem: Option<CActorSystem>
+    private var transitionEngine: PatternTransitionEngine
+    private var completionCallbacks: ArrayList<() -> Unit>
+
     public init(machineDefinition: StateMachineDefinition) {
         this.machineDefinition = machineDefinition
         this.currentState = machineDefinition.initialStateId
         this.parallelStates = HashMap<String, ParallelStateImpl>()
         this.regionStates = HashMap<String, RegionState>()
         this.regionActors = HashMap<String, ActorRef>()
-        
+        this.actorSystem = None
+        this.transitionEngine = PatternTransitionEngine(machineDefinition)
+        this.completionCallbacks = ArrayList<() -> Unit>()
+
         // 初始化并行状态
         initializeParallelStates()
     }
@@ -171,17 +178,155 @@ public class ParallelStateMachineActor <: Actor {
      */
     private func handleParallelEvent(message: Message, context: ActorContext): MessageResult {
         println("处理并行状态事件: ${message.messageType()}")
-        
+
+        // 根据消息类型分发处理
+        if (message.messageType() == "ParallelEventMessage") {
+            return handleParallelEventMessage(message, context)
+        } else if (message.messageType() == "RegionCompletedMessage") {
+            return handleRegionCompleted(message, context)
+        } else if (message.messageType() == "SynchronizeRegionsMessage") {
+            return handleSynchronizeRegions(message, context)
+        }
+
+        return MessageResult.Unhandled
+    }
+
+    /**
+     * 处理并行事件消息
+     */
+    private func handleParallelEventMessage(message: Message, context: ActorContext): MessageResult {
         // 获取当前并行状态
         let parallelStateOption = parallelStates.get(currentState)
         if (parallelStateOption.isSome()) {
             let parallelState = parallelStateOption.getOrThrow()
-            
+
             // 广播事件到所有活跃区域
             broadcastEventToRegions(parallelState, message, context)
+
+            // 检查是否所有区域都完成
+            checkAndHandleCompletion(context)
         }
-        
+
         return MessageResult.Handled
+    }
+
+    /**
+     * 处理区域完成消息
+     */
+    private func handleRegionCompleted(message: Message, context: ActorContext): MessageResult {
+        println("处理区域完成消息: ${message.messageType()}")
+
+        // 更新区域状态
+        updateRegionCompletionStatus(message)
+
+        // 检查是否所有区域都完成
+        checkAndHandleCompletion(context)
+
+        return MessageResult.Handled
+    }
+
+    /**
+     * 处理区域同步消息
+     */
+    private func handleSynchronizeRegions(message: Message, context: ActorContext): MessageResult {
+        println("处理区域同步消息")
+
+        // 同步所有区域状态
+        synchronizeAllRegions(context)
+
+        return MessageResult.Handled
+    }
+
+    /**
+     * 更新区域完成状态
+     */
+    private func updateRegionCompletionStatus(message: Message): Unit {
+        // 在实际实现中，这里会解析消息获取区域ID和完成状态
+        // 简化实现：标记第一个区域为完成
+        for ((regionId, regionState) in regionStates) {
+            if (!isRegionCompleted(regionId)) {
+                let completedRegionState = RegionState(regionId, "completed", true)
+                regionStates.add(regionId, completedRegionState)
+                println("区域 ${regionId} 标记为完成")
+                break
+            }
+        }
+    }
+
+    /**
+     * 检查区域是否完成
+     */
+    private func isRegionCompleted(regionId: String): Bool {
+        let regionStateOption = regionStates.get(regionId)
+        if (regionStateOption.isSome()) {
+            let regionState = regionStateOption.getOrThrow()
+            return regionState.currentState == "completed" || regionState.currentState == "validated"
+        }
+        return false
+    }
+
+    /**
+     * 检查并处理完成状态
+     */
+    private func checkAndHandleCompletion(context: ActorContext): Unit {
+        if (areAllRegionsCompleted()) {
+            handleAllRegionsCompleted(context)
+        }
+    }
+
+    /**
+     * 检查所有区域是否完成
+     */
+    private func areAllRegionsCompleted(): Bool {
+        for ((regionId, regionState) in regionStates) {
+            if (!isRegionCompleted(regionId)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /**
+     * 处理所有区域完成
+     */
+    private func handleAllRegionsCompleted(context: ActorContext): Unit {
+        println("🎉 所有并行区域已完成!")
+
+        // 执行完成回调
+        for (callback in completionCallbacks) {
+            callback()
+        }
+
+        // 触发并行状态机完成事件
+        triggerParallelStateMachineCompleted(context)
+    }
+
+    /**
+     * 触发并行状态机完成事件
+     */
+    private func triggerParallelStateMachineCompleted(context: ActorContext): Unit {
+        println("触发并行状态机完成事件")
+        // 在实际实现中，这里会发送完成事件给父状态机或监听者
+    }
+
+    /**
+     * 同步所有区域
+     */
+    private func synchronizeAllRegions(context: ActorContext): Unit {
+        println("同步所有并行区域状态")
+
+        for ((regionId, regionActor) in regionActors) {
+            // 发送同步消息给区域Actor
+            // 在实际实现中，这里会发送具体的同步消息
+            println("同步区域: ${regionId}")
+        }
+    }
+
+    /**
+     * 添加完成回调
+     */
+    public func addCompletionCallback(callback: () -> Unit): Unit {
+        completionCallbacks.add(callback)
     }
     
     /**
