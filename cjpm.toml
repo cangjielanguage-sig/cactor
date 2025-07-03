@@ -175,6 +175,9 @@ output-type = "executable"
 [package.package-configuration."cactor.examples.streams_unified_demo"]
 output-type = "executable"
 
+[package.package-configuration."cactor.examples.streams_backpressure_demo"]
+output-type = "executable"
+
 
 # === Macros Package ===
 [package.package-configuration."cactor.macros"]

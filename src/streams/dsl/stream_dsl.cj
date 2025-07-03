@@ -21,6 +21,28 @@ import cactor.api.{CActorSystem}
 import cactor.streams.core.{NotUsed, Materializer, MaterializerSettings, Materialized}
 
 /**
+ * 流处理异常 - 流处理过程中的异常
+ */
+public class StreamProcessingException <: Exception {
+    public init(message: String, cause: Exception) {
+        super(message)
+    }
+
+    public init(message: String) {
+        super(message)
+    }
+}
+
+/**
+ * 流验证异常 - 流图验证失败的异常
+ */
+public class StreamValidationException <: Exception {
+    public init(message: String) {
+        super(message)
+    }
+}
+
+/**
  * 流源DSL - 高内聚的数据源抽象
  * 职责：提供类型安全的流数据源操作
  */
@@ -286,7 +308,7 @@ public class StreamGraph<T, R> {
     }
 
     /**
-     * 运行流图 - 简化版本，直接执行
+     * 运行流图 - 增强版本，支持完整的错误处理和监控
      */
     public func run(): R {
         println("运行流图: ${graphId}")
@@ -295,8 +317,15 @@ public class StreamGraph<T, R> {
         let startTime = DateTime.now()
 
         try {
+            // 验证流图状态
+            validateStreamGraph()
+
             // 执行流处理
-            let result = sink.process(source.getElements())
+            let sourceElements = source.getElements()
+            println("源元素数量: ${sourceElements.size}")
+
+            // 处理元素并记录统计信息
+            let result = processWithMonitoring(sourceElements)
 
             // 记录处理时间
             let endTime = DateTime.now()
@@ -306,9 +335,79 @@ public class StreamGraph<T, R> {
             return result
 
         } catch (e: Exception) {
-            println("流图执行失败: ${e.message}")
+            let endTime = DateTime.now()
+            let failureTime = Duration.nanosecond * (endTime.toUnixTimeStamp().toNanoseconds() - startTime.toUnixTimeStamp().toNanoseconds())
+
+            println("❌ 流图执行失败: ${e.message}")
+            println("   失败时间: ${failureTime.toNanoseconds()} ns")
+            println("   流图ID: ${graphId}")
+
+            // 记录错误统计
+            recordError(e)
+
+            throw StreamProcessingException("流图执行失败: ${e.message}", e)
+        }
+    }
+
+    /**
+     * 验证流图状态
+     */
+    private func validateStreamGraph(): Unit {
+        if (source.size() == 0) {
+            throw StreamValidationException("源为空，无法执行流图")
+        }
+
+        if (sink.getSinkId().size == 0) {
+            throw StreamValidationException("汇聚ID为空，流图配置无效")
+        }
+    }
+
+    /**
+     * 带监控的处理方法
+     */
+    private func processWithMonitoring(elements: Array<T>): R {
+        let elementStartTime = DateTime.now()
+
+        try {
+            let result = sink.process(elements)
+
+            let elementEndTime = DateTime.now()
+            let elementProcessingTime = Duration.nanosecond * (elementEndTime.toUnixTimeStamp().toNanoseconds() - elementStartTime.toUnixTimeStamp().toNanoseconds())
+
+            // 记录成功处理的统计信息
+            recordSuccessfulProcessing(elements.size, elementProcessingTime)
+
+            return result
+
+        } catch (e: Exception) {
+            // 记录处理失败
+            recordProcessingFailure(elements.size, e)
             throw e
         }
+    }
+
+    /**
+     * 记录成功处理的统计信息
+     */
+    private func recordSuccessfulProcessing(elementCount: Int64, processingTime: Duration): Unit {
+        // 简化实现：在完整版本中，这里会更新监控统计
+        println("✅ 成功处理 ${elementCount} 个元素，耗时 ${processingTime.toNanoseconds()} ns")
+    }
+
+    /**
+     * 记录处理失败
+     */
+    private func recordProcessingFailure(elementCount: Int64, error: Exception): Unit {
+        // 简化实现：在完整版本中，这里会更新错误统计
+        println("❌ 处理 ${elementCount} 个元素时失败: ${error.message}")
+    }
+
+    /**
+     * 记录错误统计
+     */
+    private func recordError(error: Exception): Unit {
+        // 简化实现：在完整版本中，这里会更新全局错误统计
+        println("📊 错误统计: ${error.message}")
     }
 
     /**

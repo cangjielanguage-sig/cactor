@@ -72,13 +72,24 @@ public interface StreamStage<In, Out> {
 /**
  * 背压策略枚举
  */
-public enum BackpressureStrategy {
+public enum BackpressureStrategy <: ToString {
     | Drop        // 丢弃新元素
     | DropHead    // 丢弃队列头部元素
     | DropTail    // 丢弃队列尾部元素
     | DropBuffer  // 清空整个缓冲区
     | Fail        // 失败并抛出异常
     | Block       // 阻塞直到有空间
+
+    public func toString(): String {
+        match (this) {
+            case Drop => "Drop"
+            case DropHead => "DropHead"
+            case DropTail => "DropTail"
+            case DropBuffer => "DropBuffer"
+            case Fail => "Fail"
+            case Block => "Block"
+        }
+    }
 }
 
 /**
@@ -105,6 +116,204 @@ public struct OverflowStrategy {
     
     public static func fail(): OverflowStrategy {
         OverflowStrategy(BackpressureStrategy.Fail, 1000, Duration.second * 1)
+    }
+}
+
+/**
+ * 背压控制器 - 管理流处理中的背压控制
+ * 职责：监控缓冲区状态，执行背压策略，维护流量平衡
+ */
+public class BackpressureController {
+    private let strategy: OverflowStrategy
+    private let buffer: ArrayList<StreamElement>
+    private let mutex: Mutex
+    private var droppedElements: Int64
+    private var backpressureEvents: Int64
+    private var isBackpressureActive: Bool
+
+    public init(strategy: OverflowStrategy) {
+        this.strategy = strategy
+        this.buffer = ArrayList<StreamElement>()
+        this.mutex = Mutex()
+        this.droppedElements = 0
+        this.backpressureEvents = 0
+        this.isBackpressureActive = false
+    }
+
+    /**
+     * 尝试添加元素到缓冲区
+     * 返回：true表示成功添加，false表示被背压策略拒绝
+     */
+    public func tryAdd(element: StreamElement): Bool {
+        mutex.lock()
+
+        try {
+            // 检查缓冲区是否已满
+            if (buffer.size >= Int64(strategy.bufferSize)) {
+                let result = handleOverflow(element)
+                mutex.unlock()
+                return result
+            }
+
+            // 缓冲区未满，直接添加
+            buffer.add(element)
+            mutex.unlock()
+            return true
+
+        } catch (e: Exception) {
+            mutex.unlock()
+            throw e
+        }
+    }
+
+    /**
+     * 从缓冲区取出元素
+     */
+    public func take(): Option<StreamElement> {
+        mutex.lock()
+
+        try {
+            if (buffer.size > 0) {
+                let element = buffer[0]
+                // 简化实现：创建新的ArrayList，跳过第一个元素
+                let newBuffer = ArrayList<StreamElement>()
+                for (i in 1..buffer.size) {
+                    newBuffer.add(buffer[i])
+                }
+                buffer.clear()
+                for (item in newBuffer) {
+                    buffer.add(item)
+                }
+
+                // 检查是否可以解除背压
+                if (isBackpressureActive && buffer.size < Int64(strategy.bufferSize) / 2) {
+                    isBackpressureActive = false
+                    println("背压解除，缓冲区大小: ${buffer.size}")
+                }
+
+                mutex.unlock()
+                return Some(element)
+            }
+
+            mutex.unlock()
+            return None
+
+        } catch (e: Exception) {
+            mutex.unlock()
+            throw e
+        }
+    }
+
+    /**
+     * 处理缓冲区溢出
+     */
+    private func handleOverflow(element: StreamElement): Bool {
+        backpressureEvents += 1
+        isBackpressureActive = true
+
+        println("背压激活，策略: ${strategy.strategy}, 缓冲区大小: ${buffer.size}")
+
+        match (strategy.strategy) {
+            case BackpressureStrategy.Drop =>
+                // 丢弃新元素
+                droppedElements += 1
+                println("丢弃新元素: ${element.getElementId()}")
+                return false
+
+            case BackpressureStrategy.DropHead =>
+                // 丢弃队列头部元素，添加新元素
+                if (buffer.size > 0) {
+                    let dropped = buffer[0]
+                    // 简化实现：重建缓冲区
+                    let newBuffer = ArrayList<StreamElement>()
+                    for (i in 1..buffer.size) {
+                        newBuffer.add(buffer[i])
+                    }
+                    buffer.clear()
+                    for (item in newBuffer) {
+                        buffer.add(item)
+                    }
+                    droppedElements += 1
+                    println("丢弃头部元素: ${dropped.getElementId()}")
+                }
+                buffer.add(element)
+                return true
+
+            case BackpressureStrategy.DropTail =>
+                // 丢弃队列尾部元素，添加新元素
+                if (buffer.size > 0) {
+                    let dropped = buffer[buffer.size - 1]
+                    // 简化实现：重建缓冲区
+                    let newBuffer = ArrayList<StreamElement>()
+                    for (i in 0..(buffer.size - 1)) {
+                        newBuffer.add(buffer[i])
+                    }
+                    buffer.clear()
+                    for (item in newBuffer) {
+                        buffer.add(item)
+                    }
+                    droppedElements += 1
+                    println("丢弃尾部元素: ${dropped.getElementId()}")
+                }
+                buffer.add(element)
+                return true
+
+            case BackpressureStrategy.DropBuffer =>
+                // 清空整个缓冲区，添加新元素
+                droppedElements += buffer.size
+                println("清空缓冲区: ${buffer.size} 个元素")
+                buffer.clear()
+                buffer.add(element)
+                return true
+
+            case BackpressureStrategy.Fail =>
+                // 抛出异常
+                throw Exception("背压控制失败：缓冲区已满，无法添加新元素")
+
+            case BackpressureStrategy.Block =>
+                // 阻塞等待（简化实现：暂时抛出异常）
+                throw Exception("背压控制：缓冲区已满，阻塞策略暂未实现")
+        }
+    }
+
+    /**
+     * 获取背压统计信息
+     */
+    public func getBackpressureStats(): (Int64, Int64, Bool, Int64) {
+        mutex.lock()
+        let result = (droppedElements, backpressureEvents, isBackpressureActive, buffer.size)
+        mutex.unlock()
+        return result
+    }
+
+    /**
+     * 获取缓冲区大小
+     */
+    public func getBufferSize(): Int64 {
+        mutex.lock()
+        let size = buffer.size
+        mutex.unlock()
+        return size
+    }
+
+    /**
+     * 检查是否处于背压状态
+     */
+    public func isUnderBackpressure(): Bool {
+        mutex.lock()
+        let active = isBackpressureActive
+        mutex.unlock()
+        return active
+    }
+
+    /**
+     * 清空缓冲区
+     */
+    public func clear(): Unit {
+        mutex.lock()
+        buffer.clear()
+        isBackpressureActive = false
+        mutex.unlock()
     }
 }
 
