@@ -166,6 +166,12 @@ output-type = "executable"
 [package.package-configuration."cactor.examples.streams_demo"]
 output-type = "executable"
 
+[package.package-configuration."cactor.examples.streams_dsl_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.streams_advanced_demo"]
+output-type = "executable"
+
 
 # === Macros Package ===
 [package.package-configuration."cactor.macros"]
