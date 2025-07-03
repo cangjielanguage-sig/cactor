@@ -47,6 +47,12 @@ public struct XStateValidation {
             passedTests += 1
         }
         
+        // 验证转换引擎
+        totalTests += 1
+        if (validateTransitionEngine()) {
+            passedTests += 1
+        }
+        
         println("\n📊 验证结果:")
         println("   通过: ${passedTests}/${totalTests}")
         println("   成功率: ${(passedTests * 100) / totalTests}%")
@@ -63,38 +69,44 @@ public struct XStateValidation {
      */
     private static func validateStateTypes(): Bool {
         println("🧪 验证状态类型定义...")
-
+        
         try {
             // 测试状态创建
             let inactiveState = ToggleState.Inactive
             let activeState = ToggleState.Active
-
+            
             // 验证状态ID
             if (inactiveState.getStateId() != "inactive") {
                 println("❌ 状态ID验证失败: expected 'inactive', got '${inactiveState.getStateId()}'")
                 return false
             }
-
+            
             if (activeState.getStateId() != "active") {
                 println("❌ 状态ID验证失败: expected 'active', got '${activeState.getStateId()}'")
                 return false
             }
-
+            
             // 验证状态显示名称
             if (inactiveState.getDisplayName() != "非活跃") {
                 println("❌ 状态显示名称验证失败")
                 return false
             }
-
+            
             // 验证状态相等性
             if (!inactiveState.equals(ToggleState.Inactive)) {
                 println("❌ 状态相等性验证失败")
                 return false
             }
-
+            
+            // 验证初始状态标识
+            if (!inactiveState.isInitial()) {
+                println("❌ 初始状态标识验证失败")
+                return false
+            }
+            
             println("✅ 状态类型定义验证通过")
             return true
-
+            
         } catch (e: Exception) {
             println("❌ 状态类型定义验证失败: ${e.message}")
             return false
@@ -126,6 +138,12 @@ public struct XStateValidation {
             // 验证消息接口
             if (toggleEvent.messageType() != "ToggleEvent") {
                 println("❌ 消息类型验证失败")
+                return false
+            }
+            
+            // 验证事件匹配
+            if (!toggleEvent.matchesType("toggle")) {
+                println("❌ 事件匹配验证失败")
                 return false
             }
             
@@ -193,27 +211,104 @@ public struct XStateValidation {
      */
     private static func validateStateMachineFactory(): Bool {
         println("🧪 验证状态机工厂...")
-
+        
         try {
-            // 创建状态机
-            let result = SimpleToggleMachineFactory.create()
-
-            // 验证返回结果
-            if (result.isEmpty()) {
-                println("❌ 状态机工厂验证失败: 返回结果为空")
+            // 创建状态机定义
+            let machineDefinition = SimpleToggleMachineFactory.create()
+            
+            // 验证基本属性
+            if (machineDefinition.id != "simple-toggle-machine") {
+                println("❌ 状态机ID验证失败")
                 return false
             }
-
-            if (!result.contains("状态机")) {
-                println("❌ 状态机工厂验证失败: 返回结果不包含'状态机'")
+            
+            if (machineDefinition.version != "1.0.0") {
+                println("❌ 状态机版本验证失败")
                 return false
             }
-
+            
+            if (machineDefinition.initialStateId != "inactive") {
+                println("❌ 初始状态验证失败")
+                return false
+            }
+            
+            // 验证状态机定义
+            let validationErrors = machineDefinition.validate()
+            if (!validationErrors.isEmpty()) {
+                println("❌ 状态机验证失败: ${validationErrors[0]}")
+                return false
+            }
+            
+            // 验证状态存在
+            if (!machineDefinition.hasState("inactive")) {
+                println("❌ 状态存在验证失败: inactive状态不存在")
+                return false
+            }
+            
+            if (!machineDefinition.hasState("active")) {
+                println("❌ 状态存在验证失败: active状态不存在")
+                return false
+            }
+            
+            // 验证转换查找
+            let transitions = machineDefinition.getTransitionsForEvent("inactive", "toggle")
+            if (transitions.isEmpty()) {
+                println("❌ 转换查找验证失败: 应该找到转换")
+                return false
+            }
+            
             println("✅ 状态机工厂验证通过")
             return true
-
+            
         } catch (e: Exception) {
             println("❌ 状态机工厂验证失败: ${e.message}")
+            return false
+        }
+    }
+    
+    /**
+     * 验证转换引擎
+     */
+    private static func validateTransitionEngine(): Bool {
+        println("🧪 验证转换引擎...")
+        
+        try {
+            // 创建状态机定义和转换引擎
+            let machineDefinition = SimpleToggleMachineFactory.create()
+            let engine = PatternTransitionEngine(machineDefinition)
+            
+            // 验证引擎统计
+            let stats = engine.getStatistics()
+            if (stats.transitionCount <= 0) {
+                println("❌ 转换引擎统计验证失败: 转换数量应该大于0")
+                return false
+            }
+            
+            // 验证转换处理
+            let toggleEvent = ToggleEvent.Toggle
+            let result = engine.processTransition("inactive", toggleEvent)
+            
+            if (!result.isSuccess()) {
+                println("❌ 转换处理验证失败: 转换应该成功")
+                return false
+            }
+            
+            if (result.targetStateId != "active") {
+                println("❌ 转换结果验证失败: 目标状态应该是active")
+                return false
+            }
+            
+            // 验证执行时间记录
+            if (result.executionTime <= 0) {
+                println("❌ 执行时间验证失败: 执行时间应该大于0")
+                return false
+            }
+            
+            println("✅ 转换引擎验证通过")
+            return true
+            
+        } catch (e: Exception) {
+            println("❌ 转换引擎验证失败: ${e.message}")
             return false
         }
     }

@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2024. All rights reserved.
- * CActor XState - 顶级包文件
- * 基于仓颉语言和CActor框架的状态机系统
+ * CActor XState - 基于仓颉语言和CActor框架的状态机系统
+ * 顶级包文件
  */
 package cactor.xstate
 
