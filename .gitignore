@@ -127,7 +127,7 @@ actor_config_test
 # 通用测试二进制文件模式
 # test_*
 verify_*
-benchmark_*
+# benchmark_*
 
 # 临时编译输出文件
 *.cj.out
