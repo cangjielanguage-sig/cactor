@@ -21,8 +21,9 @@ import cactor.distribution.persistence.{
     CQRSBus, Command, Query, QueryResult, BaseCommand, BaseQuery, BaseQueryResult,
     CommandHandler, QueryHandler, ReadModel, SimpleReadModel,
     PersistentCounterActor, CounterIncrementedEvent, CounterDecrementedEvent,
-    AggregateRoot, CompletedFuture, Future
+    AggregateRoot, CompletedFuture
 }
+import cactor.distribution.persistence.{Future as PersistenceFuture}
 
 /**
  * 持久化系统演示主程序
@@ -358,12 +359,12 @@ class SimpleCommandHandler <: CommandHandler {
 class SimpleQueryHandler <: QueryHandler {
     public init() {}
     
-    public func handle(query: Query): cactor.distribution.persistence.Future<QueryResult> {
+    public func handle(query: Query): PersistenceFuture<QueryResult> {
         println("处理查询: ${query.getQueryType()}")
 
         // 简化实现：返回固定结果
         let result = BaseQueryResult("UserData", "{\"userId\":\"user-1\",\"name\":\"张三\"}")
-        CompletedFuture<QueryResult>(result)
+        return CompletedFuture<QueryResult>(result)
     }
     
     public func canHandle(query: Query): Bool {
