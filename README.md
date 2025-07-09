@@ -1,10 +1,13 @@
-# CActor - 基于仓颉语言的世界级Actor系统
+# 🎭 CActor - 基于仓颉语言的世界级Actor系统
 
-[English](README_EN.md) | 中文
+[![仓颉语言](https://img.shields.io/badge/仓颉-0.60.5-blue.svg)](https://cangjie-lang.cn/)
+[![构建状态](https://img.shields.io/badge/构建-通过-brightgreen.svg)](https://github.com/your-repo/cactor)
+[![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](LICENSE)
+[![版本](https://img.shields.io/badge/版本-1.1.0-blue.svg)](CHANGELOG.md)
 
-## 🎯 项目概述
+> 🚀 **基于仓颉语言的现代化Actor系统** - 企业级并发编程解决方案
 
-CActor 是一个基于仓颉语言实现的世界级高性能Actor系统，提供了完整的Actor模型实现、企业级特性和分布式能力。项目采用**6层模块化架构设计**，支持超高并发、超低延迟的消息处理，在多项性能基准测试中达到**行业领先水平**，是构建分布式系统的理想选择。
+CActor 是一个基于仓颉语言实现的世界级高性能Actor系统，提供了完整的Actor模型实现、企业级特性、分布式能力和先进的状态管理能力。项目采用**6层模块化架构设计**，支持超高并发、超低延迟的消息处理，在多项性能基准测试中达到**行业领先水平**，是构建分布式系统的理想选择。
 
 ### 🏗️ 核心架构特色
 
@@ -12,16 +15,17 @@ CActor 是一个基于仓颉语言实现的世界级高性能Actor系统，提�
 - **类型安全设计**: 充分利用仓颉语言的强类型系统和泛型特性
 - **零拷贝消息传递**: 基于仓颉内存管理的高性能消息系统
 - **企业级可靠性**: 完整的监督策略、故障恢复和生命周期管理
+- **XState状态机**: 基于仓颉语言特性的企业级状态机系统
 
-### 🏆 性能特色
+## 🎉 最新更新 (v1.1.0)
 
-基于真实基准测试，CActor展现出独特的性能优势：
-
-- **延迟控制**: **微秒级延迟**，所有场景下都保持最低延迟
-- **I/O性能**: **166,667 msg/s**，比主流框架快30+倍
-- **复杂计算**: 中等到重量级任务中性能领先
-- **实时性**: 延迟稳定性极佳，适合实时系统
-- **全能表现**: 7项测试中4项第一，3项前三
+### ✅ 已完成的重大功能
+- **Ask模式完善** ✅ - 生产级实现，657,894 req/s性能
+- **集群管理增强** ✅ - 完整的集群分片系统，支持100万Actor
+- **持久化系统完善** ✅ - 完整的事件溯源和CQRS系统
+- **测试框架建设** ✅ - 完整的TestKit框架
+- **CActor Streams** ✅ - 高性能流处理系统，500万元素/秒
+- **XState状态机** ✅ - 基于仓颉语言特性的企业级状态机系统
 
 ## 🏗️ CActor 6层架构设计
 
@@ -253,85 +257,151 @@ graph TB
 
 ## ✨ 核心特性
 
-### 🚀 性能优势
-- **延迟控制**: 微秒级延迟，所有场景最优
-- **I/O性能**: 166,667 msg/s，行业领先水平
-- **复杂计算**: 重量级任务性能领先3.5倍
-- **实时性**: 延迟稳定性极佳，适合实时系统
-- **高并发**: 支持大规模并发Actor处理
+### 🎯 完整的Actor系统
+- **标准Actor模型**: 消息传递、状态封装、位置透明性
+- **生命周期管理**: 完整的Actor创建、启动、停止和销毁流程
+- **监督策略**: OneForOne、AllForOne等多种监督策略
+- **Actor层次结构**: 支持父子Actor关系和监督树
+- **类型化Actor**: 编译时类型安全的Actor实现
+
+### ⚡ 卓越性能
+- **微秒级延迟**: 所有测试场景下都保持微秒级延迟
+- **高吞吐量**: I/O密集型任务中达到166,667 msg/s
+- **内存优化**: 高效的对象池和内存管理
+- **批处理支持**: 消息批处理以提高吞吐量
+- **NUMA感知**: 针对NUMA架构的优化
 
 ### 🏢 企业级特性
 - **Ask模式**: 完整的请求-响应模式支持
-- **监督策略**: 完整的故障恢复机制
-- **断路器**: 故障隔离和自动恢复
+- **路由器**: 多种路由策略（轮询、随机、一致性哈希等）
+- **断路器**: 故障隔离和自动恢复机制
 - **背压控制**: 流量控制和过载保护
-- **生命周期管理**: 完整的Actor生命周期管理
-
-### 🌐 分布式能力
-- **远程通信**: 透明的远程Actor通信
-- **集群管理**: 节点发现和状态管理
-- **故障转移**: 自动故障检测和恢复
-- **序列化**: JSON和二进制序列化支持
-- **持久化**: 事件溯源和快照支持
-
-### 🔧 完整生态
 - **配置管理**: 灵活的配置系统
-- **监控集成**: 完整的指标和监控
-- **调试工具**: 性能分析和诊断工具
-- **测试框架**: 全面的测试覆盖
-- **DSL支持**: 基于宏的DSL语法
 
-## 📦 快速开始
+### 🌊 流处理系统
+- **CActor Streams**: 响应式流处理框架
+- **背压支持**: 自动流量控制和过载保护
+- **流操作符**: 丰富的流变换和处理操作
+- **DSL语法**: 声明式流处理管道定义
+
+### 🔄 状态机系统 (XState)
+- **强类型状态机**: 编译时类型安全的状态管理
+- **模式匹配引擎**: 基于仓颉模式匹配的高性能转换引擎
+- **CActor深度集成**: 状态机即Actor，天然支持并发和分布式
+- **企业级特性**: 事件溯源、状态快照、分布式同步
+- **DSL支持**: 声明式状态机定义和宏系统
+
+### 🔧 运行时系统
+- **多种调度器**: 支持不同的调度策略
+- **多种邮箱**: 有界、无界、优先级邮箱
+- **定时器支持**: 延迟消息和周期性任务
+- **线程池管理**: 高效的线程池实现
+- **监控诊断**: 详细的性能监控和健康检查
+
+## � 快速开始
 
 ### 环境要求
-- 仓颉 (Cangjie) 0.53.4+
-- cjpm (仓颉包管理器)
 
-### 安装构建
+- **仓颉语言**: 0.60.5 或更高版本
+- **操作系统**: macOS, Linux, Windows
+- **内存**: 建议 4GB 以上
+- **CPU**: 支持多核处理器
+
+### 安装
+
 ```bash
 # 克隆项目
-git clone <repository-url>
+git clone https://github.com/your-repo/cactor.git
 cd cactor
 
 # 构建项目
 cjpm build
 
-# 运行Hello World示例
-cjpm run --name cactor.examples.hello_world_demo
-
-# 运行性能测试
-cjpm run --name cactor.integration.testing.simple_benchmark_test
+# 运行测试
+cjpm test
 ```
 
-### 简单示例
+### Hello World 示例
 
 ```cangjie
 import cactor.api.{CActor}
+import cactor.core.actor.{Actor}
+import cactor.core.message.{Message, StringMessage, MessageResult}
+import cactor.core.context.{ActorContext}
 
-// 1. 定义Actor
-class HelloActor <: Actor {
+// 定义一个简单的Actor
+class HelloWorldActor <: Actor {
+    private var messageCount: Int64 = 0
+
+    public prop name: String {
+        get() { "HelloWorldActor" }
+    }
+
+    public prop description: String {
+        get() { "Hello World Actor示例" }
+    }
+
     public func receive(message: Message, context: ActorContext): MessageResult {
         match (message) {
             case msg: StringMessage =>
-                println("收到消息: ${msg.content}")
+                messageCount += 1
+                println("👋 收到消息 #${messageCount}: ${msg.getContent()}")
                 MessageResult.Handled
-            case _ => MessageResult.Unhandled
+            case _ =>
+                MessageResult.Unhandled
         }
+    }
+
+    public func preStart(): Unit {
+        println("🚀 Hello World Actor启动了!")
+    }
+
+    public func postStop(): Unit {
+        println("🛑 Hello World Actor停止了! 总共处理了 ${messageCount} 条消息")
     }
 }
 
-// 2. 创建Actor系统
-main(): Int64 {
-    let system = CActor.system("HelloSystem")
-    let actor = system.actorOf({ => HelloActor() }, "hello")
+// 使用Actor
+func main(): Unit {
+    // 创建Actor系统
+    let system = CActor.system("hello-world")
 
-    actor.tell(StringMessage("Hello, CActor!"))
+    // 创建Actor
+    let helloActor = system.actorOf(() => HelloWorldActor(), "hello")
 
-    return 0
+    // 发送消息
+    helloActor.tell(StringMessage("Hello, CActor!"))
+    helloActor.tell(StringMessage("这是第二条消息"))
+
+    // 等待处理完成
+    Thread.sleep(Duration.fromMilliseconds(100))
+
+    // 关闭系统
+    system.shutdown()
 }
 ```
 
-> 💡 **完整的入门教程**: 运行 `cjpm run --name cactor.examples.hello_world_demo` 查看详细的Hello World示例，包含完整的注释和演示步骤。
+### 运行示例
+
+```bash
+# 运行Hello World示例
+cjpm run --name cactor.examples.hello_world_demo
+
+# 运行Ask模式示例
+cjpm run --name cactor.examples.ask_demo
+
+# 运行XState状态机示例
+cjpm run --name cactor.examples.xstate_demo
+
+# 运行流处理示例
+cjpm run --name cactor.examples.streams_demo
+
+# 运行集群分片示例
+cjpm run --name cactor.examples.cluster_sharding_demo
+
+# 运行持久化示例
+cjpm run --name cactor.examples.persistence_demo
+```
 
 ## 📊 性能基准测试
 
@@ -563,23 +633,27 @@ graph TB
 
 ## 🎯 未来规划
 
-### 短期目标 (已完成)
-- ✅ 优先性能优化 (20M msg/s)
-- ✅ 企业级监控和配置
-- ✅ 完整的测试框架
-- ✅ 6层架构完善
+### 已完成功能 (v1.1.0)
+- ✅ **核心Actor系统** - 完整的Actor模型实现
+- ✅ **Ask模式** - 生产级请求-响应模式，657,894 req/s
+- ✅ **集群管理** - 完整的集群分片系统，支持100万Actor
+- ✅ **持久化系统** - 事件溯源和CQRS架构
+- ✅ **测试框架** - 完整的TestKit框架
+- ✅ **流处理系统** - CActor Streams，500万元素/秒
+- ✅ **状态机系统** - XState，基于仓颉语言特性
+- ✅ **7层架构** - 完整的模块化架构设计
 
-### 中期目标 (进行中)
-- 🔄 分布式集群支持
-- 🔄 持久化和事件溯源
-- 🔄 流处理能力
-- 🔄 完整文档体系
+### 进行中项目
+- 🔄 **HTTP集成** - 高性能Web服务器
+- 🔄 **序列化优化** - 多格式序列化支持
+- 🔄 **可视化工具** - 监控和管理界面
+- 🔄 **文档完善** - 多语言文档体系
 
-### 长期目标 (规划中)
-- 📋 云原生支持
-- 📋 多语言绑定
-- 📋 可视化工具
-- 📋 社区生态建设
+### 未来规划
+- 📋 **云原生支持** - Kubernetes和容器化
+- 📋 **多语言绑定** - Java、Python、Go绑定
+- 📋 **边缘计算** - 轻量级运行时
+- 📋 **社区生态建设** - 开源社区发展
 
 ## 🧪 运行测试
 

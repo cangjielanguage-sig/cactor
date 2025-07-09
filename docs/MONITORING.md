@@ -1,0 +1,672 @@
+# 📊 CActor 监控和日志指南
+
+## 📋 监控概览
+
+CActor v1.1.0 提供了全面的监控和日志功能，帮助您实时了解系统状态、性能指标和潜在问题，确保生产环境的稳定运行。
+
+## 🎯 监控架构
+
+### 监控层次结构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    应用层监控                                │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │   业务指标   │ │   用户行为   │ │   错误率     │           │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+├─────────────────────────────────────────────────────────────┤
+│                    Actor层监控                              │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │   消息吞吐   │ │   邮箱状态   │ │   Actor生命  │           │
+│  │     量       │ │             │ │     周期     │           │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+├─────────────────────────────────────────────────────────────┤
+│                    系统层监控                                │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │   CPU使用    │ │   内存使用   │ │   网络I/O    │           │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+├─────────────────────────────────────────────────────────────┤
+│                    基础设施监控                              │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │   磁盘I/O    │ │   网络延迟   │ │   服务健康   │           │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 📈 核心监控指标
+
+### 1. 性能指标
+
+```cangjie
+// 性能指标收集器
+public struct PerformanceMetrics {
+    public let messageProcessingRate: Float64      // 消息处理速率 (msg/s)
+    public let averageLatency: Duration           // 平均延迟
+    public let p95Latency: Duration              // P95延迟
+    public let p99Latency: Duration              // P99延迟
+    public let throughput: Int64                 // 吞吐量
+    public let errorRate: Float64                // 错误率
+    public let cpuUsage: Float64                 // CPU使用率
+    public let memoryUsage: Int64                // 内存使用量
+    public let activeActors: Int64               // 活跃Actor数量
+    public let mailboxSize: Int64                // 邮箱大小
+}
+
+class MetricsCollector <: Actor {
+    private var metrics: PerformanceMetrics = PerformanceMetrics.empty()
+    private let metricsHistory: CircularBuffer<PerformanceMetrics> = CircularBuffer(1000)
+    
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case collect: CollectMetricsMessage =>
+                metrics = collectCurrentMetrics()
+                metricsHistory.add(metrics)
+                context.sender.tell(MetricsResponse(metrics))
+                MessageResult.Handled
+                
+            case query: QueryMetricsMessage =>
+                let historicalMetrics = getHistoricalMetrics(query.timeRange)
+                context.sender.tell(HistoricalMetricsResponse(historicalMetrics))
+                MessageResult.Handled
+        }
+    }
+    
+    private func collectCurrentMetrics(): PerformanceMetrics {
+        return PerformanceMetrics(
+            messageProcessingRate: calculateMessageRate(),
+            averageLatency: calculateAverageLatency(),
+            p95Latency: calculateP95Latency(),
+            p99Latency: calculateP99Latency(),
+            throughput: calculateThroughput(),
+            errorRate: calculateErrorRate(),
+            cpuUsage: SystemMetrics.getCpuUsage(),
+            memoryUsage: SystemMetrics.getMemoryUsage(),
+            activeActors: ActorRegistry.getActiveActorCount(),
+            mailboxSize: calculateAverageMailboxSize()
+        )
+    }
+}
+```
+
+### 2. Actor监控
+
+```cangjie
+// Actor监控装饰器
+class MonitoredActor <: Actor {
+    private let wrappedActor: Actor
+    private var messageCount: Int64 = 0
+    private var totalProcessingTime: Duration = Duration.zero()
+    private var errorCount: Int64 = 0
+    private let startTime: DateTime = DateTime.now()
+    
+    public init(wrappedActor: Actor) {
+        this.wrappedActor = wrappedActor
+    }
+    
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        let processingStart = System.nanoTime()
+        messageCount += 1
+        
+        try {
+            let result = wrappedActor.receive(message, context)
+            
+            let processingEnd = System.nanoTime()
+            let processingTime = Duration.fromNanos(processingEnd - processingStart)
+            totalProcessingTime += processingTime
+            
+            // 记录性能指标
+            recordMetrics(message, processingTime, result)
+            
+            return result
+        } catch (e: Exception) {
+            errorCount += 1
+            recordError(message, e)
+            throw e
+        }
+    }
+    
+    private func recordMetrics(message: Message, processingTime: Duration, result: MessageResult): Unit {
+        let metrics = ActorMetrics(
+            actorPath: self.path,
+            messageType: message.getClass().getSimpleName(),
+            processingTime: processingTime,
+            result: result,
+            timestamp: DateTime.now()
+        )
+        
+        metricsCollector.tell(RecordMetricsMessage(metrics))
+    }
+    
+    public func getStatistics(): ActorStatistics {
+        let uptime = DateTime.now().minus(startTime)
+        let avgProcessingTime = if (messageCount > 0) {
+            totalProcessingTime.dividedBy(messageCount)
+        } else {
+            Duration.zero()
+        }
+        
+        return ActorStatistics(
+            messageCount: messageCount,
+            errorCount: errorCount,
+            errorRate: if (messageCount > 0) { errorCount.toFloat64() / messageCount.toFloat64() } else { 0.0 },
+            averageProcessingTime: avgProcessingTime,
+            uptime: uptime
+        )
+    }
+}
+```
+
+### 3. 集群监控
+
+```cangjie
+// 集群健康监控
+class ClusterHealthMonitor <: Actor {
+    private var clusterState: ClusterState = ClusterState.empty()
+    private let healthCheckInterval: Duration = Duration.fromSeconds(30)
+    
+    public func preStart(): Unit {
+        // 定期健康检查
+        context.system.scheduler.scheduleWithFixedDelay(
+            Duration.zero(),
+            healthCheckInterval,
+            self,
+            PerformHealthCheckMessage()
+        )
+    }
+    
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case _: PerformHealthCheckMessage =>
+                performHealthCheck()
+                MessageResult.Handled
+                
+            case query: ClusterStatusQuery =>
+                context.sender.tell(ClusterStatusResponse(clusterState))
+                MessageResult.Handled
+                
+            case event: ClusterEvent =>
+                updateClusterState(event)
+                MessageResult.Handled
+        }
+    }
+    
+    private func performHealthCheck(): Unit {
+        let nodes = cluster.getNodes()
+        let healthyNodes = ArrayList<NodeInfo>()
+        let unhealthyNodes = ArrayList<NodeInfo>()
+        
+        for (node in nodes) {
+            if (isNodeHealthy(node)) {
+                healthyNodes.add(node)
+            } else {
+                unhealthyNodes.add(node)
+                // 发送告警
+                alertingService.sendAlert(NodeUnhealthyAlert(node))
+            }
+        }
+        
+        clusterState = ClusterState(
+            totalNodes: nodes.size(),
+            healthyNodes: healthyNodes.size(),
+            unhealthyNodes: unhealthyNodes.size(),
+            nodeDetails: nodes,
+            lastUpdate: DateTime.now()
+        )
+    }
+    
+    private func isNodeHealthy(node: NodeInfo): Bool {
+        try {
+            let response = httpClient.get("http://${node.address}/health", Duration.fromSeconds(5))
+            return response.status == 200
+        } catch (e: Exception) {
+            return false
+        }
+    }
+}
+```
+
+## 📝 日志系统
+
+### 1. 结构化日志
+
+```cangjie
+// 结构化日志记录器
+public enum LogLevel {
+    | Debug
+    | Info  
+    | Warn
+    | Error
+    | Fatal
+}
+
+public struct LogEntry {
+    public let level: LogLevel
+    public let timestamp: DateTime
+    public let actorPath: String
+    public let message: String
+    public let context: HashMap<String, String>
+    public let exception: Option<Exception>
+    
+    public func toJson(): String {
+        return JsonBuilder()
+            .add("level", level.toString())
+            .add("timestamp", timestamp.toISOString())
+            .add("actor", actorPath)
+            .add("message", message)
+            .add("context", context)
+            .add("exception", exception.map { it.toString() })
+            .build()
+    }
+}
+
+class StructuredLogger {
+    private let logLevel: LogLevel
+    private let logWriter: LogWriter
+    
+    public func log(level: LogLevel, message: String, context: HashMap<String, String> = HashMap(), exception: Option<Exception> = None): Unit {
+        if (level.ordinal() >= logLevel.ordinal()) {
+            let entry = LogEntry(
+                level: level,
+                timestamp: DateTime.now(),
+                actorPath: getCurrentActorPath(),
+                message: message,
+                context: context,
+                exception: exception
+            )
+            
+            logWriter.write(entry)
+        }
+    }
+    
+    public func debug(message: String, context: HashMap<String, String> = HashMap()): Unit {
+        log(LogLevel.Debug, message, context)
+    }
+    
+    public func info(message: String, context: HashMap<String, String> = HashMap()): Unit {
+        log(LogLevel.Info, message, context)
+    }
+    
+    public func warn(message: String, context: HashMap<String, String> = HashMap()): Unit {
+        log(LogLevel.Warn, message, context)
+    }
+    
+    public func error(message: String, exception: Option<Exception> = None, context: HashMap<String, String> = HashMap()): Unit {
+        log(LogLevel.Error, message, context, exception)
+    }
+}
+```
+
+### 2. 日志聚合
+
+```cangjie
+// 日志聚合Actor
+class LogAggregator <: Actor {
+    private let logBuffer: CircularBuffer<LogEntry> = CircularBuffer(10000)
+    private let logFilters: ArrayList<LogFilter> = ArrayList()
+    private let logForwarders: ArrayList<LogForwarder> = ArrayList()
+    
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case log: LogMessage =>
+                processLogEntry(log.entry)
+                MessageResult.Handled
+                
+            case query: LogQueryMessage =>
+                let results = queryLogs(query.criteria)
+                context.sender.tell(LogQueryResponse(results))
+                MessageResult.Handled
+                
+            case config: LogConfigMessage =>
+                updateConfiguration(config)
+                MessageResult.Handled
+        }
+    }
+    
+    private func processLogEntry(entry: LogEntry): Unit {
+        // 应用过滤器
+        if (logFilters.all { filter => filter.accept(entry) }) {
+            logBuffer.add(entry)
+            
+            // 转发到外部系统
+            for (forwarder in logForwarders) {
+                forwarder.forward(entry)
+            }
+            
+            // 检查告警条件
+            checkAlertConditions(entry)
+        }
+    }
+    
+    private func checkAlertConditions(entry: LogEntry): Unit {
+        if (entry.level == LogLevel.Error || entry.level == LogLevel.Fatal) {
+            alertingService.sendAlert(ErrorLogAlert(entry))
+        }
+        
+        // 检查错误率阈值
+        let recentErrors = logBuffer.filter { log =>
+            log.level == LogLevel.Error && 
+            DateTime.now().minus(log.timestamp) < Duration.fromMinutes(5)
+        }.size()
+        
+        if (recentErrors > 100) {
+            alertingService.sendAlert(HighErrorRateAlert(recentErrors))
+        }
+    }
+}
+```
+
+## 📊 监控集成
+
+### 1. Prometheus集成
+
+```cangjie
+// Prometheus指标导出器
+class PrometheusMetricsExporter <: Actor {
+    private let metricsRegistry: MetricsRegistry = MetricsRegistry()
+    private let httpServer: HttpServer = HttpServer(8080)
+    
+    public func preStart(): Unit {
+        // 注册核心指标
+        registerCoreMetrics()
+        
+        // 启动HTTP服务器
+        httpServer.route("/metrics", { request => handleMetricsRequest(request) })
+        httpServer.start()
+    }
+    
+    private func registerCoreMetrics(): Unit {
+        metricsRegistry.registerGauge("cactor_active_actors", { => getActiveActorCount() })
+        metricsRegistry.registerCounter("cactor_messages_processed_total")
+        metricsRegistry.registerHistogram("cactor_message_processing_duration_seconds")
+        metricsRegistry.registerGauge("cactor_mailbox_size", { => getAverageMailboxSize() })
+        metricsRegistry.registerGauge("cactor_memory_usage_bytes", { => getMemoryUsage() })
+        metricsRegistry.registerGauge("cactor_cpu_usage_percent", { => getCpuUsage() })
+    }
+    
+    private func handleMetricsRequest(request: HttpRequest): HttpResponse {
+        let metricsText = metricsRegistry.exportPrometheusFormat()
+        return HttpResponse.ok(metricsText, "text/plain")
+    }
+    
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case metric: RecordMetricMessage =>
+                recordMetric(metric)
+                MessageResult.Handled
+        }
+    }
+    
+    private func recordMetric(metric: RecordMetricMessage): Unit {
+        match (metric.type) {
+            case counter: CounterMetric =>
+                metricsRegistry.getCounter(counter.name).increment(counter.value)
+            case gauge: GaugeMetric =>
+                metricsRegistry.getGauge(gauge.name).set(gauge.value)
+            case histogram: HistogramMetric =>
+                metricsRegistry.getHistogram(histogram.name).observe(histogram.value)
+        }
+    }
+}
+```
+
+### 2. Grafana仪表板
+
+```json
+{
+  "dashboard": {
+    "title": "CActor System Monitoring",
+    "panels": [
+      {
+        "title": "Message Processing Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(cactor_messages_processed_total[5m])",
+            "legendFormat": "Messages/sec"
+          }
+        ]
+      },
+      {
+        "title": "Active Actors",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "cactor_active_actors",
+            "legendFormat": "Active Actors"
+          }
+        ]
+      },
+      {
+        "title": "Message Processing Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, cactor_message_processing_duration_seconds)",
+            "legendFormat": "P95 Latency"
+          },
+          {
+            "expr": "histogram_quantile(0.99, cactor_message_processing_duration_seconds)",
+            "legendFormat": "P99 Latency"
+          }
+        ]
+      },
+      {
+        "title": "System Resources",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "cactor_cpu_usage_percent",
+            "legendFormat": "CPU Usage %"
+          },
+          {
+            "expr": "cactor_memory_usage_bytes / 1024 / 1024",
+            "legendFormat": "Memory Usage MB"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## 🚨 告警系统
+
+### 1. 告警规则
+
+```cangjie
+// 告警规则定义
+public struct AlertRule {
+    public let name: String
+    public let condition: AlertCondition
+    public let severity: AlertSeverity
+    public let cooldown: Duration
+    public let actions: Array<AlertAction>
+}
+
+public enum AlertSeverity {
+    | Info
+    | Warning  
+    | Critical
+}
+
+class AlertManager <: Actor {
+    private let alertRules: ArrayList<AlertRule> = ArrayList()
+    private let activeAlerts: HashMap<String, Alert> = HashMap()
+    private let alertHistory: CircularBuffer<Alert> = CircularBuffer(1000)
+    
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case metric: MetricUpdateMessage =>
+                evaluateAlertRules(metric)
+                MessageResult.Handled
+                
+            case query: AlertQueryMessage =>
+                let alerts = getAlerts(query.criteria)
+                context.sender.tell(AlertQueryResponse(alerts))
+                MessageResult.Handled
+        }
+    }
+    
+    private func evaluateAlertRules(metric: MetricUpdateMessage): Unit {
+        for (rule in alertRules) {
+            if (rule.condition.evaluate(metric)) {
+                triggerAlert(rule, metric)
+            }
+        }
+    }
+    
+    private func triggerAlert(rule: AlertRule, metric: MetricUpdateMessage): Unit {
+        let alertId = "${rule.name}-${System.currentTimeMillis()}"
+        let alert = Alert(
+            id: alertId,
+            rule: rule,
+            triggeredBy: metric,
+            timestamp: DateTime.now(),
+            severity: rule.severity
+        )
+        
+        activeAlerts.put(alertId, alert)
+        alertHistory.add(alert)
+        
+        // 执行告警动作
+        for (action in rule.actions) {
+            action.execute(alert)
+        }
+    }
+}
+```
+
+### 2. 告警通知
+
+```cangjie
+// 告警通知实现
+public interface AlertAction {
+    public func execute(alert: Alert): Unit
+}
+
+class EmailAlertAction <: AlertAction {
+    private let emailService: EmailService
+    private let recipients: Array<String>
+    
+    public func execute(alert: Alert): Unit {
+        let subject = "CActor Alert: ${alert.rule.name}"
+        let body = formatAlertEmail(alert)
+        
+        for (recipient in recipients) {
+            emailService.sendEmail(recipient, subject, body)
+        }
+    }
+    
+    private func formatAlertEmail(alert: Alert): String {
+        return """
+        Alert: ${alert.rule.name}
+        Severity: ${alert.severity}
+        Time: ${alert.timestamp}
+        
+        Details:
+        ${alert.triggeredBy.toString()}
+        
+        Dashboard: http://grafana.example.com/dashboard/cactor
+        """
+    }
+}
+
+class SlackAlertAction <: AlertAction {
+    private let slackClient: SlackClient
+    private let channel: String
+    
+    public func execute(alert: Alert): Unit {
+        let message = SlackMessage(
+            channel: channel,
+            text: formatSlackMessage(alert),
+            color: getColorForSeverity(alert.severity)
+        )
+        
+        slackClient.sendMessage(message)
+    }
+}
+```
+
+## 🔧 监控配置
+
+### 1. 监控配置文件
+
+```hocon
+# config/monitoring.conf
+cactor {
+  monitoring {
+    enabled = true
+    
+    metrics {
+      collection-interval = "10s"
+      retention-period = "7d"
+      
+      exporters {
+        prometheus {
+          enabled = true
+          port = 8080
+          path = "/metrics"
+        }
+        
+        influxdb {
+          enabled = false
+          url = "http://localhost:8086"
+          database = "cactor"
+        }
+      }
+    }
+    
+    logging {
+      level = "INFO"
+      structured = true
+      
+      appenders {
+        console {
+          enabled = true
+          pattern = "%d{ISO8601} [%level] %logger{36} - %msg%n"
+        }
+        
+        file {
+          enabled = true
+          file = "logs/cactor.log"
+          max-size = "100MB"
+          max-files = 10
+        }
+        
+        elasticsearch {
+          enabled = false
+          hosts = ["localhost:9200"]
+          index = "cactor-logs"
+        }
+      }
+    }
+    
+    alerts {
+      enabled = true
+      
+      rules = [
+        {
+          name = "high-error-rate"
+          condition = "error_rate > 0.05"
+          severity = "warning"
+          cooldown = "5m"
+          actions = ["email", "slack"]
+        },
+        {
+          name = "high-latency"
+          condition = "p99_latency > 1000ms"
+          severity = "critical"
+          cooldown = "2m"
+          actions = ["email", "slack", "pagerduty"]
+        }
+      ]
+    }
+  }
+}
+```
+
+---
+
+**CActor v1.1.0 - 全面监控，实时洞察！** 📊
+
+*最后更新: 2025年7月3日*

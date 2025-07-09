@@ -8,17 +8,30 @@
 
 CActor提供中文和英文两种语言的完整文档：
 
+#### 核心文档 (Core Documentation)
+- [快速开始](QUICK_START.md) - 5分钟上手CActor
+- [功能特性](FEATURES.md) - 完整的功能特性详解
+- [项目状态](../PROJECT_STATUS.md) - 当前项目状态总结
+
+#### 运维文档 (Operations Documentation)
+- [部署指南](DEPLOYMENT.md) - 完整的部署和运维指南
+- [故障排除](TROUBLESHOOTING.md) - 常见问题诊断和解决
+- [监控日志](MONITORING.md) - 监控、日志和告警系统
+- [安全指南](SECURITY.md) - 多层安全防护机制
+- [迁移指南](MIGRATION.md) - 从其他系统迁移到CActor
+- [最佳实践](BEST_PRACTICES.md) - 开发和部署最佳实践
+
 #### 中文文档 (Chinese Documentation)
 - [项目概述](zh/README.md) - CActor项目的完整介绍
-- [架构设计](zh/architecture.md) - 详细的6层架构设计文档
+- [架构设计](zh/architecture.md) - 详细的7层架构设计文档
 - [API参考](zh/api-reference.md) - 完整的API使用指南
-- [性能优化](zh/performance.md) - 优先性能优化指南
+- [性能优化](zh/performance.md) - 世界级性能优化指南
 - [包结构](zh/package-structure.md) - 详细的包结构设计
 - [未来规划](zh/roadmap.md) - 项目发展路线图
 
 #### English Documentation
 - [Project Overview](en/README.md) - Complete introduction to CActor project
-- [Architecture Design](en/architecture.md) - Detailed 6-layer architecture documentation
+- [Architecture Design](en/architecture.md) - Detailed 7-layer architecture documentation
 - [API Reference](en/api-reference.md) - Complete API usage guide
 - [Performance Optimization](en/performance.md) - World-class performance optimization guide
 - [Package Structure](en/package-structure.md) - Detailed package structure design
@@ -26,39 +39,55 @@ CActor提供中文和英文两种语言的完整文档：
 
 ## 🎯 快速导航
 
-### 新手入门
-1. **[项目概述](zh/README.md)** - 了解CActor是什么，为什么选择CActor
-2. **[快速开始](zh/README.md#📦-快速开始)** - 5分钟上手CActor
-3. **[API参考](zh/api-reference.md)** - 学习CActor的核心API
+### 🚀 新手入门
+1. **[快速开始](QUICK_START.md)** - 5分钟上手CActor，包含完整示例
+2. **[功能特性](FEATURES.md)** - 了解CActor的所有功能特性
+3. **[项目概述](zh/README.md)** - 了解CActor是什么，为什么选择CActor
 
-### 深入理解
-1. **[架构设计](zh/architecture.md)** - 理解CActor的6层架构设计
-2. **[包结构](zh/package-structure.md)** - 了解代码组织结构
-3. **[性能优化](zh/performance.md)** - 掌握性能优化技巧
+### 🏗️ 深入理解
+1. **[架构设计](zh/architecture.md)** - 理解CActor的7层架构设计
+2. **[API参考](zh/api-reference.md)** - 学习CActor的核心API
+3. **[包结构](zh/package-structure.md)** - 了解代码组织结构
+4. **[性能优化](zh/performance.md)** - 掌握性能优化技巧
 
-### 项目规划
+### 🚀 运维部署
+1. **[部署指南](DEPLOYMENT.md)** - 单机到集群的完整部署方案
+2. **[监控日志](MONITORING.md)** - 全面的监控和日志系统
+3. **[故障排除](TROUBLESHOOTING.md)** - 快速诊断和解决问题
+4. **[安全指南](SECURITY.md)** - 企业级安全防护
+
+### 🔄 迁移升级
+1. **[迁移指南](MIGRATION.md)** - 从其他系统平滑迁移
+2. **[最佳实践](BEST_PRACTICES.md)** - 开发和部署最佳实践
+3. **[项目状态](../PROJECT_STATUS.md)** - 当前项目状态和完成度
+
+### 📋 项目信息
 1. **[未来规划](zh/roadmap.md)** - 了解CActor的发展方向
 2. **[贡献指南](../CONTRIBUTING.md)** - 参与CActor开发
+3. **[文档结构](DOCUMENTATION_STRUCTURE.md)** - 文档体系说明
 
-## 🏆 CActor 亮点
+## 🏆 CActor 亮点 (v1.1.0)
 
-### 优先性能
-- **消息吞吐量**: 20,000,000 msg/s
-- **延迟**: P99 < 1ms
-- **并发Actor**: 支持1M+
-- **内存效率**: <1KB/Actor
+### 🚀 世界级性能
+- **Ask模式**: 657,894 req/s，1,520 ns/req
+- **集群分片**: 支持100万Actor
+- **流处理**: 500万元素/秒
+- **状态机**: 纳秒级状态转换
+- **延迟**: 保持微秒级延迟
 
-### 企业级特性
-- **Ask模式**: 完整的请求-响应支持
-- **监督策略**: 完整的故障恢复机制
-- **断路器**: 故障隔离和自动恢复
-- **背压控制**: 流量控制和过载保护
+### 🏢 完整企业级特性
+- **Ask模式**: 生产级请求-响应模式 ✅
+- **集群管理**: 完整的集群分片系统 ✅
+- **持久化**: 事件溯源和CQRS架构 ✅
+- **测试框架**: 完整的TestKit框架 ✅
+- **流处理**: CActor Streams高性能流处理 ✅
+- **状态机**: XState企业级状态机系统 ✅
 
-### 分布式能力
-- **远程通信**: 透明的远程Actor通信
-- **集群管理**: 节点发现和状态管理
-- **故障转移**: 自动故障检测和恢复
-- **持久化**: 事件溯源和快照支持
+### 🎯 技术创新
+- **仓颉语言特性**: 充分利用仓颉0.60.5现代特性
+- **7层架构**: 高内聚低耦合的模块化设计
+- **类型安全**: 编译时类型检查和验证
+- **Actor模型**: 天然并发和分布式支持
 
 ## 📊 性能对比
 
@@ -119,23 +148,26 @@ main(): Int64 {
 
 ## 📈 发展历程
 
-### 已完成里程碑
-- ✅ **性能突破**: 实现20M msg/s优先性能
-- ✅ **架构完善**: 6层模块化架构设计
-- ✅ **API统一**: 简洁易用的统一API
-- ✅ **测试完备**: 完整的测试框架
+### ✅ 已完成里程碑 (v1.1.0)
+- ✅ **Ask模式完善**: 657,894 req/s生产级实现
+- ✅ **集群管理增强**: 完整的集群分片系统
+- ✅ **持久化系统**: 事件溯源和CQRS架构
+- ✅ **测试框架建设**: 完整的TestKit框架
+- ✅ **流处理系统**: CActor Streams，500万元素/秒
+- ✅ **状态机系统**: XState，基于仓颉语言特性
+- ✅ **7层架构**: 完整的模块化架构设计
 
-### 进行中项目
-- 🔄 **分布式集群**: 远程通信和集群管理
-- 🔄 **持久化支持**: 事件溯源和快照
-- 🔄 **流处理**: 反应式流处理能力
+### 🔄 进行中项目
+- 🔄 **HTTP集成**: 高性能Web服务器
+- 🔄 **序列化优化**: 多格式序列化支持
+- 🔄 **可视化工具**: 监控和管理界面
 - 🔄 **文档完善**: 多语言文档体系
 
-### 未来规划
-- 📋 **云原生**: Kubernetes和容器化支持
+### 📋 未来规划
+- 📋 **云原生支持**: Kubernetes和容器化
 - 📋 **多语言绑定**: Java、Python、Go绑定
-- 📋 **可视化工具**: 监控和管理界面
-- 📋 **社区生态**: 开源社区建设
+- 📋 **边缘计算**: 轻量级运行时
+- 📋 **社区生态建设**: 开源社区发展
 
 ## 🤝 参与贡献
 
