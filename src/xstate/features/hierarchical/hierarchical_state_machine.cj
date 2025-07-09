@@ -11,7 +11,7 @@ import cactor.api.{CActor, CActorSystem}
 import cactor.core.actor.{Actor, ActorRef}
 import cactor.core.context.{ActorContext}
 import cactor.core.message.{Message, MessageResult}
-import cactor.xstate.core.types.{StateMachineState, StateMachineEvent, ToggleEvent}
+import cactor.xstate.core.types.{StateMachineState, StateMachineEvent, BaseStateMachineEvent}
 import cactor.xstate.core.machine.{StateMachineDefinition}
 import cactor.xstate.core.actor.{StateMachineActor}
 import cactor.xstate.core.engine.{PatternTransitionEngine}
@@ -299,12 +299,12 @@ public class HierarchicalStateMachineActor <: Actor {
         // 使用转换引擎处理事件
         if (message.messageType() == "ProcessEventMessage") {
             // 简化的事件处理 - 在实际实现中会解析具体的事件类型
-            let toggleEvent = ToggleEvent.Toggle
+            let toggleEvent = BaseStateMachineEvent("toggle")
             let result = transitionEngine.processTransition(state.getStateId(), toggleEvent)
 
             // 处理转换结果
-            if (result.success) {
-                performHierarchicalTransition(state.getStateId(), result.targetState, context)
+            if (result.isSuccess()) {
+                performHierarchicalTransition(state.getStateId(), result.targetStateId, context)
                 return true
             }
         }

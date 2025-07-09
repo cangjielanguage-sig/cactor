@@ -12,7 +12,7 @@ import cactor.api.{CActor, CActorSystem}
 import cactor.core.actor.{Actor, ActorRef}
 import cactor.core.context.{ActorContext}
 import cactor.core.message.{Message, MessageResult}
-import cactor.distribution.cluster.{ClusterSupport, ClusterNode, NodeId}
+import cactor.distribution.cluster.{SimpleClusterManager, ClusterNode, NodeId}
 
 /**
  * 分布式状态同步消息
@@ -21,26 +21,26 @@ public class StateSync <: Message {
     public let stateMachineId: String
     public let currentState: String
     public let version: Int64
-    public let timestamp: Int64
+    public let eventTimestamp: Int64
     public let nodeId: String
     
     public init(
         stateMachineId: String,
         currentState: String,
         version: Int64,
-        timestamp: Int64,
+        eventTimestamp: Int64,
         nodeId: String
     ) {
         this.stateMachineId = stateMachineId
         this.currentState = currentState
         this.version = version
-        this.timestamp = timestamp
+        this.eventTimestamp = eventTimestamp
         this.nodeId = nodeId
     }
     
     public func getType(): String { "StateSync" }
     public func getPayload(): String { 
-        "StateSync(${stateMachineId}, ${currentState}, v${version})" 
+        "StateSync(${stateMachineId}, ${currentState}, v${version})"
     }
     public func messageType(): String { "StateSync" }
 }
@@ -109,13 +109,22 @@ public enum ConflictResolutionStrategy {
     | HighestVersion      // 最高版本获胜
     | NodePriority        // 节点优先级
     | CustomResolver      // 自定义解决器
+
+    public func toString(): String {
+        match (this) {
+            case LastWriterWins => "LastWriterWins"
+            case HighestVersion => "HighestVersion"
+            case NodePriority => "NodePriority"
+            case CustomResolver => "CustomResolver"
+        }
+    }
 }
 
 /**
  * 分布式状态同步管理器
  */
 public class DistributedStateSyncManager <: Actor {
-    private let clusterSupport: Option<ClusterSupport>
+    private let clusterSupport: Option<SimpleClusterManager>
     private let localStates: HashMap<String, DistributedStateInfo>
     private let remoteStates: HashMap<String, HashMap<String, DistributedStateInfo>>
     private let conflictResolver: ConflictResolutionStrategy
@@ -124,7 +133,7 @@ public class DistributedStateSyncManager <: Actor {
     private var lastSyncTime: Int64
     
     public init(
-        clusterSupport: Option<ClusterSupport>,
+        clusterSupport: Option<SimpleClusterManager>,
         conflictResolver: ConflictResolutionStrategy,
         syncInterval: Duration
     ) {
@@ -172,48 +181,46 @@ public class DistributedStateSyncManager <: Actor {
      * 处理状态同步消息
      */
     private func handleStateSync(message: Message, context: ActorContext): MessageResult {
-        if (message is StateSync) {
-            let syncMessage = message as StateSync
-            
-            mutex.lock()
-            
-            // 更新远程状态信息
-            updateRemoteState(syncMessage)
-            
-            // 检查是否有冲突
-            let conflicts = detectConflicts(syncMessage.stateMachineId)
-            if (conflicts.size > 0) {
-                resolveConflicts(syncMessage.stateMachineId, conflicts, context)
-            }
-            
-            mutex.unlock()
-            
-            println("处理状态同步: ${syncMessage.stateMachineId} -> ${syncMessage.currentState}")
-            return MessageResult.Handled
+        match (message) {
+            case syncMessage: StateSync =>
+                mutex.lock()
+
+                // 更新远程状态信息
+                updateRemoteState(syncMessage)
+
+                // 检查是否有冲突
+                let conflicts = detectConflicts(syncMessage.stateMachineId)
+                if (conflicts.size > 0) {
+                    resolveConflicts(syncMessage.stateMachineId, conflicts, context)
+                }
+
+                mutex.unlock()
+
+                println("处理状态同步: ${syncMessage.stateMachineId} -> ${syncMessage.currentState}")
+                MessageResult.Handled
+            case _ =>
+                MessageResult.Unhandled
         }
-        
-        return MessageResult.Unhandled
     }
     
     /**
      * 处理冲突解决消息
      */
     private func handleConflictResolution(message: Message, context: ActorContext): MessageResult {
-        if (message is StateConflictResolution) {
-            let resolutionMessage = message as StateConflictResolution
-            
-            mutex.lock()
-            
-            // 应用冲突解决结果
-            applyConflictResolution(resolutionMessage)
-            
-            mutex.unlock()
-            
-            println("应用冲突解决: ${resolutionMessage.stateMachineId} -> ${resolutionMessage.resolvedState}")
-            return MessageResult.Handled
+        match (message) {
+            case resolutionMessage: StateConflictResolution =>
+                mutex.lock()
+
+                // 应用冲突解决结果
+                applyConflictResolution(resolutionMessage)
+
+                mutex.unlock()
+
+                println("应用冲突解决: ${resolutionMessage.stateMachineId} -> ${resolutionMessage.resolvedState}")
+                MessageResult.Handled
+            case _ =>
+                MessageResult.Unhandled
         }
-        
-        return MessageResult.Unhandled
     }
     
     /**
@@ -292,7 +299,7 @@ public class DistributedStateSyncManager <: Actor {
             syncMessage.stateMachineId,
             syncMessage.currentState,
             syncMessage.version,
-            syncMessage.timestamp,
+            syncMessage.eventTimestamp,
             syncMessage.nodeId,
             true
         )
