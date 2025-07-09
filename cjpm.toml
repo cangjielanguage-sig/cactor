@@ -39,6 +39,9 @@ output-type = "static"
 [package.package-configuration."cactor.core.config"]
 output-type = "static"
 
+[package.package-configuration."cactor.core.error"]
+output-type = "static"
+
 # === Runtime Layer ===
 [package.package-configuration."cactor.runtime.mailbox"]
 output-type = "dynamic"
@@ -179,6 +182,36 @@ output-type = "executable"
 
 [package.package-configuration."cactor.examples.streams_backpressure_demo"]
 output-type = "executable"
+
+[package.package-configuration."cactor.examples.functional_actor_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.objectpool_performance_comparison"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.cangjie_features_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.simple_objectpool_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.stdlib_objectpool_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.cangjie_dsl_features"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.streams_integration_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.cangjie_streams_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor.examples.streams_enhanced_dsl_demo"]
+output-type = "executable"
+
+# [package.package-configuration."cactor.examples.error_handling_demo"]
+# output-type = "executable"
 
 
 # === Macros Package ===
