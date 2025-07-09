@@ -72,6 +72,9 @@ output-type = "static"
 [package.package-configuration."cactor.patterns.ask"]
 output-type = "static"
 
+# === Unit Tests ===
+# 测试包不需要特殊配置，使用默认设置
+
 # === Integration Tests ===
 [package.package-configuration."cactor.integration.testing.plan10_comprehensive_test"]
 output-type = "executable"
