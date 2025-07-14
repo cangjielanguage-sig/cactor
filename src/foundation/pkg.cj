@@ -10,3 +10,11 @@ public import cactor.foundation.memory.*
 public import cactor.foundation.queue.*
 public import cactor.foundation.serialization.*
 public import cactor.foundation.network.*
+
+// 新增的架构优化组件（暂时禁用有问题的模块）
+// public import cactor.foundation.di.*
+// public import cactor.foundation.abstractions.*
+// public import cactor.foundation.contracts.*
+// public import cactor.foundation.config.*  // 暂时禁用复杂配置系统
+public import cactor.foundation.simple_config.*  // 简化配置系统
+public import cactor.foundation.monitoring.*     // 监控系统
