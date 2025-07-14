@@ -47,11 +47,11 @@ public class ConfigTestActor <: Actor {
         get() { "测试配置使用的Actor" }
     }
     
-    public func started(): Unit {
+    public func preStart(): Unit {
         println("✅ ConfigTestActor启动")
     }
-    
-    public func stopped(): Unit {
+
+    public func postStop(): Unit {
         println("🛑 ConfigTestActor停止 - 处理了${messageCount}条消息")
     }
 }

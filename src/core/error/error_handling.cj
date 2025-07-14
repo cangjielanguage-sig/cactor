@@ -230,6 +230,10 @@ public struct ErrorStatistics {
         this.lowErrors = low
         this.lastErrorTime = lastTime
     }
+
+    public func toString(): String {
+        "ErrorStatistics(total=${totalErrors}, critical=${criticalErrors}, high=${highErrors}, medium=${mediumErrors}, low=${lowErrors})"
+    }
 }
 
 /**

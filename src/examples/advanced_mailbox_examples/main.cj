@@ -50,12 +50,12 @@ public class HighFrequencyTradingActor <: Actor {
         }
     }
     
-    public func started(): Unit {
+    public func preStart(): Unit {
         println("🏦 高频交易Actor启动 - 使用SPSC邮箱")
         lastTradeTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
     }
-    
-    public func stopped(): Unit {
+
+    public func postStop(): Unit {
         println("🏦 高频交易Actor停止 - 总交易数: ${tradeCount}")
     }
 }
@@ -101,11 +101,11 @@ public class LogAggregatorActor <: Actor {
         logBuffer.clear()
     }
     
-    public func started(): Unit {
+    public func preStart(): Unit {
         println("📝 日志聚合Actor启动 - 使用MPSC邮箱")
     }
-    
-    public func stopped(): Unit {
+
+    public func postStop(): Unit {
         if (logBuffer.size > 0) {
             flushLogs()
         }
@@ -163,7 +163,7 @@ public class RateLimitedActor <: Actor {
         lastSecond = DateTime.now().toUnixTimeStamp().toSeconds()
     }
     
-    public func stopped(): Unit {
+    public func postStop(): Unit {
         println("⚡ 限流Actor停止 - 处理: ${processedCount}, 丢弃: ${droppedCount}")
     }
 }

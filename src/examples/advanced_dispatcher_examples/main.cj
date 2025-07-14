@@ -60,11 +60,11 @@ public class CPUIntensiveActor <: Actor {
         return b
     }
     
-    public func started(): Unit {
+    public func preStart(): Unit {
         println("🔢 CPU密集型Actor启动 - 使用线程池调度器")
     }
-    
-    public func stopped(): Unit {
+
+    public func postStop(): Unit {
         println("🔢 CPU密集型Actor停止 - 完成任务数: ${taskCount}")
     }
 }
@@ -115,11 +115,11 @@ public class WorkStealingActor <: Actor {
         }
     }
     
-    public func started(): Unit {
+    public func preStart(): Unit {
         println("⚡ 工作窃取Actor[${actorId}]启动 - 使用工作窃取调度器")
     }
-    
-    public func stopped(): Unit {
+
+    public func postStop(): Unit {
         println("⚡ 工作窃取Actor[${actorId}]停止 - 完成工作项: ${workItemCount}")
     }
 }
@@ -166,11 +166,11 @@ public class RealTimeActor <: Actor {
         }
     }
     
-    public func started(): Unit {
+    public func preStart(): Unit {
         println("⏱ 实时Actor启动 - 使用固定线程调度器")
     }
-    
-    public func stopped(): Unit {
+
+    public func postStop(): Unit {
         let avgLatency = if (eventCount > 0) { totalLatency / eventCount } else { 0 }
         println("⏱ 实时Actor停止 - 事件数: ${eventCount}, 平均延迟: ${avgLatency}ns")
     }

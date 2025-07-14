@@ -235,9 +235,21 @@ output-type = "static"
 [package.package-configuration."cactor.xstate.lang"]
 output-type = "static"
 
+# XState特性功能包
+[package.package-configuration."cactor.xstate.features"]
+output-type = "static"
+
+# XState企业功能包
+[package.package-configuration."cactor.xstate.enterprise"]
+output-type = "static"
+
 # XState示例包
 [package.package-configuration."cactor.examples.xstate_demo"]
 output-type = "executable"
+
+# XState特性功能演示包
+# [package.package-configuration."cactor.examples.xstate_features_demo"]
+# output-type = "executable"
 
 [target.aarch64-apple-darwin]
     compile-option = "--cfg \"ohos=false\""
