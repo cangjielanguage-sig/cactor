@@ -219,6 +219,18 @@ output-type = "executable"
 [package.package-configuration."cactor.examples.monitoring_demo"]
 output-type = "executable"
 
+# [package.package-configuration."cactor.examples.enhanced_macro_demo"]
+# output-type = "executable"
+
+[package.package-configuration."cactor.examples.simple_macro_demo"]
+output-type = "executable"
+
+# [package.package-configuration."cactor.examples.enhanced_serialization_demo"]
+# output-type = "executable"
+
+[package.package-configuration."cactor.examples.simple_serialization_demo"]
+output-type = "executable"
+
 
 # === Macros Package ===
 [package.package-configuration."cactor.macros"]
