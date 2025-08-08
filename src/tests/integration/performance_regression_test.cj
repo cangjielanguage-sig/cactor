@@ -202,7 +202,7 @@ public class PerformanceRegressionTestSuite {
             actors.add(actor)
         }
         
-        let messagePerActor = 100
+        let messagePerActor = 1000
         let startTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
         
         // 并发发送消息到所有Actor

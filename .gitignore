@@ -54,7 +54,7 @@ coverage/
 node_modules/
 .npm/
 .yarn/
-
+task
 # 系统文件
 .DS_Store
 .DS_Store?

@@ -38,7 +38,7 @@
   - API：CActorSystem.typedActorOf 路由至 TypedActorSystemImpl，避免 Dummy 包装
   - Runtime：TypedActorSystemImpl.createActor 使用泛型重定向到真实创建逻辑
   - Runtime：新增 runtime/typed/{stash_buffer.cj, timers.cj, typed_actor_cell.cj} 最小真实实现
-  - Core：新增 core/typed/{typed_protocol.cj, typed_actor_ref.cj}，提供 MessageAdapter 与基础 Selection
+  - Core：新增 core/typed/{typed_protocol.cj, typed_actor_ref.cj}，提供 MessageAdapter，完成 Selection 通配/路径解析基础支持
   - Tests：新增/修复 src/tests/unit/runtime/typed/{typed_smoke_test.cj, stash_buffer_test.cj, timers_test.cj} 与 src/tests/unit/core/typed/adapter_test.cj 并通过
 - 待完成：
   - Selection 通配/路径解析增强
