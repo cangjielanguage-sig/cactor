@@ -33,14 +33,15 @@
   - 单测：Typed 行为/适配/暂存/定时器 ≥ 30 用例，覆盖率 ≥ 90%
   - 基准：本地 Tell ≥ 10M msg/s；Ask ≥ 1M req/s
 - 估时：12D
-- 状态：[x] 部分完成（本次增量已完成基础连通、Stash/Timers/Cell骨架与冒烟测试）
+- 状态：[x] 部分完成（本次增量已完成基础连通、Stash/Timers/Cell骨架、MessageAdapter/Selection基础与冒烟测试）
 - 本次提交范围：
   - API：CActorSystem.typedActorOf 路由至 TypedActorSystemImpl，避免 Dummy 包装
   - Runtime：TypedActorSystemImpl.createActor 使用泛型重定向到真实创建逻辑
   - Runtime：新增 runtime/typed/{stash_buffer.cj, timers.cj, typed_actor_cell.cj} 最小真实实现
-  - Tests：新增/修复 src/tests/unit/runtime/typed/{typed_smoke_test.cj, stash_buffer_test.cj, timers_test.cj} 并通过
+  - Core：新增 core/typed/{typed_protocol.cj, typed_actor_ref.cj}，提供 MessageAdapter 与基础 Selection
+  - Tests：新增/修复 src/tests/unit/runtime/typed/{typed_smoke_test.cj, stash_buffer_test.cj, timers_test.cj} 与 src/tests/unit/core/typed/adapter_test.cj 并通过
 - 待完成：
-  - core/typed/{typed_actor_ref.cj, typed_protocol.cj} 的能力增强（MessageAdapter/Behavior变换）
+  - Behavior 变换（map/contramap 等）与 Selection 通配/路径解析增强
   - 单测扩充 ≥ 30 用例与性能基准
 
 
