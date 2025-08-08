@@ -13,19 +13,19 @@ import cactor.core.actor.*
 /**
  * 类型安全的Actor行为接口
  * 这是CActor类型安全系统的核心接口，参考Akka Typed设计
- * 
+ *
  * @param T 此Actor可以处理的消息类型
  */
 public interface TypedBehavior<T> {
     /**
      * 处理接收到的消息
-     * 
+     *
      * @param message 接收到的消息，类型安全
      * @param context 类型安全的Actor上下文
      * @return 新的行为，可以是相同的行为或不同的行为
      */
     func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T>
-    
+
     /**
      * 获取行为的描述信息
      * 用于调试和监控
@@ -38,28 +38,28 @@ public interface TypedBehavior<T> {
 /**
  * 类型安全的Actor引用接口
  * 提供类型安全的消息发送功能
- * 
+ *
  * @param T 此ActorRef可以接收的消息类型
  */
 public interface TypedActorRef<T> {
     /**
      * 发送消息给Actor (tell模式)
      * 这是异步的，不等待响应
-     * 
+     *
      * @param message 要发送的消息，类型安全
      */
     func tell(message: T): Unit
-    
+
     /**
      * 获取Actor路径的字符串表示
-     * 
+     *
      * @return 路径字符串
      */
     func pathString(): String
-    
+
     /**
      * 比较两个TypedActorRef是否相等
-     * 
+     *
      * @param other 另一个TypedActorRef
      * @return 是否相等
      */
@@ -372,46 +372,74 @@ public interface TypedCancellable {
  * 提供创建常用行为的静态方法，参考Akka的Behaviors
  */
 public struct TypedBehaviors {
-    
+
     /**
      * 创建一个接收消息的行为
-     * 
+     *
      * @param handler 消息处理函数
      * @return 新的行为
      */
     public static func receive<T>(handler: (TypedActorContext<T>, T) -> TypedBehavior<T>): TypedBehavior<T> {
         ReceiveBehavior<T>(handler)
     }
-    
+
     /**
      * 创建一个相同的行为
      * 表示保持当前行为不变
-     * 
+     *
      * @return 相同的行为标记
      */
     public static func same<T>(): TypedBehavior<T> {
         SameBehavior<T>()
     }
-    
+
     /**
      * 创建一个停止的行为
      * 表示Actor应该停止
-     * 
+     *
      * @return 停止行为
      */
     public static func stopped<T>(): TypedBehavior<T> {
         StoppedBehavior<T>()
     }
-    
+
     /**
      * 创建一个忽略消息的行为
      * 接收但不处理任何消息
-     * 
+     *
      * @return 忽略行为
      */
     public static func ignore<T>(): TypedBehavior<T> {
         IgnoreBehavior<T>()
     }
+
+    /**
+     * 将外部消息类型 In 转换为内部类型 T 的行为
+     * 等价于 Akka Typed 的 transformMessages 的简化版
+     */
+    public static func transformMessages<In, T>(inner: TypedBehavior<T>, f: (In) -> T): TypedBehavior<In> {
+        TransformBehavior<In, T>(inner, f)
+    }
+
+    /**
+     * 过滤消息，不满足条件的消息被忽略（Same 行为）
+     */
+    public static func filter<In>(inner: TypedBehavior<In>, p: (In) -> Bool): TypedBehavior<In> {
+        FilterBehavior<In>(inner, p)
+    }
+
+    /**
+     * 部分接收：仅当谓词为真时，调用处理器；否则保持行为不变
+     */
+    public static func receivePartial<T>(p: (T) -> Bool, handler: (TypedActorContext<T>, T) -> TypedBehavior<T>): TypedBehavior<T> {
+        PartialBehavior<T>(p, handler)
+    }
+
+    /**
+     * 命名别名：mapMessages/contramap 等价于 transformMessages
+     */
+    public static func mapMessages<In, T>(inner: TypedBehavior<T>, f: (In) -> T): TypedBehavior<In> { transformMessages(inner, f) }
+    public static func contramap<In, T>(inner: TypedBehavior<T>, f: (In) -> T): TypedBehavior<In> { transformMessages(inner, f) }
 }
 
 /**
@@ -420,15 +448,15 @@ public struct TypedBehaviors {
  */
 internal class ReceiveBehavior<T> <: TypedBehavior<T> {
     private let handler: (TypedActorContext<T>, T) -> TypedBehavior<T>
-    
+
     public init(handler: (TypedActorContext<T>, T) -> TypedBehavior<T>) {
         this.handler = handler
     }
-    
+
     public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
         handler(context, message)
     }
-    
+
     public func getDescription(): String {
         "ReceiveBehavior"
     }
@@ -442,7 +470,7 @@ internal class SameBehavior<T> <: TypedBehavior<T> {
     public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
         this
     }
-    
+
     public func getDescription(): String {
         "SameBehavior"
     }
@@ -456,10 +484,72 @@ internal class StoppedBehavior<T> <: TypedBehavior<T> {
     public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
         this
     }
-    
+
     public func getDescription(): String {
         "StoppedBehavior"
     }
+}
+
+/**
+ * Transform 行为实现
+ */
+internal class TransformBehavior<In, T> <: TypedBehavior<In> {
+    private let inner: TypedBehavior<T>
+    private let f: (In) -> T
+    public init(inner: TypedBehavior<T>, f: (In) -> T) { this.inner = inner; this.f = f }
+    public func onMessage(message: In, context: TypedActorContext<In>): TypedBehavior<In> {
+        let next = inner.onMessage(f(message), AnyTransformContext<In, T>(context))
+        TransformBehavior<In, T>(next, f)
+    }
+    public func getDescription(): String { "TransformBehavior" }
+}
+
+/**
+ * Filter 行为实现
+ */
+internal class FilterBehavior<In> <: TypedBehavior<In> {
+    private let inner: TypedBehavior<In>
+    private let p: (In) -> Bool
+    public init(inner: TypedBehavior<In>, p: (In) -> Bool) { this.inner = inner; this.p = p }
+    public func onMessage(message: In, context: TypedActorContext<In>): TypedBehavior<In> {
+        if (p(message)) { inner.onMessage(message, context) } else { inner }
+    }
+}
+
+/**
+ * 将 In 上下文适配到 T 的占位实现（最小化）
+ */
+internal class AnyTransformContext<In, T> <: TypedActorContext<T> {
+    private let underlying: TypedActorContext<In>
+    public init(underlying: TypedActorContext<In>) { this.underlying = underlying }
+    public prop self: TypedActorRef<T> { get() { throw Exception("Not supported in minimal transform context") } }
+    public func sender(): Option<String> { underlying.sender() }
+    public func stopSelf(): Unit { underlying.stopSelf() }
+    public func log(): TypedLogger { underlying.log() }
+    public func spawnChild(behavior: TypedBehavior<Any>, name: String): TypedActorRef<Any> { underlying.spawnChild(behavior, name) }
+    public func spawnAnonymousChild(behavior: TypedBehavior<Any>): TypedActorRef<Any> { underlying.spawnAnonymousChild(behavior) }
+    public func stopChild(child: TypedActorRef<Any>): Unit { underlying.stopChild(child) }
+    public func watchActor(other: TypedActorRef<Any>): Unit { underlying.watchActor(other) }
+    public func unwatchActor(other: TypedActorRef<Any>): Unit { underlying.unwatchActor(other) }
+    public func askMessage(target: TypedActorRef<Any>, message: Any, timeout: Duration): TypedFuture<Any> { underlying.askMessage(target, message, timeout) }
+    public func askMessage(target: TypedActorRef<Any>, message: Any): TypedFuture<Any> { underlying.askMessage(target, message) }
+    public func system(): TypedActorSystem { underlying.system() }
+    public func scheduler(): TypedScheduler { underlying.scheduler() }
+    public func child(name: String): Option<TypedActorRef<Any>> { underlying.child(name) }
+    public func children(): Array<TypedActorRef<Any>> { underlying.children() }
+}
+
+/**
+ * 部分接收行为：仅当谓词为真时调用处理器
+ */
+internal class PartialBehavior<T> <: TypedBehavior<T> {
+    private let p: (T) -> Bool
+    private let handler: (TypedActorContext<T>, T) -> TypedBehavior<T>
+    public init(p: (T) -> Bool, handler: (TypedActorContext<T>, T) -> TypedBehavior<T>) { this.p = p; this.handler = handler }
+    public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
+        if (p(message)) { handler(context, message) } else { this }
+    }
+    public func getDescription(): String { "PartialBehavior" }
 }
 
 /**
@@ -470,7 +560,7 @@ internal class IgnoreBehavior<T> <: TypedBehavior<T> {
     public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
         this
     }
-    
+
     public func getDescription(): String {
         "IgnoreBehavior"
     }
@@ -483,15 +573,15 @@ internal class SimpleTypedLogger <: TypedLogger {
     public func debug(message: String): Unit {
         println("[DEBUG] ${message}")
     }
-    
+
     public func info(message: String): Unit {
         println("[INFO] ${message}")
     }
-    
+
     public func warn(message: String): Unit {
         println("[WARN] ${message}")
     }
-    
+
     public func error(message: String): Unit {
         println("[ERROR] ${message}")
     }

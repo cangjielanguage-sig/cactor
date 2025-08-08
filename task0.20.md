@@ -41,7 +41,8 @@
   - Core：新增 core/typed/{typed_protocol.cj, typed_actor_ref.cj}，提供 MessageAdapter 与基础 Selection
   - Tests：新增/修复 src/tests/unit/runtime/typed/{typed_smoke_test.cj, stash_buffer_test.cj, timers_test.cj} 与 src/tests/unit/core/typed/adapter_test.cj 并通过
 - 待完成：
-  - Behavior 变换（map/contramap 等）与 Selection 通配/路径解析增强
+  - Selection 通配/路径解析增强
+  - Timers Backoff（指数回退+抖动）
   - 单测扩充 ≥ 30 用例与性能基准
 
 
