@@ -181,9 +181,10 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
      */
     private func createUserActorRef(actor: Actor, name: String, path: ActorPath): ActorRef {
         // 这里应该与Runtime层集成，使用真正的邮箱和调度器
-        return SimpleUserActorRef(name, actor, path)
+        // 最小改造：将guardian引用注入子ActorRef以路由失败
+        return SimpleUserActorRef(name, actor, path, this)
     }
-    
+
     // 重写Actor属性
     public prop name: String {
         get() { "user" }
@@ -288,11 +289,13 @@ public class SimpleUserActorRef <: ActorRef {
     private let actorName: String
     private let actor: Actor
     private let actorPath: ActorPath
+    private let guardian: RuntimeUserGuardian
 
-    public init(name: String, actor: Actor, path: ActorPath) {
+    public init(name: String, actor: Actor, path: ActorPath, guardian: RuntimeUserGuardian) {
         this.actorName = name
         this.actor = actor
         this.actorPath = path
+        this.guardian = guardian
     }
 
     public prop path: ActorPath {
@@ -304,8 +307,9 @@ public class SimpleUserActorRef <: ActorRef {
         try {
             actor.receive(message, context)
         } catch (e: Exception) {
-            // 最小改动：捕获异常，避免传播导致测试用例 ERROR；后续可接入 ErrorHandlingManager/Supervision
-            println("[RUNTIME] Actor '${actorName}' 处理消息异常: ${e.message}")
+            // 将失败上报给用户Guardian进行监督处理（最小改造）
+            let failure = ActorFailure(this, e, 1)
+            guardian.receive(ActorFailureMessage(failure), context)
         }
     }
 
@@ -314,7 +318,8 @@ public class SimpleUserActorRef <: ActorRef {
         try {
             actor.receive(message, context)
         } catch (e: Exception) {
-            println("[RUNTIME] Actor '${actorName}' 处理消息异常(带sender): ${e.message}")
+            let failure = ActorFailure(this, e, 1)
+            guardian.receive(ActorFailureMessage(failure), context)
         }
     }
 

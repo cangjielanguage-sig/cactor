@@ -322,7 +322,7 @@ public class BackoffSupervisorStrategy <: SupervisionStrategy {
         }
     }
 
-    private func calculateBackoffTime(retryCount: Int64): Duration {
+    public func calculateBackoffTime(retryCount: Int64): Duration {
         // 指数退避：minBackoff * 2^retryCount
         let exponentialBackoff = minBackoff.toMilliseconds() * (1 << retryCount)
         let cappedBackoff = if (exponentialBackoff > maxBackoff.toMilliseconds()) {

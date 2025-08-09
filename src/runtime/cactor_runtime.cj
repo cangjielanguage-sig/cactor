@@ -20,7 +20,7 @@ import cactor.runtime.dispatcher.{DispatcherPool}
 import cactor.runtime.mailbox.{MailboxFactory}
 import cactor.core.guardian.{GuardianStats}
 import cactor.core.config.{MailboxConfig, DispatcherConfig}
-import cactor.runtime.lifecycle.{ActorLifecycleManager}
+import cactor.runtime.lifecycle.{ActorLifecycleManager, CoordinatedShutdown}
 import cactor.runtime.registry.{SimpleActorRegistry}
 import cactor.runtime.supervision.{SupervisionManager, SupervisionConfig}
 import cactor.runtime.monitoring.{ActorSystemMetrics}
@@ -121,10 +121,14 @@ public class CActorRuntime {
         if (isRunning.compareAndSwap(true, false)) {
             // 停止高性能系统
             highPerformanceSystem.shutdown()
-            
-            // 停止所有Guardian
-            // systemGuardian和userGuardian的停止逻辑
-            
+
+            // 触发协调关闭各阶段任务（最小实现）
+            let cs = CoordinatedShutdown.get(systemName)
+            cs.run()
+
+            // 停止所有Guardian（后续在协调关闭中接入）
+            // systemGuardian 和 userGuardian 的停止逻辑
+
             println("🛑 CActorRuntime已停止")
         }
     }
