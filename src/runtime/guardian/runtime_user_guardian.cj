@@ -11,7 +11,8 @@ import std.collection.*
 import cactor.core.actor.{Actor, ActorRef, Props, ActorPath}
 import cactor.core.message.{Message, MessageResult}
 import cactor.core.context.{ActorContext}
-import cactor.core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy, SupervisionDirective, ActorFailure}
+import cactor.core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy, SupervisionDirective, ActorFailure, BackoffSupervisorStrategy}
+import cactor.runtime.supervision.{BackoffSupervisor}
 import cactor.core.system.{ActorSystem}
 import cactor.core.guardian.{GuardianType}
 
@@ -95,22 +96,28 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
             case SupervisionDirective.Resume =>
                 println("恢复Actor: ${actor.path.toString()}")
                 // 恢复Actor执行
-                
+
             case SupervisionDirective.Restart =>
                 println("重启Actor: ${actor.path.toString()}")
-                restartChild(actor, cause)
-                
+                match (supervisionStrategies.get(actor.path.toString())) {
+                    case Some(s: BackoffSupervisorStrategy) =>
+                        let bof = BackoffSupervisor(s, this)
+                        bof.handleFailure(ActorFailure(actor, cause, 1))
+                    case _ =>
+                        restartChild(actor, cause)
+                }
+
             case SupervisionDirective.Stop =>
                 println("停止Actor: ${actor.path.toString()}")
                 stopChild(actor)
-                
+
             case SupervisionDirective.Escalate =>
                 println("升级失败到系统Guardian: ${actor.path.toString()}")
                 // 将失败升级到系统Guardian
                 escalateFailure(actor, cause)
         }
     }
-    
+
     /**
      * 升级失败到系统Guardian
      */
