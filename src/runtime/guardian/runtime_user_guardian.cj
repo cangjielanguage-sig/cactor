@@ -11,7 +11,8 @@ import std.collection.*
 import cactor.core.actor.{Actor, ActorRef, Props, ActorPath}
 import cactor.core.message.{Message, MessageResult}
 import cactor.core.context.{ActorContext}
-import cactor.core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy, SupervisionDirective, ActorFailure}
+import cactor.core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy, SupervisionDirective, ActorFailure, BackoffSupervisorStrategy}
+import cactor.runtime.supervision.{BackoffSupervisor}
 import cactor.core.system.{ActorSystem}
 import cactor.core.guardian.{GuardianType}
 
@@ -24,15 +25,18 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     private let userActors: HashMap<String, ActorRef>
     private let defaultSupervisionStrategy: SupervisionStrategy
     private let actorPathPrefix: String
-    
+    // 缓存每个子Actor的BackoffSupervisor保持重试计数
+    private let backoffSupervisors: HashMap<String, BackoffSupervisor>
+
     public init(system: ActorSystem) {
         super(GuardianType.User, None<ActorRef>)  // 用户Guardian通常没有父Guardian
         this.actorSystem = system
         this.userActors = HashMap<String, ActorRef>()
         this.defaultSupervisionStrategy = DefaultSupervisionStrategy.oneForOne()
         this.actorPathPrefix = "/user"
+        this.backoffSupervisors = HashMap<String, BackoffSupervisor>()
     }
-    
+
     /**
      * 创建用户Actor
      */
@@ -95,22 +99,36 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
             case SupervisionDirective.Resume =>
                 println("恢复Actor: ${actor.path.toString()}")
                 // 恢复Actor执行
-                
+
             case SupervisionDirective.Restart =>
                 println("重启Actor: ${actor.path.toString()}")
-                restartChild(actor, cause)
-                
+                match (supervisionStrategies.get(actor.path.toString())) {
+                    case Some(s: BackoffSupervisorStrategy) =>
+                        // 获取/创建缓存的监督器以保持重试计数
+                        let key = actor.path.toString()
+                        let bof = match (backoffSupervisors.get(key)) {
+                            case Some(existing) => existing
+                            case None =>
+                                let created = BackoffSupervisor(s, this)
+                                backoffSupervisors.add(key, created)
+                                created
+                        }
+                        bof.handleFailure(ActorFailure(actor, cause, 1))
+                    case _ =>
+                        restartChild(actor, cause)
+                }
+
             case SupervisionDirective.Stop =>
                 println("停止Actor: ${actor.path.toString()}")
                 stopChild(actor)
-                
+
             case SupervisionDirective.Escalate =>
                 println("升级失败到系统Guardian: ${actor.path.toString()}")
                 // 将失败升级到系统Guardian
                 escalateFailure(actor, cause)
         }
     }
-    
+
     /**
      * 升级失败到系统Guardian
      */
@@ -181,9 +199,10 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
      */
     private func createUserActorRef(actor: Actor, name: String, path: ActorPath): ActorRef {
         // 这里应该与Runtime层集成，使用真正的邮箱和调度器
-        return SimpleUserActorRef(name, actor, path)
+        // 最小改造：将guardian引用注入子ActorRef以路由失败
+        return SimpleUserActorRef(name, actor, path, this)
     }
-    
+
     // 重写Actor属性
     public prop name: String {
         get() { "user" }
@@ -288,11 +307,13 @@ public class SimpleUserActorRef <: ActorRef {
     private let actorName: String
     private let actor: Actor
     private let actorPath: ActorPath
+    private let guardian: RuntimeUserGuardian
 
-    public init(name: String, actor: Actor, path: ActorPath) {
+    public init(name: String, actor: Actor, path: ActorPath, guardian: RuntimeUserGuardian) {
         this.actorName = name
         this.actor = actor
         this.actorPath = path
+        this.guardian = guardian
     }
 
     public prop path: ActorPath {
@@ -301,12 +322,23 @@ public class SimpleUserActorRef <: ActorRef {
 
     public func tell(message: Message): Unit {
         let context = SimpleUserActorContext(this)
-        actor.receive(message, context)
+        try {
+            actor.receive(message, context)
+        } catch (e: Exception) {
+            // 将失败上报给用户Guardian进行监督处理（最小改造）
+            let failure = ActorFailure(this, e, 1)
+            guardian.receive(ActorFailureMessage(failure), context)
+        }
     }
 
     public func tell(message: Message, sender: Option<String>): Unit {
         let context = SimpleUserActorContext(this, sender)
-        actor.receive(message, context)
+        try {
+            actor.receive(message, context)
+        } catch (e: Exception) {
+            let failure = ActorFailure(this, e, 1)
+            guardian.receive(ActorFailureMessage(failure), context)
+        }
     }
 
     public func equals(other: ActorRef): Bool {

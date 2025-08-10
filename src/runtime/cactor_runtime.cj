@@ -16,11 +16,11 @@ import cactor.runtime.system.{HighPerformanceActorSystem, HighPerformanceActorSy
 import cactor.runtime.mailbox.factory.{AdvancedMailboxFactory, DefaultAdvancedMailboxFactory}
 import cactor.runtime.dispatcher.factory.{AdvancedDispatcherFactory, DefaultAdvancedDispatcherFactory}
 import cactor.runtime.system.{SimpleActorSystem}
-import cactor.runtime.dispatcher.{DispatcherPool}
-import cactor.runtime.mailbox.{MailboxFactory}
+import cactor.runtime.dispatcher.{DispatcherPool, DispatcherPoolConfig}
+import cactor.runtime.mailbox.{MailboxFactory, MailboxConfig as RuntimeMailboxConfig}
 import cactor.core.guardian.{GuardianStats}
 import cactor.core.config.{MailboxConfig, DispatcherConfig}
-import cactor.runtime.lifecycle.{ActorLifecycleManager}
+import cactor.runtime.lifecycle.{ActorLifecycleManager, CoordinatedShutdown}
 import cactor.runtime.registry.{SimpleActorRegistry}
 import cactor.runtime.supervision.{SupervisionManager, SupervisionConfig}
 import cactor.runtime.monitoring.{ActorSystemMetrics}
@@ -31,7 +31,7 @@ import cactor.runtime.supervision.{SimpleSupervisionStrategy}
 
 /**
  * CActorRuntime - 统一运行时管理器
- * 
+ *
  * 核心职责：
  * 1. 统一管理Actor系统的生命周期
  * 2. 提供Guardian Actor的完整实现
@@ -44,10 +44,11 @@ public class CActorRuntime {
     private let actorSystem: ActorSystem
     private let systemGuardian: RuntimeSystemGuardian
     private let userGuardian: RuntimeUserGuardian
-    
+
     // 运行时组件
     private let mailboxFactory: AdvancedMailboxFactory
     private let dispatcherFactory: AdvancedDispatcherFactory
+    private let dispatcherPool: DispatcherPool
     private let highPerformanceSystem: HighPerformanceActorSystem
 
     // plan10.md新增的企业级组件
@@ -64,7 +65,7 @@ public class CActorRuntime {
 
     // 配置
     private let config: CActorRuntimeConfig
-    
+
     public init(systemName: String, config: CActorRuntimeConfig) {
         this.systemName = systemName
         this.config = config
@@ -86,6 +87,8 @@ public class CActorRuntime {
         // 创建运行时组件
         this.mailboxFactory = DefaultAdvancedMailboxFactory()
         this.dispatcherFactory = DefaultAdvancedDispatcherFactory()
+        // 基于配置创建 DispatcherPool
+        this.dispatcherPool = DispatcherPool(DispatcherPoolConfig.createDefault())
         this.highPerformanceSystem = HighPerformanceActorSystem(config.highPerformanceConfig)
 
         // 初始化状态
@@ -93,27 +96,36 @@ public class CActorRuntime {
         this.startTime = AtomicInt64(0)
         this.actorCount = AtomicInt64(0)
     }
-    
+
     /**
      * 启动Runtime系统
      */
     public func start(): Unit {
         if (isRunning.compareAndSwap(false, true)) {
             startTime.store(getCurrentTimeNanos())
-            
+
             // 启动高性能系统
             highPerformanceSystem.start()
-            
+
+            // 启动 DispatcherPool 与 MailboxFactory（如需要）
+            dispatcherPool.start()
+            // MailboxFactory 在首次使用前也可启动，这里提前启动
+            // 若后续改为惰性启动，可移除
+            // try 启动 mailboxFactory（DefaultAdvancedMailboxFactory 并无 start，但 runtime.MailboxFactory 有）
+
             // 创建用户Guardian
             systemGuardian.createUserGuardian()
-            
+
+            // 注册 CoordinatedShutdown 阶段任务（只注册一次）
+            registerCoordinatedShutdownTasks()
+
             println("🚀 CActorRuntime启动成功")
             println("  系统名称: ${systemName}")
             println("  启动时间: ${DateTime.now()}")
             println("  配置: ${config.getDescription()}")
         }
     }
-    
+
     /**
      * 停止Runtime系统
      */
@@ -121,14 +133,18 @@ public class CActorRuntime {
         if (isRunning.compareAndSwap(true, false)) {
             // 停止高性能系统
             highPerformanceSystem.shutdown()
-            
-            // 停止所有Guardian
-            // systemGuardian和userGuardian的停止逻辑
-            
+
+            // 触发协调关闭各阶段任务（最小实现）
+            let cs = CoordinatedShutdown.get(systemName)
+            cs.run()
+
+            // 停止所有Guardian（后续在协调关闭中接入）
+            // systemGuardian 和 userGuardian 的停止逻辑
+
             println("🛑 CActorRuntime已停止")
         }
     }
-    
+
     /**
      * 创建Actor - 统一接口 (plan10.md设计)
      * 实现完整的Actor创建流程
@@ -162,7 +178,7 @@ public class CActorRuntime {
 
         return actorRef
     }
-    
+
     /**
      * 创建Actor - 自动生成名称
      */
@@ -170,7 +186,7 @@ public class CActorRuntime {
         let autoName = generateActorName()
         return actorOf(props, autoName)
     }
-    
+
     /**
      * 停止Actor
      */
@@ -178,7 +194,7 @@ public class CActorRuntime {
         userGuardian.stopChild(actorRef)
         actorCount.fetchAdd(-1)
     }
-    
+
     /**
      * 重启Actor
      */
@@ -221,28 +237,28 @@ public class CActorRuntime {
         // 简化实现：记录重启操作
         println("Actor已重启")
     }
-    
+
     /**
      * 获取系统Guardian
      */
     public func getSystemGuardian(): RuntimeSystemGuardian {
         systemGuardian
     }
-    
+
     /**
      * 获取用户Guardian
      */
     public func getUserGuardian(): RuntimeUserGuardian {
         userGuardian
     }
-    
+
     /**
      * 获取高性能系统
      */
     public func getHighPerformanceSystem(): HighPerformanceActorSystem {
         highPerformanceSystem
     }
-    
+
     /**
      * 获取运行时统计
      */
@@ -252,7 +268,7 @@ public class CActorRuntime {
         } else {
             0
         }
-        
+
         CActorRuntimeStats(
             systemName,
             isRunning.load(),
@@ -263,14 +279,14 @@ public class CActorRuntime {
             highPerformanceSystem.getSystemStats()
         )
     }
-    
+
     /**
      * 获取配置
      */
     public func getConfig(): CActorRuntimeConfig {
         config
     }
-    
+
     // 私有辅助方法
     private func createBaseActorSystem(name: String): ActorSystem {
         // 创建基础ActorSystem实现
@@ -298,13 +314,13 @@ public class CActorRuntime {
     public func getActorSystem(): ActorSystem {
         actorSystem
     }
-    
+
     private func generateActorName(): String {
         let timestamp = DateTime.now().toUnixTimeStamp().toMilliseconds()
         let counter = actorCount.load()
         "actor-${timestamp}-${counter}"
     }
-    
+
     private func getCurrentTimeNanos(): Int64 {
         DateTime.now().toUnixTimeStamp().toMilliseconds() * 1000000
     }
@@ -342,6 +358,34 @@ public class CActorRuntime {
         // 简化实现，返回一个基本的监督策略
         // 这里需要实现一个具体的SupervisionStrategy
         SimpleSupervisionStrategy(3, 60)
+    }
+    /**
+     * 注册 CoordinatedShutdown 阶段任务
+     */
+    private func registerCoordinatedShutdownTasks(): Unit {
+        let cs = CoordinatedShutdown.get(systemName)
+        // service-unbind: 停止 DispatcherPool
+        cs.registerTask("service-unbind", { =>
+            try { dispatcherPool.shutdown() } catch (e: Exception) {
+                println("[CS] dispatcherPool.shutdown failed: ${e.message}")
+            }
+        })
+        // service-stop: 预留调度器/定时器停止点（当前无全局 Scheduler 实例）
+        cs.registerTask("service-stop", { =>
+            // no-op for now
+            ()
+        })
+        // actor-system-terminate: 停止 MailboxFactory（若为 runtime.MailboxFactory 实例）
+        cs.registerTask("actor-system-terminate", { =>
+            try {
+                // 仅当 mailboxFactory 提供 shutdown 能力时执行
+                // DefaultAdvancedMailboxFactory（factory/）为纯创建工厂，无 shutdown；
+                // runtime.MailboxFactory 有 shutdown，这里仅打印提示。
+                println("[CS] actor-system-terminate: mailbox resources cleanup placeholder")
+            } catch (e: Exception) {
+                println("[CS] mailboxFactory shutdown failed: ${e.message}")
+            }
+        })
     }
 
     /**
@@ -403,7 +447,7 @@ public struct CActorRuntimeConfig {
         this.enableMonitoring = enableMonitoring
         this.enablePersistence = enablePersistence
     }
-    
+
     /**
      * 创建默认配置
      */
@@ -506,7 +550,7 @@ public struct CActorRuntimeConfig {
             false  // 禁用持久化
         )
     }
-    
+
     public func getDescription(): String {
         "CActorRuntimeConfig(monitoring=${enableMonitoring}, persistence=${enablePersistence})"
     }
@@ -523,7 +567,7 @@ public struct CActorRuntimeStats {
     public let systemGuardianStats: GuardianStats
     public let userGuardianStats: GuardianStats
     public let highPerformanceStats: SystemStats
-    
+
     public init(
         systemName: String,
         isRunning: Bool,
@@ -541,7 +585,7 @@ public struct CActorRuntimeStats {
         this.userGuardianStats = userGuardianStats
         this.highPerformanceStats = highPerformanceStats
     }
-    
+
     public func printReport(): Unit {
         println("=== CActorRuntime统计报告 ===")
         println("系统名称: ${systemName}")
@@ -553,7 +597,7 @@ public struct CActorRuntimeStats {
         println("用户Guardian: ${userGuardianStats.childCount}个子Actor")
         println("高性能系统: ${highPerformanceStats.actorCount}个高性能Actor")
     }
-    
+
     public func getUptimeInSeconds(): Float64 {
         Float64(uptime) / 1000000000.0
     }

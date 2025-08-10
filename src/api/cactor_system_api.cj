@@ -11,6 +11,7 @@ import cactor.core.config.{MailboxConfig as CoreMailboxConfig, DispatcherConfig 
 import cactor.core.typed.{TypedBehavior, TypedActorRef, TypedActorSelection}
 import cactor.runtime.wrappers.{TypedActorWrapper, TypedActorRefWrapper, TypedActorSelectionWrapper, MessageBridge}
 import cactor.runtime.{CActorRuntime, CActorRuntimeConfig}
+import cactor.runtime.typed.{TypedActorSystemImpl}
 import std.time.*
 
 /**
@@ -147,15 +148,9 @@ public class CActorSystem {
      * @return 类型安全的Actor引用
      */
     public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String): TypedActorRef<T> {
-        // 创建类型安全Actor的包装器
-        let typedActorWrapper: Actor = TypedActorWrapper<T>(behavior)
-
-        // 使用PropsFactory创建Props
-        let props = PropsFactory.create({ => typedActorWrapper })
-        let standardActorRef = runtime.actorOf(props, name)
-
-        // 返回类型安全的ActorRef包装器
-        TypedActorRefWrapper<T>(standardActorRef, name)
+        // 通过类型安全系统创建，避免Dummy包装
+        let typedSystem = TypedActorSystemImpl(this.getName(), this.getRuntime())
+        typedSystem.createActor<T>(behavior, name)
     }
 
     /**

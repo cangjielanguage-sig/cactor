@@ -90,8 +90,8 @@ public class TypedActorSystemImpl <: TypedActorSystem {
      * 创建Actor
      */
     public func createActor(behavior: TypedBehavior<Any>, name: String): TypedActorRef<Any> {
-        // 简化实现：创建一个虚拟的Actor引用
-        createDummyTypedActorRef<Any>(name)
+        // 通过泛型版本创建真实的类型安全Actor
+        createActor<Any>(behavior, name)
     }
 
     /**
