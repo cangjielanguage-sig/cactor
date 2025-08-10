@@ -10,6 +10,8 @@ import std.collection.*
 import cactor.core.actor.{Actor, ActorRef, Props}
 import cactor.core.message.{Message, Envelope}
 
+
+
 /**
  * 邮箱接口
  * 负责存储和管理Actor的消息队列
@@ -69,7 +71,7 @@ public struct MailboxConfig {
     public let enableMetrics: Bool
     public let enableBackpressure: Bool
     public let name: String
-    
+
     public init(
         mailboxType: MailboxType,
         capacity: Int32,
@@ -83,7 +85,7 @@ public struct MailboxConfig {
         this.enableBackpressure = enableBackpressure
         this.name = name
     }
-    
+
     public static func createUnbounded(): MailboxConfig {
         MailboxConfig(
             MailboxType.Unbounded,
@@ -93,7 +95,7 @@ public struct MailboxConfig {
             "unbounded-mailbox"
         )
     }
-    
+
     public static func createBounded(capacity: Int32): MailboxConfig {
         MailboxConfig(
             MailboxType.Bounded,
@@ -103,7 +105,7 @@ public struct MailboxConfig {
             "bounded-mailbox"
         )
     }
-    
+
     public static func createFoundation(): MailboxConfig {
         MailboxConfig(
             MailboxType.Foundation,
@@ -132,7 +134,7 @@ public struct MailboxFactoryStats {
 
 /**
  * MailboxFactory - Plan10.md要求的核心组件
- * 
+ *
  * 职责：
  * 1. 根据配置创建不同类型的邮箱
  * 2. 管理邮箱生命周期
@@ -145,7 +147,7 @@ public class MailboxFactory {
     private let activeMailboxes: AtomicInt64
     private let mailboxesByType: HashMap<String, AtomicInt64>
     private let isRunning: AtomicBool
-    
+
     public init(defaultConfig: MailboxConfig) {
         this.defaultConfig = defaultConfig
         this.createdMailboxes = AtomicInt64(0)
@@ -156,7 +158,7 @@ public class MailboxFactory {
         // 初始化统计计数器
         initializeCounters()
     }
-    
+
     /**
      * 启动邮箱工厂
      */
@@ -165,7 +167,7 @@ public class MailboxFactory {
             println("🚀 MailboxFactory启动成功")
         }
     }
-    
+
     /**
      * 停止邮箱工厂
      */
@@ -174,7 +176,7 @@ public class MailboxFactory {
             println("🛑 MailboxFactory已停止")
         }
     }
-    
+
     /**
      * 创建邮箱 - Plan10.md要求的核心方法
      */
@@ -182,10 +184,10 @@ public class MailboxFactory {
         if (!isRunning.load()) {
             throw Exception("MailboxFactory未运行")
         }
-        
+
         // 获取邮箱配置
         let config = getMailboxConfig(actor, props)
-        
+
         // 根据类型创建邮箱
         let mailbox = match (config.mailboxType) {
             case MailboxType.Unbounded =>
@@ -201,15 +203,15 @@ public class MailboxFactory {
             case MailboxType.Foundation =>
                 createFoundationMailbox(config)
         }
-        
+
         // 更新统计
         createdMailboxes.fetchAdd(1)
         activeMailboxes.fetchAdd(1)
         incrementTypeCounter(config.mailboxType)
-        
+
         return mailbox
     }
-    
+
     /**
      * 销毁邮箱
      */
@@ -217,7 +219,7 @@ public class MailboxFactory {
         // 简化实现：只更新统计
         activeMailboxes.fetchAdd(-1)
     }
-    
+
     /**
      * 获取统计信息
      */
@@ -232,7 +234,7 @@ public class MailboxFactory {
 
         MailboxFactoryStats(totalMailboxes, activeMailboxes, mailboxesByType)
     }
-    
+
     /**
      * 获取邮箱配置
      */
@@ -240,13 +242,13 @@ public class MailboxFactory {
         // 简化实现：直接使用默认配置
         return selectDefaultConfig(actor)
     }
-    
+
     /**
      * 选择默认配置
      */
     private func selectDefaultConfig(actor: Actor): MailboxConfig {
         let actorName = actor.name
-        
+
         // 根据Actor名称选择合适的邮箱类型
         if (actorName.contains("high-performance")) {
             MailboxConfig.createFoundation()
@@ -256,13 +258,13 @@ public class MailboxFactory {
             defaultConfig
         }
     }
-    
+
     /**
      * 创建无界邮箱
      */
     private func createUnboundedMailbox(config: MailboxConfig): Mailbox {
-        // 简化实现：创建一个简单的邮箱
-        SimpleMailbox(10000)  // 大容量作为"无界"
+        // 对齐“无界”语义：选用 FoundationMailbox，容量较大
+        FoundationMailbox(10000)
     }
 
     /**
@@ -270,34 +272,35 @@ public class MailboxFactory {
      */
     private func createBoundedMailbox(config: MailboxConfig): Mailbox {
         let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 1000 }
-        SimpleMailbox(capacity)
+        // 使用 FoundationMailbox 替代 SimpleMailbox，提供更好的性能
+        FoundationMailbox(capacity)
     }
 
     /**
      * 创建优先级邮箱
      */
     private func createPriorityMailbox(config: MailboxConfig): Mailbox {
-        // 简化实现：使用简单邮箱
-        // 实际实现应该支持消息优先级
-        SimpleMailbox(Int64(config.capacity))
+        // 统一返回 Queue 实现的优先级邮箱
+        // 通过工厂方法创建，避免循环依赖
+        PriorityMailboxFactory.createQueueBasedPriorityMailbox()
     }
 
     /**
      * 创建暂存邮箱
      */
     private func createStashingMailbox(config: MailboxConfig): Mailbox {
-        // 简化实现：使用简单邮箱
-        // 实际实现应该支持消息暂存功能
-        SimpleMailbox(Int64(config.capacity))
+        // 使用 FoundationMailbox 作为基础，后续可扩展暂存功能
+        let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 1000 }
+        FoundationMailbox(capacity)
     }
 
     /**
      * 创建零拷贝邮箱
      */
     private func createZeroCopyMailbox(config: MailboxConfig): Mailbox {
-        // 简化实现：使用简单邮箱
-        // 实际实现应该支持零拷贝优化
-        SimpleMailbox(Int64(config.capacity))
+        // 使用 FoundationMailbox 作为基础，提供更好的性能特性
+        let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 1000 }
+        FoundationMailbox(capacity)
     }
 
     /**
@@ -305,9 +308,10 @@ public class MailboxFactory {
      */
     private func createFoundationMailbox(config: MailboxConfig): Mailbox {
         let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 10000 }
-        SimpleMailbox(capacity)
+        // 使用 FoundationMailbox 作为标准高性能实现（默认走 LockFree）
+        FoundationMailbox(capacity)
     }
-    
+
     /**
      * 初始化统计计数器
      */

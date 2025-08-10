@@ -63,13 +63,13 @@ task
 .Trashes
 ehthumbs.db
 Thumbs.db
-
+mailbox.md
 # 文档目录（排除官方文档）
 cangjie-0.53.4-docs-html/
 docs-html/
 *.html
 *.pdf
-
+CangjieCorpus
 # 其他项目目录
 CangjieMagic/
 notepad

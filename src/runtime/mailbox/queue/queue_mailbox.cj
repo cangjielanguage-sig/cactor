@@ -7,7 +7,7 @@ package cactor.runtime.mailbox.queue
 
 import std.collection.concurrent.*
 import std.sync.*
-import cactor.runtime.mailbox.Mailbox
+import cactor.runtime.mailbox.{Mailbox, ControlClassifier}
 import cactor.core.message.Envelope
 
 /**
@@ -163,14 +163,11 @@ public class PriorityQueueMailbox <: Mailbox {
             return false
         }
 
-        // 根据消息类型确定优先级
-        let messageType = envelope.getMessage().messageType()
-
-        if (messageType.contains("Stop") || messageType.contains("Restart") ||
-            messageType.contains("Suspend") || messageType.contains("Resume") ||
-            messageType.contains("Terminated") || messageType.contains("DeadLetter")) {
+        // 根据消息类型确定优先级（集中使用 ControlClassifier）
+        let msg = envelope.getMessage()
+        if (ControlClassifier.isControl(msg)) {
             return highPriorityQueue.enqueue(envelope)
-        } else if (messageType.contains("Low")) {
+        } else if (msg.messageType().contains("Low")) {
             return lowPriorityQueue.enqueue(envelope)
         } else {
             return normalPriorityQueue.enqueue(envelope)

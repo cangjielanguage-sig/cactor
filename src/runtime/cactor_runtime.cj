@@ -14,6 +14,7 @@ import cactor.core.guardian.{GuardianType}
 import cactor.runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian}
 import cactor.runtime.system.{HighPerformanceActorSystem, HighPerformanceActorSystemConfig, SystemStats}
 import cactor.runtime.mailbox.factory.{AdvancedMailboxFactory, DefaultAdvancedMailboxFactory}
+import cactor.runtime.mailbox.{MailboxFactory as RuntimeMailboxFactory}
 import cactor.runtime.dispatcher.factory.{AdvancedDispatcherFactory, DefaultAdvancedDispatcherFactory}
 import cactor.runtime.system.{SimpleActorSystem}
 import cactor.runtime.dispatcher.{DispatcherPool, DispatcherPoolConfig}
@@ -47,6 +48,7 @@ public class CActorRuntime {
 
     // 运行时组件
     private let mailboxFactory: AdvancedMailboxFactory
+    private let runtimeMailboxFactory: RuntimeMailboxFactory
     private let dispatcherFactory: AdvancedDispatcherFactory
     private let dispatcherPool: DispatcherPool
     private let highPerformanceSystem: HighPerformanceActorSystem
@@ -86,6 +88,7 @@ public class CActorRuntime {
 
         // 创建运行时组件
         this.mailboxFactory = DefaultAdvancedMailboxFactory()
+        this.runtimeMailboxFactory = RuntimeMailboxFactory(RuntimeMailboxConfig.createUnbounded())
         this.dispatcherFactory = DefaultAdvancedDispatcherFactory()
         // 基于配置创建 DispatcherPool
         this.dispatcherPool = DispatcherPool(DispatcherPoolConfig.createDefault())
@@ -112,6 +115,9 @@ public class CActorRuntime {
             // MailboxFactory 在首次使用前也可启动，这里提前启动
             // 若后续改为惰性启动，可移除
             // try 启动 mailboxFactory（DefaultAdvancedMailboxFactory 并无 start，但 runtime.MailboxFactory 有）
+            // 启动运行时MailboxFactory
+            runtimeMailboxFactory.start()
+
 
             // 创建用户Guardian
             systemGuardian.createUserGuardian()
@@ -375,15 +381,12 @@ public class CActorRuntime {
             // no-op for now
             ()
         })
-        // actor-system-terminate: 停止 MailboxFactory（若为 runtime.MailboxFactory 实例）
+        // actor-system-terminate: 停止运行时 MailboxFactory
         cs.registerTask("actor-system-terminate", { =>
             try {
-                // 仅当 mailboxFactory 提供 shutdown 能力时执行
-                // DefaultAdvancedMailboxFactory（factory/）为纯创建工厂，无 shutdown；
-                // runtime.MailboxFactory 有 shutdown，这里仅打印提示。
-                println("[CS] actor-system-terminate: mailbox resources cleanup placeholder")
+                runtimeMailboxFactory.shutdown()
             } catch (e: Exception) {
-                println("[CS] mailboxFactory shutdown failed: ${e.message}")
+                println("[CS] runtimeMailboxFactory.shutdown failed: ${e.message}")
             }
         })
     }

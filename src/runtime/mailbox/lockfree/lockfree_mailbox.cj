@@ -17,7 +17,7 @@ import cactor.runtime.mailbox.Mailbox
  */
 public class AtomicSlot {
     private let state: AtomicInt64  // 0=空, 1=有数据, 2=正在写入, 3=正在读取
-    private let data: AtomicInt64   // 数据的哈希码或标识符
+    private var value: Option<Envelope>
 
     // 状态常量
     public static let EMPTY: Int64 = 0
@@ -27,21 +27,21 @@ public class AtomicSlot {
 
     public init() {
         this.state = AtomicInt64(EMPTY)
-        this.data = AtomicInt64(0)
+        this.value = None<Envelope>
     }
 
     /**
      * 尝试开始写入
      */
     public func tryStartWrite(): Bool {
-        return state.compareAndSwap(EMPTY, WRITING)
+        state.compareAndSwap(EMPTY, WRITING)
     }
 
     /**
      * 完成写入
      */
-    public func finishWrite(dataHash: Int64): Unit {
-        data.store(dataHash)
+    public func finishWrite(envelope: Envelope): Unit {
+        value = Some(envelope)
         state.store(FILLED)
     }
 
@@ -56,17 +56,20 @@ public class AtomicSlot {
      * 尝试开始读取
      */
     public func tryStartRead(): Bool {
-        return state.compareAndSwap(FILLED, READING)
+        state.compareAndSwap(FILLED, READING)
     }
 
     /**
      * 完成读取
      */
-    public func finishRead(): Int64 {
-        let result = data.load()
-        data.store(0)
+    public func finishRead(): Envelope {
+        let result = match (value) {
+            case Some(e) => e
+            case None => throw Exception("AtomicSlot empty on finishRead")
+        }
+        value = None<Envelope>
         state.store(EMPTY)
-        return result
+        result
     }
 
     /**
@@ -80,21 +83,21 @@ public class AtomicSlot {
      * 获取当前状态
      */
     public func getState(): Int64 {
-        return state.load()
+        state.load()
     }
 
     /**
      * 检查是否为空
      */
     public func isEmpty(): Bool {
-        return state.load() == EMPTY
+        state.load() == EMPTY
     }
 
     /**
      * 检查是否已填充
      */
     public func isFilled(): Bool {
-        return state.load() == FILLED
+        state.load() == FILLED
     }
 }
 
@@ -173,7 +176,7 @@ public class LockFreeRingBufferMailbox <: Mailbox {
                 // 成功获得写入权限，尝试推进tail指针
                 if (tail.compareAndSwap(currentTail, currentTail + 1)) {
                     // 成功推进指针，完成写入
-                    slot.finishWrite(Int64(envelope.getMessage().messageType().hashCode()))
+                    slot.finishWrite(envelope)
                     enqueueCount.fetchAdd(1)
                     return true
                 } else {
@@ -220,12 +223,9 @@ public class LockFreeRingBufferMailbox <: Mailbox {
                 // 成功获得读取权限，尝试推进head指针
                 if (head.compareAndSwap(currentHead, currentHead + 1)) {
                     // 成功推进指针，完成读取
-                    let dataHash = slot.finishRead()
+                    let env = slot.finishRead()
                     dequeueCount.fetchAdd(1)
-                    
-                    // 简化实现：创建一个占位符Envelope
-                    // 在实际实现中需要从哈希码恢复真实对象
-                    return Some(createPlaceholderEnvelope(dataHash))
+                    return Some(env)
                 } else {
                     // 指针推进失败，取消读取
                     slot.cancelRead()
@@ -330,14 +330,6 @@ public class LockFreeRingBufferMailbox <: Mailbox {
         return 32768  // 最大支持32K
     }
     
-    /**
-     * 创建占位符Envelope（简化实现）
-     */
-    private func createPlaceholderEnvelope(dataHash: Int64): Envelope {
-        // 简化实现：创建一个包含哈希码的占位符消息
-        let placeholderMessage = PlaceholderMessage(dataHash)
-        return Envelope(placeholderMessage, None)
-    }
 }
 
 /**
@@ -374,21 +366,3 @@ public struct MailboxStats {
     }
 }
 
-/**
- * 占位符消息（用于简化实现）
- */
-public class PlaceholderMessage <: Message {
-    private let dataHash: Int64
-    
-    public init(dataHash: Int64) {
-        this.dataHash = dataHash
-    }
-    
-    public func messageType(): String {
-        return "PlaceholderMessage"
-    }
-    
-    public func getDataHash(): Int64 {
-        return dataHash
-    }
-}

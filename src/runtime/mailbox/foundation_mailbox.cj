@@ -6,6 +6,7 @@
 package cactor.runtime.mailbox
 
 import std.sync.*
+import std.time.*
 import std.collection.{HashMap, ArrayList}  // 明确导入std.collection的类型
 import cactor.foundation.queue.{Queue as CActorQueue, LockFreeQueue, SimpleQueue, QueueStats}  // 使用别名避免冲突
 import cactor.core.message.{Message, Envelope}
@@ -28,7 +29,7 @@ public class FoundationMailbox <: Mailbox {
         this.stats = MailboxStats()
         this.mutex = Mutex()
         this.closed = AtomicBool(false)
-        
+
         // 根据性能需求选择队列实现
         this.queue = if (useHighPerformance) {
             // 确保容量是2的幂，用于LockFreeQueue
@@ -286,6 +287,9 @@ public struct MailboxPerformanceMetrics {
     public func isHighPerformance(): Bool {
         mailboxType == "LockFree"
     }
+
+
+
 }
 
 /**
@@ -324,4 +328,13 @@ public class FoundationMailboxFactory {
         let bulkCapacity = if (capacity < 1024) { 1024 } else { capacity }
         FoundationMailbox(bulkCapacity, true)
     }
+
+}
+
+/**
+ * 获取当前时间戳（纳秒）
+ */
+func getCurrentTimeNanos(): Int64 {
+    let now = DateTime.now()
+    now.toUnixTimeStamp().toMilliseconds() * 1000000
 }
