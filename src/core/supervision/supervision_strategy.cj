@@ -350,6 +350,15 @@ public class BackoffSupervisorStrategy <: SupervisionStrategy {
     /** 返回最大重试次数 */
     public func getMaxRetries(): Int64 { maxRetries }
 
+    /** 返回最小退避时间 */
+    public func getMinBackoff(): Duration { minBackoff }
+
+    /** 返回最大退避时间 */
+    public func getMaxBackoff(): Duration { maxBackoff }
+
+    /** 返回随机因子 */
+    public func getRandomFactor(): Float64 { randomFactor }
+
     private func getOrCreateBackoffInfo(actorKey: String): BackoffInfo {
         match (backoffHistory.get(actorKey)) {
             case Some(info) => info

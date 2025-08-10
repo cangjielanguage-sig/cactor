@@ -54,10 +54,24 @@ public class BackoffSupervisorTestSuite {
         let failure = { =>
             ActorFailure(ref, ExFail(), 1)
         }
+
+        // 调用4次handleFailure，maxRetries=3，所以第4次应该停止
+        println("调用第1次handleFailure")
         sup.handleFailure(failure())
+        println("第1次后 g.stopped=${g.stopped}")
+
+        println("调用第2次handleFailure")
         sup.handleFailure(failure())
+        println("第2次后 g.stopped=${g.stopped}")
+
+        println("调用第3次handleFailure")
         sup.handleFailure(failure())
+        println("第3次后 g.stopped=${g.stopped}")
+
+        println("调用第4次handleFailure")
         sup.handleFailure(failure())
+        println("第4次后 g.stopped=${g.stopped}")
+
         @Assert(g.stopped, true)
     }
 }

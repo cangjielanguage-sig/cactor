@@ -129,7 +129,8 @@ public class WorkStealingQueue<T> {
 }
 
 /**
- * 工作线程
+ * 增强的工作线程
+ * 支持吞吐量控制和批量处理
  */
 public class WorkerThread {
     private let workerId: Int32
@@ -141,6 +142,12 @@ public class WorkerThread {
     private let stealAttempts: AtomicInt64
     private let successfulSteals: AtomicInt64
 
+    // 吞吐量控制字段
+    private let throughput: Int32
+    private let throughputDeadlineTime: Duration
+    private let currentBatchCount: AtomicInt32
+    private let lastBatchTime: AtomicInt64
+
     public init(workerId: Int32, globalQueue: ConcurrentLinkedQueue<ActorTask>) {
         this.workerId = workerId
         this.localQueue = WorkStealingQueue<ActorTask>(1000)
@@ -150,6 +157,33 @@ public class WorkerThread {
         this.tasksProcessed = AtomicInt64(0)
         this.stealAttempts = AtomicInt64(0)
         this.successfulSteals = AtomicInt64(0)
+
+        // 默认吞吐量配置
+        this.throughput = 50
+        this.throughputDeadlineTime = Duration.millisecond * 50
+        this.currentBatchCount = AtomicInt32(0)
+        this.lastBatchTime = AtomicInt64(getCurrentTimeNanos())
+    }
+
+    /**
+     * 带吞吐量配置的构造函数
+     */
+    public init(workerId: Int32, globalQueue: ConcurrentLinkedQueue<ActorTask>,
+                throughput: Int32, throughputDeadlineTime: Duration) {
+        this.workerId = workerId
+        this.localQueue = WorkStealingQueue<ActorTask>(1000)
+        this.globalQueue = globalQueue
+        this.otherWorkers = Array<WorkerThread>()
+        this.isRunning = AtomicBool(false)
+        this.tasksProcessed = AtomicInt64(0)
+        this.stealAttempts = AtomicInt64(0)
+        this.successfulSteals = AtomicInt64(0)
+
+        // 配置的吞吐量参数
+        this.throughput = throughput
+        this.throughputDeadlineTime = throughputDeadlineTime
+        this.currentBatchCount = AtomicInt32(0)
+        this.lastBatchTime = AtomicInt64(getCurrentTimeNanos())
     }
 
     public func setOtherWorkers(workers: Array<WorkerThread>): Unit {
@@ -179,15 +213,52 @@ public class WorkerThread {
 
     private func workerLoop(): Unit {
         while (isRunning.load()) {
+            // 检查是否需要进行吞吐量控制
+            if (shouldThrottleThroughput()) {
+                sleep(Duration.microsecond * 100)
+                continue
+            }
+
             match (findTask()) {
-                case Some(task) => 
+                case Some(task) =>
                     executeTask(task)
                     tasksProcessed.fetchAdd(1)
-                case None => 
+
+                    // 更新批次计数
+                    let batchCount = currentBatchCount.fetchAdd(1)
+                    if (batchCount >= throughput) {
+                        // 达到吞吐量限制，重置计数器并记录时间
+                        currentBatchCount.store(0)
+                        lastBatchTime.store(getCurrentTimeNanos())
+                    }
+                case None =>
                     // 没有任务，短暂休眠
                     sleep(Duration.microsecond * 10)
             }
         }
+    }
+
+    /**
+     * 检查是否需要进行吞吐量控制
+     */
+    private func shouldThrottleThroughput(): Bool {
+        let currentTime = getCurrentTimeNanos()
+        let lastTime = lastBatchTime.load()
+        let timeDiff = currentTime - lastTime
+        let deadlineNanos = throughputDeadlineTime.toNanoseconds()
+
+        // 如果在截止时间内已经处理了足够的任务，则需要节流
+        if (timeDiff < deadlineNanos && currentBatchCount.load() >= throughput) {
+            return true
+        }
+
+        // 如果超过截止时间，重置计数器
+        if (timeDiff >= deadlineNanos) {
+            currentBatchCount.store(0)
+            lastBatchTime.store(currentTime)
+        }
+
+        return false
     }
 
     private func findTask(): Option<ActorTask> {
@@ -357,7 +428,8 @@ func getCurrentTimeNanos(): Int64 {
 }
 
 /**
- * 工作窃取调度器
+ * 增强的工作窃取调度器
+ * 支持多线程工作窃取、优先级调度、吞吐量控制和性能监控
  */
 public class WorkStealingDispatcher {
     private let workerCount: Int32
@@ -368,6 +440,13 @@ public class WorkStealingDispatcher {
     private let totalTasksSubmitted: AtomicInt64
     private let totalTasksCompleted: AtomicInt64
 
+    // 吞吐量控制相关字段
+    private let throughput: Int32
+    private let throughputDeadlineTime: Duration
+    private let lastThroughputCheck: AtomicInt64
+    private let currentBatchCount: AtomicInt32
+    private let throughputMutex: Mutex
+
     public init(workerCount: Int32) {
         this.workerCount = workerCount
         this.globalQueue = ConcurrentLinkedQueue<ActorTask>()
@@ -376,10 +455,51 @@ public class WorkStealingDispatcher {
         this.totalTasksSubmitted = AtomicInt64(0)
         this.totalTasksCompleted = AtomicInt64(0)
 
+        // 默认吞吐量配置
+        this.throughput = 50
+        this.throughputDeadlineTime = Duration.millisecond * 50
+        this.lastThroughputCheck = AtomicInt64(getCurrentTimeNanos())
+        this.currentBatchCount = AtomicInt32(0)
+        this.throughputMutex = Mutex()
+
         // 创建工作线程
         let queue = this.globalQueue
+        let configThroughput = this.throughput
+        let configDeadlineTime = this.throughputDeadlineTime
         this.workers = Array<WorkerThread>(Int64(workerCount), { i =>
-            WorkerThread(Int32(i), queue)
+            WorkerThread(Int32(i), queue, configThroughput, configDeadlineTime)
+        })
+
+        // 设置工作线程之间的引用
+        for (worker in workers) {
+            worker.setOtherWorkers(workers)
+        }
+    }
+
+    /**
+     * 带配置的构造函数
+     */
+    public init(workerCount: Int32, throughput: Int32, throughputDeadlineTime: Duration) {
+        this.workerCount = workerCount
+        this.globalQueue = ConcurrentLinkedQueue<ActorTask>()
+        this.roundRobinCounter = AtomicInt64(0)
+        this.isStarted = AtomicBool(false)
+        this.totalTasksSubmitted = AtomicInt64(0)
+        this.totalTasksCompleted = AtomicInt64(0)
+
+        // 配置的吞吐量参数
+        this.throughput = throughput
+        this.throughputDeadlineTime = throughputDeadlineTime
+        this.lastThroughputCheck = AtomicInt64(getCurrentTimeNanos())
+        this.currentBatchCount = AtomicInt32(0)
+        this.throughputMutex = Mutex()
+
+        // 创建工作线程
+        let queue = this.globalQueue
+        let configThroughput = this.throughput
+        let configDeadlineTime = this.throughputDeadlineTime
+        this.workers = Array<WorkerThread>(Int64(workerCount), { i =>
+            WorkerThread(Int32(i), queue, configThroughput, configDeadlineTime)
         })
 
         // 设置工作线程之间的引用
@@ -449,6 +569,45 @@ public class WorkStealingDispatcher {
         globalQueue.size
     }
 
+    /**
+     * 获取当前吞吐量统计
+     */
+    public func getThroughputStats(): ThroughputStats {
+        let currentTime = getCurrentTimeNanos()
+        let lastCheck = lastThroughputCheck.load()
+        let timeDiff = currentTime - lastCheck
+        let timeDiffSeconds = Float64(timeDiff) / 1000000000.0
+
+        let totalProcessed = getTotalTasksProcessed()
+        let currentThroughput = if (timeDiffSeconds > 0.0) {
+            Float64(totalProcessed) / timeDiffSeconds
+        } else {
+            0.0
+        }
+
+        ThroughputStats(
+            throughput,
+            throughputDeadlineTime,
+            currentThroughput,
+            totalProcessed,
+            currentBatchCount.load(),
+            timeDiffSeconds
+        )
+    }
+
+    /**
+     * 重置吞吐量统计
+     */
+    public func resetThroughputStats(): Unit {
+        throughputMutex.lock()
+        try {
+            lastThroughputCheck.store(getCurrentTimeNanos())
+            currentBatchCount.store(0)
+        } finally {
+            throughputMutex.unlock()
+        }
+    }
+
     public func getWorkerStats(): Array<WorkerStats> {
         let stats = ArrayList<WorkerStats>()
         for (worker in workers) {
@@ -488,5 +647,33 @@ public struct WorkerStats {
             return 0.0
         }
         Float64(successfulSteals) / Float64(stealAttempts)
+    }
+}
+
+/**
+ * 吞吐量统计信息
+ */
+public struct ThroughputStats {
+    public let configuredThroughput: Int32
+    public let throughputDeadlineTime: Duration
+    public let currentThroughput: Float64
+    public let totalTasksProcessed: Int64
+    public let currentBatchCount: Int32
+    public let elapsedTimeSeconds: Float64
+
+    public init(configuredThroughput: Int32, throughputDeadlineTime: Duration,
+                currentThroughput: Float64, totalTasksProcessed: Int64,
+                currentBatchCount: Int32, elapsedTimeSeconds: Float64) {
+        this.configuredThroughput = configuredThroughput
+        this.throughputDeadlineTime = throughputDeadlineTime
+        this.currentThroughput = currentThroughput
+        this.totalTasksProcessed = totalTasksProcessed
+        this.currentBatchCount = currentBatchCount
+        this.elapsedTimeSeconds = elapsedTimeSeconds
+    }
+
+    public func getDescription(): String {
+        "ThroughputStats(configured=${configuredThroughput}, current=${currentThroughput}, " +
+        "processed=${totalTasksProcessed}, batch=${currentBatchCount}, elapsed=${elapsedTimeSeconds}s)"
     }
 }
