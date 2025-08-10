@@ -2,6 +2,23 @@
  * Copyright (c) 2024. All rights reserved.
  * CActor - 环形缓冲区邮箱
  * 高性能无锁消息队列实现
+ *
+ * ⚠️  DEPRECATED - 弃用说明
+ * 本实现已标记为弃用，建议使用以下替代方案：
+ * - 对于高性能场景：使用 lockfree/LockFreeMailbox
+ * - 对于通用场景：使用 FoundationMailbox
+ * - 对于批处理场景：使用 batching/BatchingMailbox
+ *
+ * 弃用原因：
+ * 1. 与 lockfree/ 包功能重复
+ * 2. 缺乏批处理语义支持
+ * 3. 维护成本较高
+ *
+ * 迁移建议：
+ * - RingBufferMailbox -> LockFreeMailbox (性能相当，功能更完整)
+ * - 需要批处理 -> BatchingMailbox + FoundationMailbox
+ *
+ * 计划移除版本：CActor 4.0
  */
 package cactor.runtime.mailbox.ringbuffer
 

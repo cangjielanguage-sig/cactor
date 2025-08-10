@@ -9,14 +9,15 @@ import std.sync.*
 import std.time.*
 import std.collection.*
 import std.math.*
-import cactor.runtime.mailbox.{Mailbox, BatchDequeueSemantics}
+import cactor.runtime.mailbox.{Mailbox, BatchDequeueSemantics, MetricsSemantics, MailboxMetrics}
 import cactor.core.message.Envelope
 
 /**
  * 批量处理邮箱
  * 支持按大小和时间触发的批量处理
+ * 实现MetricsSemantics接口，提供批处理相关的指标收集
  */
-public class BatchingMailbox <: Mailbox & BatchDequeueSemantics {
+public class BatchingMailbox <: Mailbox & BatchDequeueSemantics & MetricsSemantics {
     private let batchSize: Int64
     private let batchTimeout: Duration
     private let pendingBatch: ArrayList<Envelope>
@@ -25,6 +26,13 @@ public class BatchingMailbox <: Mailbox & BatchDequeueSemantics {
     private let batchMutex: Mutex
     private let totalEnqueued: AtomicInt64
     private let totalBatches: AtomicInt64
+
+    // MetricsSemantics 相关字段
+    private let metricsEnabled: AtomicBool
+    private let totalDequeued: AtomicInt64
+    private let maxSizeReached: AtomicInt64
+    private let totalDropped: AtomicInt64
+    private let lastMetricsUpdate: AtomicInt64
 
     public init(batchSize: Int64, batchTimeout: Duration) {
         this.batchSize = batchSize
@@ -35,6 +43,13 @@ public class BatchingMailbox <: Mailbox & BatchDequeueSemantics {
         this.totalEnqueued = AtomicInt64(0)
         this.totalBatches = AtomicInt64(0)
         this.lastBatchTime = AtomicInt64(DateTime.now().toUnixTimeStamp().toMilliseconds() * 1_000_000)
+
+        // 初始化MetricsSemantics字段
+        this.metricsEnabled = AtomicBool(true)
+        this.totalDequeued = AtomicInt64(0)
+        this.maxSizeReached = AtomicInt64(0)
+        this.totalDropped = AtomicInt64(0)
+        this.lastMetricsUpdate = AtomicInt64(DateTime.now().toUnixTimeStamp().toMilliseconds() * 1_000_000)
     }
 
     public func enqueue(envelope: Envelope): Bool {
@@ -210,6 +225,60 @@ public class BatchingMailbox <: Mailbox & BatchDequeueSemantics {
             return 0.0
         }
         Float64(totalEnqueued.load()) / Float64(batches)
+    }
+
+    // MetricsSemantics 接口实现
+    public func getMetrics(): MailboxMetrics {
+        let currentTime = DateTime.now().toUnixTimeStamp().toMilliseconds() * 1_000_000
+        let currentSize = Int64(pendingBatch.size)
+
+        // 更新最大队列大小
+        let currentMax = maxSizeReached.load()
+        if (currentSize > currentMax) {
+            maxSizeReached.store(currentSize)
+        }
+
+        // 更新最后更新时间
+        lastMetricsUpdate.store(currentTime)
+
+        // 计算平均处理时间（基于批处理时间）
+        let avgTime = if (totalBatches.load() > 0) {
+            (currentTime - lastBatchTime.load()) / totalBatches.load()
+        } else {
+            0
+        }
+
+        return MailboxMetrics(
+            totalEnqueued.load(),
+            totalDequeued.load(),
+            currentSize,
+            maxSizeReached.load(),
+            avgTime,
+            totalDropped.load(),
+            currentTime
+        )
+    }
+
+    public func resetMetrics(): Unit {
+        totalEnqueued.store(0)
+        totalDequeued.store(0)
+        totalBatches.store(0)
+        maxSizeReached.store(0)
+        totalDropped.store(0)
+        let currentTime = DateTime.now().toUnixTimeStamp().toMilliseconds() * 1_000_000
+        lastMetricsUpdate.store(currentTime)
+        lastBatchTime.store(currentTime)
+    }
+
+    public func isMetricsEnabled(): Bool {
+        metricsEnabled.load()
+    }
+
+    /**
+     * 启用或禁用指标收集
+     */
+    public func setMetricsEnabled(enabled: Bool): Unit {
+        metricsEnabled.store(enabled)
     }
 }
 

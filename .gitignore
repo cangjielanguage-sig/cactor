@@ -69,7 +69,7 @@ cangjie-0.53.4-docs-html/
 docs-html/
 *.html
 *.pdf
-
+CangjieCorpus
 # 其他项目目录
 CangjieMagic/
 notepad
