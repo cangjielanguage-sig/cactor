@@ -37,9 +37,9 @@ public class PriorityDispatcher {
     private let totalTasksSubmitted: AtomicInt64
     private let totalTasksCompleted: AtomicInt64
     
-    // 吞吐量控制
-    private let throughput: Int32
-    private let throughputDeadlineTime: Duration
+    // 增强的吞吐量控制 - 支持动态配置
+    private var throughput: Int32
+    private var throughputDeadlineTime: Duration
     private let lastThroughputCheck: AtomicInt64
     private let currentBatchCount: AtomicInt32
     private let throughputMutex: Mutex
@@ -251,6 +251,53 @@ public class PriorityDispatcher {
         }
     }
 
+    /**
+     * 动态更新吞吐量配置 - 增强功能
+     */
+    public func updateThroughputConfig(newThroughput: Int32, newDeadlineTime: Duration): Unit {
+        throughputMutex.lock()
+        try {
+            this.throughput = max(1, newThroughput)
+            this.throughputDeadlineTime = newDeadlineTime
+
+            // 更新所有工作线程的配置
+            for (worker in workers) {
+                worker.updateThroughputConfig(this.throughput, this.throughputDeadlineTime)
+            }
+
+            // 重置统计
+            lastThroughputCheck.store(getCurrentTimeNanos())
+            currentBatchCount.store(0)
+
+            println("[PriorityDispatcher] 吞吐量配置已更新: throughput=${this.throughput}, deadline=${newDeadlineTime.toMilliseconds()}ms")
+        } finally {
+            throughputMutex.unlock()
+        }
+    }
+
+    /**
+     * 获取当前吞吐量配置
+     */
+    public func getThroughputConfig(): (Int32, Duration) {
+        (throughput, throughputDeadlineTime)
+    }
+
+    /**
+     * 获取优先级队列统计信息
+     */
+    public func getPriorityQueueStats(): PriorityQueueStats {
+        PriorityQueueStats(
+            criticalQueue.size,
+            highQueue.size,
+            normalQueue.size,
+            lowQueue.size,
+            criticalTasksProcessed.load(),
+            highTasksProcessed.load(),
+            normalTasksProcessed.load(),
+            lowTasksProcessed.load()
+        )
+    }
+
     public func getWorkerStats(): Array<PriorityWorkerStats> {
         let stats = ArrayList<PriorityWorkerStats>()
         for (worker in workers) {
@@ -286,9 +333,9 @@ public class PriorityWorkerThread {
     private let normalTasksProcessed: AtomicInt64
     private let lowTasksProcessed: AtomicInt64
 
-    // 吞吐量控制
-    private let throughput: Int32
-    private let throughputDeadlineTime: Duration
+    // 吞吐量控制 - 支持动态配置
+    private var throughput: Int32
+    private var throughputDeadlineTime: Duration
     private let currentBatchCount: AtomicInt32
     private let lastBatchTime: AtomicInt64
 
@@ -330,6 +377,24 @@ public class PriorityWorkerThread {
 
     public func stop(): Unit {
         isRunning.store(false)
+    }
+
+    /**
+     * 动态更新吞吐量配置
+     */
+    public func updateThroughputConfig(newThroughput: Int32, newDeadlineTime: Duration): Unit {
+        this.throughput = max(1, newThroughput)
+        this.throughputDeadlineTime = newDeadlineTime
+        this.currentBatchCount.store(0)
+        this.lastBatchTime.store(getCurrentTimeNanos())
+        println("[PriorityWorkerThread-${workerId}] 吞吐量配置已更新: throughput=${this.throughput}, deadline=${newDeadlineTime.toMilliseconds()}ms")
+    }
+
+    /**
+     * 获取当前吞吐量配置
+     */
+    public func getThroughputConfig(): (Int32, Duration) {
+        (throughput, throughputDeadlineTime)
     }
 
     private func workerLoop(): Unit {
@@ -498,5 +563,39 @@ public struct PriorityWorkerStats {
         "PriorityWorkerStats(worker=${workerId}, total=${totalTasksProcessed}, " +
         "critical=${criticalTasksProcessed}, high=${highTasksProcessed}, " +
         "normal=${normalTasksProcessed}, low=${lowTasksProcessed})"
+    }
+}
+
+/**
+ * 优先级队列统计信息
+ */
+public struct PriorityQueueStats {
+    public let criticalQueueSize: Int64
+    public let highQueueSize: Int64
+    public let normalQueueSize: Int64
+    public let lowQueueSize: Int64
+    public let criticalTasksProcessed: Int64
+    public let highTasksProcessed: Int64
+    public let normalTasksProcessed: Int64
+    public let lowTasksProcessed: Int64
+
+    public init(criticalQueueSize: Int64, highQueueSize: Int64, normalQueueSize: Int64, lowQueueSize: Int64,
+                criticalTasksProcessed: Int64, highTasksProcessed: Int64, normalTasksProcessed: Int64, lowTasksProcessed: Int64) {
+        this.criticalQueueSize = criticalQueueSize
+        this.highQueueSize = highQueueSize
+        this.normalQueueSize = normalQueueSize
+        this.lowQueueSize = lowQueueSize
+        this.criticalTasksProcessed = criticalTasksProcessed
+        this.highTasksProcessed = highTasksProcessed
+        this.normalTasksProcessed = normalTasksProcessed
+        this.lowTasksProcessed = lowTasksProcessed
+    }
+
+    public func getTotalQueueSize(): Int64 {
+        criticalQueueSize + highQueueSize + normalQueueSize + lowQueueSize
+    }
+
+    public func getTotalTasksProcessed(): Int64 {
+        criticalTasksProcessed + highTasksProcessed + normalTasksProcessed + lowTasksProcessed
     }
 }

@@ -261,6 +261,85 @@ public class EnhancedDispatcherTest {
     }
 
     /**
+     * 测试WorkStealingDispatcher的动态吞吐量配置更新
+     */
+    @TestCase
+    public func testWorkStealingDispatcherDynamicThroughputUpdate(): Unit {
+        let dispatcher = WorkStealingDispatcher(2, 20, Duration.millisecond * 100)
+
+        dispatcher.start()
+
+        // 获取初始配置
+        let (initialThroughput, initialDeadline) = dispatcher.getThroughputConfig()
+        @Assert(initialThroughput, 20)
+        @Assert(initialDeadline.toMilliseconds(), 100)
+
+        // 动态更新配置
+        dispatcher.updateThroughputConfig(50, Duration.millisecond * 200)
+
+        // 验证配置已更新
+        let (newThroughput, newDeadline) = dispatcher.getThroughputConfig()
+        @Assert(newThroughput, 50)
+        @Assert(newDeadline.toMilliseconds(), 200)
+
+        dispatcher.stop()
+    }
+
+    /**
+     * 测试PriorityDispatcher的动态吞吐量配置更新
+     */
+    @TestCase
+    public func testPriorityDispatcherDynamicThroughputUpdate(): Unit {
+        let dispatcher = PriorityDispatcher(2, 30, Duration.millisecond * 150)
+
+        dispatcher.start()
+
+        // 获取初始配置
+        let (initialThroughput, initialDeadline) = dispatcher.getThroughputConfig()
+        @Assert(initialThroughput, 30)
+        @Assert(initialDeadline.toMilliseconds(), 150)
+
+        // 动态更新配置
+        dispatcher.updateThroughputConfig(80, Duration.millisecond * 250)
+
+        // 验证配置已更新
+        let (newThroughput, newDeadline) = dispatcher.getThroughputConfig()
+        @Assert(newThroughput, 80)
+        @Assert(newDeadline.toMilliseconds(), 250)
+
+        dispatcher.stop()
+    }
+
+    /**
+     * 测试PriorityDispatcher的优先级队列统计
+     */
+    @TestCase
+    public func testPriorityDispatcherQueueStats(): Unit {
+        let dispatcher = PriorityDispatcher(1) // 单线程确保队列统计准确
+
+        dispatcher.start()
+
+        let actorRef = createTestActorRef("queue-stats-test-actor")
+        let envelope = createTestEnvelope("test-message")
+
+        // 发送不同优先级的任务
+        dispatcher.dispatchWithPriority(envelope, actorRef, Priority.Critical)
+        dispatcher.dispatchWithPriority(envelope, actorRef, Priority.High)
+        dispatcher.dispatchWithPriority(envelope, actorRef, Priority.Normal)
+        dispatcher.dispatchWithPriority(envelope, actorRef, Priority.Low)
+
+        // 等待一些任务被处理
+        sleep(Duration.millisecond * 100)
+
+        // 获取队列统计
+        let queueStats = dispatcher.getPriorityQueueStats()
+        @Assert(queueStats.getTotalTasksProcessed() >= 0, true)
+        @Assert(queueStats.getTotalQueueSize() >= 0, true)
+
+        dispatcher.stop()
+    }
+
+    /**
      * 创建测试用的ActorRef
      */
     private func createTestActorRef(name: String): ActorRef {

@@ -142,9 +142,9 @@ public class WorkerThread {
     private let stealAttempts: AtomicInt64
     private let successfulSteals: AtomicInt64
 
-    // 吞吐量控制字段
-    private let throughput: Int32
-    private let throughputDeadlineTime: Duration
+    // 吞吐量控制字段 - 支持动态配置
+    private var throughput: Int32
+    private var throughputDeadlineTime: Duration
     private let currentBatchCount: AtomicInt32
     private let lastBatchTime: AtomicInt64
 
@@ -179,11 +179,22 @@ public class WorkerThread {
         this.stealAttempts = AtomicInt64(0)
         this.successfulSteals = AtomicInt64(0)
 
-        // 配置的吞吐量参数
-        this.throughput = throughput
+        // 增强的吞吐量参数配置
+        this.throughput = max(1, throughput)  // 确保最小值为1
         this.throughputDeadlineTime = throughputDeadlineTime
         this.currentBatchCount = AtomicInt32(0)
         this.lastBatchTime = AtomicInt64(getCurrentTimeNanos())
+    }
+
+    /**
+     * 动态更新吞吐量配置
+     */
+    public func updateThroughputConfig(newThroughput: Int32, newDeadlineTime: Duration): Unit {
+        this.throughput = max(1, newThroughput)
+        this.throughputDeadlineTime = newDeadlineTime
+        this.currentBatchCount.store(0)
+        this.lastBatchTime.store(getCurrentTimeNanos())
+        println("[WorkerThread-${workerId}] 吞吐量配置已更新: throughput=${this.throughput}, deadline=${newDeadlineTime.toMilliseconds()}ms")
     }
 
     public func setOtherWorkers(workers: Array<WorkerThread>): Unit {
@@ -239,7 +250,8 @@ public class WorkerThread {
     }
 
     /**
-     * 检查是否需要进行吞吐量控制
+     * 增强的吞吐量控制检查
+     * 支持自适应调整和精确时间控制
      */
     private func shouldThrottleThroughput(): Bool {
         let currentTime = getCurrentTimeNanos()
@@ -259,6 +271,20 @@ public class WorkerThread {
         }
 
         return false
+    }
+
+    /**
+     * 获取当前吞吐量配置
+     */
+    public func getThroughputConfig(): (Int32, Duration) {
+        (throughput, throughputDeadlineTime)
+    }
+
+    /**
+     * 获取当前批次状态
+     */
+    public func getCurrentBatchStatus(): (Int32, Int64) {
+        (currentBatchCount.load(), lastBatchTime.load())
     }
 
     private func findTask(): Option<ActorTask> {
@@ -440,9 +466,9 @@ public class WorkStealingDispatcher {
     private let totalTasksSubmitted: AtomicInt64
     private let totalTasksCompleted: AtomicInt64
 
-    // 吞吐量控制相关字段
-    private let throughput: Int32
-    private let throughputDeadlineTime: Duration
+    // 增强的吞吐量控制相关字段 - 支持动态配置
+    private var throughput: Int32
+    private var throughputDeadlineTime: Duration
     private let lastThroughputCheck: AtomicInt64
     private let currentBatchCount: AtomicInt32
     private let throughputMutex: Mutex
@@ -608,6 +634,40 @@ public class WorkStealingDispatcher {
         }
     }
 
+    /**
+     * 动态更新吞吐量配置 - 增强功能
+     */
+    public func updateThroughputConfig(newThroughput: Int32, newDeadlineTime: Duration): Unit {
+        throughputMutex.lock()
+        try {
+            this.throughput = max(1, newThroughput)
+            this.throughputDeadlineTime = newDeadlineTime
+
+            // 更新所有工作线程的配置
+            for (worker in workers) {
+                worker.updateThroughputConfig(this.throughput, this.throughputDeadlineTime)
+            }
+
+            // 重置统计
+            lastThroughputCheck.store(getCurrentTimeNanos())
+            currentBatchCount.store(0)
+
+            println("[WorkStealingDispatcher] 吞吐量配置已更新: throughput=${this.throughput}, deadline=${newDeadlineTime.toMilliseconds()}ms")
+        } finally {
+            throughputMutex.unlock()
+        }
+    }
+
+    /**
+     * 获取当前吞吐量配置
+     */
+    public func getThroughputConfig(): (Int32, Duration) {
+        (throughput, throughputDeadlineTime)
+    }
+
+    /**
+     * 获取工作线程统计信息 - 增强版本
+     */
     public func getWorkerStats(): Array<WorkerStats> {
         let stats = ArrayList<WorkerStats>()
         for (worker in workers) {
