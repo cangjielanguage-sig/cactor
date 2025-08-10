@@ -370,14 +370,13 @@ public class FoundationPriorityMailbox <: Mailbox {
 
     public func enqueue(envelope: Envelope): Bool {
         let priority = envelope.getMessage().priority()
-
         if (priority > 0) {
             // 高优先级消息进入优先级队列
             let priorityEnvelope = PriorityEnvelope(envelope, priority)
-            priorityQueue.enqueue(priorityEnvelope)
+            return priorityQueue.enqueue(priorityEnvelope)
         } else {
-            // 普通消息进入普通队列
-            normalQueue.enqueue(envelope)
+            // 普通/低优先级消息进入普通队列（保持 FIFO）
+            return normalQueue.enqueue(envelope)
         }
     }
 

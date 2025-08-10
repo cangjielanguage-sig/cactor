@@ -9,7 +9,7 @@ import std.sync.*
 import std.time.*
 import std.collection.*
 import std.math.*
-import cactor.runtime.mailbox.Mailbox
+import cactor.runtime.mailbox.{Mailbox, BatchDequeueSemantics}
 import cactor.core.message.Envelope
 
 /**
@@ -53,8 +53,24 @@ public class BatchingMailbox <: Mailbox {
     }
 
     public func dequeue(): Option<Envelope> {
-        // 批量邮箱不支持单个消息出队
-        // 应该使用 processBatch() 方法
+        // 单条回退：当存在待消费批次时，返回第一条
+        batchMutex.lock()
+        try {
+            if (!pendingBatch.isEmpty()) {
+                let firstOpt = pendingBatch.get(0)
+                let total = Int64(pendingBatch.size)
+                let rest = ArrayList<Envelope>()
+                var i = Int64(1)
+                while (i < total) {
+                    let e = pendingBatch.get(i)
+                    rest.add(e.getOrThrow())
+                    i = i + 1
+                }
+                pendingBatch.clear()
+                for (e in rest) { pendingBatch.add(e) }
+                return Some(firstOpt.getOrThrow())
+            }
+        } finally { batchMutex.unlock() }
         None
     }
 
@@ -65,7 +81,7 @@ public class BatchingMailbox <: Mailbox {
     public func processBatch(): Array<Envelope> {
         let now = getCurrentTimeNanos()
         let shouldFlush = shouldFlushBatch(now)
-        
+
         if (!shouldFlush) {
             return Array<Envelope>()
         }
@@ -80,20 +96,46 @@ public class BatchingMailbox <: Mailbox {
             pendingBatch.clear()
             lastBatchTime.store(now)
             totalBatches.fetchAdd(1)
-            
+
             return batch
         } finally {
             batchMutex.unlock()
         }
     }
 
+    // BatchDequeueSemantics
+    public func dequeueBatch(max: Int32): Array<Envelope> {
+        let out = ArrayList<Envelope>()
+        batchMutex.lock()
+        try {
+            let n = min(Int64(max), Int64(pendingBatch.size))
+            var i = Int64(0)
+            while (i < n) {
+                let first = pendingBatch.get(0)
+                out.add(first.getOrThrow())
+                // rebuild the list sans first element
+                let total = Int64(pendingBatch.size)
+                let rest = ArrayList<Envelope>()
+                var j = Int64(1)
+                while (j < total) { rest.add(pendingBatch.get(j).getOrThrow()); j = j + 1 }
+                pendingBatch.clear()
+                for (e in rest) { pendingBatch.add(e) }
+                i = i + 1
+            }
+            lastBatchTime.store(getCurrentTimeNanos())
+            if (n > 0) { totalBatches.fetchAdd(1) }
+        } finally { batchMutex.unlock() }
+        out.toArray()
+    }
+
+
     private func shouldFlushBatch(now: Int64): Bool {
         batchMutex.lock()
         try {
             let currentSize = pendingBatch.size
             let timeSinceLastBatch = now - lastBatchTime.load()
-            
-            return currentSize >= batchSize || 
+
+            return currentSize >= batchSize ||
                    (currentSize > 0 && timeSinceLastBatch > batchTimeout.toMilliseconds() * 1_000_000)
         } finally {
             batchMutex.unlock()
@@ -177,7 +219,7 @@ public class AdaptiveBatchingMailbox <: Mailbox {
     private let targetLatency: Duration
     private let adjustmentCounter: AtomicInt64
 
-    public init(minBatchSize: Int64, maxBatchSize: Int64, 
+    public init(minBatchSize: Int64, maxBatchSize: Int64,
                 batchTimeout: Duration, targetLatency: Duration) {
         this.minBatchSize = minBatchSize
         this.maxBatchSize = maxBatchSize
@@ -185,7 +227,7 @@ public class AdaptiveBatchingMailbox <: Mailbox {
         this.targetLatency = targetLatency
         this.avgProcessingTime = AtomicInt64(0)
         this.adjustmentCounter = AtomicInt64(0)
-        
+
         // 使用当前批次大小创建内部邮箱
         this.innerMailbox = BatchingMailbox(minBatchSize, batchTimeout)
     }
@@ -201,15 +243,15 @@ public class AdaptiveBatchingMailbox <: Mailbox {
     public func processBatch(): Array<Envelope> {
         let startTime = getCurrentTimeNanos()
         let batch = innerMailbox.processBatch()
-        
+
         if (!batch.isEmpty()) {
             let endTime = getCurrentTimeNanos()
             let processingTime = endTime - startTime
-            
+
             updateAverageProcessingTime(processingTime)
             adjustBatchSize(processingTime)
         }
-        
+
         return batch
     }
 
@@ -225,7 +267,7 @@ public class AdaptiveBatchingMailbox <: Mailbox {
 
     private func adjustBatchSize(processingTime: Int64): Unit {
         let adjustmentCount = adjustmentCounter.fetchAdd(1)
-        
+
         // 每10次处理后调整一次批次大小
         if (adjustmentCount % 10 != 0) {
             return
@@ -318,17 +360,17 @@ public class BatchProcessor {
     public func processWithMetrics(batch: Array<Envelope>): BatchProcessingMetrics {
         let startTime = getCurrentTimeNanos()
         var errorCount: Int64 = 0
-        
+
         try {
             processingFunction(batch)
         } catch (e: Exception) {
             errorCount = 1
             errorHandler(e)
         }
-        
+
         let endTime = getCurrentTimeNanos()
         let processingTime = endTime - startTime
-        
+
         BatchProcessingMetrics(
             Int64(batch.size),
             processingTime,
