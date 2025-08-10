@@ -292,7 +292,7 @@ public class AdaptiveBatchingMailbox <: Mailbox & BatchDequeueSemantics {
     private let maxBatchSize: Int64
     private let currentBatchSize: AtomicInt64
     private let avgProcessingTime: AtomicInt64
-    private let targetLatency: Duration
+    private var targetLatency: Duration
     private let adjustmentCounter: AtomicInt64
 
     public init(minBatchSize: Int64, maxBatchSize: Int64,
@@ -411,6 +411,49 @@ public class AdaptiveBatchingMailbox <: Mailbox & BatchDequeueSemantics {
         innerMailbox.dequeueBatch(max)
     }
 
+    /**
+     * 获取当前自适应配置
+     */
+    public func getAdaptiveConfig(): AdaptiveBatchConfig {
+        AdaptiveBatchConfig(
+            currentBatchSize.load(),
+            minBatchSize,
+            maxBatchSize,
+            targetLatency.toMilliseconds() * 1_000_000,  // 转换为纳秒
+            avgProcessingTime.load()
+        )
+    }
+
+    /**
+     * 动态调整目标延迟
+     */
+    public func updateTargetLatency(newTargetLatency: Duration): Unit {
+        this.targetLatency = newTargetLatency
+        println("[AdaptiveBatchingMailbox] 目标延迟已更新: ${newTargetLatency.toMilliseconds()}ms")
+    }
+
+    /**
+     * 重置自适应统计
+     */
+    public func resetAdaptiveStats(): Unit {
+        avgProcessingTime.store(0)
+        adjustmentCounter.store(0)
+        currentBatchSize.store((minBatchSize + maxBatchSize) / 2)  // 重置为中间值
+        println("[AdaptiveBatchingMailbox] 自适应统计已重置")
+    }
+
+    /**
+     * 获取批处理性能统计
+     */
+    public func getBatchPerformanceStats(): BatchPerformanceStats {
+        BatchPerformanceStats(
+            currentBatchSize.load(),
+            avgProcessingTime.load(),
+            adjustmentCounter.load(),
+            targetLatency.toMilliseconds() * 1_000_000
+        )
+    }
+
 }
 
 /**
@@ -496,5 +539,59 @@ public struct BatchProcessingMetrics {
 
     public func hasErrors(): Bool {
         errorCount > 0
+    }
+}
+
+/**
+ * 自适应批处理配置信息
+ */
+public struct AdaptiveBatchConfig {
+    public let currentBatchSize: Int64
+    public let minBatchSize: Int64
+    public let maxBatchSize: Int64
+    public let targetProcessingTime: Int64  // 纳秒
+    public let avgProcessingTime: Int64     // 纳秒
+
+    public init(currentBatchSize: Int64, minBatchSize: Int64, maxBatchSize: Int64, targetProcessingTime: Int64, avgProcessingTime: Int64) {
+        this.currentBatchSize = currentBatchSize
+        this.minBatchSize = minBatchSize
+        this.maxBatchSize = maxBatchSize
+        this.targetProcessingTime = targetProcessingTime
+        this.avgProcessingTime = avgProcessingTime
+    }
+
+    public func getEfficiencyRatio(): Float64 {
+        if (targetProcessingTime == 0) { return 1.0 }
+        Float64(targetProcessingTime) / Float64(max(1, avgProcessingTime))
+    }
+
+    public func getDescription(): String {
+        "AdaptiveBatchConfig(current=${currentBatchSize}, range=[${minBatchSize},${maxBatchSize}], target=${targetProcessingTime}ns, avg=${avgProcessingTime}ns)"
+    }
+}
+
+/**
+ * 批处理性能统计信息
+ */
+public struct BatchPerformanceStats {
+    public let currentBatchSize: Int64
+    public let avgProcessingTime: Int64
+    public let adjustmentCount: Int64
+    public let targetProcessingTime: Int64
+
+    public init(currentBatchSize: Int64, avgProcessingTime: Int64, adjustmentCount: Int64, targetProcessingTime: Int64) {
+        this.currentBatchSize = currentBatchSize
+        this.avgProcessingTime = avgProcessingTime
+        this.adjustmentCount = adjustmentCount
+        this.targetProcessingTime = targetProcessingTime
+    }
+
+    public func getPerformanceRatio(): Float64 {
+        if (targetProcessingTime == 0) { return 1.0 }
+        Float64(targetProcessingTime) / Float64(max(1, avgProcessingTime))
+    }
+
+    public func getDescription(): String {
+        "BatchPerformanceStats(batchSize=${currentBatchSize}, avgTime=${avgProcessingTime}ns, adjustments=${adjustmentCount}, performance=${getPerformanceRatio()})"
     }
 }

@@ -163,25 +163,64 @@ public interface BackpressureSemantics {
  * 背压策略枚举
  * 定义当邮箱达到容量限制时的处理策略
  */
-public enum BackpressureStrategy {
+public enum BackpressureStrategy <: ToString {
     | DropHead    // 丢弃队列头部的旧消息
     | DropTail    // 丢弃队列尾部的旧消息
     | DropNew     // 丢弃新消息
     | Block       // 阻塞直到有空间
     | Fail        // 抛出异常
+
+    public func toString(): String {
+        match (this) {
+            case DropHead => "DropHead"
+            case DropTail => "DropTail"
+            case DropNew => "DropNew"
+            case Block => "Block"
+            case Fail => "Fail"
+        }
+    }
 }
 
 /**
- * 有界邮箱包装器
- * 为任意邮箱添加容量限制和背压控制功能
+ * 有界邮箱配置信息
+ */
+public struct BoundedMailboxConfig {
+    public let capacity: Int64
+    public let strategy: BackpressureStrategy
+    public let backpressureThreshold: Float64
+    public let currentSize: Int64
+    public let rejectedCount: Int64
+
+    public init(capacity: Int64, strategy: BackpressureStrategy, backpressureThreshold: Float64, currentSize: Int64, rejectedCount: Int64) {
+        this.capacity = capacity
+        this.strategy = strategy
+        this.backpressureThreshold = backpressureThreshold
+        this.currentSize = currentSize
+        this.rejectedCount = rejectedCount
+    }
+
+    public func getLoadRatio(): Float64 {
+        if (capacity == 0) { return 0.0 }
+        Float64(currentSize) / Float64(capacity)
+    }
+
+    public func getDescription(): String {
+        "BoundedMailboxConfig(capacity=${capacity}, strategy=${strategy.toString()}, threshold=${backpressureThreshold}, size=${currentSize}, rejected=${rejectedCount})"
+    }
+}
+
+/**
+ * 增强的有界邮箱包装器
+ * 为任意邮箱添加容量限制、背压控制和动态配置功能
  */
 public class BoundedMailboxWrapper <: Mailbox & BoundedMailboxSemantics & BackpressureSemantics {
     private let innerMailbox: Mailbox
-    private let capacity: Int64
-    private let strategy: BackpressureStrategy
+    private var capacity: Int64  // 支持动态调整
+    private var strategy: BackpressureStrategy  // 支持动态调整
     private let currentSize: AtomicInt64
     private let rejectedCount: AtomicInt64
-    private let backpressureThreshold: Float64
+    private var backpressureThreshold: Float64  // 支持动态调整
+    private let configMutex: Mutex  // 配置变更保护
 
     public init(innerMailbox: Mailbox, capacity: Int64, strategy: BackpressureStrategy, backpressureThreshold: Float64) {
         this.innerMailbox = innerMailbox
@@ -190,6 +229,7 @@ public class BoundedMailboxWrapper <: Mailbox & BoundedMailboxSemantics & Backpr
         this.currentSize = AtomicInt64(0)
         this.rejectedCount = AtomicInt64(0)
         this.backpressureThreshold = backpressureThreshold
+        this.configMutex = Mutex()
     }
 
     public func enqueue(envelope: Envelope): Bool {
@@ -275,6 +315,57 @@ public class BoundedMailboxWrapper <: Mailbox & BoundedMailboxSemantics & Backpr
 
     public func getRejectedCount(): Int64 {
         rejectedCount.load()
+    }
+
+    /**
+     * 动态调整邮箱容量
+     */
+    public func updateCapacity(newCapacity: Int64): Unit {
+        configMutex.lock()
+        try {
+            this.capacity = max(1, newCapacity)
+            println("[BoundedMailboxWrapper] 容量已更新: ${this.capacity}")
+        } finally {
+            configMutex.unlock()
+        }
+    }
+
+    /**
+     * 动态调整背压策略
+     */
+    public func updateBackpressureStrategy(newStrategy: BackpressureStrategy): Unit {
+        configMutex.lock()
+        try {
+            this.strategy = newStrategy
+            println("[BoundedMailboxWrapper] 背压策略已更新: ${newStrategy}")
+        } finally {
+            configMutex.unlock()
+        }
+    }
+
+    /**
+     * 动态调整背压阈值
+     */
+    public func updateBackpressureThreshold(newThreshold: Float64): Unit {
+        configMutex.lock()
+        try {
+            this.backpressureThreshold = max(0.0, min(1.0, newThreshold))
+            println("[BoundedMailboxWrapper] 背压阈值已更新: ${this.backpressureThreshold}")
+        } finally {
+            configMutex.unlock()
+        }
+    }
+
+    /**
+     * 获取当前配置信息
+     */
+    public func getConfiguration(): BoundedMailboxConfig {
+        configMutex.lock()
+        try {
+            BoundedMailboxConfig(capacity, strategy, backpressureThreshold, currentSize.load(), rejectedCount.load())
+        } finally {
+            configMutex.unlock()
+        }
     }
 }
 
