@@ -25,15 +25,18 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     private let userActors: HashMap<String, ActorRef>
     private let defaultSupervisionStrategy: SupervisionStrategy
     private let actorPathPrefix: String
-    
+    // 缓存每个子Actor的BackoffSupervisor保持重试计数
+    private let backoffSupervisors: HashMap<String, BackoffSupervisor>
+
     public init(system: ActorSystem) {
         super(GuardianType.User, None<ActorRef>)  // 用户Guardian通常没有父Guardian
         this.actorSystem = system
         this.userActors = HashMap<String, ActorRef>()
         this.defaultSupervisionStrategy = DefaultSupervisionStrategy.oneForOne()
         this.actorPathPrefix = "/user"
+        this.backoffSupervisors = HashMap<String, BackoffSupervisor>()
     }
-    
+
     /**
      * 创建用户Actor
      */
@@ -101,7 +104,15 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                 println("重启Actor: ${actor.path.toString()}")
                 match (supervisionStrategies.get(actor.path.toString())) {
                     case Some(s: BackoffSupervisorStrategy) =>
-                        let bof = BackoffSupervisor(s, this)
+                        // 获取/创建缓存的监督器以保持重试计数
+                        let key = actor.path.toString()
+                        let bof = match (backoffSupervisors.get(key)) {
+                            case Some(existing) => existing
+                            case None =>
+                                let created = BackoffSupervisor(s, this)
+                                backoffSupervisors.add(key, created)
+                                created
+                        }
                         bof.handleFailure(ActorFailure(actor, cause, 1))
                     case _ =>
                         restartChild(actor, cause)

@@ -338,6 +338,9 @@ public class BackoffSupervisorStrategy <: SupervisionStrategy {
         Duration.millisecond * finalBackoff
     }
 
+    /** 返回最大重试次数 */
+    public func getMaxRetries(): Int64 { maxRetries }
+
     private func getOrCreateBackoffInfo(actorKey: String): BackoffInfo {
         match (backoffHistory.get(actorKey)) {
             case Some(info) => info

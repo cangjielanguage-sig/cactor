@@ -23,31 +23,56 @@ public class BackoffSupervisor {
     private let strategy: BackoffSupervisorStrategy
     private let guardian: GuardianActor
     private let retryCounts: HashMap<String, Int64>
+    private let maxRetries: Int64
     private let mutex: Mutex
 
     public init(strategy: BackoffSupervisorStrategy, guardian: GuardianActor) {
         this.strategy = strategy
         this.guardian = guardian
         this.retryCounts = HashMap<String, Int64>()
+        // 从策略推断最大重试上限（策略默认10，可通过重载构造设置）
+        this.maxRetries = strategy.getMaxRetries()
         this.mutex = Mutex()
     }
 
+    /**
+     * 处理失败：超过最大重试则停止，否则按退避调度重启
+     */
     public func handleFailure(failure: ActorFailure): Unit {
         let path = failure.actor.path.toString()
+        var shouldStop = false
+        var nextDelay = Duration.millisecond * 0
+
         mutex.lock()
-        let count = match (retryCounts.get(path)) { case Some(v) => v; case None => 0 }
-        let delay = strategy.calculateBackoffTime(count)
-        retryCounts.add(path, count + 1)
+        let current = match (retryCounts.get(path)) { case Some(v) => v; case None => 0 }
+        if (current >= maxRetries) {
+            shouldStop = true
+        } else {
+            nextDelay = strategy.calculateBackoffTime(current)
+            retryCounts.add(path, current + 1)
+        }
         mutex.unlock()
 
+        if (shouldStop) {
+            // 超上限：停止并清理计数
+            cleanup(path)
+            guardian.stopChild(failure.actor)
+            return
+        }
+
         // 安排延迟重启
-        if (delay.toMilliseconds() <= 0) {
+        if (nextDelay.toMilliseconds() <= 0) {
             guardian.restartChild(failure.actor, failure.cause)
         } else {
-            Timer.once(delay, { =>
+            Timer.once(nextDelay, { =>
                 guardian.restartChild(failure.actor, failure.cause)
             })
         }
+    }
+
+    /** 成功后清理重试状态 */
+    public func cleanup(path: String): Unit {
+        mutex.lock(); retryCounts.remove(path); mutex.unlock()
     }
 }
 
