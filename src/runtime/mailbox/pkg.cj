@@ -10,7 +10,15 @@ package cactor.runtime.mailbox
 import cactor.core.message.Envelope
 
 
-// 批处理可选语义接口（PR-2 将用到）
+/**
+ * 批处理可选语义接口
+ * 支持批量出队操作，提高消息处理吞吐量
+ */
 public interface BatchDequeueSemantics {
-  func dequeueBatch(max: Int32): Array<Envelope>
+    /**
+     * 批量出队消息
+     * @param max 最大出队数量
+     * @return 实际出队的消息数组，可能少于max
+     */
+    func dequeueBatch(max: Int32): Array<Envelope>
 }

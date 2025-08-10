@@ -7,6 +7,7 @@ import cactor.core.actor.*
 import cactor.core.context.*
 import cactor.core.message.*
 import cactor.runtime.mailbox.FoundationMailbox
+import cactor.runtime.mailbox.QueueBasedPriorityMailbox
 
 class HighPerfActor <: Actor {
   public prop name: String { get() { "high-performance-foundation-test" } }
@@ -47,7 +48,7 @@ public class FactoryMailboxSelectionTestSuite {
     let props = PropsFactory.create<Actor>({ => base })
 
     let mb = factory.createMailbox(base, props)
-    // 工厂当前返回 PriorityMailbox 代理以避免循环依赖（语义一致）
-    @Assert((mb is PriorityMailbox), true)
+    // 工厂现在返回 QueueBasedPriorityMailbox（统一到queue实现）
+    @Assert((mb is QueueBasedPriorityMailbox), true)
   }
 }

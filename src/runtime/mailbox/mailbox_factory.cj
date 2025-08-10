@@ -272,33 +272,35 @@ public class MailboxFactory {
      */
     private func createBoundedMailbox(config: MailboxConfig): Mailbox {
         let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 1000 }
-        SimpleMailbox(capacity)
+        // 使用 FoundationMailbox 替代 SimpleMailbox，提供更好的性能
+        FoundationMailbox(capacity)
     }
 
     /**
      * 创建优先级邮箱
      */
     private func createPriorityMailbox(config: MailboxConfig): Mailbox {
-        // 统一返回 Queue 实现的优先级邮箱（通过本包的兼容代理）
-        PriorityMailbox()
+        // 统一返回 Queue 实现的优先级邮箱
+        // 通过工厂方法创建，避免循环依赖
+        PriorityMailboxFactory.createQueueBasedPriorityMailbox()
     }
 
     /**
      * 创建暂存邮箱
      */
     private func createStashingMailbox(config: MailboxConfig): Mailbox {
-        // 简化实现：使用简单邮箱
-        // 实际实现应该支持消息暂存功能
-        SimpleMailbox(Int64(config.capacity))
+        // 使用 FoundationMailbox 作为基础，后续可扩展暂存功能
+        let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 1000 }
+        FoundationMailbox(capacity)
     }
 
     /**
      * 创建零拷贝邮箱
      */
     private func createZeroCopyMailbox(config: MailboxConfig): Mailbox {
-        // 简化实现：使用简单邮箱
-        // 实际实现应该支持零拷贝优化
-        SimpleMailbox(Int64(config.capacity))
+        // 使用 FoundationMailbox 作为基础，提供更好的性能特性
+        let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 1000 }
+        FoundationMailbox(capacity)
     }
 
     /**

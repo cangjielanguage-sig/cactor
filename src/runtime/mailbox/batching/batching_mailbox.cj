@@ -16,7 +16,7 @@ import cactor.core.message.Envelope
  * 批量处理邮箱
  * 支持按大小和时间触发的批量处理
  */
-public class BatchingMailbox <: Mailbox {
+public class BatchingMailbox <: Mailbox & BatchDequeueSemantics {
     private let batchSize: Int64
     private let batchTimeout: Duration
     private let pendingBatch: ArrayList<Envelope>
@@ -57,18 +57,18 @@ public class BatchingMailbox <: Mailbox {
         batchMutex.lock()
         try {
             if (!pendingBatch.isEmpty()) {
-                let firstOpt = pendingBatch.get(0)
-                let total = Int64(pendingBatch.size)
-                let rest = ArrayList<Envelope>()
-                var i = Int64(1)
-                while (i < total) {
-                    let e = pendingBatch.get(i)
-                    rest.add(e.getOrThrow())
-                    i = i + 1
+                // 获取第一个元素并从批次中移除
+                let first = pendingBatch.get(0).getOrThrow()
+                // 创建新的列表，不包含第一个元素
+                let newBatch = ArrayList<Envelope>()
+                for (i in 1..pendingBatch.size) {
+                    newBatch.add(pendingBatch.get(i).getOrThrow())
                 }
                 pendingBatch.clear()
-                for (e in rest) { pendingBatch.add(e) }
-                return Some(firstOpt.getOrThrow())
+                for (e in newBatch) {
+                    pendingBatch.add(e)
+                }
+                return Some(first)
             }
         } finally { batchMutex.unlock() }
         None
@@ -103,28 +103,35 @@ public class BatchingMailbox <: Mailbox {
         }
     }
 
-    // BatchDequeueSemantics
+    // BatchDequeueSemantics 实现
     public func dequeueBatch(max: Int32): Array<Envelope> {
         let out = ArrayList<Envelope>()
         batchMutex.lock()
         try {
             let n = min(Int64(max), Int64(pendingBatch.size))
-            var i = Int64(0)
-            while (i < n) {
-                let first = pendingBatch.get(0)
-                out.add(first.getOrThrow())
-                // rebuild the list sans first element
-                let total = Int64(pendingBatch.size)
-                let rest = ArrayList<Envelope>()
-                var j = Int64(1)
-                while (j < total) { rest.add(pendingBatch.get(j).getOrThrow()); j = j + 1 }
-                pendingBatch.clear()
-                for (e in rest) { pendingBatch.add(e) }
-                i = i + 1
+            // 批量取出前n个元素
+            for (i in 0..n) {
+                let envelope = pendingBatch.get(i).getOrThrow()
+                out.add(envelope)
             }
+            // 创建剩余元素的新列表
+            let remaining = ArrayList<Envelope>()
+            for (i in n..pendingBatch.size) {
+                remaining.add(pendingBatch.get(i).getOrThrow())
+            }
+            // 更新pendingBatch为剩余元素
+            pendingBatch.clear()
+            for (e in remaining) {
+                pendingBatch.add(e)
+            }
+
             lastBatchTime.store(getCurrentTimeNanos())
-            if (n > 0) { totalBatches.fetchAdd(1) }
-        } finally { batchMutex.unlock() }
+            if (n > 0) {
+                totalBatches.fetchAdd(1)
+            }
+        } finally {
+            batchMutex.unlock()
+        }
         out.toArray()
     }
 
@@ -210,7 +217,7 @@ public class BatchingMailbox <: Mailbox {
  * 自适应批量处理邮箱
  * 根据处理性能自动调整批次大小
  */
-public class AdaptiveBatchingMailbox <: Mailbox {
+public class AdaptiveBatchingMailbox <: Mailbox & BatchDequeueSemantics {
     private let innerMailbox: BatchingMailbox
     private let minBatchSize: Int64
     private let maxBatchSize: Int64
@@ -329,6 +336,12 @@ public class AdaptiveBatchingMailbox <: Mailbox {
     public func getTargetLatency(): Duration {
         targetLatency
     }
+
+    // BatchDequeueSemantics
+    public func dequeueBatch(max: Int32): Array<Envelope> {
+        innerMailbox.dequeueBatch(max)
+    }
+
 }
 
 /**
