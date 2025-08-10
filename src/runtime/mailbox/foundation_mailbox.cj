@@ -288,8 +288,6 @@ public struct MailboxPerformanceMetrics {
         mailboxType == "LockFree"
     }
 
-
-
 }
 
 /**
