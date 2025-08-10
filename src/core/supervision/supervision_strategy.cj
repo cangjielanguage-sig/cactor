@@ -20,6 +20,15 @@ public enum SupervisionDirective {
     | Restart     // 重启Actor
     | Stop        // 停止Actor
     | Escalate    // 将失败上报给上级监督者
+
+    public func toString(): String {
+        match (this) {
+            case Resume => "Resume"
+            case Restart => "Restart"
+            case Stop => "Stop"
+            case Escalate => "Escalate"
+        }
+    }
 }
 
 /**
@@ -391,8 +400,84 @@ public struct Math {
 }
 
 /**
+ * 监督策略矩阵
+ * 基于异常类型提供精确的决策控制
+ */
+public class SupervisionStrategyMatrix {
+    private let exceptionRules: HashMap<String, SupervisionDirective>
+    private let defaultDirective: SupervisionDirective
+    private let wildcardRules: ArrayList<(String, SupervisionDirective)>
+
+    public init(defaultDirective: SupervisionDirective) {
+        this.exceptionRules = HashMap<String, SupervisionDirective>()
+        this.defaultDirective = defaultDirective
+        this.wildcardRules = ArrayList<(String, SupervisionDirective)>()
+    }
+
+    /**
+     * 添加精确异常类型规则
+     */
+    public func addRule(exceptionType: String, directive: SupervisionDirective): SupervisionStrategyMatrix {
+        exceptionRules.add(exceptionType, directive)
+        this
+    }
+
+    /**
+     * 添加通配符规则（支持模式匹配）
+     */
+    public func addWildcardRule(pattern: String, directive: SupervisionDirective): SupervisionStrategyMatrix {
+        wildcardRules.add((pattern, directive))
+        this
+    }
+
+    /**
+     * 根据异常决定监督指令
+     */
+    public func decide(exception: Exception): SupervisionDirective {
+        let exceptionMessage = exception.toString()
+
+        // 1. 首先检查精确匹配
+        for ((exceptionType, directive) in exceptionRules) {
+            if (exceptionMessage.contains(exceptionType)) {
+                return directive
+            }
+        }
+
+        // 2. 检查通配符规则
+        for ((pattern, directive) in wildcardRules) {
+            if (exceptionMessage.contains(pattern)) {
+                return directive
+            }
+        }
+
+        // 3. 返回默认指令
+        defaultDirective
+    }
+
+    /**
+     * 获取所有规则的描述
+     */
+    public func getDescription(): String {
+        let sb = StringBuilder()
+        sb.append("SupervisionStrategyMatrix[")
+        sb.append("default=${defaultDirective.toString()}")
+
+        if (!exceptionRules.isEmpty()) {
+            sb.append(", exact_rules=${exceptionRules.size}")
+        }
+
+        if (!wildcardRules.isEmpty()) {
+            sb.append(", wildcard_rules=${wildcardRules.size}")
+        }
+
+        sb.append("]")
+        sb.toString()
+    }
+}
+
+/**
  * 默认监督策略
- * 提供常用的异常处理决策
+ * 提供常用的异常处理决策和策略矩阵
  */
 public struct DefaultSupervisionStrategy {
     /**
@@ -402,6 +487,13 @@ public struct DefaultSupervisionStrategy {
         // 简化实现：根据异常类型决定策略
         // 实际实现中可以根据具体的异常类型进行更细粒度的控制
         SupervisionDirective.Restart
+    }
+
+    /**
+     * 创建基于矩阵的异常决策函数
+     */
+    public static func matrixDecider(matrix: SupervisionStrategyMatrix): (Exception) -> SupervisionDirective {
+        { exception => matrix.decide(exception) }
     }
 
     /**
@@ -438,6 +530,28 @@ public struct DefaultSupervisionStrategy {
     }
 
     /**
+     * 创建基于矩阵的一对一策略
+     */
+    public static func oneForOneWithMatrix(maxRetries: Int32, withinTimeRange: Duration, matrix: SupervisionStrategyMatrix): OneForOneStrategy {
+        OneForOneStrategy(
+            maxRetries,
+            withinTimeRange,
+            matrixDecider(matrix)
+        )
+    }
+
+    /**
+     * 创建基于矩阵的一对全策略
+     */
+    public static func oneForAllWithMatrix(maxRetries: Int32, withinTimeRange: Duration, matrix: SupervisionStrategyMatrix): OneForAllStrategy {
+        OneForAllStrategy(
+            maxRetries,
+            withinTimeRange,
+            matrixDecider(matrix)
+        )
+    }
+
+    /**
      * 创建恢复策略（遇到任何异常都恢复）
      */
     public static func resumingStrategy(): OneForOneStrategy {
@@ -446,6 +560,72 @@ public struct DefaultSupervisionStrategy {
             Duration.hour,
             { exception => SupervisionDirective.Resume }
         )
+    }
+}
+
+/**
+ * 监督策略模板
+ * 提供常用的策略配置模板
+ */
+public struct SupervisionStrategyTemplates {
+    /**
+     * 创建严格的监督策略矩阵
+     * 对大多数异常都采用停止策略
+     */
+    public static func createStrictMatrix(): SupervisionStrategyMatrix {
+        SupervisionStrategyMatrix(SupervisionDirective.Stop)
+            .addRule("NullPointerException", SupervisionDirective.Restart)
+            .addRule("IllegalArgumentException", SupervisionDirective.Restart)
+            .addWildcardRule("Timeout", SupervisionDirective.Restart)
+            .addWildcardRule("Connection", SupervisionDirective.Restart)
+            .addWildcardRule("OutOfMemory", SupervisionDirective.Stop)
+            .addWildcardRule("StackOverflow", SupervisionDirective.Stop)
+    }
+
+    /**
+     * 创建宽松的监督策略矩阵
+     * 对大多数异常都采用重启策略
+     */
+    public static func createLenientMatrix(): SupervisionStrategyMatrix {
+        SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addWildcardRule("OutOfMemory", SupervisionDirective.Stop)
+            .addWildcardRule("StackOverflow", SupervisionDirective.Stop)
+            .addWildcardRule("System", SupervisionDirective.Escalate)
+            .addWildcardRule("Fatal", SupervisionDirective.Stop)
+    }
+
+    /**
+     * 创建网络应用的监督策略矩阵
+     * 针对网络相关异常优化
+     */
+    public static func createNetworkMatrix(): SupervisionStrategyMatrix {
+        SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addWildcardRule("Connection", SupervisionDirective.Restart)
+            .addWildcardRule("Timeout", SupervisionDirective.Restart)
+            .addWildcardRule("Socket", SupervisionDirective.Restart)
+            .addWildcardRule("Network", SupervisionDirective.Restart)
+            .addWildcardRule("DNS", SupervisionDirective.Restart)
+            .addWildcardRule("SSL", SupervisionDirective.Restart)
+            .addWildcardRule("Certificate", SupervisionDirective.Stop)
+            .addWildcardRule("OutOfMemory", SupervisionDirective.Stop)
+            .addWildcardRule("Security", SupervisionDirective.Escalate)
+    }
+
+    /**
+     * 创建数据库应用的监督策略矩阵
+     * 针对数据库相关异常优化
+     */
+    public static func createDatabaseMatrix(): SupervisionStrategyMatrix {
+        SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addWildcardRule("SQL", SupervisionDirective.Restart)
+            .addWildcardRule("Database", SupervisionDirective.Restart)
+            .addWildcardRule("Connection", SupervisionDirective.Restart)
+            .addWildcardRule("Transaction", SupervisionDirective.Restart)
+            .addWildcardRule("Deadlock", SupervisionDirective.Restart)
+            .addWildcardRule("Constraint", SupervisionDirective.Stop)
+            .addWildcardRule("Schema", SupervisionDirective.Stop)
+            .addWildcardRule("Permission", SupervisionDirective.Escalate)
+            .addWildcardRule("OutOfMemory", SupervisionDirective.Stop)
     }
 }
 
@@ -537,5 +717,125 @@ public class BasicSupervisor <: Supervisor {
 
     public func getFailureCount(): Int64 {
         failureCount.load()
+    }
+}
+
+/**
+ * 监督策略组合器
+ * 支持多种策略的组合和链式调用
+ */
+public class SupervisionStrategyComposer {
+    private let strategies: ArrayList<SupervisionStrategy>
+    private let fallbackStrategy: SupervisionStrategy
+
+    public init(fallbackStrategy: SupervisionStrategy) {
+        this.strategies = ArrayList<SupervisionStrategy>()
+        this.fallbackStrategy = fallbackStrategy
+    }
+
+    /**
+     * 添加策略到组合器
+     */
+    public func addStrategy(strategy: SupervisionStrategy): SupervisionStrategyComposer {
+        strategies.add(strategy)
+        this
+    }
+
+    /**
+     * 创建组合策略
+     */
+    public func compose(): SupervisionStrategy {
+        CompositeSupervisionStrategy(strategies.toArray(), fallbackStrategy)
+    }
+}
+
+/**
+ * 组合监督策略
+ * 按顺序尝试多个策略，直到找到非Escalate的决策
+ */
+public class CompositeSupervisionStrategy <: SupervisionStrategy {
+    private let strategies: Array<SupervisionStrategy>
+    private let fallbackStrategy: SupervisionStrategy
+
+    public init(strategies: Array<SupervisionStrategy>, fallbackStrategy: SupervisionStrategy) {
+        this.strategies = strategies
+        this.fallbackStrategy = fallbackStrategy
+    }
+
+    public func decide(failure: ActorFailure): SupervisionDirective {
+        // 按顺序尝试每个策略
+        for (strategy in strategies) {
+            let directive = strategy.decide(failure)
+            // 如果不是Escalate，则使用这个决策
+            match (directive) {
+                case SupervisionDirective.Escalate => () // 继续尝试下一个策略
+                case _ => return directive
+            }
+        }
+
+        // 所有策略都返回Escalate，使用回退策略
+        fallbackStrategy.decide(failure)
+    }
+}
+
+/**
+ * 动态监督策略
+ * 支持运行时动态切换监督策略
+ */
+public class DynamicSupervisionStrategy <: SupervisionStrategy {
+    private var currentStrategy: SupervisionStrategy
+    private let strategyHistory: ArrayList<(Int64, String)>
+    private let mutex: Mutex
+
+    public init(initialStrategy: SupervisionStrategy) {
+        this.currentStrategy = initialStrategy
+        this.strategyHistory = ArrayList<(Int64, String)>()
+        this.mutex = Mutex()
+
+        // 记录初始策略
+        let now = DateTime.now().toUnixTimeStamp().toMilliseconds()
+        strategyHistory.add((now, "InitialStrategy"))
+    }
+
+    /**
+     * 切换到新的监督策略
+     */
+    public func switchStrategy(newStrategy: SupervisionStrategy, reason: String): Unit {
+        mutex.lock()
+        try {
+            currentStrategy = newStrategy
+            let now = DateTime.now().toUnixTimeStamp().toMilliseconds()
+            strategyHistory.add((now, reason))
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    /**
+     * 获取当前策略
+     */
+    public func getCurrentStrategy(): SupervisionStrategy {
+        mutex.lock()
+        try {
+            currentStrategy
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    /**
+     * 获取策略切换历史
+     */
+    public func getStrategyHistory(): Array<(Int64, String)> {
+        mutex.lock()
+        try {
+            strategyHistory.toArray()
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    public func decide(failure: ActorFailure): SupervisionDirective {
+        getCurrentStrategy().decide(failure)
     }
 }

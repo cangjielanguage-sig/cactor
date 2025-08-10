@@ -12,7 +12,7 @@ import cactor.core.actor.*
 
 /**
  * 类型安全的Actor行为接口
- * 这是CActor类型安全系统的核心接口，参考Akka Typed设计
+ * 这是CActor类型安全系统的核心接口，
  *
  * @param T 此Actor可以处理的消息类型
  */
@@ -414,6 +414,42 @@ public struct TypedBehaviors {
     }
 
     /**
+     * 创建一个设置行为
+     * 用于初始化或配置Actor状态
+     *
+     * @param setup 设置函数
+     * @return 设置行为
+     */
+    public static func setup<T>(setup: (TypedActorContext<T>) -> TypedBehavior<T>): TypedBehavior<T> {
+        SetupBehavior<T>(setup)
+    }
+
+    /**
+     * 创建一个带有消息适配器的行为
+     * 允许将一种消息类型转换为另一种
+     *
+     * @param behavior 基础行为
+     * @param adapter 消息适配器
+     * @return 适配后的行为
+     */
+    public static func withMessageAdapter<T, U>(behavior: TypedBehavior<T>, adapter: MessageAdapter<U, T>): TypedBehavior<U> {
+        MessageAdapterBehavior<U, T>(behavior, adapter)
+    }
+
+    /**
+     * 创建一个可以处理多种消息类型的行为
+     * 使用模式匹配来处理不同类型的消息
+     *
+     * @param handlers 消息处理器映射
+     * @return 多类型处理行为
+     */
+    public static func receiveMessage<T>(handlers: Array<MessageHandler<T>>): TypedBehavior<T> {
+        MultiMessageBehavior<T>(handlers)
+    }
+
+
+
+    /**
      * 将外部消息类型 In 转换为内部类型 T 的行为
      * 等价于 Akka Typed 的 transformMessages 的简化版
      */
@@ -550,6 +586,262 @@ internal class PartialBehavior<T> <: TypedBehavior<T> {
         if (p(message)) { handler(context, message) } else { this }
     }
     public func getDescription(): String { "PartialBehavior" }
+}
+
+/**
+ * 设置行为实现
+ * 用于Actor初始化时的设置操作
+ */
+public class SetupBehavior<T> <: TypedBehavior<T> {
+    private let setup: (TypedActorContext<T>) -> TypedBehavior<T>
+    private var initialized: Bool = false
+    private var actualBehavior: Option<TypedBehavior<T>> = None
+
+    public init(setup: (TypedActorContext<T>) -> TypedBehavior<T>) {
+        this.setup = setup
+    }
+
+    public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
+        if (!initialized) {
+            actualBehavior = Some(setup(context))
+            initialized = true
+        }
+
+        match (actualBehavior) {
+            case Some(behavior) => behavior.onMessage(message, context)
+            case None => this
+        }
+    }
+
+    public func getDescription(): String { "SetupBehavior" }
+}
+
+/**
+ * 消息适配器接口
+ * 用于将一种消息类型转换为另一种
+ */
+public interface MessageAdapter<From, To> {
+    /**
+     * 将输入消息转换为输出消息
+     *
+     * @param message 输入消息
+     * @return 转换后的消息，如果无法转换则返回None
+     */
+    func adapt(message: From): Option<To>
+}
+
+/**
+ * 简单的函数式消息适配器
+ */
+public class FunctionMessageAdapter<From, To> <: MessageAdapter<From, To> {
+    private let adaptFunc: (From) -> Option<To>
+
+    public init(adaptFunc: (From) -> Option<To>) {
+        this.adaptFunc = adaptFunc
+    }
+
+    public func adapt(message: From): Option<To> {
+        adaptFunc(message)
+    }
+}
+
+/**
+ * 消息适配器行为实现
+ * 包装一个行为并提供消息类型转换
+ */
+public class MessageAdapterBehavior<From, To> <: TypedBehavior<From> {
+    private let innerBehavior: TypedBehavior<To>
+    private let adapter: MessageAdapter<From, To>
+
+    public init(innerBehavior: TypedBehavior<To>, adapter: MessageAdapter<From, To>) {
+        this.innerBehavior = innerBehavior
+        this.adapter = adapter
+    }
+
+    public func onMessage(message: From, context: TypedActorContext<From>): TypedBehavior<From> {
+        match (adapter.adapt(message)) {
+            case Some(adaptedMessage) =>
+                // 需要创建一个适配的上下文，这里简化处理
+                let adaptedContext = createAdaptedContext<From, To>(context)
+                let newInnerBehavior = innerBehavior.onMessage(adaptedMessage, adaptedContext)
+                MessageAdapterBehavior<From, To>(newInnerBehavior, adapter)
+            case None =>
+                this // 无法适配的消息被忽略
+        }
+    }
+
+    public func getDescription(): String { "MessageAdapterBehavior" }
+}
+
+/**
+ * 消息处理器接口
+ * 用于处理特定类型的消息
+ */
+public interface MessageHandler<T> {
+    /**
+     * 检查是否可以处理此消息
+     *
+     * @param message 消息
+     * @return 是否可以处理
+     */
+    func canHandle(message: T): Bool
+
+    /**
+     * 处理消息
+     *
+     * @param message 消息
+     * @param context Actor上下文
+     * @return 新的行为
+     */
+    func handle(message: T, context: TypedActorContext<T>): TypedBehavior<T>
+}
+
+/**
+ * 多消息类型行为实现
+ * 使用处理器数组来处理不同类型的消息
+ */
+public class MultiMessageBehavior<T> <: TypedBehavior<T> {
+    private let handlers: Array<MessageHandler<T>>
+
+    public init(handlers: Array<MessageHandler<T>>) {
+        this.handlers = handlers
+    }
+
+    public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
+        for (handler in handlers) {
+            if (handler.canHandle(message)) {
+                return handler.handle(message, context)
+            }
+        }
+        // 如果没有处理器可以处理，保持当前行为
+        this
+    }
+
+    public func getDescription(): String { "MultiMessageBehavior" }
+}
+
+/**
+ * 创建适配的上下文（简化实现）
+ * 在实际实现中，这需要更复杂的类型转换逻辑
+ */
+func createAdaptedContext<From, To>(originalContext: TypedActorContext<From>): TypedActorContext<To> {
+    // 这里需要实际的上下文适配实现
+    // 暂时返回一个简化的实现
+    DummyTypedActorContext<To>()
+}
+
+/**
+ * 简化的上下文实现（用于适配器）
+ */
+class DummyTypedActorContext<T> <: TypedActorContext<T> {
+    public prop self: TypedActorRef<T> {
+        get() { DummyTypedActorRef<T>() }
+    }
+
+    public func sender(): Option<String> { None }
+    public func stopSelf(): Unit {}
+    public func log(): TypedLogger { DummyTypedLogger() }
+    public func spawnChild(behavior: TypedBehavior<Any>, name: String): TypedActorRef<Any> { DummyTypedActorRef<Any>() }
+    public func spawnAnonymousChild(behavior: TypedBehavior<Any>): TypedActorRef<Any> { DummyTypedActorRef<Any>() }
+    public func stopChild(child: TypedActorRef<Any>): Unit {}
+    public func watchActor(other: TypedActorRef<Any>): Unit {}
+    public func unwatchActor(other: TypedActorRef<Any>): Unit {}
+    public func askMessage(target: TypedActorRef<Any>, message: Any, timeout: Duration): TypedFuture<Any> { DummyTypedFuture<Any>() }
+    public func askMessage(target: TypedActorRef<Any>, message: Any): TypedFuture<Any> { DummyTypedFuture<Any>() }
+    public func system(): TypedActorSystem { DummyTypedActorSystem() }
+    public func scheduler(): TypedScheduler { DummyTypedScheduler() }
+    public func child(name: String): Option<TypedActorRef<Any>> { None }
+    public func children(): Array<TypedActorRef<Any>> { Array<TypedActorRef<Any>>(0, { i => DummyTypedActorRef<Any>() }) }
+}
+
+/**
+ * 简化的ActorRef实现
+ */
+class DummyTypedActorRef<T> <: TypedActorRef<T> {
+    public func tell(message: T): Unit {}
+    public func pathString(): String { "/dummy" }
+    public func equals(other: TypedActorRef<T>): Bool { false }
+}
+
+/**
+ * 简化的Logger实现
+ */
+class DummyTypedLogger <: TypedLogger {
+    public func debug(message: String): Unit {}
+    public func info(message: String): Unit {}
+    public func warn(message: String): Unit {}
+    public func error(message: String): Unit {}
+}
+
+/**
+ * 简化的Future实现
+ */
+class DummyTypedFuture<T> <: TypedFuture<T> {
+    private var completed: Bool = false
+    private var result: Option<T> = None
+
+    public func isCompleted(): Bool { completed }
+
+    public func get(): T {
+        // 简化实现，实际应该阻塞等待
+        match (result) {
+            case Some(value) => value
+            case None => throw Exception("Future not completed")
+        }
+    }
+
+    public func get(timeout: Duration): T {
+        // 简化实现，实际应该带超时等待
+        get()
+    }
+
+    public func value(): Option<T> { result }
+}
+
+/**
+ * 简化的ActorSystem实现
+ */
+class DummyTypedActorSystem <: TypedActorSystem {
+    public prop name: String {
+        get() { "DummySystem" }
+    }
+
+    public func createActor(behavior: TypedBehavior<Any>, name: String): TypedActorRef<Any> { DummyTypedActorRef<Any>() }
+    public func actorSelection(path: String): TypedActorSelection<Any> { DummyTypedActorSelection<Any>() }
+    public func terminate(): Bool { true }
+    public func isTerminated(): Bool { false }
+    public func startTime(): Int64 { 0 }
+}
+
+/**
+ * 简化的ActorSelection实现
+ */
+class DummyTypedActorSelection<T> <: TypedActorSelection<T> {
+    public func resolveOne(timeout: Duration): Option<TypedActorRef<T>> { None }
+    public func tell(message: T): Unit {}
+    public func pathString(): String { "/dummy" }
+}
+
+/**
+ * 简化的Scheduler实现
+ */
+class DummyTypedScheduler <: TypedScheduler {
+    public func scheduleOnce(delay: Duration, target: TypedActorRef<Any>, message: Any): Unit {
+        // 简化实现，实际应该延时发送消息
+    }
+
+    public func schedule(initialDelay: Duration, interval: Duration, target: TypedActorRef<Any>, message: Any): TypedCancellable {
+        // 简化实现，实际应该定期发送消息
+        DummyTypedCancellable()
+    }
+}
+
+/**
+ * 简化的Cancellable实现
+ */
+class DummyTypedCancellable <: TypedCancellable {
+    public func cancel(): Bool { true }
+    public func isCancelled(): Bool { false }
 }
 
 /**
