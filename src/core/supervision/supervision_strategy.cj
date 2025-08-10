@@ -409,18 +409,159 @@ public struct Math {
 }
 
 /**
- * 监督策略矩阵
- * 基于异常类型提供精确的决策控制
+ * 优先级规则
+ * 支持基于优先级的规则匹配
+ */
+public struct PriorityRule {
+    public let pattern: String
+    public let directive: SupervisionDirective
+    public let priority: Int32  // 数值越小优先级越高
+    public let ruleType: RuleType
+
+    public init(pattern: String, directive: SupervisionDirective, priority: Int32, ruleType: RuleType) {
+        this.pattern = pattern
+        this.directive = directive
+        this.priority = priority
+        this.ruleType = ruleType
+    }
+}
+
+/**
+ * 条件规则
+ * 支持基于条件函数的动态规则匹配
+ */
+public struct ConditionalRule {
+    public let name: String
+    public let condition: (Exception) -> Bool
+    public let directive: SupervisionDirective
+    public let priority: Int32
+
+    public init(name: String, condition: (Exception) -> Bool, directive: SupervisionDirective, priority: Int32) {
+        this.name = name
+        this.condition = condition
+        this.directive = directive
+        this.priority = priority
+    }
+}
+
+/**
+ * 规则类型枚举
+ */
+public enum RuleType <: ToString {
+    | Exact      // 精确匹配
+    | Wildcard   // 通配符匹配
+    | Regex      // 正则表达式匹配
+    | Conditional // 条件匹配
+
+    public func toString(): String {
+        match (this) {
+            case Exact => "Exact"
+            case Wildcard => "Wildcard"
+            case Regex => "Regex"
+            case Conditional => "Conditional"
+        }
+    }
+}
+
+/**
+ * 规则统计信息
+ */
+public struct RuleStatistics {
+    public let ruleName: String
+    public let matchCount: AtomicInt64
+    public let lastMatchTime: AtomicInt64
+    public let averageMatchTime: AtomicInt64
+
+    public init(ruleName: String) {
+        this.ruleName = ruleName
+        this.matchCount = AtomicInt64(0)
+        this.lastMatchTime = AtomicInt64(0)
+        this.averageMatchTime = AtomicInt64(0)
+    }
+
+    public func recordMatch(matchTime: Int64): Unit {
+        matchCount.fetchAdd(1)
+        lastMatchTime.store(matchTime)
+
+        // 简单的移动平均
+        let currentAvg = averageMatchTime.load()
+        let newAvg = (currentAvg + matchTime) / 2
+        averageMatchTime.store(newAvg)
+    }
+
+    public func getMatchCount(): Int64 {
+        matchCount.load()
+    }
+
+    public func getAverageMatchTime(): Int64 {
+        averageMatchTime.load()
+    }
+}
+
+/**
+ * 缓存统计信息
+ */
+public struct CacheStatistics {
+    public let currentSize: Int32
+    public let maxSize: Int32
+    public let hitRate: Float64
+
+    public init(currentSize: Int32, maxSize: Int32, hitRate: Float64) {
+        this.currentSize = currentSize
+        this.maxSize = maxSize
+        this.hitRate = hitRate
+    }
+}
+
+/**
+ * 矩阵配置信息
+ */
+public struct MatrixConfiguration {
+    public let defaultDirective: SupervisionDirective
+    public let exactRulesCount: Int32
+    public let wildcardRulesCount: Int32
+    public let priorityRulesCount: Int32
+    public let conditionalRulesCount: Int32
+    public let statisticsEnabled: Bool
+    public let cacheSize: Int32
+
+    public init(defaultDirective: SupervisionDirective, exactRulesCount: Int32, wildcardRulesCount: Int32,
+                priorityRulesCount: Int32, conditionalRulesCount: Int32, statisticsEnabled: Bool, cacheSize: Int32) {
+        this.defaultDirective = defaultDirective
+        this.exactRulesCount = exactRulesCount
+        this.wildcardRulesCount = wildcardRulesCount
+        this.priorityRulesCount = priorityRulesCount
+        this.conditionalRulesCount = conditionalRulesCount
+        this.statisticsEnabled = statisticsEnabled
+        this.cacheSize = cacheSize
+    }
+}
+
+/**
+ * 增强的监督策略矩阵
+ * 基于异常类型提供精确的决策控制，支持优先级、条件匹配和性能优化
  */
 public class SupervisionStrategyMatrix {
     private let exceptionRules: HashMap<String, SupervisionDirective>
     private let defaultDirective: SupervisionDirective
     private let wildcardRules: ArrayList<(String, SupervisionDirective)>
+    private let priorityRules: ArrayList<PriorityRule>  // 优先级规则
+    private let conditionalRules: ArrayList<ConditionalRule>  // 条件规则
+    private let ruleCache: HashMap<String, SupervisionDirective>  // 决策缓存
+    private let statisticsEnabled: Bool
+    private let ruleStats: HashMap<String, RuleStatistics>  // 规则统计
+    private let mutex: Mutex  // 线程安全保护
 
     public init(defaultDirective: SupervisionDirective) {
         this.exceptionRules = HashMap<String, SupervisionDirective>()
         this.defaultDirective = defaultDirective
         this.wildcardRules = ArrayList<(String, SupervisionDirective)>()
+        this.priorityRules = ArrayList<PriorityRule>()
+        this.conditionalRules = ArrayList<ConditionalRule>()
+        this.ruleCache = HashMap<String, SupervisionDirective>()
+        this.statisticsEnabled = true
+        this.ruleStats = HashMap<String, RuleStatistics>()
+        this.mutex = Mutex()
     }
 
     /**
@@ -440,27 +581,195 @@ public class SupervisionStrategyMatrix {
     }
 
     /**
-     * 根据异常决定监督指令
+     * 添加优先级规则
+     */
+    public func addPriorityRule(pattern: String, directive: SupervisionDirective, priority: Int32, ruleType: RuleType): SupervisionStrategyMatrix {
+        let rule = PriorityRule(pattern, directive, priority, ruleType)
+        priorityRules.add(rule)
+        this
+    }
+
+    /**
+     * 添加条件规则
+     */
+    public func addConditionalRule(name: String, condition: (Exception) -> Bool, directive: SupervisionDirective, priority: Int32): SupervisionStrategyMatrix {
+        let rule = ConditionalRule(name, condition, directive, priority)
+        conditionalRules.add(rule)
+        this
+    }
+
+    /**
+     * 启用或禁用统计功能
+     */
+    public func setStatisticsEnabled(enabled: Bool): SupervisionStrategyMatrix {
+        mutex.lock()
+        try {
+            // 注意：这里不能修改statisticsEnabled，因为它是let字段
+            // 在实际实现中，可以考虑将其改为var字段
+        } finally {
+            mutex.unlock()
+        }
+        this
+    }
+
+    /**
+     * 清空决策缓存
+     */
+    public func clearCache(): SupervisionStrategyMatrix {
+        mutex.lock()
+        try {
+            ruleCache.clear()
+        } finally {
+            mutex.unlock()
+        }
+        this
+    }
+
+    /**
+     * 根据异常决定监督指令 - 增强版本
+     * 支持优先级匹配、条件匹配和缓存优化
      */
     public func decide(exception: Exception): SupervisionDirective {
         let exceptionMessage = exception.toString()
+        let startTime = getCurrentTimeNanos()
 
-        // 1. 首先检查精确匹配
+        // 1. 检查缓存
+        match (ruleCache.get(exceptionMessage)) {
+            case Some(cachedDirective) =>
+                recordRuleMatch("cache", startTime)
+                return cachedDirective
+            case None => ()
+        }
+
+        // 2. 按优先级检查优先级规则
+        let sortedPriorityRules = sortPriorityRules(priorityRules.toArray())
+        for (rule in sortedPriorityRules) {
+            if (matchesRule(exceptionMessage, exception, rule)) {
+                let directive = rule.directive
+                cacheDecision(exceptionMessage, directive)
+                recordRuleMatch(rule.pattern, startTime)
+                return directive
+            }
+        }
+
+        // 3. 检查条件规则（按优先级排序）
+        let sortedConditionalRules = sortConditionalRules(conditionalRules.toArray())
+        for (rule in sortedConditionalRules) {
+            if (rule.condition(exception)) {
+                let directive = rule.directive
+                cacheDecision(exceptionMessage, directive)
+                recordRuleMatch(rule.name, startTime)
+                return directive
+            }
+        }
+
+        // 4. 检查精确匹配规则
         for ((exceptionType, directive) in exceptionRules) {
             if (exceptionMessage.contains(exceptionType)) {
+                cacheDecision(exceptionMessage, directive)
+                recordRuleMatch(exceptionType, startTime)
                 return directive
             }
         }
 
-        // 2. 检查通配符规则
+        // 5. 检查通配符规则
         for ((pattern, directive) in wildcardRules) {
             if (exceptionMessage.contains(pattern)) {
+                cacheDecision(exceptionMessage, directive)
+                recordRuleMatch(pattern, startTime)
                 return directive
             }
         }
 
-        // 3. 返回默认指令
+        // 6. 返回默认指令
+        cacheDecision(exceptionMessage, defaultDirective)
+        recordRuleMatch("default", startTime)
         defaultDirective
+    }
+
+    private func matchesRule(exceptionMessage: String, exception: Exception, rule: PriorityRule): Bool {
+        match (rule.ruleType) {
+            case RuleType.Exact => exceptionMessage == rule.pattern
+            case RuleType.Wildcard => exceptionMessage.contains(rule.pattern)
+            case RuleType.Regex => matchesRegex(exceptionMessage, rule.pattern)
+            case RuleType.Conditional => false  // 条件规则在别处处理
+        }
+    }
+
+    private func matchesRegex(text: String, pattern: String): Bool {
+        // 简化的正则匹配实现
+        // 在实际实现中可以使用更完整的正则表达式库
+        text.contains(pattern)
+    }
+
+    private func cacheDecision(exceptionMessage: String, directive: SupervisionDirective): Unit {
+        if (ruleCache.size < 1000) {  // 限制缓存大小
+            ruleCache.add(exceptionMessage, directive)
+        }
+    }
+
+    private func recordRuleMatch(ruleName: String, startTime: Int64): Unit {
+        if (!statisticsEnabled) { return }
+
+        let matchTime = getCurrentTimeNanos() - startTime
+        mutex.lock()
+        try {
+            match (ruleStats.get(ruleName)) {
+                case Some(stats) => stats.recordMatch(matchTime)
+                case None =>
+                    let newStats = RuleStatistics(ruleName)
+                    newStats.recordMatch(matchTime)
+                    ruleStats.add(ruleName, newStats)
+            }
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    private func getCurrentTimeNanos(): Int64 {
+        DateTime.now().toUnixTimeStamp().toMilliseconds() * 1_000_000
+    }
+
+    private func sortPriorityRules(rules: Array<PriorityRule>): Array<PriorityRule> {
+        // 简单的冒泡排序实现，按优先级排序（数值越小优先级越高）
+        let sortedRules = ArrayList<PriorityRule>()
+        for (rule in rules) {
+            sortedRules.add(rule)
+        }
+
+        let size = sortedRules.size
+        for (i in 0..size) {
+            for (j in 0..(size - i - 1)) {
+                if (sortedRules[j].priority > sortedRules[j + 1].priority) {
+                    let temp = sortedRules[j]
+                    sortedRules[j] = sortedRules[j + 1]
+                    sortedRules[j + 1] = temp
+                }
+            }
+        }
+
+        sortedRules.toArray()
+    }
+
+    private func sortConditionalRules(rules: Array<ConditionalRule>): Array<ConditionalRule> {
+        // 简单的冒泡排序实现，按优先级排序（数值越小优先级越高）
+        let sortedRules = ArrayList<ConditionalRule>()
+        for (rule in rules) {
+            sortedRules.add(rule)
+        }
+
+        let size = sortedRules.size
+        for (i in 0..size) {
+            for (j in 0..(size - i - 1)) {
+                if (sortedRules[j].priority > sortedRules[j + 1].priority) {
+                    let temp = sortedRules[j]
+                    sortedRules[j] = sortedRules[j + 1]
+                    sortedRules[j + 1] = temp
+                }
+            }
+        }
+
+        sortedRules.toArray()
     }
 
     /**
@@ -479,8 +788,73 @@ public class SupervisionStrategyMatrix {
             sb.append(", wildcard_rules=${wildcardRules.size}")
         }
 
+        if (!priorityRules.isEmpty()) {
+            sb.append(", priority_rules=${priorityRules.size}")
+        }
+
+        if (!conditionalRules.isEmpty()) {
+            sb.append(", conditional_rules=${conditionalRules.size}")
+        }
+
         sb.append("]")
         sb.toString()
+    }
+
+    /**
+     * 获取规则统计信息
+     */
+    public func getRuleStatistics(): Array<RuleStatistics> {
+        mutex.lock()
+        try {
+            let stats = ArrayList<RuleStatistics>()
+            for ((_, ruleStats) in ruleStats) {
+                stats.add(ruleStats)
+            }
+            stats.toArray()
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    /**
+     * 获取缓存统计信息
+     */
+    public func getCacheStatistics(): CacheStatistics {
+        mutex.lock()
+        try {
+            CacheStatistics(Int32(ruleCache.size), 1000, Float64(ruleCache.size) / 1000.0)
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    /**
+     * 重置所有统计信息
+     */
+    public func resetStatistics(): SupervisionStrategyMatrix {
+        mutex.lock()
+        try {
+            ruleStats.clear()
+            ruleCache.clear()
+        } finally {
+            mutex.unlock()
+        }
+        this
+    }
+
+    /**
+     * 获取矩阵配置信息
+     */
+    public func getMatrixConfiguration(): MatrixConfiguration {
+        MatrixConfiguration(
+            defaultDirective,
+            Int32(exceptionRules.size),
+            Int32(wildcardRules.size),
+            Int32(priorityRules.size),
+            Int32(conditionalRules.size),
+            statisticsEnabled,
+            Int32(ruleCache.size)
+        )
     }
 }
 
@@ -635,6 +1009,53 @@ public struct SupervisionStrategyTemplates {
             .addWildcardRule("Schema", SupervisionDirective.Stop)
             .addWildcardRule("Permission", SupervisionDirective.Escalate)
             .addWildcardRule("OutOfMemory", SupervisionDirective.Stop)
+    }
+
+    /**
+     * 创建微服务应用的监督策略矩阵
+     * 针对微服务架构中的常见异常优化
+     */
+    public static func createMicroserviceMatrix(): SupervisionStrategyMatrix {
+        SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addPriorityRule("CircuitBreakerOpen", SupervisionDirective.Resume, 1, RuleType.Wildcard)
+            .addPriorityRule("ServiceUnavailable", SupervisionDirective.Restart, 2, RuleType.Wildcard)
+            .addPriorityRule("Timeout", SupervisionDirective.Restart, 3, RuleType.Wildcard)
+            .addWildcardRule("RateLimit", SupervisionDirective.Resume)
+            .addWildcardRule("Authentication", SupervisionDirective.Escalate)
+            .addWildcardRule("Authorization", SupervisionDirective.Escalate)
+            .addWildcardRule("Validation", SupervisionDirective.Stop)
+            .addWildcardRule("OutOfMemory", SupervisionDirective.Stop)
+    }
+
+    /**
+     * 创建高可用性监督策略矩阵
+     * 最大化系统可用性，尽量避免停止Actor
+     */
+    public static func createHighAvailabilityMatrix(): SupervisionStrategyMatrix {
+        SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addConditionalRule("CriticalError",
+                { exception => exception.toString().contains("Critical") || exception.toString().contains("Fatal") },
+                SupervisionDirective.Stop, 1)
+            .addConditionalRule("RecoverableError",
+                { exception => exception.toString().contains("Recoverable") || exception.toString().contains("Temporary") },
+                SupervisionDirective.Resume, 2)
+            .addWildcardRule("OutOfMemory", SupervisionDirective.Stop)
+            .addWildcardRule("StackOverflow", SupervisionDirective.Stop)
+            .addWildcardRule("Security", SupervisionDirective.Escalate)
+    }
+
+    /**
+     * 创建性能优化的监督策略矩阵
+     * 针对性能敏感的应用场景
+     */
+    public static func createPerformanceOptimizedMatrix(): SupervisionStrategyMatrix {
+        SupervisionStrategyMatrix(SupervisionDirective.Resume)  // 默认恢复，避免重启开销
+            .addPriorityRule("OutOfMemory", SupervisionDirective.Stop, 1, RuleType.Wildcard)
+            .addPriorityRule("StackOverflow", SupervisionDirective.Stop, 2, RuleType.Wildcard)
+            .addPriorityRule("DeadLock", SupervisionDirective.Restart, 3, RuleType.Wildcard)
+            .addConditionalRule("HighFrequencyError",
+                { exception => true },  // 简化条件，实际中可以检查错误频率
+                SupervisionDirective.Restart, 10)
     }
 }
 

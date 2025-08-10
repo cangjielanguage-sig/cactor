@@ -200,6 +200,142 @@ public class SupervisionStrategyMatrixTest {
     }
 
     /**
+     * 测试优先级规则
+     */
+    @TestCase
+    public func testPriorityRules(): Unit {
+        let matrix = SupervisionStrategyMatrix(SupervisionDirective.Stop)
+            .addPriorityRule("HighPriority", SupervisionDirective.Resume, 1, RuleType.Wildcard)
+            .addPriorityRule("LowPriority", SupervisionDirective.Restart, 10, RuleType.Wildcard)
+            .addPriorityRule("HighPriority", SupervisionDirective.Stop, 5, RuleType.Wildcard)  // 应该被优先级1的规则覆盖
+
+        // 高优先级规则应该生效
+        let highPriorityException = Exception("HighPriority")
+        @Assert(matrix.decide(highPriorityException).toString(), "Resume")
+
+        let lowPriorityException = Exception("LowPriority")
+        @Assert(matrix.decide(lowPriorityException).toString(), "Restart")
+    }
+
+    /**
+     * 测试条件规则
+     */
+    @TestCase
+    public func testConditionalRules(): Unit {
+        let matrix = SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addConditionalRule("CriticalCondition",
+                { exception => exception.toString().contains("Critical") },
+                SupervisionDirective.Stop, 1)
+            .addConditionalRule("RecoverableCondition",
+                { exception => exception.toString().contains("Recoverable") },
+                SupervisionDirective.Resume, 2)
+
+        let criticalException = Exception("CriticalSystemFailure")
+        @Assert(matrix.decide(criticalException).toString(), "Stop")
+
+        let recoverableException = Exception("RecoverableNetworkError")
+        @Assert(matrix.decide(recoverableException).toString(), "Resume")
+
+        let normalException = Exception("NormalException")
+        @Assert(matrix.decide(normalException).toString(), "Restart")
+    }
+
+    /**
+     * 测试缓存功能
+     */
+    @TestCase
+    public func testCacheFunctionality(): Unit {
+        let matrix = SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addRule("TestException", SupervisionDirective.Resume)
+
+        let exception = Exception("TestException")
+
+        // 第一次调用，应该计算并缓存
+        let directive1 = matrix.decide(exception)
+        @Assert(directive1.toString(), "Resume")
+
+        // 第二次调用，应该从缓存获取
+        let directive2 = matrix.decide(exception)
+        @Assert(directive2.toString(), "Resume")
+
+        // 检查缓存统计
+        let cacheStats = matrix.getCacheStatistics()
+        @Assert(cacheStats.currentSize > 0, true)
+    }
+
+    /**
+     * 测试统计功能
+     */
+    @TestCase
+    public func testStatisticsFunctionality(): Unit {
+        let matrix = SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addRule("TestException", SupervisionDirective.Resume)
+
+        let exception = Exception("TestException")
+
+        // 触发几次规则匹配
+        matrix.decide(exception)
+        matrix.decide(exception)
+        matrix.decide(Exception("UnknownException"))
+
+        // 检查统计信息
+        let ruleStats = matrix.getRuleStatistics()
+        @Assert(ruleStats.size > 0, true)
+
+        // 检查配置信息
+        let config = matrix.getMatrixConfiguration()
+        @Assert(config.exactRulesCount, 1)
+        @Assert(config.statisticsEnabled, true)
+    }
+
+    /**
+     * 测试新的策略模板
+     */
+    @TestCase
+    public func testEnhancedTemplates(): Unit {
+        // 测试微服务模板
+        let microserviceMatrix = SupervisionStrategyTemplates.createMicroserviceMatrix()
+        let circuitBreakerException = Exception("CircuitBreakerOpen")
+        @Assert(microserviceMatrix.decide(circuitBreakerException).toString(), "Resume")
+
+        // 测试高可用性模板
+        let haMatrix = SupervisionStrategyTemplates.createHighAvailabilityMatrix()
+        let criticalException = Exception("CriticalSystemFailure")
+        @Assert(haMatrix.decide(criticalException).toString(), "Stop")
+
+        let recoverableException = Exception("RecoverableNetworkError")
+        @Assert(haMatrix.decide(recoverableException).toString(), "Resume")
+
+        // 测试性能优化模板
+        let perfMatrix = SupervisionStrategyTemplates.createPerformanceOptimizedMatrix()
+        let memoryException = Exception("OutOfMemoryError")
+        @Assert(perfMatrix.decide(memoryException).toString(), "Stop")
+    }
+
+    /**
+     * 测试矩阵重置功能
+     */
+    @TestCase
+    public func testMatrixReset(): Unit {
+        let matrix = SupervisionStrategyMatrix(SupervisionDirective.Restart)
+            .addRule("TestException", SupervisionDirective.Resume)
+
+        let exception = Exception("TestException")
+        matrix.decide(exception)  // 触发统计
+
+        // 重置前检查统计
+        let statsBefore = matrix.getRuleStatistics()
+        @Assert(statsBefore.size > 0, true)
+
+        // 重置统计
+        matrix.resetStatistics()
+
+        // 重置后检查统计
+        let statsAfter = matrix.getRuleStatistics()
+        @Assert(statsAfter.size, 0)
+    }
+
+    /**
      * 创建测试用的ActorRef
      */
     private func createTestActorRef(): ActorRef {
