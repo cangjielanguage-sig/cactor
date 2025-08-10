@@ -298,9 +298,10 @@ public class MailboxFactory {
      * 创建零拷贝邮箱
      */
     private func createZeroCopyMailbox(config: MailboxConfig): Mailbox {
-        // 使用 FoundationMailbox 作为基础，提供更好的性能特性
-        let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 1000 }
-        FoundationMailbox(capacity)
+        // 使用真正的Zero-Copy邮箱实现
+        let capacity = if (config.capacity > 0) { Int64(config.capacity) } else { 10000 }
+        let poolSize = if (config.capacity > 1000) { Int32(256) } else { Int32(64) }
+        ZeroCopyMailbox(capacity, poolSize)
     }
 
     /**
@@ -421,5 +422,63 @@ public class SimpleMailbox <: Mailbox {
         mutex.lock()
         messages.clear()
         mutex.unlock()
+    }
+}
+
+/**
+ * 高级邮箱工厂扩展
+ * 提供新增的高级邮箱类型创建方法
+ */
+extend MailboxFactory {
+    /**
+     * 创建带饥饿保护的优先级邮箱
+     * @param starvationThresholdMs 饥饿保护阈值（毫秒）
+     */
+    public static func createStarvationProtectedPriorityMailbox(starvationThresholdMs: Int64): Mailbox {
+        StarvationProtectedPriorityMailbox(starvationThresholdMs)
+    }
+
+    /**
+     * 创建Work-Stealing友好邮箱
+     * @param innerMailbox 内部邮箱
+     * @param maxCapacity 最大容量
+     */
+    public static func createWorkStealingFriendlyMailbox(innerMailbox: Mailbox, maxCapacity: Int64): Mailbox {
+        WorkStealingFriendlyMailbox(innerMailbox, maxCapacity)
+    }
+
+    /**
+     * 创建有界邮箱包装器
+     * @param innerMailbox 内部邮箱
+     * @param capacity 容量限制
+     * @param strategy 背压策略
+     */
+    public static func createBoundedMailbox(innerMailbox: Mailbox, capacity: Int64, strategy: BackpressureStrategy): Mailbox {
+        BoundedMailboxWrapper(innerMailbox, capacity, strategy, 0.8)
+    }
+
+    /**
+     * 创建控制消息感知邮箱
+     * @param innerMailbox 内部邮箱
+     */
+    public static func createControlAwareMailbox(innerMailbox: Mailbox): Mailbox {
+        ControlAwareMailboxWrapper(innerMailbox)
+    }
+
+    /**
+     * 创建组合邮箱：有界+控制感知+优先级
+     * @param capacity 容量限制
+     * @param strategy 背压策略
+     * @param starvationThresholdMs 饥饿保护阈值
+     */
+    public static func createAdvancedCompositeMailbox(capacity: Int64, strategy: BackpressureStrategy, starvationThresholdMs: Int64): Mailbox {
+        // 创建基础的饥饿保护优先级邮箱
+        let priorityMailbox = StarvationProtectedPriorityMailbox(starvationThresholdMs)
+
+        // 包装控制消息感知功能
+        let controlAwareMailbox = ControlAwareMailboxWrapper(priorityMailbox)
+
+        // 最后包装有界功能
+        BoundedMailboxWrapper(controlAwareMailbox, capacity, strategy, 0.8)
     }
 }

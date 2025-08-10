@@ -2,6 +2,26 @@
  * Copyright (c) 2024. All rights reserved.
  * CActor - 基于Foundation队列的高级邮箱系统
  * 基于plan3.md Phase 2设计，利用现有的高性能队列实现
+ *
+ * DEPRECATED - 弃用说明
+ * 本文件已标记为弃用，功能已迁移到主Foundation邮箱实现中。
+ * 建议使用以下替代方案：
+ * - FoundationUnboundedMailbox -> FoundationMailbox(capacity)
+ * - FoundationBoundedMailbox -> BoundedMailboxWrapper(FoundationMailbox(capacity), capacity, strategy)
+ * - SPSCMailbox -> FoundationMailbox(capacity) // 单生产者单消费者场景
+ * - MPSCMailbox -> FoundationMailbox(capacity) // 多生产者单消费者场景
+ *
+ * 迁移原因：
+ * 1. 与主Foundation邮箱功能重复
+ * 2. 配置来源不统一，增加维护复杂度
+ * 3. 新的包装器模式提供更好的组合能力
+ *
+ * 迁移指南：
+ * - 所有高级邮箱功能现在通过FoundationMailbox + 包装器实现
+ * - 统一使用MailboxFactory创建，避免直接实例化
+ * - 配置统一通过MailboxConfig管理
+ *
+ * 计划移除版本：CActor 4.0
  */
 package cactor.runtime.mailbox.advanced
 
