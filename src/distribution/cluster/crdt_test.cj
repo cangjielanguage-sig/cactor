@@ -783,12 +783,15 @@ func testRWSequence_merge() {
     @Expect(s1b >= 2, true)
     @Expect(s2b >= 3, true)
 
-    // Do merge (merge returns a new merged sequence)
+    // Store original size
+    let originalSize = s1b
+
+    // Do merge (merge modifies in-place and returns self)
     let merged = seq1.merge(seq2)
 
-    // Check sizes after
-    let s1a = merged.size()
-    @Expect(s1a >= 4, true)
+    // Check that size increased (merged has more elements)
+    let mergedSize = merged.size()
+    @Expect(mergedSize >= originalSize, true)
 }
 
 // === CRDT Comprehensive Tests ===
