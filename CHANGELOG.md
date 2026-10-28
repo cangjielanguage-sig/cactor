@@ -13,6 +13,53 @@
 - 可视化监控工具
 - 云原生支持
 
+## [1.2.0] - 2026-10-28
+
+### 🎉 全面模块化大版本
+
+本版本将 CActor 从单包工程全面重构为多模块 workspace，并统一项目版本号、仓颉工具链版本和全部文档。
+
+### 💥 破坏性变更
+
+#### 多模块工程重构
+- **单包拆分为 workspace**: 原 `src/` 下的单一 `cactor` 包拆分为 `modules/` 下 12 个独立仓颉模块，根 `cjpm.toml` 改为 `[workspace]`
+- **模块划分**（依赖自底向上，无环）:
+  - `cactor_foundation` - 基础设施：队列、内存、序列化、网络、配置、DI、监控、断路器
+  - `cactor_core` - 核心抽象：Actor/ActorRef/ActorSystem/Message/Supervision/Typed
+  - `cactor_patterns` - 通用模式：Ask、路由、背压
+  - `cactor_runtime` - 运行时：mailbox、dispatcher、guardian、registry、lifecycle
+  - `cactor` - 门面模块：统一对外 API（`cactor` / `cactor.api` / `cactor.config`）
+  - `cactor_macros` - Actor DSL 宏
+  - `cactor_streams` - 流处理 DSL
+  - `cactor_distribution` - 分布式：cluster / remote / persistence / streaming（实验性）
+  - `cactor_xstate` - XState 风格状态机
+  - `cactor_integration` - 日志、指标、配置与集成测试程序
+  - `cactor_tests` - 单元测试与集成测试
+  - `cactor_examples` - 示例程序
+- **包名变更**: 内部包由 `cactor.<层>.*` 改为 `cactor_<模块>.*`，例如 `cactor.core.actor` → `cactor_core.actor`、`cactor.runtime` → `cactor_runtime`
+- **断路器迁移**: `cactor.patterns.circuit_breaker` 迁至 `cactor_foundation.circuit_breaker`，由 `cactor_patterns` 重导出
+- **产物类型**: 库模块输出由 `dynamic` 改为 `static`
+
+### 🔢 版本统一
+- **项目版本号统一为 1.2.0**: 全部 12 个模块的 `version` 统一为 `1.2.0`；文档及源码注释中的项目版本标识一律统一为 1.2.0，版本线承接 1.1.0
+
+### 🔧 工具链
+- **仓颉版本升级**: `cjc-version` 由 `0.60.5` 升级到 `1.2.0`，现有 std API 无需迁移
+
+### 📚 文档
+- README、CONTRIBUTING、`docs/`（中英文）、示例 README、`xstate.md` 统一到 1.2.0：项目版本、仓颉版本要求（原 0.53.4 / 0.60.5 / 0.7.0）及安装/部署示例
+- 文档中的包名同步为模块化后的新包名（`cactor_core.*`、`cactor_runtime.*` 等）
+- 架构文档版本历史新增 1.2.0 记录
+
+### 🧹 项目清理
+- 移除空的 `source/CangjieCorpus` 子模块引用
+- 移除过时的过程文档：`task0.20.md`、`CURRENT_PROGRESS_REPORT.md`、`PROJECT_STATUS.md`、`docs/DOCUMENTATION_COMPLETION_REPORT.md`
+- 修正 `docs/DOCUMENTATION_STRUCTURE.md` 中的失效链接
+
+### 📦 迁移指南
+- 只依赖门面 API（`import cactor.*`、`cactor.api.*`、`cactor.config.*`）的代码无需修改
+- 直接引用内部包的代码需按上述规则替换包名，并在 `cjpm.toml` 中通过 `path` 依赖对应模块
+
 ## [1.1.0] - 2025-07-03
 
 ### 🎉 重大版本更新
