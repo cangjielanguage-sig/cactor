@@ -10,6 +10,9 @@ import std.sync.*
 import std.collection.*
 import std.collection.concurrent.*
 import std.runtime.*
+import std.env.*
+import std.time.*
+import std.convert.*
 import cactor_core.actor.{Actor, ActorRef, Props, ActorPath}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.context.{ActorContext}
@@ -352,7 +355,7 @@ public class SimpleUserActorRef <: ActorRef {
     private let actorFactory: () -> Actor
     private let actorPath: ActorPath
     private let guardian: RuntimeUserGuardian
-    private let mailbox: ConcurrentLinkedQueue<(Message, Option<String>)>
+    private let mailbox: CellMailbox
     private let scheduled: AtomicBool
     private let terminated: AtomicBool
     private let processedCount: AtomicInt64
@@ -369,7 +372,7 @@ public class SimpleUserActorRef <: ActorRef {
         this.actorFactory = factory
         this.actorPath = path
         this.guardian = guardian
-        this.mailbox = ConcurrentLinkedQueue<(Message, Option<String>)>()
+        this.mailbox = CellMailbox()
         this.scheduled = AtomicBool(false)
         this.terminated = AtomicBool(false)
         this.processedCount = AtomicInt64(0)
@@ -390,7 +393,7 @@ public class SimpleUserActorRef <: ActorRef {
             deadLetterCount.fetchAdd(1)
             return
         }
-        mailbox.add((message, sender))
+        mailbox.add(message, sender)
         trySchedule()
     }
 
@@ -406,7 +409,7 @@ public class SimpleUserActorRef <: ActorRef {
 
     /** 邮箱中待处理的消息数 */
     public func pending(): Int64 {
-        mailbox.size
+        mailbox.count()
     }
 
     /** 被监督重启的次数 */
@@ -419,26 +422,35 @@ public class SimpleUserActorRef <: ActorRef {
         terminated.load()
     }
 
+    // 先读后 CAS：已被调度时只做一次读，避免每次 tell 都写共享缓存行
     private func trySchedule(): Unit {
-        if (scheduled.compareAndSwap(false, true)) {
+        if (!scheduled.load() && scheduled.compareAndSwap(false, true)) {
             ActorCellDispatcher.execute(this)
         }
     }
+
+    /** 固定分配到的工作线程（亲和调度） */
+    let affinity: Int64 = ActorCellDispatcher.nextAffinity()
 
     /** 由调度器工作线程调用 */
     func run(): Unit {
         var count: Int64 = 0
         while (count < THROUGHPUT) {
-            match (mailbox.remove()) {
-                case Some((message, sender)) =>
-                    invoke(message, sender)
+            match (mailbox.poll()) {
+                case Some(message) =>
+                    invoke(message, mailbox.lastSender)
                     count++
-                case None => break
+                case None =>
+                    if (mailbox.nonEmpty()) {
+                        // 生产者正在链接节点：让出处理器给它，之后由下面的 nonEmpty 检查重新调度
+                        sleep(Duration.Zero)
+                    }
+                    break
             }
         }
         scheduled.store(false)
         // 释放调度权后再检查一次，防止与并发 tell 之间丢失唤醒
-        if (mailbox.size > 0) {
+        if (mailbox.nonEmpty()) {
             trySchedule()
         }
     }
@@ -539,66 +551,292 @@ public class SimpleUserActorContext <: ActorContext {
 }
 
 /**
- * Actor Cell 调度器（进程级共享）
- *
- * 固定数量的工作线程（CPU 核数，至少 4、至多 64）从就绪队列取出 Cell 执行，
- * 避免每次调度都创建新线程。Cell 每次最多处理 THROUGHPUT 条消息后让出，保证公平。
- * 注意：在 receive 中执行阻塞操作会占用一个工作线程。
+ * Actor 邮箱：Vyukov 侵入式 MPSC 链表
+ * - 多个发送方 wait-free 入队（一次 swap + 一次 store），节点直接保存消息和发送方，不再额外分配元组
+ * - 只有持有调度权的工作线程出队（由 scheduled 标志保证单消费者），因此出队无锁
  */
-public class ActorCellDispatcher {
-    private static let readyQueue: LinkedBlockingQueue<SimpleUserActorRef> = LinkedBlockingQueue<SimpleUserActorRef>()
-    private static let started: AtomicBool = AtomicBool(false)
-    private static let workerCount: AtomicInt64 = AtomicInt64(0)
-    private static let executedCount: AtomicInt64 = AtomicInt64(0)
+class MailboxNode {
+    var message: Option<Message>
+    var sender: Option<String>
+    let next: AtomicOptionReference<MailboxNode> = AtomicOptionReference<MailboxNode>()
+    init(message: Option<Message>, sender: Option<String>) {
+        this.message = message
+        this.sender = sender
+    }
+}
 
-    static func execute(cell: SimpleUserActorRef): Unit {
-        ensureStarted()
-        readyQueue.add(cell)
+class CellMailbox {
+    private let head: AtomicReference<MailboxNode>
+    private var tail: MailboxNode
+
+    init() {
+        let stub = MailboxNode(None<Message>, None<String>)
+        this.head = AtomicReference<MailboxNode>(stub)
+        this.tail = stub
     }
 
-    private static func ensureStarted(): Unit {
-        if (started.load() || !started.compareAndSwap(false, true)) {
-            return
+    func add(message: Message, sender: Option<String>): Unit {
+        let node = MailboxNode(Some(message), sender)
+        let prev = head.swap(node)
+        prev.next.store(node)
+    }
+
+    /** 最近一次 poll 出的消息的发送方（仅消费者使用） */
+    var lastSender: Option<String> = None<String>
+
+    /**
+     * 仅由持有调度权的线程调用；出队节点成为新的哨兵。
+     * 生产者已 swap 但尚未链接 next 时同样返回 None（此时 nonEmpty() 为 true），
+     * 由调用方稍后重试，而不是原地自旋：在 M:N 调度下，自旋可能恰好挡住那个尚未完成链接的生产者。
+     */
+    func poll(): Option<Message> {
+        match (tail.next.load()) {
+            case Some(next) =>
+                let message = next.message
+                lastSender = next.sender
+                next.message = None<Message>
+                next.sender = None<String>
+                tail = next
+                message
+            case None => None<Message>
         }
-        var n = Int64(getProcessorCount())
+    }
+
+    func nonEmpty(): Bool {
+        !refEq(head.load(), tail)
+    }
+
+    /** 近似计数（O(n)，仅用于诊断） */
+    func count(): Int64 {
+        var n: Int64 = 0
+        var cur = tail.next.load()
+        while (let Some(node) <- cur) {
+            n++
+            cur = node.next.load()
+        }
+        n
+    }
+}
+
+/**
+ * 工作线程的就绪队列：与邮箱相同的 Vyukov MPSC 结构（任意线程提交，只有所属工作线程取出）。
+ * std ConcurrentLinkedQueue 单次入队+出队约 190ns，这里约 30–40ns。
+ */
+class RunNode {
+    var cell: Option<SimpleUserActorRef>
+    let next: AtomicOptionReference<RunNode> = AtomicOptionReference<RunNode>()
+    init(cell: Option<SimpleUserActorRef>) {
+        this.cell = cell
+    }
+}
+
+class RunQueue {
+    private let head: AtomicReference<RunNode>
+    private var tail: RunNode
+    private let pendingCount: AtomicInt64 = AtomicInt64(0)
+
+    init() {
+        let stub = RunNode(None<SimpleUserActorRef>)
+        this.head = AtomicReference<RunNode>(stub)
+        this.tail = stub
+    }
+
+    func add(cell: SimpleUserActorRef): Unit {
+        let node = RunNode(Some(cell))
+        let prev = head.swap(node)
+        prev.next.store(node)
+    }
+
+    /** 只由所属工作线程调用；遇到尚未链接完成的节点时返回 None，由工作线程让出后重试 */
+    func remove(): Option<SimpleUserActorRef> {
+        match (tail.next.load()) {
+            case Some(next) =>
+                let cell = next.cell
+                next.cell = None<SimpleUserActorRef>
+                tail = next
+                cell
+            case None => None<SimpleUserActorRef>
+        }
+    }
+
+    func isEmpty(): Bool {
+        refEq(head.load(), tail)
+    }
+
+    /** 近似长度（O(n)，仅诊断用） */
+    prop size: Int64 {
+        get() {
+            var n: Int64 = 0
+            var cur = tail.next.load()
+            while (let Some(node) <- cur) {
+                n++
+                cur = node.next.load()
+            }
+            n
+        }
+    }
+}
+
+/**
+ * 工作线程：独立的就绪队列 + 自旋后休眠
+ */
+class DispatcherWorker {
+    let queue: RunQueue = RunQueue()
+    let sleeping: AtomicBool = AtomicBool(false)
+    let lock: Mutex = Mutex()
+    let cond: Condition
+    let executed: AtomicInt64 = AtomicInt64(0)
+
+    init() {
+        this.cond = synchronized(lock) { lock.condition() }
+    }
+
+    func submit(cell: SimpleUserActorRef): Unit {
+        queue.add(cell)
+        if (sleeping.load()) {
+            synchronized(lock) {
+                cond.notifyAll()
+            }
+        }
+    }
+
+    func loop(spinTime: Duration): Unit {
+        var idle: Int64 = 0
+        var idleSince = MonoTime.now()
+        while (true) {
+            match (queue.remove()) {
+                case Some(cell) =>
+                    idle = 0
+                    try {
+                        cell.run()
+                    } catch (e: Exception) {
+                        println("Actor Cell 执行异常: ${e}")
+                    }
+                    executed.fetchAdd(1)
+                case None =>
+                    if (idle == 0) {
+                        idleSince = MonoTime.now()
+                    }
+                    idle++
+                    if (MonoTime.now() - idleSince < spinTime) {
+                        // 按时间自旋（而不是按次数），并让出处理器：
+                        // 被本线程唤醒的仓颉线程（例如 ask 的等待方）可能排在当前处理器上
+                        sleep(Duration.Zero)
+                        continue
+                    }
+                    idle = 0
+                    synchronized(lock) {
+                        sleeping.store(true)
+                        // 设置 sleeping 之后再检查一次，避免与 submit 之间丢失唤醒
+                        if (queue.isEmpty()) {
+                            cond.wait(timeout: Duration.millisecond * 10)
+                        }
+                        sleeping.store(false)
+                    }
+            }
+        }
+    }
+}
+
+/**
+ * Actor Cell 调度器（进程级共享）
+ *
+ * 亲和调度（与 Akka AffinityPool 同类）：每个 Actor 固定分配给一个工作线程，
+ * 每个工作线程有自己的就绪队列，调度时不再争用全局锁。
+ * 工作线程空闲时先自旋（默认 50µs，环境变量 CACTOR_DISPATCHER_SPIN_US）再休眠，降低唤醒延迟。
+ * 线程数默认取 CPU 核数的 1/4（4–64；发送方、I/O 等其他仓颉线程也需要处理器），可用环境变量 CACTOR_DISPATCHER_THREADS 覆盖。
+ * 注意：在 receive 中执行阻塞操作会占用工作线程，并阻塞同一线程上的其他 Actor。
+ */
+public class ActorCellDispatcher {
+    private static let started: AtomicBool = AtomicBool(false)
+    private static let ready: AtomicBool = AtomicBool(false)
+    private static var workers: Array<DispatcherWorker> = Array<DispatcherWorker>()
+    private static let affinitySeq: AtomicInt64 = AtomicInt64(0)
+    private static let SPIN_US_DEFAULT: Int64 = 50
+
+    static func nextAffinity(): Int64 {
+        affinitySeq.fetchAdd(1)
+    }
+
+    static func execute(cell: SimpleUserActorRef): Unit {
+        if (!ready.load()) {
+            ensureStarted()
+        }
+        workers[cell.affinity % workers.size].submit(cell)
+    }
+
+    private static func configuredThreads(): Int64 {
+        if (let Some(v) <- getVariable("CACTOR_DISPATCHER_THREADS")) {
+            if (let Some(n) <- Int64.tryParse(v)) {
+                if (n > 0) {
+                    return n
+                }
+            }
+        }
+        var n = Int64(getProcessorCount()) / 4
         if (n < 4) {
             n = 4
         }
         if (n > 64) {
             n = 64
         }
-        for (_ in 0..n) {
-            spawn {
-                workerLoop()
-            }
-        }
-        workerCount.store(n)
+        n
     }
 
-    private static func workerLoop(): Unit {
-        while (true) {
-            let cell = readyQueue.remove()
-            try {
-                cell.run()
-            } catch (e: Exception) {
-                println("Actor Cell 执行异常: ${e}")
+    private static func configuredSpin(): Duration {
+        if (let Some(v) <- getVariable("CACTOR_DISPATCHER_SPIN_US")) {
+            if (let Some(n) <- Int64.tryParse(v)) {
+                if (n >= 0) {
+                    return Duration.microsecond * n
+                }
             }
-            executedCount.fetchAdd(1)
+        }
+        Duration.microsecond * SPIN_US_DEFAULT
+    }
+
+    private static func ensureStarted(): Unit {
+        if (started.compareAndSwap(false, true)) {
+            let n = configuredThreads()
+            let spin = configuredSpin()
+            let ws = Array<DispatcherWorker>(n, { _ => DispatcherWorker() })
+            workers = ws
+            for (w in ws) {
+                spawn {
+                    w.loop(spin)
+                }
+            }
+            ready.store(true)
+        } else {
+            while (!ready.load()) {
+                sleep(Duration.Zero)
+            }
         }
     }
 
     /** 工作线程数（未启动时为 0） */
     public static func getWorkerCount(): Int64 {
-        workerCount.load()
+        if (ready.load()) { workers.size } else { 0 }
     }
 
     /** 已执行的调度次数 */
     public static func getExecutedCount(): Int64 {
-        executedCount.load()
+        var total: Int64 = 0
+        if (ready.load()) {
+            for (w in workers) {
+                total += w.executed.load()
+            }
+        }
+        total
     }
 
     /** 等待执行的 Cell 数 */
     public static func getQueuedCount(): Int64 {
-        readyQueue.size
+        var total: Int64 = 0
+        if (ready.load()) {
+            for (w in workers) {
+                total += w.queue.size
+            }
+        }
+        total
     }
 }

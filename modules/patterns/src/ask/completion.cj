@@ -20,6 +20,9 @@ class Completion<R> {
     private let cond: Condition
     private var value: Option<R>
     private let callbacks: ArrayList<(R) -> Unit>
+    // 无锁快路径：await 先短暂自旋检查该标志，避免结果很快到达时付出休眠/唤醒的代价
+    private let done: AtomicBool = AtomicBool(false)
+    private static let SPIN_TIME: Duration = Duration.microsecond * 50
 
     init() {
         this.lock = Mutex()
@@ -34,6 +37,7 @@ class Completion<R> {
                 None<Array<(R) -> Unit>>
             } else {
                 value = Some(v)
+                done.store(true)
                 cond.notifyAll()
                 let cbs = callbacks.toArray()
                 callbacks.clear()
@@ -52,6 +56,15 @@ class Completion<R> {
 
     func await(timeout: Duration): Option<R> {
         let deadline = MonoTime.now() + timeout
+        // 结果通常在几微秒内到达：先自旋最多 SPIN_TIME（不超过 timeout），到达则不必休眠
+        let spinUntil = MonoTime.now() + (if (timeout < SPIN_TIME) { timeout } else { SPIN_TIME })
+        var i: Int64 = 0
+        while (!done.load()) {
+            i++
+            if ((i & 63) == 0 && MonoTime.now() >= spinUntil) {
+                break
+            }
+        }
         synchronized(lock) {
             while (value.isNone()) {
                 let remaining = deadline - MonoTime.now()
