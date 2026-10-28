@@ -2,7 +2,7 @@
 
 ## Migration Overview
 
-This guide helps you migrate from other Actor systems or earlier CActor versions to CActor v1.1.0, providing detailed migration steps, compatibility notes, and best practices.
+This guide helps you migrate from other Actor systems or earlier CActor versions to CActor v1.2.0, providing detailed migration steps, compatibility notes, and best practices.
 
 ## Supported Migration Paths
 
@@ -13,8 +13,8 @@ This guide helps you migrate from other Actor systems or earlier CActor versions
 - **Actix (Rust)** -> CActor
 
 ### CActor Version Upgrades
-- **CActor v1.0.x** -> CActor v1.1.0
-- **CActor v0.x** -> CActor v1.1.0
+- **CActor v1.0.x** -> CActor v1.2.0
+- **CActor v0.x** -> CActor v1.2.0
 
 ## Migrating from Akka
 
@@ -222,7 +222,7 @@ class UserActor <: PersistentActor, UserActorInterface {
 
 ## CActor Version Upgrade
 
-### Upgrading from v1.0.x to v1.1.0
+### Upgrading from v1.0.x to v1.2.0
 
 #### 1. Breaking Changes
 
@@ -231,7 +231,7 @@ class UserActor <: PersistentActor, UserActorInterface {
 let system = CActorSystem.create("MySystem")
 let actor = system.spawn(MyActor(), "my-actor")
 
-// v1.1.0 New API
+// v1.2.0 New API
 let system = CActor.system("MySystem")
 let actor = system.actorOf(MyActor.props(), "my-actor")
 ```
@@ -247,7 +247,7 @@ cactor {
   }
 }
 
-# v1.1.0 Configuration
+# v1.2.0 Configuration
 cactor {
   system {
     threads = 8
@@ -268,7 +268,7 @@ public func onMessage(message: Message): Unit {
     }
 }
 
-// v1.1.0 Message handling
+// v1.2.0 Message handling
 public func receive(message: Message, context: ActorContext): MessageResult {
     match (message) {
         case msg: MyMessage =>
@@ -294,7 +294,7 @@ cactor-migrate --from akka --source src/main/scala --target src/main/cangjie
 cactor-migrate --from orleans --source src --target src/main/cangjie
 
 # CActor version upgrade
-cactor-migrate --from cactor-1.0 --source src --target src-v1.1
+cactor-migrate --from cactor-1.0 --source src --target src-v1.2
 ```
 
 ### 2. Configuration Conversion Tool
@@ -456,6 +456,6 @@ class MigrationBenchmark {
 
 ---
 
-**CActor v1.1.0 - Smooth migration, seamless upgrade!**
+**CActor v1.2.0 - Smooth migration, seamless upgrade!**
 
 *Last updated: July 3, 2025*

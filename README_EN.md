@@ -2,7 +2,7 @@
 
 > 🎯 **CActor** is a world-class high-performance Actor system implemented in Cangjie language, providing enterprise-grade features and distributed capabilities.
 
-[![Cangjie](https://img.shields.io/badge/Cangjie-0.60.5-blue.svg)](https://cangjie-lang.cn/)
+[![Cangjie](https://img.shields.io/badge/Cangjie-1.2.0-blue.svg)](https://cangjie-lang.cn/)
 [![Build](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/your-repo/cactor)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -73,7 +73,7 @@ English | [中文](README.md)
 
 ### Requirements
 
-- Cangjie Language 0.53.4+
+- Cangjie Language 1.2.0+
 - cjpm (Cangjie Package Manager)
 
 ### Installation & Build
@@ -87,16 +87,16 @@ cd cactor
 cjpm build
 
 # Run examples
-./target/release/bin/cactor.examples.hello_world_demo
+./target/release/bin/cactor_examples.hello_world_demo
 ```
 
 ### Your First Actor
 
 ```cangjie
 import cactor.api.{CActor}
-import cactor.core.actor.{Actor}
-import cactor.core.message.{Message, StringMessage, MessageResult}
-import cactor.core.context.{ActorContext}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
 
 // Define your first Actor
 class HelloActor <: Actor {
@@ -407,31 +407,31 @@ let routerRef = RouterActorRef(router, "my-router")
 
 | Example | Description |
 |---------|-------------|
-| [hello_world_demo](src/examples/hello_world_demo/main.cj) | Simplest Actor example |
-| [ask_pattern_demo](src/examples/ask_pattern_demo/main.cj) | Ask request-response pattern |
-| [api_demo](src/examples/api_demo/main.cj) | Full API demonstration |
+| [hello_world_demo](modules/examples/src/hello_world_demo/main.cj) | Simplest Actor example |
+| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Ask request-response pattern |
+| [api_demo](modules/examples/src/api_demo/main.cj) | Full API demonstration |
 
 ### Advanced Features
 
 | Example | Description |
 |---------|-------------|
-| [advanced_dispatcher_examples](src/examples/advanced_dispatcher_examples/main.cj) | Multiple dispatcher types |
-| [advanced_mailbox_examples](src/examples/advanced_mailbox_examples/main.cj) | Multiple mailbox implementations |
-| [typed_actor_demo](src/examples/typed_actor_demo/main.cj) | Type-safe Actors |
-| [circuit_breaker_demo](src/examples/circuit_breaker_demo/main.cj) | Circuit breaker usage |
+| [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | Multiple dispatcher types |
+| [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | Multiple mailbox implementations |
+| [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | Type-safe Actors |
+| [circuit_breaker_demo](modules/examples/src/circuit_breaker_demo/main.cj) | Circuit breaker usage |
 
 ### Distributed Examples
 
 | Example | Description |
 |---------|-------------|
-| [cluster_sharding_demo](src/examples/cluster_sharding_demo/main.cj) | Cluster sharding |
-| [persistence_demo](src/examples/persistence_demo/main.cj) | Event sourcing persistence |
+| [cluster_sharding_demo](modules/examples/src/cluster_sharding_demo/main.cj) | Cluster sharding |
+| [persistence_demo](modules/examples/src/persistence_demo/main.cj) | Event sourcing persistence |
 
 ### Performance Examples
 
 | Example | Description |
 |---------|-------------|
-| [benchmark_demo](src/examples/benchmark_demo/main.cj) | Performance benchmarks |
+| [benchmark_demo](modules/examples/src/benchmark_demo/main.cj) | Performance benchmarks |
 
 ---
 
@@ -471,10 +471,10 @@ Level: 🏆 World-Class
 
 ```bash
 # Simple benchmark
-./target/release/bin/cactor.integration.testing.simple_benchmark_test
+./target/release/bin/cactor_integration.testing.simple_benchmark_test
 
 # Full benchmark
-./target/release/bin/cactor.examples.benchmark_demo
+./target/release/bin/cactor_examples.benchmark_demo
 ```
 
 ---
@@ -562,7 +562,7 @@ We welcome community contributions!
 cjpm test
 
 # Run performance tests
-./target/release/bin/cactor.integration.testing.simple_benchmark_test
+./target/release/bin/cactor_integration.testing.simple_benchmark_test
 ```
 
 ---

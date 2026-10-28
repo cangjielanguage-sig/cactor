@@ -1,8 +1,8 @@
-# CActor 7.0 架构设计文档
+# CActor 1.2 架构设计文档
 
-> 文档版本: 7.0
-> 更新日期: 2026-05-06
-> 仓颉语言版本: 0.7.0+
+> 文档版本: 1.2
+> 更新日期: 2026-10-28
+> 仓颉语言版本: 1.2.0+
 
 ---
 
@@ -24,7 +24,7 @@ CActor 是基于仓颉(Cangjie)语言的高性能 Actor 模型实现，参考 Ak
 
 ### 1.3 技术选型
 
-- **语言**: 仓颉 0.7.0+（享有现代语言安全特性）
+- **语言**: 仓颉 1.2.0+（享有现代语言安全特性）
 - **并发模型**: Actor + 协程混合
 - **内存管理**: 对象池 + NUMA 感知分配
 - **网络通信**: 远程 Actor 透明调用
@@ -95,7 +95,7 @@ Foundation Layer   → (无依赖，零依赖基础设施)
 
 ## 3. Foundation Layer (基础设施层)
 
-路径: `src/foundation/`，33 个文件
+路径: `modules/foundation/src/`，33 个文件
 
 零依赖基础设施，所有组件不依赖核心层以上的任何模块，可独立使用。
 
@@ -218,7 +218,7 @@ public interface Span {
 
 ## 4. Core Layer (核心层)
 
-路径: `src/core/`，31 个文件
+路径: `modules/core/src/`，31 个文件
 
 定义 Actor 模型的核心抽象接口和数据结构，不包含任何实现。
 
@@ -529,7 +529,7 @@ public class TypedCounter <: TypedBehavior[Int] {
 
 ## 5. Runtime Layer (运行时层)
 
-路径: `src/runtime/`，63 个文件
+路径: `modules/runtime/src/`，63 个文件
 
 核心接口的具体实现层，依赖 Core Layer 和 Foundation Layer。
 
@@ -747,7 +747,7 @@ public class HighPerformanceActorSystem <: ActorSystem {
 
 ## 6. Patterns Layer (模式层)
 
-路径: `src/patterns/`，13 个文件
+路径: `modules/patterns/src/`，13 个文件
 
 封装常用分布式计算模式。
 
@@ -888,7 +888,7 @@ public class TokenBucketRateLimiter <: BackpressureController {
 
 ## 7. Distribution Layer (分布式层)
 
-路径: `src/distribution/`，21 个文件
+路径: `modules/distribution/src/`，21 个文件
 
 跨进程、跨节点通信能力。
 
@@ -1025,7 +1025,7 @@ public class MemoryEnhancedEventStore <: EnhancedEventStore {
 
 ## 8. Integration Layer (集成层)
 
-路径: `src/integration/`，28 个文件
+路径: `modules/integration/src/`，28 个文件
 
 ### 8.1 模块列表
 
@@ -1125,7 +1125,7 @@ public class GlobalConfigManager <: ConfigurationManager {
 
 ## 9. API Layer (API 层)
 
-路径: `src/api/`，13 个文件
+路径: `modules/cactor/src/api/`，13 个文件
 
 对外统一 API，简洁易用。
 
@@ -1217,7 +1217,7 @@ ref |> processMessage  // 函数式处理
 
 ### 10.1 Streams (流处理)
 
-路径: `src/streams/`
+路径: `modules/streams/src/`
 
 Akka Streams 风格的处理：
 
@@ -1236,7 +1236,7 @@ let result = graph.run(materializer)
 
 ### 10.2 XState (状态机)
 
-路径: `src/xstate/`
+路径: `modules/xstate/src/`
 
 分层状态机，支持 Actor 集成：
 
@@ -1487,16 +1487,16 @@ val exc = kit.expectException[RuntimeException] {
 
 | 层级 | 路径 | 文件数 |
 |------|------|--------|
-| Foundation | `src/foundation/` | 33 |
-| Core | `src/core/` | 31 |
-| Runtime | `src/runtime/` | 63 |
-| Patterns | `src/patterns/` | 13 |
-| Distribution | `src/distribution/` | 21 |
-| Integration | `src/integration/` | 28 |
-| API | `src/api/` | 13 |
-| Streams | `src/streams/` | - |
-| XState | `src/xstate/` | - |
-| Macros | `src/macros/` | - |
+| Foundation | `modules/foundation/src/` | 33 |
+| Core | `modules/core/src/` | 31 |
+| Runtime | `modules/runtime/src/` | 63 |
+| Patterns | `modules/patterns/src/` | 13 |
+| Distribution | `modules/distribution/src/` | 21 |
+| Integration | `modules/integration/src/` | 28 |
+| API | `modules/cactor/src/api/` | 13 |
+| Streams | `modules/streams/src/` | - |
+| XState | `modules/xstate/src/` | - |
+| Macros | `modules/macros/src/` | - |
 | **总计** | | **326+** |
 
 ### 15.2 核心接口快速索引
@@ -1518,14 +1518,14 @@ val exc = kit.expectException[RuntimeException] {
 
 | 版本 | 日期 | 重大变更 |
 |------|------|----------|
-| 1.0 | 早期 | 基础 Actor 实现 |
-| 3.0 | - | 引入 TypedActor |
-| 5.0 | - | 性能优化，重新架构 |
-| 6.0 | - | 分布式支持 |
-| 7.0 | 2026-05 | 类型化增强，6+1 层级重构 |
+| 0.8.0 | 2025-06 | 项目初始化 |
+| 0.9.0 | 2025-06 | 基础 Actor 系统 |
+| 1.0.0 | 2025-06 | 首个正式版本 |
+| 1.1.0 | 2025-07 | 企业级功能：Ask、集群分片、持久化、TestKit、Streams、XState |
+| 1.2.0 | 2026-10 | 全面模块化：拆分为 12 个 cjpm 模块，版本号统一为 1.2.0，仓颉升级至 1.2.0 |
 
 ---
 
-**CActor 7.0 架构设计文档完**
+**CActor 1.2 架构设计文档完**
 
 *本文档遵循渐进式披露原则，从高层抽象逐步深入到具体实现。*

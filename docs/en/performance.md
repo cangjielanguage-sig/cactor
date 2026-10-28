@@ -35,7 +35,7 @@ CActor delivers world-class actor model performance through systematic optimizat
 
 - **Hardware**: 16-core CPU, 32GB RAM
 - **OS**: Linux 5.4+
-- **Cangjie Version**: 0.53.4
+- **Cangjie Version**: 1.2.0
 - **Test Tool**: CActor built-in benchmark framework
 
 ### Benchmark Results by Workload

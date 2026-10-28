@@ -1,10 +1,10 @@
-# CActor - 基于仓颉语言的现代化Actor系统 (v1.1.0)
+# CActor - 基于仓颉语言的现代化Actor系统 (v1.2.0)
 
 ## 🎯 项目概述
 
 CActor 是一个基于仓颉语言实现的现代化Actor系统，提供了完整的Actor模型实现、企业级特性和分布式能力。项目采用7层模块化架构设计，支持超高并发、超低延迟的消息处理，是构建分布式系统的理想选择。
 
-## 🎉 v1.1.0 重大更新
+## 🎉 v1.2.0 重大更新
 
 ### ✅ 已完成的企业级功能
 - **Ask模式完善** ✅ - 生产级实现，657,894 req/s性能
@@ -89,7 +89,7 @@ CActor采用6层模块化架构，确保清晰的职责分离和高度的可扩�
 ## 📦 快速开始
 
 ### 环境要求
-- 仓颉 (Cangjie) 0.53.4+
+- 仓颉 (Cangjie) 1.2.0+
 - cjpm (仓颉包管理器)
 
 ### 安装构建
@@ -102,7 +102,7 @@ cd cangjie
 cjpm build
 
 # 运行性能测试
-./target/release/bin/cactor.integration.testing.simple_benchmark_test
+./target/release/bin/cactor_integration.testing.simple_benchmark_test
 ```
 
 ### 简单示例

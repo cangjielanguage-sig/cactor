@@ -1,6 +1,6 @@
 # CActor API 参考文档
 
-CActor 是一个高性能 Actor 模型实现库，为仓颉语言提供简洁、类型安全的 Actor 编程接口。本文档是 CActor 2.0 的完整 API 参考。
+CActor 是一个高性能 Actor 模型实现库，为仓颉语言提供简洁、类型安全的 Actor 编程接口。本文档是 CActor 1.2 的完整 API 参考。
 
 ---
 
@@ -295,7 +295,7 @@ system.terminate()
 ### 包引入
 
 ```cangjie
-import cactor.core.actor.{ActorRef}
+import cactor_core.actor.{ActorRef}
 ```
 
 ### 接口定义
@@ -477,7 +477,7 @@ public func getPathString(actorRef: ActorRef): String
 ### 包引入
 
 ```cangjie
-import cactor.core.actor.{Actor}
+import cactor_core.actor.{Actor}
 ```
 
 ### 接口定义
@@ -612,7 +612,7 @@ class EchoActor <: Actor {
 ### 包引入
 
 ```cangjie
-import cactor.core.message.{Message, UserMessage, SystemMessage}
+import cactor_core.message.{Message, UserMessage, SystemMessage}
 ```
 
 ### Message 接口
@@ -820,7 +820,7 @@ class HighPriorityTask <: SystemMessage {
 ### 包引入
 
 ```cangjie
-import cactor.core.actor.{Props, PropsFactory}
+import cactor_core.actor.{Props, PropsFactory}
 ```
 
 ### Props 结构体
@@ -921,7 +921,7 @@ let actor = system.actorOf(props, "my-actor")
 ### 包引入
 
 ```cangjie
-import cactor.core.config.{MailboxConfig, DispatcherConfig, SupervisionConfig}
+import cactor_core.config.{MailboxConfig, DispatcherConfig, SupervisionConfig}
 ```
 
 ### MailboxConfig - 邮箱配置
@@ -1078,7 +1078,7 @@ public enum SupervisionDirective {
 ### Actor 配置工厂
 
 ```cangjie
-import cactor.core.config.{ActorConfigurationFactory, ActorConfigurationBuilder}
+import cactor_core.config.{ActorConfigurationFactory, ActorConfigurationBuilder}
 
 /**
  * 预定义配置模板
@@ -1207,7 +1207,7 @@ Ask 模式提供请求-响应式的消息交互，参考 Akka 的 Ask 模式设�
 ### 包引入
 
 ```cangjie
-import cactor.patterns.ask.{Ask, AskFuture, AskStats}
+import cactor_patterns.ask.{Ask, AskFuture, AskStats}
 ```
 
 ### Ask 静态 API
@@ -1348,7 +1348,7 @@ Ask.askAsync(
 ### 包引入
 
 ```cangjie
-import cactor.patterns.circuit_breaker.{
+import cactor_foundation.circuit_breaker.{
     CircuitBreaker, BasicCircuitBreaker, CircuitBreakerFactory,
     CircuitBreakerConfig, CircuitBreakerStats, CircuitBreakerState,
     CircuitBreakerDecorator
@@ -1524,7 +1524,7 @@ breaker.reset()  // 手动重置
 ### 包引入
 
 ```cangjie
-import cactor.patterns.backpressure.{
+import cactor_patterns.backpressure.{
     BackpressureStrategy, BackpressureConfig, BackpressureStats,
     BasicBackpressureController, BackpressureControllerFactory,
     FlowController, BackpressureException
@@ -1684,7 +1684,7 @@ controller.reset()
 ### 包引入
 
 ```cangjie
-import cactor.patterns.routing.{
+import cactor_patterns.routing.{
     Router, BasicRouter, RouterFactory,
     RoutingStrategy, RoundRobinRoutingStrategy, RandomRoutingStrategy,
     SmallestMailboxRoutingStrategy, BroadcastRoutingStrategy,
@@ -1909,7 +1909,7 @@ broadcastRouter.route(StringMessage("Broadcast message"))
 ### 包引入
 
 ```cangjie
-import cactor.integration.testing.{
+import cactor_integration.testing.{
     TestActorSystem, TestProbe, TestTimeController,
     TestExpectation
 }
@@ -2086,7 +2086,7 @@ testSystem.terminate()
 ### 包引入
 
 ```cangjie
-import cactor.core.typed.{TypedBehavior, TypedActorRef, TypedActorSelection}
+import cactor_core.typed.{TypedBehavior, TypedActorRef, TypedActorSelection}
 import cactor.api.{CActorSystem}
 ```
 
@@ -2175,9 +2175,9 @@ let typedRef = system.wrapAsTypedActor<Ping>(normalRef, "wrapped")
 
 ```cangjie
 import cactor.api.{CActor, CActorSystem}
-import cactor.core.actor.{Actor, ActorRef}
-import cactor.core.message.{Message, StringMessage, MessageResult}
-import cactor.core.context.{ActorContext}
+import cactor_core.actor.{Actor, ActorRef}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
 
 class EchoActor <: Actor {
     public prop name: String {
@@ -2235,11 +2235,11 @@ main(): Int64 {
 
 | 异常类型 | 包路径 | 说明 |
 |---------|--------|------|
-| `CircuitBreakerOpenException` | `cactor.patterns.circuit_breaker` | 断路器开启时抛出 |
-| `BackpressureException` | `cactor.patterns.backpressure` | 背压拒绝时抛出 |
-| `TypeCastException` | `cactor.patterns.ask` | Ask 模式类型转换失败 |
+| `CircuitBreakerOpenException` | `cactor_foundation.circuit_breaker` | 断路器开启时抛出 |
+| `BackpressureException` | `cactor_patterns.backpressure` | 背压拒绝时抛出 |
+| `TypeCastException` | `cactor_patterns.ask` | Ask 模式类型转换失败 |
 
-### D. 迁移指南（从 1.x 到 2.0）
+### D. 迁移指南（从 1.x 到 1.2）
 
 主要变更：
 
@@ -2250,5 +2250,5 @@ main(): Int64 {
 
 ---
 
-**文档版本**: CActor 2.0
-**最后更新**: 2026-05-06
+**文档版本**: CActor 1.2
+**最后更新**: 2026-10-28

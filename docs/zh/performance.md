@@ -116,7 +116,7 @@ DispatcherConfig(
 自动根据负载动态调整线程数。
 
 ```cangjie
-// 位于 cactor.runtime.dispatcher.adaptive
+// 位于 cactor_runtime.dispatcher.adaptive
 let dispatcher = AdaptiveDispatcher(...)
 ```
 
@@ -127,7 +127,7 @@ let dispatcher = AdaptiveDispatcher(...)
 支持运行时动态调整的调度器。
 
 ```cangjie
-// 位于 cactor.runtime.dispatcher.dynamic
+// 位于 cactor_runtime.dispatcher.dynamic
 let config = DynamicDispatcherConfig(...)
 ```
 
@@ -138,7 +138,7 @@ let config = DynamicDispatcherConfig(...)
 专为批量消息处理优化的调度器。
 
 ```cangjie
-// 位于 cactor.runtime.dispatcher.batch
+// 位于 cactor_runtime.dispatcher.batch
 // 批量聚合消息，减少上下文切换
 ```
 
@@ -149,7 +149,7 @@ let config = DynamicDispatcherConfig(...)
 基于 Foundation 层基础设施组件构建的调度器。
 
 ```cangjie
-// 位于 cactor.runtime.dispatcher.advanced.foundation_based_dispatcher
+// 位于 cactor_runtime.dispatcher.advanced.foundation_based_dispatcher
 ```
 
 **适用场景**: 需要利用 Foundation 层底层优化能力的场景。
@@ -174,7 +174,7 @@ let config = DynamicDispatcherConfig(...)
 标准邮箱实现，提供可靠的 FIFO 消息传递。
 
 ```cangjie
-// 位于 cactor.runtime.mailbox.foundation_mailbox
+// 位于 cactor_runtime.mailbox.foundation_mailbox
 let mailbox = MailboxConfig.createUnbounded()
 // 或
 let mailbox = MailboxConfig.createBounded(10000)
@@ -185,7 +185,7 @@ let mailbox = MailboxConfig.createBounded(10000)
 基于原子操作的环形缓冲区邮箱，极致性能。
 
 ```cangjie
-// 位于 cactor.runtime.mailbox.lockfree
+// 位于 cactor_runtime.mailbox.lockfree
 // 使用 AtomicSlot 实现，无锁入队/出队
 // 状态机: EMPTY(0) -> WRITING(2) -> FILLED(1) -> READING(3)
 ```
@@ -200,7 +200,7 @@ let mailbox = MailboxConfig.createBounded(10000)
 批量聚合消息，减少系统调用开销。
 
 ```cangjie
-// 位于 cactor.runtime.mailbox.batching
+// 位于 cactor_runtime.mailbox.batching
 // 支持 offerBatch / pollBatch 操作
 // 批量大小可配置
 ```
@@ -221,7 +221,7 @@ let mailbox = MailboxConfig.createPriority { msg1, msg2 =>
 基于 Foundation 层环形缓冲区的高性能邮箱。
 
 ```cangjie
-// 位于 cactor.runtime.mailbox.ringbuffer
+// 位于 cactor_runtime.mailbox.ringbuffer
 // 支持 SPSC/MPSC/SPMC/MPMC 四种模式自动切换
 // 缓存行填充避免 false sharing
 ```
@@ -231,7 +231,7 @@ let mailbox = MailboxConfig.createPriority { msg1, msg2 =>
 基于 Foundation 层组件构建的邮箱。
 
 ```cangjie
-// 位于 cactor.runtime.mailbox.advanced.foundation_based_mailbox
+// 位于 cactor_runtime.mailbox.advanced.foundation_based_mailbox
 ```
 
 ### 邮箱选择指南
@@ -250,10 +250,10 @@ let mailbox = MailboxConfig.createPriority { msg1, msg2 =>
 
 ### 5.1 LockFreeQueue（无锁队列）
 
-位于 `cactor.foundation.queue`，提供企业级无锁队列实现。
+位于 `cactor_foundation.queue`，提供企业级无锁队列实现。
 
 ```cangjie
-import cactor.foundation.queue.MPSCQueue
+import cactor_foundation.queue.MPSCQueue
 ```
 
 **核心特性**:
@@ -424,7 +424,7 @@ HighPerformanceActorSystemConfig(
 | `createStashing(cap, stash)` | 暂存邮箱 | ThreadPool | 默认 | 需要暂存 |
 
 ```cangjie
-import cactor.core.config.ActorConfigurationFactory
+import cactor_core.config.ActorConfigurationFactory
 
 // 默认 Actor
 let config = ActorConfigurationFactory.createDefault()
@@ -444,7 +444,7 @@ let config = ActorConfigurationFactory.createPriority { msg1, msg2 =>
 }
 
 // 流式构建器
-import cactor.core.config.ActorConfigurationBuilder
+import cactor_core.config.ActorConfigurationBuilder
 let customConfig = ActorConfigurationBuilder()
     .withMailbox(MailboxConfig.createBounded(5000))
     .withDispatcher(DispatcherConfig.createWorkStealing())
@@ -656,7 +656,7 @@ public class HighPerformanceActorSystem {
 
 ```cangjie
 // ZeroCopyMessage 预留接口
-// import cactor.core.zerocopy.ZeroCopyMessage
+// import cactor_core.zerocopy.ZeroCopyMessage
 
 // 消息设计最佳实践：使用引用而非值传递
 class SmallMessage <: Message {

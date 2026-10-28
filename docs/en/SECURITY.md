@@ -2,7 +2,7 @@
 
 ## Security Overview
 
-CActor v1.1.0 provides multi-layered security mechanisms to ensure the safe operation of the Actor system across various environments. This guide covers key security domains including authentication, authorization, network security, and data protection.
+CActor v1.2.0 provides multi-layered security mechanisms to ensure the safe operation of the Actor system across various environments. This guide covers key security domains including authentication, authorization, network security, and data protection.
 
 ## Security Architecture
 
@@ -683,6 +683,6 @@ export DB_PASSWORD=$(vault kv get -field=password secret/database)
 
 ---
 
-**CActor v1.1.0 - Multi-layered Security Protection, Enterprise-grade Security Assurance!**
+**CActor v1.2.0 - Multi-layered Security Protection, Enterprise-grade Security Assurance!**
 
 _Last updated: July 3, 2025_

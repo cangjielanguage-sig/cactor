@@ -1,6 +1,6 @@
 # CActor API Reference
 
-**Version:** 7.0
+**Version:** 1.2
 **Language:** Cangjie
 **Inspiration:** Akka / Akka Typed
 
@@ -408,7 +408,7 @@ public func getRuntime(): CActorRuntime
 ### Package
 
 ```cangjie
-import cactor.core.actor.ActorRef
+import cactor_core.actor.ActorRef
 ```
 
 ### Interface Definition
@@ -536,8 +536,8 @@ The `Actor` interface defines the contract for all actors.
 ### Package
 
 ```cangjie
-import cactor.core.actor.Actor
-import cactor.core.context.ActorContext
+import cactor_core.actor.Actor
+import cactor_core.context.ActorContext
 ```
 
 ### Interface Definition
@@ -782,8 +782,8 @@ public class EnhancedZeroCopyMessage {
 ### Package
 
 ```cangjie
-import cactor.core.actor.Props
-import cactor.core.actor.PropsFactory
+import cactor_core.actor.Props
+import cactor_core.actor.PropsFactory
 ```
 
 ### Props Struct
@@ -840,11 +840,11 @@ The typed actor system provides compile-time type safety by restricting messages
 ### Package
 
 ```cangjie
-import cactor.core.typed.TypedBehavior
-import cactor.core.typed.TypedActorRef
-import cactor.core.typed.TypedActorContext
-import cactor.core.typed.TypedActorSystem
-import cactor.core.typed.TypedActorSelection
+import cactor_core.typed.TypedBehavior
+import cactor_core.typed.TypedActorRef
+import cactor_core.typed.TypedActorContext
+import cactor_core.typed.TypedActorSystem
+import cactor_core.typed.TypedActorSelection
 ```
 
 ### TypedBehavior<T>
@@ -1255,9 +1255,9 @@ Asynchronous request-response with timeout support.
 ### Package
 
 ```cangjie
-import cactor.patterns.ask.Ask
-import cactor.patterns.ask.AskFuture
-import cactor.patterns.ask.AskPatternManager
+import cactor_patterns.ask.Ask
+import cactor_patterns.ask.AskFuture
+import cactor_patterns.ask.AskPatternManager
 ```
 
 ### Ask Static API
@@ -1415,9 +1415,9 @@ Provides fault isolation and fast-fail behavior.
 ### Package
 
 ```cangjie
-import cactor.patterns.circuit_breaker.CircuitBreaker
-import cactor.patterns.circuit_breaker.BasicCircuitBreaker
-import cactor.patterns.circuit_breaker.CircuitBreakerFactory
+import cactor_foundation.circuit_breaker.CircuitBreaker
+import cactor_foundation.circuit_breaker.BasicCircuitBreaker
+import cactor_foundation.circuit_breaker.CircuitBreakerFactory
 ```
 
 ### CircuitBreakerState Enum
@@ -1553,8 +1553,8 @@ Provides flow control and overload protection.
 ### Package
 
 ```cangjie
-import cactor.patterns.backpressure.BasicBackpressureController
-import cactor.patterns.backpressure.BackpressureControllerFactory
+import cactor_patterns.backpressure.BasicBackpressureController
+import cactor_patterns.backpressure.BackpressureControllerFactory
 ```
 
 ### BackpressureStrategy Enum
@@ -1695,8 +1695,8 @@ Message routing with multiple strategies and load balancing.
 ### Package
 
 ```cangjie
-import cactor.patterns.routing.BasicRouter
-import cactor.patterns.routing.RouterFactory
+import cactor_patterns.routing.BasicRouter
+import cactor_patterns.routing.RouterFactory
 ```
 
 ### RoutingStrategy Interface
@@ -1858,8 +1858,8 @@ let routerRef = RouterActorRef(router, "worker-pool")
 ### Package
 
 ```cangjie
-import cactor.integration.testing.TestActorSystem
-import cactor.integration.testing.TestProbe
+import cactor_integration.testing.TestActorSystem
+import cactor_integration.testing.TestProbe
 ```
 
 ### TestActorSystem
@@ -2095,9 +2095,9 @@ public struct CActorRuntimeStats {
 
 ```cangjie
 import cactor.api.CActor
-import cactor.core.message.StringMessage
-import cactor.core.context.ActorContext
-import cactor.core.actor.Actor
+import cactor_core.message.StringMessage
+import cactor_core.context.ActorContext
+import cactor_core.actor.Actor
 
 class EchoActor <: Actor {
     public prop name: String { get() { "echo" } }
@@ -2137,7 +2137,7 @@ main(): Int64 {
 ### Complete Example — Typed Actor
 
 ```cangjie
-import cactor.core.typed.{TypedBehavior, TypedBehaviors, TypedActorSystem}
+import cactor_core.typed.{TypedBehavior, TypedBehaviors, TypedActorSystem}
 import cactor.api.CActorSystem
 
 class GreetingActor {
@@ -2165,7 +2165,7 @@ ref.tell("World")
 ### Complete Example — Router Pool
 
 ```cangjie
-import cactor.patterns.routing.RouterFactory
+import cactor_patterns.routing.RouterFactory
 import cactor.api.CActor
 
 let router = RouterFactory.roundRobin()
@@ -2188,8 +2188,8 @@ for (work in workItems) {
 ### Complete Example — Circuit Breaker with Fallback
 
 ```cangjie
-import cactor.patterns.circuit_breaker.{CircuitBreakerFactory, CircuitBreakerDecorator}
-import cactor.patterns.ask.Ask
+import cactor_foundation.circuit_breaker.{CircuitBreakerFactory, CircuitBreakerDecorator}
+import cactor_patterns.ask.Ask
 
 let breaker = CircuitBreakerFactory.createDefault<Int64>()
 let decorator = CircuitBreakerDecorator<Int64>(

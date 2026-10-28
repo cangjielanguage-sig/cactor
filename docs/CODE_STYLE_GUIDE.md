@@ -74,9 +74,9 @@ let actorSystemName: String = "CActor"
 ### 包名 (snake_case)
 ```cangjie
 // ✅ 正确
-package cactor.core.actor
-package cactor.runtime.dispatcher
-package cactor.patterns.ask
+package cactor_core.actor
+package cactor_runtime.dispatcher
+package cactor_patterns.ask
 
 // ❌ 错误
 package cactor.Core.Actor
@@ -136,15 +136,15 @@ let avgProcessingTime = totalTime / messageCount
  * CActor - 文件功能描述
  * 详细说明文件的作用和设计思路
  */
-package cactor.core.actor
+package cactor_core.actor
 
 // 1. 标准库导入
 import std.time.*
 import std.collection.*
 
 // 2. CActor核心模块导入
-import cactor.core.message.*
-import cactor.core.context.*
+import cactor_core.message.*
+import cactor_core.context.*
 
 // 3. 第三方库导入（如果有）
 

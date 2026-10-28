@@ -2,7 +2,7 @@
 
 ## 📋 迁移概览
 
-本指南帮助您从其他Actor系统或CActor早期版本迁移到CActor v7.0.0，提供详细的迁移步骤、兼容性说明和最佳实践。
+本指南帮助您从其他Actor系统或CActor早期版本迁移到CActor v1.2.0，提供详细的迁移步骤、兼容性说明和最佳实践。
 
 ## 🎯 支持的迁移路径
 
@@ -15,8 +15,8 @@
 
 ### CActor版本升级
 
-- **CActor v1.0.x** → CActor v7.0.0
-- **CActor v0.x** → CActor v7.0.0
+- **CActor v1.0.x** → CActor v1.2.0
+- **CActor v0.x** → CActor v1.2.0
 
 ## 🚀 从Akka迁移
 
@@ -230,7 +230,7 @@ class UserActor <: PersistentActor, UserActorInterface {
 
 ## 📈 CActor版本升级
 
-### 从v1.0.x升级到v7.0.0
+### 从v1.0.x升级到v1.2.0
 
 #### 1. 重大变更
 
@@ -239,7 +239,7 @@ class UserActor <: PersistentActor, UserActorInterface {
 let system = CActorSystem.create("MySystem")
 let actor = system.spawn(MyActor(), "my-actor")
 
-// v7.0.0 新API
+// v1.2.0 新API
 let system = CActor.system("MySystem")
 let actor = system.actorOf(MyActor.props(), "my-actor")
 ```
@@ -255,7 +255,7 @@ cactor {
   }
 }
 
-# v7.0.0 配置
+# v1.2.0 配置
 cactor {
   system {
     threads = 8
@@ -276,7 +276,7 @@ public func onMessage(message: Message): Unit {
     }
 }
 
-// v7.0.0 消息处理
+// v1.2.0 消息处理
 public func receive(message: Message, context: ActorContext): MessageResult {
     match (message) {
         case msg: MyMessage =>
@@ -302,7 +302,7 @@ cactor-migrate --from akka --source src/main/scala --target src/main/cangjie
 cactor-migrate --from orleans --source src --target src/main/cangjie
 
 # CActor版本升级
-cactor-migrate --from cactor-1.0 --source src --target src-v7.0
+cactor-migrate --from cactor-1.0 --source src --target src-v1.2
 ```
 
 ### 2. 配置转换工具
@@ -468,6 +468,6 @@ class MigrationBenchmark {
 
 ---
 
-**CActor v7.0.0 - 平滑迁移，无缝升级！** 🔄
+**CActor v1.2.0 - 平滑迁移，无缝升级！** 🔄
 
 *最后更新: 2026年5月6日*

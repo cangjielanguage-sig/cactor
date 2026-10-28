@@ -412,8 +412,8 @@ println("内存使用变化: ${memoryAfter - memoryBefore} bytes")
 
 ```
 ### 环境信息
-- CActor版本: v1.1.0
-- 仓颉版本: 0.60.5
+- CActor版本: v1.2.0
+- 仓颉版本: 1.2.0
 - 操作系统: Ubuntu 20.04
 - 硬件配置: 8核CPU, 16GB RAM
 
@@ -444,6 +444,6 @@ println("内存使用变化: ${memoryAfter - memoryBefore} bytes")
 
 ---
 
-**CActor v1.1.0 - 快速诊断，高效解决！** 🔧
+**CActor v1.2.0 - 快速诊断，高效解决！** 🔧
 
 *最后更新: 2025年7月3日*

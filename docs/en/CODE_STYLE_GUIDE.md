@@ -74,9 +74,9 @@ let actorSystemName: String = "CActor"
 ### Package Names (snake_case)
 ```cangjie
 // Correct
-package cactor.core.actor
-package cactor.runtime.dispatcher
-package cactor.patterns.ask
+package cactor_core.actor
+package cactor_runtime.dispatcher
+package cactor_patterns.ask
 
 // Incorrect
 package cactor.Core.Actor
@@ -137,15 +137,15 @@ let avgProcessingTime = totalTime / messageCount
  * CActor - File purpose description
  * Detailed explanation of the file's role and design rationale
  */
-package cactor.core.actor
+package cactor_core.actor
 
 // 1. Standard library imports
 import std.time.*
 import std.collection.*
 
 // 2. CActor core module imports
-import cactor.core.message.*
-import cactor.core.context.*
+import cactor_core.message.*
+import cactor_core.context.*
 
 // 3. Third-party library imports (if any)
 

@@ -165,9 +165,9 @@ CActor 是基于仓颉（Cangjie）语言实现的世界级高性能 Actor 系�
 
 ```cangjie
 import cactor.api.{CActor}
-import cactor.core.actor.{Actor}
-import cactor.core.message.{Message, StringMessage, MessageResult}
-import cactor.core.context.{ActorContext}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
 
 class HelloActor <: Actor {
     public prop name: String { get() { "HelloActor" } }

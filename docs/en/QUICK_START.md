@@ -3,7 +3,7 @@
 ## 📋 Environment Setup
 
 ### System Requirements
-- **Cangjie Language**: 0.60.5 or higher
+- **Cangjie Language**: 1.2.0 or higher
 - **Operating System**: macOS, Linux, Windows
 - **Memory**: 4GB or more recommended
 - **CPU**: Multi-core processor support
@@ -34,7 +34,7 @@ echo "Build complete!"
 cjpm test
 
 # Run example programs
-cjpm run --name cactor.examples.hello_world_demo
+cjpm run --name cactor_examples.hello_world_demo
 ```
 
 ## 🎯 Your First Actor Program
@@ -45,9 +45,9 @@ Create a simple Actor program:
 
 ```cangjie
 import cactor.api.{CActor}
-import cactor.core.actor.{Actor}
-import cactor.core.message.{Message, StringMessage, MessageResult}
-import cactor.core.context.{ActorContext}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
 
 // Define a simple Actor
 class HelloWorldActor <: Actor {
@@ -104,7 +104,7 @@ func main(): Unit {
 
 ### Run the Program
 ```bash
-cjpm run --name cactor.examples.hello_world_demo
+cjpm run --name cactor_examples.hello_world_demo
 ```
 
 Expected output:
@@ -121,7 +121,7 @@ Expected output:
 ### 1. Ask Pattern (Request-Response)
 ```bash
 # Run Ask pattern example
-cjpm run --name cactor.examples.ask_demo
+cjpm run --name cactor_examples.ask_demo
 ```
 
 Features demonstrated:
@@ -133,7 +133,7 @@ Features demonstrated:
 ### 2. Cluster Sharding
 ```bash
 # Run cluster sharding example
-cjpm run --name cactor.examples.cluster_sharding_demo
+cjpm run --name cactor_examples.cluster_sharding_demo
 ```
 
 Features demonstrated:
@@ -145,7 +145,7 @@ Features demonstrated:
 ### 3. Persistence System
 ```bash
 # Run persistence example
-cjpm run --name cactor.examples.persistence_demo
+cjpm run --name cactor_examples.persistence_demo
 ```
 
 Features demonstrated:
@@ -157,7 +157,7 @@ Features demonstrated:
 ### 4. Stream Processing
 ```bash
 # Run stream processing example
-cjpm run --name cactor.examples.streams_demo
+cjpm run --name cactor_examples.streams_demo
 ```
 
 Features demonstrated:
@@ -169,7 +169,7 @@ Features demonstrated:
 ### 5. State Machine
 ```bash
 # Run state machine example
-cjpm run --name cactor.examples.xstate_demo
+cjpm run --name cactor_examples.xstate_demo
 ```
 
 Features demonstrated:
@@ -238,7 +238,7 @@ cjpm run --name <example-name>
 export CACTOR_LOG_LEVEL=DEBUG
 
 # Performance profiling
-cjpm run --name cactor.examples.benchmark_demo
+cjpm run --name cactor_examples.benchmark_demo
 ```
 
 ## 🔗 Related Resources

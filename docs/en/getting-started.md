@@ -4,7 +4,7 @@
 
 ### System Requirements
 
-- **Cangjie Language**: 0.53.4 or higher
+- **Cangjie Language**: 1.2.0 or higher
 - **Operating System**: macOS, Linux, Windows
 - **Memory**: 4 GB or more recommended
 - **CPU**: Multi-core processor supported
@@ -48,7 +48,7 @@ echo "Build completed successfully!"
 cjpm test
 
 # Run the Hello World example
-cjpm run --name cactor.examples.hello_world_demo
+cjpm run --name cactor_examples.hello_world_demo
 ```
 
 ## First Actor Program
@@ -59,9 +59,9 @@ Create a simple Actor program:
 
 ```cangjie
 import cactor.api.{CActor}
-import cactor.core.actor.{Actor}
-import cactor.core.message.{Message, StringMessage, MessageResult}
-import cactor.core.context.{ActorContext}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
 
 // Define a simple Actor
 class HelloWorldActor <: Actor {
@@ -119,7 +119,7 @@ func main(): Unit {
 ### Running the Program
 
 ```bash
-cjpm run --name cactor.examples.hello_world_demo
+cjpm run --name cactor_examples.hello_world_demo
 ```
 
 Expected output:
@@ -137,7 +137,7 @@ Hello World Actor stopped! Processed 3 messages total
 ### 1. Ask Pattern (Request-Response)
 
 ```bash
-cjpm run --name cactor.examples.ask_demo
+cjpm run --name cactor_examples.ask_demo
 ```
 
 Features demonstrated:
@@ -150,7 +150,7 @@ Features demonstrated:
 ### 2. Cluster Sharding
 
 ```bash
-cjpm run --name cactor.examples.cluster_sharding_demo
+cjpm run --name cactor_examples.cluster_sharding_demo
 ```
 
 Features demonstrated:
@@ -163,7 +163,7 @@ Features demonstrated:
 ### 3. Persistence System
 
 ```bash
-cjpm run --name cactor.examples.persistence_demo
+cjpm run --name cactor_examples.persistence_demo
 ```
 
 Features demonstrated:
@@ -176,7 +176,7 @@ Features demonstrated:
 ### 4. Stream Processing
 
 ```bash
-cjpm run --name cactor.examples.streams_demo
+cjpm run --name cactor_examples.streams_demo
 ```
 
 Features demonstrated:
@@ -189,7 +189,7 @@ Features demonstrated:
 ### 5. State Machine (XState)
 
 ```bash
-cjpm run --name cactor.examples.xstate_demo
+cjpm run --name cactor_examples.xstate_demo
 ```
 
 Features demonstrated:
@@ -280,7 +280,7 @@ cjpm run --name <example-name>
 export CACTOR_LOG_LEVEL=DEBUG
 
 # Run performance benchmarks
-cjpm run --name cactor.examples.benchmark_demo
+cjpm run --name cactor_examples.benchmark_demo
 ```
 
 ### Available Examples
@@ -289,14 +289,14 @@ Run any example with `cjpm run --name <name>`:
 
 | Example                        | Name                              |
 |--------------------------------|-----------------------------------|
-| Hello World                    | `cactor.examples.hello_world_demo`|
-| Ask Pattern                    | `cactor.examples.ask_demo`        |
-| Cluster Sharding               | `cactor.examples.cluster_sharding_demo`|
-| Persistence                    | `cactor.examples.persistence_demo`|
-| Streams                        | `cactor.examples.streams_demo`    |
-| State Machine                  | `cactor.examples.xstate_demo`     |
-| Benchmark                      | `cactor.examples.benchmark_demo`  |
-| API Demo                       | `cactor.examples.api_demo`        |
+| Hello World                    | `cactor_examples.hello_world_demo`|
+| Ask Pattern                    | `cactor_examples.ask_demo`        |
+| Cluster Sharding               | `cactor_examples.cluster_sharding_demo`|
+| Persistence                    | `cactor_examples.persistence_demo`|
+| Streams                        | `cactor_examples.streams_demo`    |
+| State Machine                  | `cactor_examples.xstate_demo`     |
+| Benchmark                      | `cactor_examples.benchmark_demo`  |
+| API Demo                       | `cactor_examples.api_demo`        |
 
 ## Related Resources
 
@@ -329,11 +329,11 @@ Use the cluster sharding feature and configure cluster routing strategies. See t
 
 ### What Cangjie version is required?
 
-Cangjie 0.53.4 or higher is required. Check your version with `cangjie --version`.
+Cangjie 1.2.0 or higher is required. Check your version with `cangjie --version`.
 
 ### Where can I find more examples?
 
-All examples are located in `src/examples/`. Run `ls src/examples/` to browse available examples, or refer to the [Feature Overview](../FEATURES.md) for a complete list.
+All examples are located in `modules/examples/src/`. Run `ls modules/examples/src/` to browse available examples, or refer to the [Feature Overview](../FEATURES.md) for a complete list.
 
 ---
 

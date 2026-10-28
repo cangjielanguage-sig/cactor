@@ -1,8 +1,8 @@
-# 📚 CActor 文档结构说明 (v1.1.0)
+# 📚 CActor 文档结构说明 (v1.2.0)
 
 ## 🎯 文档体系概览
 
-CActor v1.1.0 采用了精心设计的文档体系，确保用户能够快速找到所需信息，从入门到精通的完整学习路径。
+CActor v1.2.0 采用了精心设计的文档体系，确保用户能够快速找到所需信息，从入门到精通的完整学习路径。
 
 ## 📁 文档目录结构
 
@@ -10,12 +10,9 @@ CActor v1.1.0 采用了精心设计的文档体系，确保用户能够快速找
 cactor/
 ├── README.md                           # 项目主页，核心介绍
 ├── CHANGELOG.md                        # 版本更新日志
-├── PROJECT_STATUS.md                   # 项目状态总结
 ├── CONTRIBUTING.md                     # 贡献指南
 ├── LICENSE                             # 许可证
-├── plan20.md                           # 战略发展计划
 ├── xstate.md                           # XState实施文档
-├── DOCUMENTATION_CLEANUP_REPORT.md     # 文档整理报告
 ├── docs/                               # 文档中心
 │   ├── index.md                        # 文档导航中心
 │   ├── QUICK_START.md                  # 快速开始指南 ⭐
@@ -41,7 +38,7 @@ cactor/
 │       ├── performance.md              # Performance optimization
 │       ├── package-structure.md        # Package structure
 │       └── roadmap.md                  # Development roadmap
-└── src/examples/README.md              # 示例使用指南
+└── modules/examples/src/README.md              # 示例使用指南
 ```
 
 ## 🚀 用户学习路径
@@ -49,7 +46,7 @@ cactor/
 ### 📖 新手入门路径 (5-15分钟)
 1. **[README.md](../README.md)** - 了解CActor是什么，核心特性
 2. **[docs/QUICK_START.md](QUICK_START.md)** - 5分钟上手，运行第一个程序
-3. **[src/examples/README.md](../src/examples/README.md)** - 运行示例程序
+3. **[modules/examples/src/README.md](../src/examples/README.md)** - 运行示例程序
 
 ### 🏗️ 深入理解路径 (30-60分钟)
 1. **[docs/FEATURES.md](FEATURES.md)** - 全面了解所有功能特性
@@ -59,12 +56,10 @@ cactor/
 ### 🎯 专家进阶路径 (1-2小时)
 1. **[docs/zh/performance.md](zh/performance.md)** - 掌握性能优化技巧
 2. **[docs/zh/package-structure.md](zh/package-structure.md)** - 了解代码组织
-3. **[plan20.md](../plan20.md)** - 了解项目发展规划
 
 ### 🔧 开发参与路径
 1. **[CONTRIBUTING.md](../CONTRIBUTING.md)** - 参与开发指南
-2. **[PROJECT_STATUS.md](../PROJECT_STATUS.md)** - 了解项目当前状态
-3. **[CHANGELOG.md](../CHANGELOG.md)** - 查看版本历史
+2. **[CHANGELOG.md](../CHANGELOG.md)** - 查看版本历史
 
 ## 📋 文档分类说明
 
@@ -89,8 +84,6 @@ cactor/
 - **BEST_PRACTICES.md** - 最佳实践，开发部署指南
 
 ### 📊 项目管理文档
-- **PROJECT_STATUS.md** - 项目状态，完成度追踪
-- **plan20.md** - 战略规划，发展方向
 - **CHANGELOG.md** - 版本历史，更新记录
 
 ### 🎯 专项功能文档
@@ -107,7 +100,7 @@ cactor/
 - **中英双语**: 支持中文和英文两种语言
 
 ### 🎯 内容质量保证
-- **版本一致**: 所有文档统一到v1.1.0
+- **版本一致**: 所有文档统一到v1.2.0
 - **状态准确**: 100%反映项目实际状态
 - **信息完整**: 覆盖所有核心功能和特性
 - **格式统一**: 保持一致的文档风格
@@ -132,14 +125,14 @@ cactor/
 - **想保障安全** → [SECURITY.md](SECURITY.md)
 - **想迁移系统** → [MIGRATION.md](MIGRATION.md)
 - **想学习实践** → [BEST_PRACTICES.md](BEST_PRACTICES.md)
-- **想了解进度** → [PROJECT_STATUS.md](../PROJECT_STATUS.md)
+- **想了解进度** → [CHANGELOG.md](../CHANGELOG.md)
 
 ### 按角色查找
 - **新用户** → README.md + QUICK_START.md
 - **开发者** → FEATURES.md + api-reference.md + BEST_PRACTICES.md
 - **架构师** → architecture.md + performance.md + SECURITY.md
 - **运维工程师** → DEPLOYMENT.md + MONITORING.md + TROUBLESHOOTING.md
-- **项目经理** → PROJECT_STATUS.md + plan20.md
+- **项目经理** → CHANGELOG.md
 - **贡献者** → CONTRIBUTING.md + package-structure.md
 - **安全专家** → SECURITY.md + BEST_PRACTICES.md
 - **迁移团队** → MIGRATION.md + DEPLOYMENT.md
@@ -179,6 +172,6 @@ cactor/
 
 ---
 
-**CActor v1.1.0 文档体系 - 用户友好，结构清晰，内容完整！** 📚
+**CActor v1.2.0 文档体系 - 用户友好，结构清晰，内容完整！** 📚
 
 *最后更新: 2025年7月3日*

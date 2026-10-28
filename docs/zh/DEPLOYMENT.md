@@ -2,7 +2,7 @@
 
 ## 部署概览
 
-CActor v7.0.0 支持多种部署方式，从单机开发环境到大规模生产集群，提供灵活的部署选项和配置策略。
+CActor v1.2.0 支持多种部署方式，从单机开发环境到大规模生产集群，提供灵活的部署选项和配置策略。
 
 ## 部署架构
 
@@ -83,7 +83,7 @@ CActor v7.0.0 支持多种部署方式，从单机开发环境到大规模生产
 ### 仓颉语言环境
 
 ```bash
-# 安装仓颉语言 (0.60.5+)
+# 安装仓颉语言 (1.2.0+)
 # 请参考官方文档: https://cangjie-lang.cn/
 
 # 验证安装
@@ -113,19 +113,19 @@ cjpm test
 cjpm build --release
 
 # 验证构建
-./target/release/bin/cactor.examples.hello_world_demo
+./target/release/bin/cactor_examples.hello_world_demo
 ```
 
 ### 打包分发
 
 ```bash
 # 创建分发包
-mkdir -p dist/cactor-v7.0.0
-cp -r target/release/* dist/cactor-v7.0.0/
-cp README.md LICENSE dist/cactor-v7.0.0/
+mkdir -p dist/cactor-v1.2.0
+cp -r target/release/* dist/cactor-v1.2.0/
+cp README.md LICENSE dist/cactor-v1.2.0/
 
 # 创建压缩包
-tar -czf cactor-v7.0.0.tar.gz -C dist cactor-v7.0.0
+tar -czf cactor-v1.2.0.tar.gz -C dist cactor-v1.2.0
 ```
 
 ## 单机部署
@@ -134,8 +134,8 @@ tar -czf cactor-v7.0.0.tar.gz -C dist cactor-v7.0.0
 
 ```bash
 # 1. 解压分发包
-tar -xzf cactor-v7.0.0.tar.gz
-cd cactor-v7.0.0
+tar -xzf cactor-v1.2.0.tar.gz
+cd cactor-v1.2.0
 
 # 2. 配置环境变量
 export CACTOR_HOME=$(pwd)
@@ -278,9 +278,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装仓颉语言
-RUN wget https://releases.cangjie-lang.cn/cangjie-0.60.5-linux.tar.gz \
-    && tar -xzf cangjie-0.60.5-linux.tar.gz \
-    && mv cangjie-0.60.5 /opt/cangjie \
+RUN wget https://releases.cangjie-lang.cn/cangjie-1.2.0-linux.tar.gz \
+    && tar -xzf cangjie-1.2.0-linux.tar.gz \
+    && mv cangjie-1.2.0 /opt/cangjie \
     && ln -s /opt/cangjie/bin/cjpm /usr/local/bin/cjpm
 
 # 复制应用
@@ -381,7 +381,7 @@ spec:
     spec:
       containers:
       - name: cactor
-        image: cactor:v7.0.0
+        image: cactor:v1.2.0
         ports:
         - containerPort: 2551
         - containerPort: 8080
@@ -531,6 +531,6 @@ cp -r /opt/cactor/logs $BACKUP_DIR/
 
 ---
 
-**CActor v7.0.0 - 企业级部署，生产就绪！**
+**CActor v1.2.0 - 企业级部署，生产就绪！**
 
 *最后更新: 2026年5月6日*

@@ -2,7 +2,7 @@
 
 ## Monitoring Overview
 
-CActor v1.1.0 provides comprehensive monitoring and logging capabilities to help you gain real-time insight into system status, performance metrics, and potential issues, ensuring stable operation in production environments.
+CActor v1.2.0 provides comprehensive monitoring and logging capabilities to help you gain real-time insight into system status, performance metrics, and potential issues, ensuring stable operation in production environments.
 
 ## Monitoring Architecture
 
@@ -667,6 +667,6 @@ cactor {
 
 ---
 
-**CActor v1.1.0 - Comprehensive Monitoring, Real-Time Insight!**
+**CActor v1.2.0 - Comprehensive Monitoring, Real-Time Insight!**
 
 _Last updated: July 3, 2025_

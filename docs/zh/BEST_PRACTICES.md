@@ -572,6 +572,6 @@ class AuthorizedActor <: Actor {
 
 ---
 
-**CActor v7.0.0 - 遵循最佳实践，构建卓越系统！**
+**CActor v1.2.0 - 遵循最佳实践，构建卓越系统！**
 
 *最后更新: 2026年5月6日*

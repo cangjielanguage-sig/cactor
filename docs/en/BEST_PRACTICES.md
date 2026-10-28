@@ -567,6 +567,6 @@ class AuthorizedActor <: Actor {
 
 ---
 
-**CActor v7.0.0 - Build excellent systems by following best practices!**
+**CActor v1.2.0 - Build excellent systems by following best practices!**
 
 *Last updated: 2026/05/06*

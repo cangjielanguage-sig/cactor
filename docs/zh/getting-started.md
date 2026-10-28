@@ -3,7 +3,7 @@
 ## 环境准备
 
 ### 系统要求
-- **仓颉语言**: 0.60.5 或更高版本
+- **仓颉语言**: 1.2.0 或更高版本
 - **操作系统**: macOS, Linux, Windows
 - **内存**: 建议 4GB 以上
 - **CPU**: 支持多核处理器
@@ -34,7 +34,7 @@ echo "构建完成！"
 cjpm test
 
 # 运行示例程序
-cjpm run --name cactor.examples.hello_world_demo
+cjpm run --name cactor_examples.hello_world_demo
 ```
 
 ## 第一个 Actor 程序
@@ -45,9 +45,9 @@ cjpm run --name cactor.examples.hello_world_demo
 
 ```cangjie
 import cactor.api.{CActor}
-import cactor.core.actor.{Actor}
-import cactor.core.message.{Message, StringMessage, MessageResult}
-import cactor.core.context.{ActorContext}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
 
 // 定义一个简单的 Actor
 class HelloWorldActor <: Actor {
@@ -104,7 +104,7 @@ func main(): Unit {
 
 ### 运行程序
 ```bash
-cjpm run --name cactor.examples.hello_world_demo
+cjpm run --name cactor_examples.hello_world_demo
 ```
 
 预期输出：
@@ -121,7 +121,7 @@ cjpm run --name cactor.examples.hello_world_demo
 ### 1. Ask 模式（请求-响应）
 ```bash
 # 运行 Ask 模式示例
-cjpm run --name cactor.examples.ask_demo
+cjpm run --name cactor_examples.ask_demo
 ```
 
 展示功能：
@@ -133,7 +133,7 @@ cjpm run --name cactor.examples.ask_demo
 ### 2. 集群分片
 ```bash
 # 运行集群分片示例
-cjpm run --name cactor.examples.cluster_sharding_demo
+cjpm run --name cactor_examples.cluster_sharding_demo
 ```
 
 展示功能：
@@ -145,7 +145,7 @@ cjpm run --name cactor.examples.cluster_sharding_demo
 ### 3. 持久化系统
 ```bash
 # 运行持久化示例
-cjpm run --name cactor.examples.persistence_demo
+cjpm run --name cactor_examples.persistence_demo
 ```
 
 展示功能：
@@ -157,7 +157,7 @@ cjpm run --name cactor.examples.persistence_demo
 ### 4. 流处理
 ```bash
 # 运行流处理示例
-cjpm run --name cactor.examples.streams_demo
+cjpm run --name cactor_examples.streams_demo
 ```
 
 展示功能：
@@ -169,7 +169,7 @@ cjpm run --name cactor.examples.streams_demo
 ### 5. 状态机
 ```bash
 # 运行状态机示例
-cjpm run --name cactor.examples.xstate_demo
+cjpm run --name cactor_examples.xstate_demo
 ```
 
 展示功能：
@@ -238,7 +238,7 @@ cjpm run --name <example-name>
 export CACTOR_LOG_LEVEL=DEBUG
 
 # 性能分析
-cjpm run --name cactor.examples.benchmark_demo
+cjpm run --name cactor_examples.benchmark_demo
 ```
 
 ## 相关资源

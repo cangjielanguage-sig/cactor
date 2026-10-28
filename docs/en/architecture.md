@@ -1,6 +1,6 @@
-# CActor 7.0 Architecture Design
+# CActor 1.2 Architecture Design
 
-**Version:** 7.0
+**Version:** 1.2
 **Language:** Cangjie
 **Inspiration:** Akka / Akka Typed
 **Source Files:** 326 `.cj` files
@@ -99,7 +99,7 @@ API -> Integration -> Distribution -> Patterns -> Runtime -> Core -> Foundation
 
 ## 3. Foundation Layer
 
-**Path:** `src/foundation/`
+**Path:** `modules/foundation/src/`
 **Files:** 33
 **Constraint:** Zero external dependencies.
 
@@ -108,7 +108,7 @@ The Foundation layer provides the essential building blocks that all upper layer
 ### 3.1 Module Structure
 
 ```
-src/foundation/
+modules/foundation/src/
 |-- abstractions/     # General-purpose abstract interfaces
 |-- config/          # Unified configuration framework
 |-- contracts/       # Module contracts and invariants
@@ -190,7 +190,7 @@ The MTA (Metrics, Tracing, Alerting) subsystem:
 
 ## 4. Core Layer
 
-**Path:** `src/core/`
+**Path:** `modules/core/src/`
 **Files:** 31
 **Constraint:** Abstract interfaces only. No concrete implementations.
 
@@ -199,7 +199,7 @@ The Core layer defines the **contract** of the Actor system. Every concept in CA
 ### 4.1 Module Structure
 
 ```
-src/core/
+modules/core/src/
 |-- actor/       # Actor interface, ActorRef, ActorPath, Props, ActorFactory
 |-- config/      # ActorConfig, MailboxConfig, DispatcherConfig, SupervisionConfig
 |-- context/     # ActorContext interface
@@ -405,7 +405,7 @@ CActor maintains two top-level guardian actors:
 
 ## 5. Runtime Layer
 
-**Path:** `src/runtime/`
+**Path:** `modules/runtime/src/`
 **Files:** 63
 **Constraint:** Concrete implementations of Core interfaces.
 
@@ -414,7 +414,7 @@ The Runtime layer is where CActor comes alive. It contains the high-performance 
 ### 5.1 Module Structure
 
 ```
-src/runtime/
+modules/runtime/src/
 |-- actor/       # High-performance Actor implementation
 |-- context/     # Pooled ActorContext implementation
 |-- dispatcher/  # Thread pool, work-stealing, adaptive, batch, dynamic
@@ -530,7 +530,7 @@ The typed runtime provides type-safe actor interactions:
 
 ## 6. Patterns Layer
 
-**Path:** `src/patterns/`
+**Path:** `modules/patterns/src/`
 **Files:** 13
 **Constraint:** Depends on Core and Runtime.
 
@@ -539,7 +539,7 @@ This layer implements well-known distributed-computing patterns on top of CActor
 ### 6.1 Module Structure
 
 ```
-src/patterns/
+modules/patterns/src/
 |-- ask/             # AskFuture<T>, AskPatternManager, AskReplyActor
 |-- backpressure/   # Drop, Block, Buffer, Reject, Throttle strategies
 |-- circuit_breaker/ # Three-state circuit breaker
@@ -630,7 +630,7 @@ The router creates a **RouterActorRef** which multiplexes messages to the manage
 
 ## 7. Distribution Layer
 
-**Path:** `src/distribution/`
+**Path:** `modules/distribution/src/`
 **Files:** 21
 **Constraint:** Depends on Runtime and Patterns.
 
@@ -639,7 +639,7 @@ The Distribution layer enables CActor to span multiple nodes and persist actor s
 ### 7.1 Module Structure
 
 ```
-src/distribution/
+modules/distribution/src/
 |-- cluster/     # ShardCoordinator, ShardAllocationStrategy
 |-- persistence/ # EventStore, PersistentEvent, PersistentActor
 |-- remote/      # Simple remote actor communication
@@ -715,7 +715,7 @@ Distributed stream processing enables high-throughput, low-latency data pipeline
 
 ## 8. Integration Layer
 
-**Path:** `src/integration/`
+**Path:** `modules/integration/src/`
 **Files:** 28
 **Constraint:** Depends on all layers below.
 
@@ -724,7 +724,7 @@ The Integration layer connects CActor with external systems and testing infrastr
 ### 8.1 Module Structure
 
 ```
-src/integration/
+modules/integration/src/
 |-- configuration/  # ConfigurationManager, ConfigValue, GlobalConfigManager
 +-- testing/        # TestActorSystem, TestProbe, TestTimeController
 ```
@@ -768,7 +768,7 @@ probe.expectNoMsg(100.ms)
 
 ## 9. API Layer
 
-**Path:** `src/api/`
+**Path:** `modules/cactor/src/api/`
 **Files:** 13
 **Constraint:** Public API. Depends on all layers.
 
@@ -777,7 +777,7 @@ The API layer is the public face of CActor. It provides the cleanest entry point
 ### 9.1 Module Structure
 
 ```
-src/api/
+modules/cactor/src/api/
 |-- CActor             # Unified entry with system(), props()
 |-- CActorSystem       # actorOf(), typedActorOf(), createMessageBridge()
 |-- CActorFactory      # Factory pattern implementation
@@ -831,7 +831,7 @@ let bridge = system.createMessageBridge(actor, targetType)
 
 ## 10. Core Subsystems
 
-### 10.1 Streams (`src/streams/`)
+### 10.1 Streams (`modules/streams/src/`)
 
 Reactive stream processing with backpressure:
 
@@ -845,7 +845,7 @@ Built on CActor's dispatcher infrastructure, streams provide:
 - Materialized values.
 - GraphDSL for composing complex pipelines.
 
-### 10.2 XState (`src/xstate/`)
+### 10.2 XState (`modules/xstate/src/`)
 
 State machine integration providing:
 
@@ -853,7 +853,7 @@ State machine integration providing:
 - State transition logging.
 - Timed state transitions.
 
-### 10.3 Macros (`src/macros/`)
+### 10.3 Macros (`modules/macros/src/`)
 
 Compile-time code generation:
 
@@ -968,15 +968,15 @@ Supervision: OneForOne (maxRetries: 3, within: 1min)
 
 | Layer | Path | File Count |
 |---|---|---|
-| Foundation | `src/foundation/` | 33 |
-| Core | `src/core/` | 31 |
-| Runtime | `src/runtime/` | 63 |
-| Patterns | `src/patterns/` | 13 |
-| Distribution | `src/distribution/` | 21 |
-| Integration | `src/integration/` | 28 |
-| API | `src/api/` | 13 |
+| Foundation | `modules/foundation/src/` | 33 |
+| Core | `modules/core/src/` | 31 |
+| Runtime | `modules/runtime/src/` | 63 |
+| Patterns | `modules/patterns/src/` | 13 |
+| Distribution | `modules/distribution/src/` | 21 |
+| Integration | `modules/integration/src/` | 28 |
+| API | `modules/cactor/src/api/` | 13 |
 | **Total** | | **326** |
 
 ---
 
-*Document version 7.0 -- CActor 7.0*
+*Document version 1.2 -- CActor 1.2*

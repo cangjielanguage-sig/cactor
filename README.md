@@ -2,7 +2,7 @@
 
 > 🎯 **CActor** 是基于仓颉（Cangjie）语言实现的世界级高性能Actor系统，提供企业级特性和分布式能力。
 
-[![仓颉语言](https://img.shields.io/badge/仓颉-0.60.5-blue.svg)](https://cangjie-lang.cn/)
+[![仓颉语言](https://img.shields.io/badge/仓颉-1.2.0-blue.svg)](https://cangjie-lang.cn/)
 [![构建状态](https://img.shields.io/badge/构建-通过-brightgreen.svg)](https://github.com/your-repo/cactor)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](LICENSE)
 
@@ -73,7 +73,7 @@
 
 ### 环境要求
 
-- 仓颉语言 0.53.4+
+- 仓颉语言 1.2.0+
 - cjpm (仓颉包管理器)
 
 ### 安装构建
@@ -87,16 +87,16 @@ cd cactor
 cjpm build
 
 # 运行示例
-./target/release/bin/cactor.examples.hello_world_demo
+./target/release/bin/cactor_examples.hello_world_demo
 ```
 
 ### 你的第一个Actor
 
 ```cangjie
 import cactor.api.{CActor}
-import cactor.core.actor.{Actor}
-import cactor.core.message.{Message, StringMessage, MessageResult}
-import cactor.core.context.{ActorContext}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
 
 // 定义你的第一个Actor
 class HelloActor <: Actor {
@@ -408,31 +408,31 @@ let routerRef = RouterActorRef(router, "my-router")
 
 | 示例 | 描述 |
 |------|------|
-| [hello_world_demo](src/examples/hello_world_demo/main.cj) | 最简单的Actor入门 |
-| [ask_pattern_demo](src/examples/ask_pattern_demo/main.cj) | Ask请求-响应模式 |
-| [api_demo](src/examples/api_demo/main.cj) | 完整API演示 |
+| [hello_world_demo](modules/examples/src/hello_world_demo/main.cj) | 最简单的Actor入门 |
+| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Ask请求-响应模式 |
+| [api_demo](modules/examples/src/api_demo/main.cj) | 完整API演示 |
 
 ### 高级特性
 
 | 示例 | 描述 |
 |------|------|
-| [advanced_dispatcher_examples](src/examples/advanced_dispatcher_examples/main.cj) | 多种调度器演示 |
-| [advanced_mailbox_examples](src/examples/advanced_mailbox_examples/main.cj) | 多种邮箱实现 |
-| [typed_actor_demo](src/examples/typed_actor_demo/main.cj) | 类型安全Actor |
-| [circuit_breaker_demo](src/examples/circuit_breaker_demo/main.cj) | 断路器使用 |
+| [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | 多种调度器演示 |
+| [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | 多种邮箱实现 |
+| [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | 类型安全Actor |
+| [circuit_breaker_demo](modules/examples/src/circuit_breaker_demo/main.cj) | 断路器使用 |
 
 ### 分布式示例
 
 | 示例 | 描述 |
 |------|------|
-| [cluster_sharding_demo](src/examples/cluster_sharding_demo/main.cj) | 集群分片 |
-| [persistence_demo](src/examples/persistence_demo/main.cj) | 事件溯源持久化 |
+| [cluster_sharding_demo](modules/examples/src/cluster_sharding_demo/main.cj) | 集群分片 |
+| [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源持久化 |
 
 ### 性能示例
 
 | 示例 | 描述 |
 |------|------|
-| [benchmark_demo](src/examples/benchmark_demo/main.cj) | 性能基准测试 |
+| [benchmark_demo](modules/examples/src/benchmark_demo/main.cj) | 性能基准测试 |
 
 ---
 
@@ -472,10 +472,10 @@ let routerRef = RouterActorRef(router, "my-router")
 
 ```bash
 # 简化基准测试
-./target/release/bin/cactor.integration.testing.simple_benchmark_test
+./target/release/bin/cactor_integration.testing.simple_benchmark_test
 
 # 完整基准测试
-./target/release/bin/cactor.examples.benchmark_demo
+./target/release/bin/cactor_examples.benchmark_demo
 ```
 
 ---
@@ -568,7 +568,7 @@ let routerRef = RouterActorRef(router, "my-router")
 cjpm test
 
 # 运行性能测试
-./target/release/bin/cactor.integration.testing.simple_benchmark_test
+./target/release/bin/cactor_integration.testing.simple_benchmark_test
 ```
 
 ---

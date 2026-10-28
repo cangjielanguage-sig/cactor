@@ -2,11 +2,11 @@
 
 ## 🎯 项目概述
 
-CActor XState是基于仓颉0.60.5语言特性和CActor框架构建的企业级状态机和状态图系统，充分利用仓颉语言的现代特性、Actor模型的并发性、容错性和分布式特性，提供比传统XState更强大、更安全、更高性能的状态管理能力。
+CActor XState是基于仓颉1.2.0语言特性和CActor框架构建的企业级状态机和状态图系统，充分利用仓颉语言的现代特性、Actor模型的并发性、容错性和分布式特性，提供比传统XState更强大、更安全、更高性能的状态管理能力。
 
 ### 🚀 核心设计理念
 
-1. **仓颉语言优先** - 充分利用仓颉0.60.5的现代语言特性
+1. **仓颉语言优先** - 充分利用仓颉1.2.0的现代语言特性
    - **强类型系统** - 编译时类型安全和智能推导
    - **模式匹配** - 优雅的状态转换和事件处理
    - **泛型系统** - 类型安全的状态机定义
@@ -39,7 +39,7 @@ CActor XState是基于仓颉0.60.5语言特性和CActor框架构建的企业级�
 
 ## 🏗️ 基于仓颉语言特性的架构设计
 
-### 🔧 仓颉0.60.5语言特性利用
+### 🔧 仓颉1.2.0语言特性利用
 
 #### 1. 强类型系统和泛型
 ```cangjie
@@ -804,10 +804,10 @@ where TState <: Enum, TEvent <: StateMachineEvent, TContext <: Equatable {
 - **类型推导** - 编译时类型检查，运行时零开销
 - **宏展开** - 编译时代码生成，零运行时开销
 
-## 🔧 基于仓颉0.60.5的现代技术栈
+## 🔧 基于仓颉1.2.0的现代技术栈
 
 ### 🔤 仓颉语言核心技术
-- **仓颉0.60.5** - 主要开发语言，利用最新语言特性
+- **仓颉1.2.0** - 主要开发语言，利用最新语言特性
 - **强类型系统** - 泛型、类型约束、类型推导
 - **模式匹配** - 优雅的控制流和数据解构
 - **宏系统** - 编译时代码生成和DSL支持
@@ -842,7 +842,7 @@ where TState <: Enum, TEvent <: StateMachineEvent, TContext <: Equatable {
 
 ### 1. 🔤 强类型状态机定义（利用仓颉泛型和枚举）
 ```cangjie
-import cactor.xstate.{StateMachine, StateMachineActor}
+import cactor_xstate.{StateMachine, StateMachineActor}
 import cactor.api.{CActor}
 
 // 强类型状态定义
@@ -1142,7 +1142,7 @@ let parallelMachine = StateMachine.create<WordContext, WordEvent> {
 ## 🔮 基于仓颉语言生态的未来规划
 
 ### 🎯 短期目标（6个月）- 仓颉语言特性深度利用
-1. **仓颉语言特性完整利用** - 充分发挥仓颉0.60.5的所有现代特性
+1. **仓颉语言特性完整利用** - 充分发挥仓颉1.2.0的所有现代特性
    - 完善泛型系统和类型约束
    - 深度利用模式匹配和when子句
    - 完整的宏系统和DSL支持
@@ -1315,7 +1315,7 @@ public class EventProcessor<TContext, TEvent> {
 
 ## 📋 项目总结
 
-**CActor XState** 是一个基于仓颉0.60.5语言特性和CActor框架的下一代状态机系统，代表了状态机技术的最新发展方向。
+**CActor XState** 是一个基于仓颉1.2.0语言特性和CActor框架的下一代状态机系统，代表了状态机技术的最新发展方向。
 
 ### 🎯 核心优势
 
@@ -1417,7 +1417,7 @@ public class EventProcessor<TContext, TEvent> {
 
 #### 🏗️ 第三阶段：架构优化 - **已完成** ✅
 
-1. **仓颉0.60.5语言特性充分利用** ✅
+1. **仓颉1.2.0语言特性充分利用** ✅
    - ✅ 泛型系统 - `StateMachine<TState, TEvent, TContext>`
    - ✅ 模式匹配 - 优雅的状态转换处理
    - ✅ 强类型系统 - 编译时类型安全保证
@@ -1429,7 +1429,7 @@ public class EventProcessor<TContext, TEvent> {
    - ✅ 内存优化的对象设计
    - ✅ 实时性能统计和监控
 
-### 🎉 当前实施状态 (v1.1.0)
+### 🎉 当前实施状态 (v1.2.0)
 
 **构建状态**: ✅ **完美成功** - 所有核心组件编译通过，无错误
 **测试状态**: ✅ **100%通过** - 所有验证测试全部通过
@@ -1495,7 +1495,7 @@ public class EventProcessor<TContext, TEvent> {
 ### 🏆 技术成就
 
 1. **🔤 仓颉语言特性充分利用**
-   - 成功展示了仓颉0.60.5的现代语言特性
+   - 成功展示了仓颉1.2.0的现代语言特性
    - 实现了编译时类型安全的状态机系统
    - 充分利用了模式匹配和泛型系统
 
@@ -1536,7 +1536,7 @@ public class EventProcessor<TContext, TEvent> {
 #### 🔧 技术挑战和解决方案
 
 1. **仓颉语言适配**
-   - **挑战**: 仓颉0.60.5的语法特性学习和适配
+   - **挑战**: 仓颉1.2.0的语法特性学习和适配
    - **解决**: 深入研究官方文档和示例代码，建立最佳实践
 
 2. **CActor集成**
@@ -1556,7 +1556,7 @@ public class EventProcessor<TContext, TEvent> {
   - ✅ 完整测试验证体系建立
   - ✅ 100%功能验证通过
 
-**CActor XState** 已成功实现了基于仓颉0.60.5语言特性和CActor框架的核心状态机功能，为后续的高级特性扩展和企业级功能开发奠定了坚实的基础！ 🚀
+**CActor XState** 已成功实现了基于仓颉1.2.0语言特性和CActor框架的核心状态机功能，为后续的高级特性扩展和企业级功能开发奠定了坚实的基础！ 🚀
 
 ---
 
@@ -1567,7 +1567,7 @@ public class EventProcessor<TContext, TEvent> {
 #### 1. **高级特性架构设计** - **已完成** ✅
 - ✅ 层次状态机架构设计 (`HierarchicalStateMachineActor`)
 - ✅ 并行状态机架构设计 (`ParallelStateMachineActor`)
-- ✅ 高级特性包结构规划 (`cactor.xstate.features.*`)
+- ✅ 高级特性包结构规划 (`cactor_xstate.features.*`)
 - ✅ 企业级扩展点设计
 
 #### 2. **DSL系统完善** - **已完成** ✅

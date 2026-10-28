@@ -2,7 +2,7 @@
 
 ## 📋 Deployment Overview
 
-CActor v7.0.0 supports a variety of deployment methods, from single-machine development environments to large-scale production clusters, offering flexible deployment options and configuration strategies.
+CActor v1.2.0 supports a variety of deployment methods, from single-machine development environments to large-scale production clusters, offering flexible deployment options and configuration strategies.
 
 ## 🏗️ Deployment Architecture
 
@@ -78,7 +78,7 @@ Suitable for large-scale production environments:
 ### Cangjie Language Environment
 
 ```bash
-# Install Cangjie language (0.60.5+)
+# Install Cangjie language (1.2.0+)
 # Please refer to the official documentation: https://cangjie-lang.cn/
 
 # Verify installation
@@ -108,19 +108,19 @@ cjpm test
 cjpm build --release
 
 # Verify build
-./target/release/bin/cactor.examples.hello_world_demo
+./target/release/bin/cactor_examples.hello_world_demo
 ```
 
 ### Packaging and Distribution
 
 ```bash
 # Create distribution package
-mkdir -p dist/cactor-v1.1.0
-cp -r target/release/* dist/cactor-v1.1.0/
-cp README.md LICENSE dist/cactor-v1.1.0/
+mkdir -p dist/cactor-v1.2.0
+cp -r target/release/* dist/cactor-v1.2.0/
+cp README.md LICENSE dist/cactor-v1.2.0/
 
 # Create compressed archive
-tar -czf cactor-v1.1.0.tar.gz -C dist cactor-v1.1.0
+tar -czf cactor-v1.2.0.tar.gz -C dist cactor-v1.2.0
 ```
 
 ## 🚀 Single-Node Deployment
@@ -129,8 +129,8 @@ tar -czf cactor-v1.1.0.tar.gz -C dist cactor-v1.1.0
 
 ```bash
 # 1. Extract distribution package
-tar -xzf cactor-v1.1.0.tar.gz
-cd cactor-v1.1.0
+tar -xzf cactor-v1.2.0.tar.gz
+cd cactor-v1.2.0
 
 # 2. Configure environment variables
 export CACTOR_HOME=$(pwd)
@@ -273,9 +273,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Cangjie language
-RUN wget https://releases.cangjie-lang.cn/cangjie-0.60.5-linux.tar.gz \
-    && tar -xzf cangjie-0.60.5-linux.tar.gz \
-    && mv cangjie-0.60.5 /opt/cangjie \
+RUN wget https://releases.cangjie-lang.cn/cangjie-1.2.0-linux.tar.gz \
+    && tar -xzf cangjie-1.2.0-linux.tar.gz \
+    && mv cangjie-1.2.0 /opt/cangjie \
     && ln -s /opt/cangjie/bin/cjpm /usr/local/bin/cjpm
 
 # Copy application
@@ -376,7 +376,7 @@ spec:
     spec:
       containers:
       - name: cactor
-        image: cactor:v1.1.0
+        image: cactor:v1.2.0
         ports:
         - containerPort: 2551
         - containerPort: 8080
@@ -526,6 +526,6 @@ cp -r /opt/cactor/logs $BACKUP_DIR/
 
 ---
 
-**CActor v7.0.0 - Enterprise Deployment, Production Ready!**
+**CActor v1.2.0 - Enterprise Deployment, Production Ready!**
 
 *Last Updated: May 6, 2026*

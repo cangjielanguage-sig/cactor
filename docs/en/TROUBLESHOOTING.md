@@ -412,8 +412,8 @@ When encountering problems, please provide the following information:
 
 ```
 ### Environment Information
-- CActor Version: v1.1.0
-- Cangjie Version: 0.60.5
+- CActor Version: v1.2.0
+- Cangjie Version: 1.2.0
 - Operating System: Ubuntu 20.04
 - Hardware: 8-core CPU, 16GB RAM
 
@@ -444,6 +444,6 @@ When encountering problems, please provide the following information:
 
 ---
 
-**CActor v1.1.0 - Quick Diagnosis, Efficient Resolution!**
+**CActor v1.2.0 - Quick Diagnosis, Efficient Resolution!**
 
 *Last Updated: July 3, 2025*

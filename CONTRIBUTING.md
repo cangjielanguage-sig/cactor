@@ -40,7 +40,7 @@ cd cactor
 git remote add upstream https://github.com/ORIGINAL_OWNER/cactor.git
 
 # 4. 安装依赖
-# 确保已安装仓颉 (Cangjie) 0.53.4+
+# 确保已安装仓颉 (Cangjie) 1.2.0+
 cjpm build
 ```
 
@@ -65,10 +65,10 @@ git checkout -b fix/issue-number-description
 cjpm build
 
 # 运行性能测试
-./target/release/bin/cactor.integration.testing.simple_realistic_benchmark
+./target/release/bin/cactor_integration.testing.simple_realistic_benchmark
 
 # 运行功能测试
-./target/release/bin/cactor.examples.hello_world
+./target/release/bin/cactor_examples.hello_world
 ```
 
 ### 4. 提交代码

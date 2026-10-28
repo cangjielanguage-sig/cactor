@@ -1,10 +1,10 @@
-# CActor - Modern Actor System for Cangjie Language (v1.1.0)
+# CActor - Modern Actor System for Cangjie Language (v1.2.0)
 
 ## 🎯 Project Overview
 
 CActor is a modern high-performance Actor system implemented in Cangjie language, providing complete Actor model implementation, enterprise-grade features, and distributed capabilities. The project adopts a 7-layer modular architecture design, supporting ultra-high concurrency and ultra-low latency message processing, making it an ideal choice for building distributed systems.
 
-## 🎉 v1.1.0 Major Update
+## 🎉 v1.2.0 Major Update
 
 ### ✅ Completed Enterprise Features
 - **Ask Pattern Enhancement** ✅ - Production-ready implementation, 657,894 req/s
@@ -87,7 +87,7 @@ CActor adopts a 6-layer modular architecture, ensuring clear separation of conce
 ## 📦 Quick Start
 
 ### Requirements
-- Cangjie 0.53.4+
+- Cangjie 1.2.0+
 - cjpm (Cangjie Package Manager)
 
 ### Installation & Build
@@ -100,7 +100,7 @@ cd cangjie
 cjpm build
 
 # Run performance tests
-./target/release/bin/cactor.integration.testing.simple_benchmark_test
+./target/release/bin/cactor_integration.testing.simple_benchmark_test
 ```
 
 ### Simple Example

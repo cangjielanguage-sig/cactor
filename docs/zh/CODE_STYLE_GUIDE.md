@@ -123,9 +123,9 @@ let actorSystemName: String = "CActor"
 
 ```cangjie
 // 正确示例
-package cactor.core.actor
-package cactor.runtime.dispatcher
-package cactor.patterns.ask
+package cactor_core.actor
+package cactor_runtime.dispatcher
+package cactor_patterns.ask
 package cactor.utils.collection
 
 // 错误示例
@@ -231,9 +231,9 @@ import std.collection.*
 import std.convert.*
 
 // 2. CActor核心模块导入
-import cactor.core.message.*
-import cactor.core.context.*
-import cactor.core.actor.*
+import cactor_core.message.*
+import cactor_core.context.*
+import cactor_core.actor.*
 
 // 3. 第三方库导入（如果有）
 

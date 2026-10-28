@@ -1,8 +1,8 @@
-# 🚀 CActor Features Guide (v1.1.0)
+# 🚀 CActor Features Guide (v1.2.0)
 
 ## 📋 Overview
 
-CActor v1.1.0 provides a complete enterprise-grade Actor system with core Actor models, advanced patterns, distributed capabilities, and state management.
+CActor v1.2.0 provides a complete enterprise-grade Actor system with core Actor models, advanced patterns, distributed capabilities, and state management.
 
 ## ✅ Completed Core Features
 
@@ -178,4 +178,4 @@ Ask.askAsync(actor, message, timeout,
 
 ---
 
-**CActor v1.1.0 - Full-featured, excellent performance, production-ready!** 🚀
+**CActor v1.2.0 - Full-featured, excellent performance, production-ready!** 🚀
