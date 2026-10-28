@@ -14,6 +14,7 @@ cactor = { path = "../cactor" }
 cactor_macros = { path = "../macros" }
 cactor_streams = { path = "../streams" }
 cactor_persistence = { path = "../persistence" }
+cactor_remote = { path = "../remote" }
 cactor_cluster = { path = "../cluster" }
 cactor_xstate = { path = "../xstate" }
 cactor_integration = { path = "../integration" }
@@ -130,4 +131,7 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.xstate_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real_benchmark"]
 output-type = "executable"

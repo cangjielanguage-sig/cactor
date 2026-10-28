@@ -36,10 +36,6 @@ func getCurrentTimeNanos(): Int64 {
  * }
  */
 public macro handler(input: Tokens): Tokens {
-    println("🔧 @handler宏被调用 - 类型安全消息处理器")
-    println("[HANDLER-MACRO] 收集消息类型信息用于类型安全")
-    println("[HANDLER-MACRO] 注入性能监控和错误处理")
-    println("[HANDLER-MACRO] 生成编译时类型检查")
 
     // 返回增强的处理方法，添加类型安全包装
     return quote(
@@ -69,10 +65,6 @@ public macro handler(input: Tokens): Tokens {
  * }
  */
 public macro actor(input: Tokens): Tokens {
-    println("🔧 @actor宏被调用 - 真正的Actor类增强")
-    println("[ACTOR-MACRO] 注入Actor增强功能")
-    println("[ACTOR-MACRO] 生成智能receive方法")
-    println("[ACTOR-MACRO] 添加性能监控和生命周期管理")
 
     // 基于仓颉宏系统限制的实际实现：提供编译时增强和调试
     return quote(
@@ -94,8 +86,6 @@ public macro actor(input: Tokens): Tokens {
  * let actor = system.actorOf(props, "myactor")
  */
 public macro props(actorType: Tokens): Tokens {
-    println("🔧 @props宏被调用 - 创建优化的Props配置")
-    println("[PROPS-MACRO] 为Actor类型生成Props工厂")
 
     return quote(
         {
@@ -119,7 +109,6 @@ public macro props(actorType: Tokens): Tokens {
  * let system = @actor_system("ProductionSystem") // 自动应用生产配置
  */
 public macro actor_system(name: Tokens): Tokens {
-    println("🔧 @actor_system宏被调用 - 创建企业级ActorSystem")
     return quote(
         cactor.api.CActor.system($(name))
     )
@@ -129,7 +118,6 @@ public macro actor_system(name: Tokens): Tokens {
  * 消息处理宏 - 基于CActor的Message接口和MessageResult
  */
 public macro message_handler(input: Tokens): Tokens {
-    println("message_handler宏被调用 - 基于CActor.Message系统")
     return input
 }
 
@@ -146,7 +134,6 @@ public macro message_handler(input: Tokens): Tokens {
  * let result = message_route!(message, context)
  */
 public macro message_route(message: Tokens, context: Tokens): Tokens {
-    println("🔧 @message_route宏被调用 - 智能消息路由")
     return quote(
         {
             let msg = $(message)
@@ -211,7 +198,6 @@ public macro message_route(message: Tokens, context: Tokens): Tokens {
  * 生命周期状态机宏 - 基于CActor的ActorLifecycleState
  */
 public macro state_machine(input: Tokens): Tokens {
-    println("state_machine宏被调用 - 基于CActor.ActorLifecycleState")
     return input
 }
 
@@ -219,7 +205,6 @@ public macro state_machine(input: Tokens): Tokens {
  * 路由器宏 - 基于CActor的路由系统
  */
 public macro router(input: Tokens): Tokens {
-    println("router宏被调用 - 基于CActor.patterns.routing")
     return input
 }
 
@@ -328,7 +313,6 @@ public macro safe_execute(code: Tokens): Tokens {
  * repeat_times!(1000, { actor.tell(message) })
  */
 public macro repeat_times(count: Tokens, code: Tokens): Tokens {
-    println("🔧 @repeat_times宏被调用 - 生成重复执行代码")
 
     return quote(
         {
@@ -364,7 +348,6 @@ public macro repeat_times(count: Tokens, code: Tokens): Tokens {
  * batch_create_actors!(10)
  */
 public macro batch_create_actors(count: Tokens): Tokens {
-    println("🔧 @batch_create_actors宏被调用 - 生成批量创建代码")
 
     return quote(
         {
@@ -399,7 +382,6 @@ public macro batch_create_actors(count: Tokens): Tokens {
  * let result = smart_route!(message, context)
  */
 public macro smart_route(message: Tokens, context: Tokens): Tokens {
-    println("🔧 @smart_route宏被调用 - 生成智能消息路由")
 
     return quote(
         {
@@ -455,7 +437,6 @@ public macro smart_route(message: Tokens, context: Tokens): Tokens {
  * generate_receive_method!()
  */
 public macro generate_receive_method(input: Tokens): Tokens {
-    println("🔧 @generate_receive_method宏被调用 - 生成receive方法")
 
     return quote(
         public func receive(message: cactor_core.message.Message, context: cactor_core.context.ActorContext): cactor_core.message.MessageResult {
@@ -512,7 +493,6 @@ public macro generate_receive_method(input: Tokens): Tokens {
  * actor_enhance!(actorName)
  */
 public macro actor_enhance(actorName: Tokens): Tokens {
-    println("🔧 @actor_enhance宏被调用 - 生成Actor增强方法")
 
     return quote(
         // 生成Actor统计方法
@@ -589,10 +569,6 @@ public macro actor_enhance(actorName: Tokens): Tokens {
  * typed_actor!(MyActor, [StringMessage, PingMessage, StopMessage])
  */
 public macro typed_actor(actorClass: Tokens, messageTypes: Tokens): Tokens {
-    println("🔧 @typed_actor宏被调用 - 生成类型安全Actor")
-    println("[TYPED-ACTOR] 生成类型安全的receive方法")
-    println("[TYPED-ACTOR] 创建消息类型路由表")
-    println("[TYPED-ACTOR] 添加编译时类型检查")
 
     return quote(
         // 为Actor类生成类型安全的receive方法
@@ -673,10 +649,6 @@ public macro typed_actor(actorClass: Tokens, messageTypes: Tokens): Tokens {
  * }
  */
 public macro typed_actor(input: Tokens): Tokens {
-    println("🔧 @typed_actor宏被调用 - 集成TypedBehavior系统")
-    println("[TYPED-ACTOR] 启用类型安全Actor")
-    println("[TYPED-ACTOR] 集成现有TypedBehavior接口")
-    println("[TYPED-ACTOR] 生成编译时类型检查")
 
     return quote(
         $(input)

@@ -24,7 +24,7 @@ members = [
 ]
 build-members = []
 test-members = []
-compile-option = "-Woff unused -Woff parser --diagnostic-format=noColor"
+compile-option = "-O2 -Woff unused -Woff parser --diagnostic-format=noColor"
 override-compile-option = ""
 link-option = ""
 target-dir = ""
