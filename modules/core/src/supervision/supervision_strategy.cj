@@ -10,34 +10,8 @@ import std.time.*
 import std.collection.*
 import std.collection.concurrent.*
 import cactor_core.actor.{ActorRef}
-
-/**
- * 监督指令
- * 定义当Actor失败时应该采取的行动
- */
-public enum SupervisionDirective {
-    | Resume      // 恢复Actor，忽略失败
-    | Restart     // 重启Actor
-    | Stop        // 停止Actor
-    | Escalate    // 将失败上报给上级监督者
-}
-
-/**
- * Actor失败信息
- */
-public struct ActorFailure {
-    public let actor: ActorRef
-    public let cause: Exception
-    public let timestamp: Int64
-    public let failureCount: Int64
-
-    public init(actor: ActorRef, cause: Exception, failureCount: Int64) {
-        this.actor = actor
-        this.cause = cause
-        this.timestamp = DateTime.now().toUnixTimeStamp().toMilliseconds()
-        this.failureCount = failureCount
-    }
-}
+// 监督的核心类型定义在 cactor_core.actor（供 Actor / Props 引用而不成环），这里重导出以保持兼容
+public import cactor_core.actor.{SupervisionDirective, ActorFailure, SupervisionStrategy}
 
 /**
  * 重试信息
@@ -94,16 +68,6 @@ public class RetryInfo {
     public func getRetryCount(): Int64 {
         retryCount.load()
     }
-}
-
-/**
- * 监督策略接口
- */
-public interface SupervisionStrategy {
-    /**
-     * 决定如何处理Actor失败
-     */
-    func decide(failure: ActorFailure): SupervisionDirective
 }
 
 /**
@@ -199,6 +163,10 @@ public class OneForAllStrategy <: SupervisionStrategy {
 
     public func resetRetryInfo(): Unit {
         globalRetryInfo.reset()
+    }
+
+    public func appliesToAllChildren(): Bool {
+        true
     }
 }
 

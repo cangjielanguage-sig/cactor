@@ -46,6 +46,20 @@ public interface ActorRef {
      * @return 哈希码
      */
     func hashCode(): Int32
+
+    /**
+     * 携带发送方引用发送：接收方可以通过 context.senderRef() / context.reply 回复。
+     * 默认实现只传递发送方路径；运行时的 Actor Cell 会保留完整引用。
+     */
+    func tell(message: Message, sender: ActorRef): Unit {
+        tell(message, Some(sender.path.toString()))
+    }
+
+    /** tell 的运算符写法：`ref << msg`，可以链式书写 `ref << a << b` */
+    operator func <<(message: Message): ActorRef {
+        tell(message)
+        this
+    }
 }
 
 /**

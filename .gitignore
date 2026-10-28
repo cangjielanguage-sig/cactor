@@ -44,7 +44,7 @@ notepad
 # 日志文件
 *.log
 logs/
-plan*
+/plan*
 !docs/plan/
 !docs/plan/*.md
 # 测试输出

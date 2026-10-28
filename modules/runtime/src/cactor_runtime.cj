@@ -7,7 +7,9 @@ package cactor_runtime
 
 import std.sync.*
 import std.time.*
+import cactor_foundation.logging.{Logging}
 import cactor_core.actor.{Actor, ActorRef, Props}
+import cactor_core.message.{Message}
 import cactor_core.system.{ActorSystem}
 import cactor_runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian}
 import cactor_runtime.system.{HighPerformanceActorSystem, HighPerformanceActorSystemConfig, SystemStats}
@@ -27,6 +29,9 @@ import cactor_runtime.events.{SimpleActorEventBus}
 import cactor_core.supervision.{SupervisionStrategy}
 import cactor_runtime.supervision.{SimpleSupervisionStrategy}
 
+
+
+let runtimeLog = Logging.logger("cactor.runtime")
 
 /**
  * CActorRuntime - 统一运行时管理器
@@ -108,6 +113,8 @@ public class CActorRuntime {
      */
     public func start(): Unit {
         if (isRunning.compareAndSwap(false, true)) {
+            // 顶层 Actor 自行停止时（PoisonPill、MessageResult.Stop、监督 Stop 等）清理登记信息
+            userGuardian.setTopLevelTerminatedHook({ ref => this.onTopLevelTerminated(ref) })
             startTime.store(getCurrentTimeNanos())
 
             // 启动高性能系统
@@ -128,10 +135,7 @@ public class CActorRuntime {
             // 注册 CoordinatedShutdown 阶段任务（只注册一次）
             registerCoordinatedShutdownTasks()
 
-            println("🚀 CActorRuntime启动成功")
-            println("  系统名称: ${systemName}")
-            println("  启动时间: ${DateTime.now()}")
-            println("  配置: ${config.getDescription()}")
+            runtimeLog.info("CActorRuntime 启动: 系统=${systemName}，配置=${config.getDescription()}")
         }
     }
 
@@ -150,7 +154,7 @@ public class CActorRuntime {
             // 停止所有Guardian（后续在协调关闭中接入）
             // systemGuardian 和 userGuardian 的停止逻辑
 
-            println("🛑 CActorRuntime已停止")
+            runtimeLog.info("CActorRuntime 已停止: ${systemName}")
         }
     }
 
@@ -197,6 +201,29 @@ public class CActorRuntime {
         return actorOf(props, autoName)
     }
 
+    /** 顶层 Actor 自行停止后的清理（由用户 Guardian 回调） */
+    private func onTopLevelTerminated(actorRef: ActorRef): Unit {
+        actorRegistry.unregister(actorRef)
+        lifecycleManager.unregisterActor(actorRef)
+        systemMetrics.decrementActorCount()
+        actorCount.fetchAdd(-1)
+    }
+
+    /** 按路径查找存活的 Actor（含子 Actor），例如 "/user/parent/child" */
+    public func lookup(path: String): Option<ActorRef> {
+        userGuardian.lookup(path)
+    }
+
+    /** 订阅死信：参数为消息和原目标路径 */
+    public func subscribeDeadLetters(listener: (Message, String) -> Unit): Unit {
+        userGuardian.subscribeDeadLetters(listener)
+    }
+
+    /** 系统内累计的死信数 */
+    public func deadLetterCount(): Int64 {
+        userGuardian.deadLetterCount()
+    }
+
     /**
      * 停止Actor
      */
@@ -221,36 +248,36 @@ public class CActorRuntime {
      * 恢复Actor
      */
     public func resumeActor(actorRef: ActorRef): Unit {
-        println("恢复Actor: ${actorRef.path.toString()}")
+        runtimeLog.debug("恢复Actor: ${actorRef.path.toString()}")
 
         // 简化实现：记录恢复操作
-        println("Actor已恢复")
+        
     }
 
     /**
      * 停止Actor（重命名以避免冲突）
      */
     public func stopActor(actorRef: ActorRef): Unit {
-        println("停止Actor: ${actorRef.path.toString()}")
+        runtimeLog.debug("停止Actor: ${actorRef.path.toString()}")
 
         // 调用原有的stop方法
         stop(actorRef)
 
         // 简化实现：记录停止操作
-        println("Actor已停止")
+        
     }
 
     /**
      * 重启Actor（重命名以避免冲突）
      */
     public func restartActor(actorRef: ActorRef): Unit {
-        println("重启Actor: ${actorRef.path.toString()}")
+        runtimeLog.debug("重启Actor: ${actorRef.path.toString()}")
 
         // 调用原有的restart方法
         restart(actorRef, Exception("Supervision restart"))
 
         // 简化实现：记录重启操作
-        println("Actor已重启")
+        
     }
 
     /**
@@ -380,7 +407,7 @@ public class CActorRuntime {
         // service-unbind: 停止 DispatcherPool
         cs.registerTask("service-unbind", { =>
             try { dispatcherPool.shutdown() } catch (e: Exception) {
-                println("[CS] dispatcherPool.shutdown failed: ${e.message}")
+                runtimeLog.warn("dispatcherPool.shutdown 失败: ${e.message}")
             }
         })
         // service-stop: 预留调度器/定时器停止点（当前无全局 Scheduler 实例）
@@ -393,7 +420,7 @@ public class CActorRuntime {
             try {
                 runtimeMailboxFactory.shutdown()
             } catch (e: Exception) {
-                println("[CS] runtimeMailboxFactory.shutdown failed: ${e.message}")
+                runtimeLog.warn("runtimeMailboxFactory.shutdown 失败: ${e.message}")
             }
         })
     }
