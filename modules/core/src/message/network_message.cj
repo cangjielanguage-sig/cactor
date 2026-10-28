@@ -6,6 +6,8 @@
 package cactor_core.message
 
 import std.collection.*
+import std.sync.*
+import std.time.*
 import cactor_foundation.network.{NetworkTransport, TcpTransport, UdpTransport, NetworkAddress}
 import cactor_foundation.serialization.SerializationManager
 
@@ -21,21 +23,26 @@ public struct NetworkMessage {
     public let timestamp: Int64
 
     public init(targetActor: String, message: Message, sender: Option<String>) {
+        this(targetActor, message, sender, NetworkMessage.generateMessageId(), NetworkMessage.getCurrentTimeNanos())
+    }
+
+    /** 反序列化时使用：保留发送方的消息 ID 与时间戳 */
+    public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64) {
         this.targetActor = targetActor
         this.message = message
         this.sender = sender
-        this.messageId = NetworkMessage.generateMessageId()
-        this.timestamp = NetworkMessage.getCurrentTimeNanos()
+        this.messageId = messageId
+        this.timestamp = timestamp
     }
 
+    private static let idSequence: AtomicInt64 = AtomicInt64(0)
+
     private static func generateMessageId(): String {
-        // 简化的消息ID生成
-        "msg_${getCurrentTimeNanos()}"
+        "msg-${getCurrentTimeNanos()}-${idSequence.fetchAdd(1)}"
     }
 
     private static func getCurrentTimeNanos(): Int64 {
-        // 简化实现
-        1000000000
+        DateTime.now().toUnixTimeStamp().toNanoseconds()
     }
 }
 
@@ -104,48 +111,33 @@ public class NetworkMessageSerializer {
      * 反序列化网络消息
      */
     public func deserialize(data: Array<UInt8>): NetworkMessage {
-        if (data.size < 4) {
-            throw NetworkMessageException("数据不完整")
-        }
-        
-        var offset = 0
-        
-        // 读取目标Actor
-        let targetLength = readInt32(data, offset)
-        offset += 4
-        let targetBytes = data.slice(Int64(offset), Int64(offset) + Int64(targetLength))
-        let targetActor = serializationManager.deserializeString(targetBytes)
-        offset += Int64(targetLength)
-        
-        // 读取发送者
-        let senderLength = readInt32(data, offset)
-        offset += 4
-        let senderBytes = data.slice(Int64(offset), Int64(offset) + Int64(senderLength))
-        let senderStr = serializationManager.deserializeString(senderBytes)
+        var offset: Int64 = 0
+        let targetActor = serializationManager.deserializeString(readBlock(data, offset))
+        offset += 4 + Int64(readInt32(data, offset))
+        let senderStr = serializationManager.deserializeString(readBlock(data, offset))
+        offset += 4 + Int64(readInt32(data, offset))
         let sender: Option<String> = if (senderStr.isEmpty()) { None } else { Some(senderStr) }
-        offset += Int64(senderLength)
-        
-        // 读取消息ID
-        let messageIdLength = readInt32(data, offset)
-        offset += 4
-        let messageIdBytes = data.slice(Int64(offset), Int64(offset) + Int64(messageIdLength))
-        let messageId = serializationManager.deserializeString(messageIdBytes)
-        offset += Int64(messageIdLength)
-        
-        // 读取时间戳
-        let timestampBytes = data.slice(Int64(offset), Int64(offset) + 8)
-        let timestamp = serializationManager.deserializeInt(timestampBytes)
+        let messageId = serializationManager.deserializeString(readBlock(data, offset))
+        offset += 4 + Int64(readInt32(data, offset))
+        if (data.size < offset + 8) {
+            throw NetworkMessageException("时间戳数据不完整")
+        }
+        let timestamp = serializationManager.deserializeInt(data.slice(offset, 8))
         offset += 8
-        
-        // 读取消息内容
-        let messageLength = readInt32(data, offset)
-        offset += 4
-        let messageBytes = data.slice(Int64(offset), Int64(offset) + Int64(messageLength))
-        let message = messageSerializer.deserialize(messageBytes)
-        
-        // 创建NetworkMessage（简化实现）
-        let networkMessage = NetworkMessage(targetActor, message, sender)
-        networkMessage
+        let message = messageSerializer.deserialize(readBlock(data, offset))
+        NetworkMessage(targetActor, message, sender, messageId, timestamp)
+    }
+
+    /** 读取 offset 处的 [4 字节长度 + 数据] 块，越界时抛出异常 */
+    private func readBlock(data: Array<UInt8>, offset: Int64): Array<UInt8> {
+        if (data.size < offset + 4) {
+            throw NetworkMessageException("数据不完整：缺少长度字段（offset=${offset}）")
+        }
+        let len = Int64(readInt32(data, offset))
+        if (len < 0 || data.size < offset + 4 + len) {
+            throw NetworkMessageException("数据不完整：需要 ${len} 字节（offset=${offset}，总长 ${data.size}）")
+        }
+        data.slice(offset + 4, len)
     }
 
     private func writeInt32(buffer: ArrayList<UInt8>, value: Int32): Unit {

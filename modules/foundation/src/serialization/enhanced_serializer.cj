@@ -230,85 +230,17 @@ public class EnhancedStringSerializer <: EnhancedSerializer<String> {
     
     // 辅助方法
     private func stringToUtf8Bytes(str: String): Array<UInt8> {
-        let bytes = ArrayList<UInt8>()
-        for (i in 0..str.size) {
-            let char = str[i]
-            let runeValue = Int32(char)
-            
-            if (runeValue <= 0x7F) {
-                // ASCII字符 (0-127)
-                bytes.add(UInt8(runeValue))
-            } else if (runeValue <= 0x7FF) {
-                // 2字节UTF-8
-                bytes.add(UInt8(0xC0 | (runeValue >> 6)))
-                bytes.add(UInt8(0x80 | (runeValue & 0x3F)))
-            } else if (runeValue <= 0xFFFF) {
-                // 3字节UTF-8
-                bytes.add(UInt8(0xE0 | (runeValue >> 12)))
-                bytes.add(UInt8(0x80 | ((runeValue >> 6) & 0x3F)))
-                bytes.add(UInt8(0x80 | (runeValue & 0x3F)))
-            } else {
-                // 4字节UTF-8
-                bytes.add(UInt8(0xF0 | (runeValue >> 18)))
-                bytes.add(UInt8(0x80 | ((runeValue >> 12) & 0x3F)))
-                bytes.add(UInt8(0x80 | ((runeValue >> 6) & 0x3F)))
-                bytes.add(UInt8(0x80 | (runeValue & 0x3F)))
-            }
-        }
-        bytes.toArray()
+        // UTF-8 编码
+        str.toArray()
     }
     
     private func utf8BytesToString(data: Array<UInt8>): String {
-        let chars = ArrayList<Rune>()
-        var i = 0
-        
-        while (i < data.size) {
-            let byte1 = data[i]
-            
-            if (byte1 <= 0x7F) {
-                // ASCII字符
-                chars.add(Rune(Int32(byte1)))
-                i += 1
-            } else if ((byte1 & 0xE0) == 0xC0) {
-                // 2字节UTF-8
-                if (i + 1 >= data.size) {
-                    i = data.size  // 退出循环
-                } else {
-                    let byte2 = data[i + 1]
-                    let codepoint = ((Int32(byte1) & 0x1F) << 6) | (Int32(byte2) & 0x3F)
-                    chars.add(Rune(codepoint))
-                    i += 2
-                }
-            } else if ((byte1 & 0xF0) == 0xE0) {
-                // 3字节UTF-8
-                if (i + 2 >= data.size) {
-                    i = data.size  // 退出循环
-                } else {
-                    let byte2 = data[i + 1]
-                    let byte3 = data[i + 2]
-                    let codepoint = ((Int32(byte1) & 0x0F) << 12) | ((Int32(byte2) & 0x3F) << 6) | (Int32(byte3) & 0x3F)
-                    chars.add(Rune(codepoint))
-                    i += 3
-                }
-            } else if ((byte1 & 0xF8) == 0xF0) {
-                // 4字节UTF-8
-                if (i + 3 >= data.size) {
-                    i = data.size  // 退出循环
-                } else {
-                    let byte2 = data[i + 1]
-                    let byte3 = data[i + 2]
-                    let byte4 = data[i + 3]
-                    let codepoint = ((Int32(byte1) & 0x07) << 18) | ((Int32(byte2) & 0x3F) << 12) | ((Int32(byte3) & 0x3F) << 6) | (Int32(byte4) & 0x3F)
-                    chars.add(Rune(codepoint))
-                    i += 4
-                }
-            } else {
-                // 无效字节，跳过
-                i += 1
-            }
+        // UTF-8 解码；非法字节序列抛出 DeserializationException
+        try {
+            String.fromUtf8(data)
+        } catch (e: Exception) {
+            throw DeserializationException("非法的 UTF-8 数据: ${e.message}")
         }
-        
-        String(chars.toArray())
     }
     
     private func compressBytes(data: Array<UInt8>): Array<UInt8> {
@@ -679,28 +611,18 @@ func readInt64(data: Array<UInt8>, offset: Int64): Int64 {
 
 // 字符串转字节数组（简化实现）
 func stringToBytes(str: String): Array<UInt8> {
-    let bytes = ArrayList<UInt8>()
-    for (i in 0..str.size) {
-        let char = str[i]
-        let runeValue = Int32(char)
-        if (runeValue <= 127) {
-            bytes.add(UInt8(runeValue))
-        } else {
-            bytes.add(UInt8(63))  // '?' 字符作为替代
-        }
-    }
-    bytes.toArray()
+    // UTF-8 编码
+    str.toArray()
 }
 
 // 字节数组转字符串（简化实现）
 func bytesToString(data: Array<UInt8>): String {
-    let chars = ArrayList<Rune>()
-    for (byte in data) {
-        if (byte <= 127) {
-            chars.add(Rune(Int32(byte)))
-        }
+    // UTF-8 解码；非法字节序列抛出 DeserializationException
+    try {
+        String.fromUtf8(data)
+    } catch (e: Exception) {
+        throw DeserializationException("非法的 UTF-8 数据: ${e.message}")
     }
-    String(chars.toArray())
 }
 
 /**

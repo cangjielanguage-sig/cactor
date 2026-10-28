@@ -6,6 +6,7 @@
 package cactor_core.message
 
 import std.collection.*
+import std.sync.*
 import cactor_foundation.serialization.{Serializer, SerializationManager}
 
 /**
@@ -80,9 +81,17 @@ public class MessageSerializer <: Serializer<Message> {
                     case None => throw SerializationException("消息类型转换失败")
                 }
             case _ =>
-                throw SerializationException("不支持的消息类型: ${messageType}")
+                match (MessageCodecRegistry.get(messageType)) {
+                    case Some(codec) =>
+                        let payload = codec.encode(message)
+                        writeInt32(result, Int32(payload.size))
+                        for (byte in payload) {
+                            result.add(byte)
+                        }
+                    case None =>
+                        throw SerializationException("不支持的消息类型: ${messageType}（可通过 MessageCodecRegistry.register 注册编解码器）")
+                }
         }
-        
         result.toArray()
     }
 
@@ -168,7 +177,20 @@ public class MessageSerializer <: Serializer<Message> {
                 StopMessage(reason)
                 
             case _ =>
-                throw DeserializationException("不支持的消息类型: ${messageType}")
+                match (MessageCodecRegistry.get(messageType)) {
+                    case Some(codec) =>
+                        if (data.size < offset + 4) {
+                            throw DeserializationException("${messageType} 负载长度数据不完整")
+                        }
+                        let payloadLength = Int64(readInt32(data, offset))
+                        offset += 4
+                        if (payloadLength < 0 || data.size < offset + payloadLength) {
+                            throw DeserializationException("${messageType} 负载数据不完整")
+                        }
+                        codec.decode(data.slice(Int64(offset), payloadLength))
+                    case None =>
+                        throw DeserializationException("不支持的消息类型: ${messageType}")
+                }
         }
     }
 
@@ -229,6 +251,45 @@ public class MessageSerializer <: Serializer<Message> {
     private func isSpace(byte: UInt8): Bool {
         // 空格、制表符、换行符、回车符，以及其他控制字符(0-31)
         byte <= UInt8(32) || byte == UInt8(127)
+    }
+}
+
+/**
+ * 自定义消息编解码器
+ * 用于让用户定义的消息类型可以经由 MessageSerializer（以及远程传输）序列化
+ */
+public interface MessageCodec {
+    func encode(message: Message): Array<UInt8>
+    func decode(payload: Array<UInt8>): Message
+}
+
+/**
+ * 全局消息编解码器注册表（按 messageType() 区分，线程安全）
+ */
+public class MessageCodecRegistry {
+    private static let codecs: HashMap<String, MessageCodec> = HashMap<String, MessageCodec>()
+    private static let lock: Mutex = Mutex()
+
+    public static func register(messageType: String, codec: MessageCodec): Unit {
+        synchronized(lock) {
+            codecs[messageType] = codec
+        }
+    }
+
+    public static func unregister(messageType: String): Unit {
+        synchronized(lock) {
+            codecs.remove(messageType)
+        }
+    }
+
+    public static func get(messageType: String): Option<MessageCodec> {
+        synchronized(lock) {
+            codecs.get(messageType)
+        }
+    }
+
+    public static func isRegistered(messageType: String): Bool {
+        get(messageType).isSome()
     }
 }
 

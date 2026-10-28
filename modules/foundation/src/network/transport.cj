@@ -1,11 +1,19 @@
 /*
  * Copyright (c) 2024. All rights reserved.
  * Foundation Layer - 网络传输层
- * 提供TCP/UDP网络通信功能，零依赖的字节流传输
+ * 基于 std.net 的 TCP / UDP 字节传输
+ *
+ * TCP：长度前缀分帧（4 字节大端长度 + 负载），每个入站连接一个读协程，
+ *      出站连接按目标地址复用，写入按连接加锁，失败时重连重试一次
+ * UDP：一条消息一个数据报（最大 64KB）
  */
 package cactor_foundation.network
 
 import std.sync.*
+import std.net.*
+import std.time.*
+import std.convert.*
+import std.collection.*
 
 /**
  * 网络地址
@@ -23,20 +31,25 @@ public struct NetworkAddress {
         "${host}:${port}"
     }
 
+    /**
+     * 解析 "host:port"；缺少端口或端口非法时抛出 IllegalArgumentException
+     */
     public static func parse(address: String): NetworkAddress {
-        // 简化解析，假设格式为 "host:port"
-        // 由于仓颉字符串API限制，使用简化实现
-        if (address.contains(":")) {
-            NetworkAddress("localhost", 8080)
-        } else {
-            NetworkAddress("localhost", 8080)
+        match (address.lastIndexOf(":")) {
+            case Some(i) =>
+                let host = address[0..i]
+                let portText = address[i + 1..]
+                match (Int32.tryParse(portText)) {
+                    case Some(p) where p >= 0 && p <= 65535 && !host.isEmpty() => NetworkAddress(host, p)
+                    case _ => throw IllegalArgumentException("非法的网络地址: ${address}")
+                }
+            case None => throw IllegalArgumentException("非法的网络地址（缺少端口）: ${address}")
         }
     }
 }
 
 /**
  * 网络数据包
- * 包装要通过网络发送的原始数据
  */
 public struct NetworkPacket {
     public let targetAddress: String
@@ -51,7 +64,7 @@ public struct NetworkPacket {
 }
 
 /**
- * 传输协议类型
+ * 传输协议
  */
 public enum TransportProtocol {
     | TCP
@@ -59,205 +72,392 @@ public enum TransportProtocol {
 }
 
 /**
- * 网络传输接口 - 零依赖，只处理字节流
+ * 网络传输接口
  */
 public interface NetworkTransport {
-    /**
-     * 启动传输层
-     */
+    /** 开始监听本地地址 */
     func start(): Unit
 
-    /**
-     * 停止传输层
-     */
+    /** 停止监听并关闭所有连接 */
     func stop(): Unit
 
-    /**
-     * 发送数据到远程地址
-     */
+    /** 发送一条完整消息；失败时抛出异常 */
     func send(address: NetworkAddress, data: Array<UInt8>): Unit
 
-    /**
-     * 设置数据接收处理器
-     */
+    /** 设置收到完整消息时的回调 */
     func setDataHandler(handler: (Array<UInt8>) -> Unit): Unit
 
-    /**
-     * 获取本地地址
-     */
+    /** 实际监听地址（绑定端口 0 时返回系统分配的端口） */
     func getLocalAddress(): NetworkAddress
 
-    /**
-     * 检查是否正在运行
-     */
     func isActive(): Bool
 }
 
-/**
- * TCP传输实现 - 零依赖，只处理字节流
- */
-public class TcpTransport <: NetworkTransport {
-    private let localAddress: NetworkAddress
-    private let isRunning: AtomicBool
-    private var dataHandler: Option<(Array<UInt8>) -> Unit>
-    private let mutex: Mutex
+/** 帧大小上限，防止恶意或损坏的长度字段导致内存耗尽 */
+public let MAX_FRAME_SIZE: Int64 = 16 * 1024 * 1024
 
-    public init(localAddress: NetworkAddress) {
-        this.localAddress = localAddress
-        this.isRunning = AtomicBool(false)
-        this.dataHandler = None
-        this.mutex = Mutex()
-    }
+/** 出站连接 */
+class OutboundConnection {
+    let socket: TcpSocket
+    let writeLock: Mutex = Mutex()
 
-    public func start(): Unit {
-        if (isRunning.compareAndSwap(false, true)) {
-            println("TCP传输启动在地址: ${localAddress.toString()}")
-            
-            // 启动服务器监听
-            spawn {
-                startServer()
-            }
-        }
-    }
-
-    public func stop(): Unit {
-        if (isRunning.compareAndSwap(true, false)) {
-            println("TCP传输停止")
-        }
-    }
-
-    public func send(address: NetworkAddress, data: Array<UInt8>): Unit {
-        if (!isRunning.load()) {
-            throw Exception("传输层未启动")
-        }
-
-        try {
-            // 直接发送字节数据
-            sendPacket(address, data)
-            println("数据发送到 ${address.toString()}: ${data.size} 字节")
-        } catch (e: Exception) {
-            println("发送数据失败: ${e.message}")
-            throw e
-        }
-    }
-
-    public func setDataHandler(handler: (Array<UInt8>) -> Unit): Unit {
-        mutex.lock()
-        dataHandler = Some(handler)
-        mutex.unlock()
-    }
-
-    public func getLocalAddress(): NetworkAddress {
-        localAddress
-    }
-
-    public func isActive(): Bool {
-        isRunning.load()
-    }
-
-    private func startServer(): Unit {
-        println("TCP服务器开始监听端口: ${localAddress.port}")
-        
-        // 简化的服务器实现
-        while (isRunning.load()) {
-            try {
-                // 模拟接收连接和数据
-                sleep(Duration.millisecond * 100)
-                
-                // 这里应该是真正的socket监听代码
-                // 由于仓颉socket API的复杂性，这里使用简化实现
-                
-            } catch (e: Exception) {
-                if (isRunning.load()) {
-                    println("服务器错误: ${e.message}")
-                }
-            }
-        }
-        
-        println("TCP服务器停止监听")
-    }
-
-    private func sendPacket(address: NetworkAddress, data: Array<UInt8>): Unit {
-        // 简化的发送实现
-        // 在实际实现中，这里应该创建TCP连接并发送数据
-        println("TCP发送${data.size}字节到${address.toString()}")
+    init(socket: TcpSocket) {
+        this.socket = socket
     }
 }
 
 /**
- * UDP传输实现 - 零依赖，只处理字节流
+ * TCP 传输
  */
-public class UdpTransport <: NetworkTransport {
-    private let localAddress: NetworkAddress
+public class TcpTransport <: NetworkTransport {
+    private let requestedAddress: NetworkAddress
+    private var boundPort: Int32
     private let isRunning: AtomicBool
     private var dataHandler: Option<(Array<UInt8>) -> Unit>
     private let mutex: Mutex
+    private var server: Option<TcpServerSocket>
+    private let outbound: HashMap<String, OutboundConnection>
+    private let inbound: ArrayList<TcpSocket>
+    private let connectTimeout: Duration
+
+    // 统计
+    private let framesSent: AtomicInt64 = AtomicInt64(0)
+    private let framesReceived: AtomicInt64 = AtomicInt64(0)
+    private let sendFailures: AtomicInt64 = AtomicInt64(0)
 
     public init(localAddress: NetworkAddress) {
-        this.localAddress = localAddress
+        this(localAddress, Duration.second * 3)
+    }
+
+    public init(localAddress: NetworkAddress, connectTimeout: Duration) {
+        this.requestedAddress = localAddress
+        this.boundPort = localAddress.port
         this.isRunning = AtomicBool(false)
         this.dataHandler = None
         this.mutex = Mutex()
+        this.server = None
+        this.outbound = HashMap<String, OutboundConnection>()
+        this.inbound = ArrayList<TcpSocket>()
+        this.connectTimeout = connectTimeout
     }
 
     public func start(): Unit {
-        if (isRunning.compareAndSwap(false, true)) {
-            println("UDP传输启动在地址: ${localAddress.toString()}")
-            
-            spawn {
-                startServer()
-            }
+        if (!isRunning.compareAndSwap(false, true)) {
+            return
+        }
+        let s = TcpServerSocket(bindAt: UInt16(requestedAddress.port))
+        s.reuseAddress = true
+        s.bind()
+        if (let Some(addr) <- (s.localAddress as IPSocketAddress)) {
+            boundPort = Int32(addr.port)
+        }
+        synchronized(mutex) {
+            server = Some(s)
+        }
+        spawn {
+            acceptLoop(s)
         }
     }
 
     public func stop(): Unit {
-        if (isRunning.compareAndSwap(true, false)) {
-            println("UDP传输停止")
+        if (!isRunning.compareAndSwap(true, false)) {
+            return
+        }
+        let (srv, outs, ins) = synchronized(mutex) {
+            let srv = server
+            server = None
+            let outs = ArrayList<OutboundConnection>()
+            for ((_, c) in outbound) {
+                outs.add(c)
+            }
+            outbound.clear()
+            let ins = inbound.toArray()
+            inbound.clear()
+            (srv, outs, ins)
+        }
+        if (let Some(s) <- srv) {
+            closeQuietly({ => s.close() })
+        }
+        for (c in outs) {
+            closeQuietly({ => c.socket.close() })
+        }
+        for (c in ins) {
+            closeQuietly({ => c.close() })
         }
     }
 
     public func send(address: NetworkAddress, data: Array<UInt8>): Unit {
         if (!isRunning.load()) {
-            throw Exception("传输层未启动")
+            throw IllegalStateException("TCP 传输未启动")
         }
-
+        if (data.size > MAX_FRAME_SIZE) {
+            throw IllegalArgumentException("消息过大: ${data.size} 字节，上限 ${MAX_FRAME_SIZE}")
+        }
+        let frame = encodeFrame(data)
         try {
-            println("UDP发送数据到 ${address.toString()}: ${data.size} 字节")
+            writeFrame(address, frame)
         } catch (e: Exception) {
-            println("UDP发送数据失败: ${e.message}")
-            throw e
+            // 连接可能已被对端关闭：丢弃后重连重试一次
+            dropConnection(address)
+            try {
+                writeFrame(address, frame)
+            } catch (e2: Exception) {
+                sendFailures.fetchAdd(1)
+                dropConnection(address)
+                throw e2
+            }
         }
+        framesSent.fetchAdd(1)
     }
 
     public func setDataHandler(handler: (Array<UInt8>) -> Unit): Unit {
-        mutex.lock()
-        dataHandler = Some(handler)
-        mutex.unlock()
+        synchronized(mutex) {
+            dataHandler = Some(handler)
+        }
     }
 
     public func getLocalAddress(): NetworkAddress {
-        localAddress
+        NetworkAddress(requestedAddress.host, boundPort)
     }
 
     public func isActive(): Bool {
         isRunning.load()
     }
 
-    private func startServer(): Unit {
-        println("UDP服务器开始监听端口: ${localAddress.port}")
-        
+    public func getFramesSent(): Int64 { framesSent.load() }
+
+    public func getFramesReceived(): Int64 { framesReceived.load() }
+
+    public func getSendFailures(): Int64 { sendFailures.load() }
+
+    private func writeFrame(address: NetworkAddress, frame: Array<UInt8>): Unit {
+        let conn = getOrConnect(address)
+        synchronized(conn.writeLock) {
+            conn.socket.write(frame)
+        }
+    }
+
+    private func getOrConnect(address: NetworkAddress): OutboundConnection {
+        let key = address.toString()
+        if (let Some(c) <- synchronized(mutex) { outbound.get(key) }) {
+            return c
+        }
+        let socket = TcpSocket(address.host, UInt16(address.port))
+        socket.connect(timeout: connectTimeout)
+        socket.noDelay = true
+        let conn = OutboundConnection(socket)
+        let winner = synchronized(mutex) {
+            match (outbound.get(key)) {
+                case Some(existing) => existing
+                case None =>
+                    outbound.add(key, conn)
+                    conn
+            }
+        }
+        if (!refEq(winner, conn)) {
+            // 其他线程已建立连接，关闭多余的连接
+            closeQuietly({ => socket.close() })
+        }
+        return winner
+    }
+
+    private func dropConnection(address: NetworkAddress): Unit {
+        let removed = synchronized(mutex) { outbound.remove(address.toString()) }
+        if (let Some(c) <- removed) {
+            closeQuietly({ => c.socket.close() })
+        }
+    }
+
+    private func acceptLoop(s: TcpServerSocket): Unit {
         while (isRunning.load()) {
             try {
-                sleep(Duration.millisecond * 100)
-                // UDP监听实现
+                let client = s.accept()
+                client.noDelay = true
+                synchronized(mutex) {
+                    inbound.add(client)
+                }
+                spawn {
+                    readLoop(client)
+                }
             } catch (e: Exception) {
                 if (isRunning.load()) {
-                    println("UDP服务器错误: ${e.message}")
+                    println("TCP accept 失败: ${e.message}")
                 }
             }
         }
-        
-        println("UDP服务器停止监听")
+    }
+
+    private func readLoop(client: TcpSocket): Unit {
+        let header = Array<UInt8>(4, repeat: 0)
+        try {
+            while (isRunning.load()) {
+                if (!readFully(client, header)) {
+                    break
+                }
+                let len = decodeLength(header)
+                if (len < 0 || len > MAX_FRAME_SIZE) {
+                    println("TCP 收到非法帧长度 ${len}，关闭连接")
+                    break
+                }
+                let payload = Array<UInt8>(len, repeat: 0)
+                if (len > 0 && !readFully(client, payload)) {
+                    break
+                }
+                framesReceived.fetchAdd(1)
+                let handler = synchronized(mutex) { dataHandler }
+                if (let Some(h) <- handler) {
+                    try {
+                        h(payload)
+                    } catch (e: Exception) {
+                        println("TCP 数据处理回调失败: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // 对端断开或传输已停止
+            ()
+        }
+        closeQuietly({ => client.close() })
+    }
+
+    /** 读满缓冲区；对端关闭返回 false */
+    private static func readFully(socket: TcpSocket, buffer: Array<UInt8>): Bool {
+        var offset: Int64 = 0
+        while (offset < buffer.size) {
+            let n = socket.read(buffer[offset..])
+            if (n <= 0) {
+                return false
+            }
+            offset += n
+        }
+        return true
+    }
+}
+
+/** 编码帧：4 字节大端长度 + 负载 */
+public func encodeFrame(data: Array<UInt8>): Array<UInt8> {
+    let n = data.size
+    let frame = Array<UInt8>(n + 4, repeat: 0)
+    frame[0] = UInt8((n >> 24) & 0xFF)
+    frame[1] = UInt8((n >> 16) & 0xFF)
+    frame[2] = UInt8((n >> 8) & 0xFF)
+    frame[3] = UInt8(n & 0xFF)
+    data.copyTo(frame, 0, 4, n)
+    frame
+}
+
+/** 解码 4 字节大端长度 */
+public func decodeLength(header: Array<UInt8>): Int64 {
+    (Int64(header[0]) << 24) | (Int64(header[1]) << 16) | (Int64(header[2]) << 8) | Int64(header[3])
+}
+
+func closeQuietly(action: () -> Unit): Unit {
+    try {
+        action()
+    } catch (_: Exception) {
+        ()
+    }
+}
+
+/** UDP 单个数据报上限 */
+public let MAX_DATAGRAM_SIZE: Int64 = 65507
+
+/**
+ * UDP 传输：每条消息一个数据报，不保证送达与顺序
+ */
+public class UdpTransport <: NetworkTransport {
+    private let requestedAddress: NetworkAddress
+    private var boundPort: Int32
+    private let isRunning: AtomicBool
+    private var dataHandler: Option<(Array<UInt8>) -> Unit>
+    private let mutex: Mutex
+    private var socket: Option<UdpSocket>
+
+    public init(localAddress: NetworkAddress) {
+        this.requestedAddress = localAddress
+        this.boundPort = localAddress.port
+        this.isRunning = AtomicBool(false)
+        this.dataHandler = None
+        this.mutex = Mutex()
+        this.socket = None
+    }
+
+    public func start(): Unit {
+        if (!isRunning.compareAndSwap(false, true)) {
+            return
+        }
+        let s = UdpSocket(bindAt: UInt16(requestedAddress.port))
+        s.bind()
+        if (let Some(addr) <- (s.localAddress as IPSocketAddress)) {
+            boundPort = Int32(addr.port)
+        }
+        synchronized(mutex) {
+            socket = Some(s)
+        }
+        spawn {
+            receiveLoop(s)
+        }
+    }
+
+    public func stop(): Unit {
+        if (!isRunning.compareAndSwap(true, false)) {
+            return
+        }
+        let s = synchronized(mutex) {
+            let cur = socket
+            socket = None
+            cur
+        }
+        if (let Some(sock) <- s) {
+            closeQuietly({ => sock.close() })
+        }
+    }
+
+    public func send(address: NetworkAddress, data: Array<UInt8>): Unit {
+        if (data.size > MAX_DATAGRAM_SIZE) {
+            throw IllegalArgumentException("UDP 消息过大: ${data.size} 字节，上限 ${MAX_DATAGRAM_SIZE}")
+        }
+        let s = synchronized(mutex) { socket }
+        match (s) {
+            case Some(sock) => sock.sendTo(IPSocketAddress(address.host, UInt16(address.port)), data)
+            case None => throw IllegalStateException("UDP 传输未启动")
+        }
+    }
+
+    public func setDataHandler(handler: (Array<UInt8>) -> Unit): Unit {
+        synchronized(mutex) {
+            dataHandler = Some(handler)
+        }
+    }
+
+    public func getLocalAddress(): NetworkAddress {
+        NetworkAddress(requestedAddress.host, boundPort)
+    }
+
+    public func isActive(): Bool {
+        isRunning.load()
+    }
+
+    private func receiveLoop(s: UdpSocket): Unit {
+        let buffer = Array<UInt8>(MAX_DATAGRAM_SIZE, repeat: 0)
+        while (isRunning.load()) {
+            try {
+                let (_, n) = s.receiveFrom(buffer)
+                let payload = buffer[0..n].clone()
+                let handler = synchronized(mutex) { dataHandler }
+                if (let Some(h) <- handler) {
+                    try {
+                        h(payload)
+                    } catch (e: Exception) {
+                        println("UDP 数据处理回调失败: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                if (isRunning.load()) {
+                    println("UDP 接收失败: ${e.message}")
+                }
+            }
+        }
     }
 }
 
