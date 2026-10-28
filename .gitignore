@@ -45,6 +45,8 @@ notepad
 *.log
 logs/
 plan*
+!docs/plan/
+!docs/plan/*.md
 # 测试输出
 test-results/
 coverage/
