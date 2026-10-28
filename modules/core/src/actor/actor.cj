@@ -6,7 +6,6 @@
 package cactor_core.actor
 
 import cactor_core.message.*
-import cactor_core.context.*
 
 /**
  * Actor生命周期状态
@@ -116,6 +115,15 @@ public interface Actor {
     func postRestart(reason: Exception): Unit {
         postStart()
     }
+
+    /**
+     * 本 Actor 作为父 Actor 时，对其子 Actor 使用的监督策略（对标 Akka 的 supervisorStrategy）。
+     * 返回 None 时使用系统默认策略：OneForOne，异常时重启，1 分钟内最多 10 次。
+     * 子 Actor 的 Props 若通过 withSupervisorStrategy 指定了策略，以 Props 为准。
+     */
+    func supervisorStrategy(): Option<SupervisionStrategy> {
+        None<SupervisionStrategy>
+    }
 }
 
 
@@ -201,31 +209,63 @@ public struct Props<T> where T <: Actor {
     private let dispatcher: String
     private let mailboxType: String
     private let supervisionStrategy: String
+    private let mailboxCapacity: Int64
+    private let strategy: Option<SupervisionStrategy>
 
     public init(factory: ActorFactory<T>) {
         this.factory = factory
         this.dispatcher = "default"
         this.mailboxType = "unbounded"
         this.supervisionStrategy = "default"
+        this.mailboxCapacity = 0
+        this.strategy = None<SupervisionStrategy>
     }
 
-    private init(factory: ActorFactory<T>, dispatcher: String, mailboxType: String, supervisionStrategy: String) {
+    private init(factory: ActorFactory<T>, dispatcher: String, mailboxType: String, supervisionStrategy: String,
+        mailboxCapacity: Int64, strategy: Option<SupervisionStrategy>) {
         this.factory = factory
         this.dispatcher = dispatcher
         this.mailboxType = mailboxType
         this.supervisionStrategy = supervisionStrategy
+        this.mailboxCapacity = mailboxCapacity
+        this.strategy = strategy
     }
 
+    /**
+     * 调度器："default"（共享的亲和调度线程池）或 "blocking"（独立线程池，用于会阻塞的 Actor）
+     */
     public func withDispatcher(dispatcher: String): Props<T> {
-        Props<T>(factory, dispatcher, mailboxType, supervisionStrategy)
+        Props<T>(factory, dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, strategy)
     }
 
+    /**
+     * 邮箱类型："unbounded"（默认，无锁）、"bounded"（需配合 withBoundedMailbox 指定容量）、
+     * "priority"（按 Message.priority() 从高到低处理，同优先级先进先出）
+     */
     public func withMailbox(mailboxType: String): Props<T> {
-        Props<T>(factory, this.dispatcher, mailboxType, supervisionStrategy)
+        Props<T>(factory, this.dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, strategy)
+    }
+
+    /** 有界邮箱：超过容量的新消息被丢弃并计为死信 */
+    public func withBoundedMailbox(capacity: Int64): Props<T> {
+        Props<T>(factory, dispatcher, "bounded", supervisionStrategy, capacity, strategy)
     }
 
     public func withSupervisionStrategy(strategy: String): Props<T> {
-        Props<T>(factory, dispatcher, mailboxType, strategy)
+        Props<T>(factory, dispatcher, mailboxType, strategy, mailboxCapacity, this.strategy)
+    }
+
+    /** 为该 Actor 指定监督策略（优先于父 Actor 的 supervisorStrategy） */
+    public func withSupervisorStrategy(strategy: SupervisionStrategy): Props<T> {
+        Props<T>(factory, dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, Some(strategy))
+    }
+
+    public func getMailboxCapacity(): Int64 {
+        mailboxCapacity
+    }
+
+    public func getSupervisorStrategy(): Option<SupervisionStrategy> {
+        strategy
     }
 
     public func create(): T {

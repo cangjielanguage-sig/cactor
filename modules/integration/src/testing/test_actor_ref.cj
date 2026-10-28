@@ -147,9 +147,11 @@ public class TestActorContext <: ActorContext {
         senderPath = Some(sender.path.toString())
     }
     
-    public func self(): ActorRef {
-        // 返回一个测试用的ActorRef
-        testSystem.actorOf({ => TestDummyActor() }, "test-self")
+    public prop self: ActorRef {
+        get() {
+            // 返回一个测试用的ActorRef
+            testSystem.actorOf({ => TestDummyActor() }, "test-self")
+        }
     }
     
     public func system(): CActorSystem {
