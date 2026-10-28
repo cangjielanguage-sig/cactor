@@ -20,7 +20,7 @@ This guide covers every aspect of tuning CActor for maximum throughput, minimal 
 
 ## Performance Overview
 
-CActor delivers world-class actor model performance through systematic optimization at every layer of the stack.
+This guide describes the performance-related design of CActor and the tuning options it provides. The repository does not yet include reproducible message-passing benchmarks, so treat any figures in this guide as design targets rather than measured results.
 
 ### Core Metrics
 
@@ -647,6 +647,6 @@ report.saveToFile("performance-report.html")
 
 ## Summary
 
-CActor achieves world-class performance through a combination of lock-free data structures, cache-line-aware memory layout, batch processing, object pooling, and zero-copy message passing. The framework provides configuration presets that cover the most common deployment scenarios, from low-latency trading systems to high-throughput event pipelines, while offering fine-grained control when custom tuning is required.
+CActor aims for good performance through a combination of lock-free data structures, cache-line-aware memory layout, batch processing, object pooling, and zero-copy message passing. The framework provides configuration presets that cover the most common deployment scenarios, from low-latency trading systems to high-throughput event pipelines, while offering fine-grained control when custom tuning is required.
 
 Start with `createProduction()`, measure, and then iterate using the dispatcher and mailbox selection guidance in this document.

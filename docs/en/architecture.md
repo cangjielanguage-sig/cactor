@@ -27,7 +27,7 @@
 
 ## 1. Overview
 
-CActor is a world-class, high-performance Actor system implemented in the Cangjie language. Inspired by Akka and Akka Typed, it provides a robust, scalable, and type-safe concurrency model built on a **6+1 layered architecture**.
+CActor is an Actor model library implemented in the Cangjie language. Inspired by Akka and Akka Typed, it provides a robust, scalable, and type-safe concurrency model built on a **6+1 layered architecture**.
 
 ### Key Characteristics
 

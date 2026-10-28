@@ -102,6 +102,6 @@ system.terminate()
 
 ## 🔗 相关文档
 
-- [CActor API参考](../../docs/zh/api-reference.md)
-- [Actor模型介绍](../../docs/zh/actor-model.md)
-- [快速开始指南](../../docs/zh/quick-start.md)
+- [CActor API参考](../../../../docs/zh/api-reference.md)
+- [架构设计](../../../../docs/zh/architecture.md)
+- [快速开始指南](../../../../docs/zh/QUICK_START.md)

@@ -2,10 +2,10 @@
 
 ## 🎯 Vision and Goals
 
-CActor is committed to becoming a world-class Actor system in the Cangjie language ecosystem, providing powerful, efficient, and easy-to-use infrastructure for distributed application development.
+CActor aims to provide a reliable and easy-to-use Actor library for the Cangjie language ecosystem.
 
 ### Core Vision
-- **World-Class Performance**: Achieve and exceed Akka's performance levels
+- **Performance**: Reach performance comparable to mature Actor frameworks, backed by reproducible benchmarks
 - **Enterprise-Grade Reliability**: Provide 7x24 stable operation guarantee
 - **Developer-Friendly**: Simple and easy-to-use APIs with rich documentation
 - **Complete Ecosystem**: Build a complete Actor ecosystem
@@ -242,4 +242,4 @@ CActor is committed to becoming a world-class Actor system in the Cangjie langua
 
 ---
 
-**CActor Future Roadmap: Building a world-class Actor ecosystem to advance Cangjie language in distributed systems!** 🚀
+**CActor Roadmap**

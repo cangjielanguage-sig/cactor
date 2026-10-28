@@ -1,96 +1,115 @@
-# CActor - World-Class High-Performance Actor System
+<div align="center">
 
-> 🎯 **CActor** is a world-class high-performance Actor system implemented in Cangjie language, providing enterprise-grade features and distributed capabilities.
+# CActor
+
+**An actor model library for the Cangjie programming language**
+
+Inspired by Akka / Akka Typed, with classic actors, typed actors, supervision and common patterns such as Ask.
 
 [![Cangjie](https://img.shields.io/badge/Cangjie-1.2.0-blue.svg)](https://cangjie-lang.cn/)
-[![Build](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](https://github.com/your-repo/cactor)
+[![Version](https://img.shields.io/badge/version-1.2.0-orange.svg)](CHANGELOG.md)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 English | [中文](README.md)
 
----
+</div>
 
-## 📋 Table of Contents
-
-- [Feature Overview](#-feature-overview)
-- [Quick Start](#-quick-start)
-- [Core Concepts](#-core-concepts)
-- [Architecture](#-architecture)
-- [API Reference](#-api-reference)
-- [Examples](#-examples)
-- [Performance Benchmarks](#-performance-benchmarks)
-- [Documentation](#-documentation)
-- [Roadmap](#-roadmap)
-- [Contributing](#-contributing)
+> **Status: early development (1.2.0).** APIs may still change, and the project is not yet recommended for production use. See [Current Limitations](#current-limitations) for known issues and the [Roadmap](#roadmap) for what comes next.
 
 ---
 
-## 🏆 Feature Overview
+## Contents
 
-### 🚀 World-Class Performance
-
-| Metric | Value | Description |
-|--------|-------|-------------|
-| Message Throughput | **20,000,000 msg/s** | 4000x improvement |
-| Latency | **P99 < 1ms** | Ultra-low latency |
-| Concurrent Actors | **1,000,000+** | Massive concurrency |
-| Memory Efficiency | **<1KB/Actor** | Efficient memory usage |
-
-### 🎯 Core Features
-
-#### Actor Model
-- **Standard Actors**: Complete Actor lifecycle management
-- **Type-Safe Actors**: Compile-time type checking, inspired by Akka Typed
-- **Actor Communication**: Dual-mode tell/ask support
-
-#### Fault Tolerance & Resilience
-- **Supervision Strategies**: OneForOne / OneForAll / Escalate / BackoffSupervisor
-- **Circuit Breaker**: Three-state automatic transitions, fault isolation
-- **Backpressure Control**: Drop/Block/Buffer/Reject/Throttle strategies
-
-#### High-Performance Runtime
-- **Lock-Free Queues**: Ring buffer-based high-performance queues
-- **Work-Stealing Dispatcher**: Optimized CPU utilization
-- **Priority Mailbox**: Message priority support
-- **Batch Processing**: Batch processing optimizations
-
-#### Distributed Capabilities
-- **Cluster Sharding**: Automatic load balancing and failover
-- **Event Sourcing**: Persistence and state replay
-- **CQRS Pattern**: Command Query Responsibility Segregation
-- **Remote Communication**: Transparent remote Actor calls
-
-### 🔧 Developer Tools
-
-- **Testing Framework**: TestProbe, TestActorSystem, virtual time control
-- **Configuration System**: YAML/JSON configuration, type-safe config access
-- **DSL Macros**: Compile-time metaprogramming, simplified Actor definitions
-- **Monitoring Integration**: Complete Metrics and Tracing support
+- [Overview](#overview)
+- [Features](#features)
+- [Getting Started](#getting-started)
+- [Using CActor in Your Project](#using-cactor-in-your-project)
+- [Usage Examples](#usage-examples)
+- [Core Concepts](#core-concepts)
+- [Architecture](#architecture)
+- [Example Programs](#example-programs)
+- [Testing](#testing)
+- [Current Limitations](#current-limitations)
+- [Roadmap](#roadmap)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
-## 📦 Quick Start
+## Overview
+
+The actor model structures concurrent programs as isolated actors that communicate only through messages. Each actor owns its state, processes the messages in its mailbox one at a time, and is handled by its supervisor according to a supervision strategy when it fails.
+
+CActor aims to bring this model to Cangjie. It provides:
+
+- **Two programming styles**: classic actors that extend `Actor`, and typed actors built from `TypedBehavior`
+- **Fault tolerance**: supervision strategies and a circuit breaker
+- **Common patterns**: Ask (request-response), routing, backpressure
+- **A modular layout**: 12 cjpm modules with clear layering, so you depend only on what you use
+
+---
+
+## Features
+
+| Area | What it covers | Status |
+|------|----------------|--------|
+| Actor basics | Actor / ActorRef / ActorSystem, lifecycle hooks, `tell` | Usable |
+| Typed actors | `TypedBehaviors`, `TypedActorRef`, modeled after Akka Typed | Usable |
+| Fault tolerance | Supervision (OneForOne / OneForAll / Escalate / Backoff), circuit breaker | Usable |
+| Patterns | Ask, routing, backpressure | Usable |
+| Runtime components | Several mailbox and dispatcher implementations | Usable, see [limitations](#current-limitations) |
+| Streams | Stream processing DSL | Experimental |
+| State machines | XState-style state machines | Experimental |
+| Distribution | Cluster sharding, remoting, event sourcing / persistence | Prototype; no real network or storage yet |
+| Macros | Actor DSL macros | Prototype |
+
+---
+
+## Getting Started
 
 ### Requirements
 
-- Cangjie Language 1.2.0+
-- cjpm (Cangjie Package Manager)
+- Cangjie SDK 1.2.0 (including `cjc` and `cjpm`)
+- Linux x86_64 (the only platform verified so far)
 
-### Installation & Build
+### Build from source
 
 ```bash
-# Clone the repository
-git clone <repository-url>
+git clone https://atomgit.com/Cangjie-SIG/cactor.git
 cd cactor
 
-# Build the project
 cjpm build
+```
 
-# Run examples
+### Run an example
+
+```bash
 ./target/release/bin/cactor_examples.hello_world_demo
 ```
 
-### Your First Actor
+---
+
+## Using CActor in Your Project
+
+CActor modules are currently referenced by local path. Add the following to your `cjpm.toml`:
+
+```toml
+[dependencies]
+cactor          = { path = "/path/to/cactor/modules/cactor" }    # facade API
+cactor_core     = { path = "/path/to/cactor/modules/core" }      # Actor, Message and other core types
+cactor_patterns = { path = "/path/to/cactor/modules/patterns" }  # Ask and other patterns (optional)
+```
+
+Add other modules (such as `cactor_streams` or `cactor_xstate`) as needed; each lives at `modules/<name>`.
+
+---
+
+## Usage Examples
+
+All three snippets below have been compiled and run in a standalone project using the dependency setup above.
+
+### Classic actor
 
 ```cangjie
 import cactor.api.{CActor}
@@ -98,10 +117,9 @@ import cactor_core.actor.{Actor}
 import cactor_core.message.{Message, StringMessage, MessageResult}
 import cactor_core.context.{ActorContext}
 
-// Define your first Actor
 class HelloActor <: Actor {
     public prop name: String { get() { "HelloActor" } }
-    public prop description: String { get() { "Simple greeting Actor" } }
+    public prop description: String { get() { "A simple greeting actor" } }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
         match (message) {
@@ -113,86 +131,157 @@ class HelloActor <: Actor {
     }
 }
 
-// Create Actor system and use it
 main(): Int64 {
-    let system = CActor.system("HelloSystem")
+    let system = CActor.system("hello-system")
     let actor = system.actorOf({ => HelloActor() }, "hello")
-
-    actor.tell(StringMessage("Hello, CActor!"))
+    actor.tell(StringMessage("Hello, CActor!"))   // prints: Received: Hello, CActor!
     system.terminate()
-
     return 0
 }
 ```
 
+### Typed actor
+
+Message types are checked by the compiler, and state is updated by returning a new behavior instead of mutating fields.
+
+```cangjie
+import cactor.api.{CActorSystemFactory}
+import cactor_core.typed.{TypedBehavior, TypedBehaviors}
+
+enum CounterMsg {
+    | Increment
+    | Print
+}
+
+func counter(count: Int64): TypedBehavior<CounterMsg> {
+    TypedBehaviors.receive<CounterMsg>({ ctx, msg =>
+        match (msg) {
+            case Increment => counter(count + 1)
+            case Print =>
+                println("count = ${count}")
+                TypedBehaviors.same<CounterMsg>()
+        }
+    })
+}
+
+main(): Int64 {
+    let system = CActorSystemFactory.create("typed-system")
+    let ref = system.typedActorOf<CounterMsg>(counter(0), "counter")
+    ref.tell(Increment)
+    ref.tell(Increment)
+    ref.tell(Print)                               // prints: count = 2
+    system.terminate()
+    return 0
+}
+```
+
+### Ask (request-response)
+
+```cangjie
+import std.time.*
+import cactor.api.{CActor}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
+import cactor_patterns.ask.{Ask, AskMessage, AskResponse, Result}
+
+class EchoActor <: Actor {
+    public prop name: String { get() { "EchoActor" } }
+    public prop description: String { get() { "Echoes Ask requests" } }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case ask: AskMessage =>
+                let reply = match (ask.getOriginalMessage()) {
+                    case s: StringMessage => StringMessage("echo: ${s.getContent()}")
+                    case _ => StringMessage("unknown")
+                }
+                ask.getReplyTo().tell(AskResponse(ask.getRequestId(), reply, true))
+                MessageResult.Handled
+            case _ => MessageResult.Unhandled
+        }
+    }
+}
+
+main(): Int64 {
+    let system = CActor.system("ask-system")
+    let echo = system.actorOf({ => EchoActor() }, "echo")
+
+    let future = Ask.ask(echo, StringMessage("hi"), Duration.second * 3)
+    match (future.get()) {
+        case Result.Success(response) =>
+            match (response) {
+                case s: StringMessage => println("Reply: ${s.getContent()}")   // prints: Reply: echo: hi
+                case _ => ()
+            }
+        case Result.Failure(error) => println("Failed: ${error.message}")
+    }
+
+    Ask.shutdown()
+    system.terminate()
+    return 0
+}
+```
+
+See [Example Programs](#example-programs) and the [API Reference](docs/en/api-reference.md) for more.
+
 ---
 
-## 🎓 Core Concepts
+## Core Concepts
 
-### Actor Model
+### Actor
 
-An Actor is the fundamental unit of concurrent computation. Each Actor has:
-- **Private State**: State can only be modified through message passing
-- **Mailbox**: Receives messages from other Actors
-- **Behavior**: Defines how to handle received messages
+An actor is the basic unit of concurrent computation. Each actor has:
+
+- **Private state** that can only be changed through messages
+- **A mailbox** that receives messages from other actors
+- **Behavior** that defines how incoming messages are handled
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Actor                                │
-│  ┌─────────────────────────────────────────────────────┐     │
-│  │                    State                             │     │
-│  │              messageCount: Int64                    │     │
-│  └─────────────────────────────────────────────────────┘     │
-│  ┌─────────────────────────────────────────────────────┐     │
-│  │                    Mailbox                           │     │
-│  │  [msg1] [msg2] [msg3] [msg4] ...                    │     │
-│  └─────────────────────────────────────────────────────┘     │
-│  ┌─────────────────────────────────────────────────────┐     │
-│  │                   Behavior                           │     │
-│  │           receive(message, context)                  │     │
-│  │              → MessageResult                         │     │
-│  └─────────────────────────────────────────────────────┘     │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                      State                          │    │
+│  │              messageCount: Int64                    │    │
+│  └─────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                     Mailbox                         │    │
+│  │  [msg1] [msg2] [msg3] [msg4] ...                    │    │
+│  └─────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                     Behavior                        │    │
+│  │           receive(message, context)                 │    │
+│  │              → MessageResult                        │    │
+│  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Message Passing
+### Message results
 
-#### tell - Asynchronous Send
-```cangjie
-actor.tell(StringMessage("async message"))
-```
+`receive` returns a `MessageResult` that tells the runtime what happened to the message, for example `Handled`, `Unhandled`, or `Stop` (stop the actor after this message).
 
-#### ask - Request-Response Pattern
-```cangjie
-let future = actor.ask<StringMessage, StringMessage>(StringMessage("request"))
-future.onComplete { result =>
-    match (result) {
-        case Ok(response) => println("Response: ${response}")
-        case Err(error) => println("Error: ${error}")
-    }
-}
-```
+### Lifecycle
 
-### Actor Lifecycle
+States are defined by `ActorLifecycleState`; the `preStart`, `postStop`, `preRestart` and `postRestart` hooks run at the corresponding transitions.
 
 ```
     ┌─────────┐
-    │ Created │  ← Actor instance created
+    │ Created │  ← actor instance created
     └────┬────┘
          │ preStart()
          ▼
     ┌─────────┐
-    │Starting │  ← Initializing
+    │Starting │  ← initializing
     └────┬────┘
          │
          ▼
     ┌─────────┐
-    │ Running │  ← Processing messages
+    │ Running │  ← processing messages
     └────┬────┘
          │
     ┌────┴────┐
     │         │
- Stopped  Failed ← Exception or stop
+ Stopped  Failed ← stopped or failed
     │         │
     │    preRestart()
     │         │
@@ -203,396 +292,188 @@ future.onComplete { result =>
          └──→ Running
 ```
 
----
+### Supervision
 
-## 🏗️ Architecture
-
-CActor adopts a **6+1 layered modular architecture** with 326 source files:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                       User Code                                  │
-│          import cactor.api.* for all functionality               │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     API Layer                                    │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │ CActor.system() | CActorSystem | ActorProps             │     │
-│  │ CActorFactory | CActorSystemBuilder                      │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│  Unified external interface, hides implementation details        │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-     ┌────────────────────────┼────────────────────────┐
-     │                        │                        │
-     ▼                        ▼                        ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐
-│  Integration    │  │   Patterns      │  │   Distribution      │
-│   Layer         │  │   Layer         │  │   Layer             │
-├─────────────────┤  ├─────────────────┤  ├─────────────────────┤
-│ • Configuration │  │ • Ask Pattern   │  │ • Cluster Sharding  │
-│ • Logging       │  │ • Circuit Break │  │ • Event Sourcing    │
-│ • Monitoring    │  │ • Backpressure  │  │ • CQRS System       │
-│ • Testing       │  │ • Routing       │  │ • Remote Comms      │
-└─────────────────┘  └─────────────────┘  └─────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Runtime Layer                                  │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │ CActorRuntime | Mailbox | Dispatcher | Scheduler       │     │
-│  │ ActorLifecycleManager | SupervisionManager              │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│  Concrete implementations of Core layer interfaces               │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Core Layer                                     │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │ Actor | ActorRef | Props | ActorSystem                 │     │
-│  │ Message | ActorContext | Supervision                    │     │
-│  │ TypedBehavior | TypedActorRef                           │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│  Core abstract interfaces and data types                         │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  Foundation Layer                                 │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │ LockFreeQueue | Serializer | Memory | Monitoring        │     │
-│  │ Network | Config | DI Container                         │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│  Zero-dependency infrastructure with ring buffer optimization    │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Layer Details
-
-| Layer | Files | Description |
-|-------|-------|-------------|
-| **Foundation** | 33 | Infrastructure: queues, serialization, memory, monitoring, network |
-| **Core** | 31 | Core abstractions: Actor, Message, ActorSystem, TypedActor |
-| **Runtime** | 63 | Runtime impl: mailbox, dispatcher, lifecycle, supervision |
-| **Patterns** | 13 | Design patterns: Ask, circuit breaker, backpressure, routing |
-| **Distribution** | 21 | Distributed: cluster, persistence, remote communication |
-| **Integration** | 28 | Integration services: config, logging, monitoring, testing |
-| **API** | 13 | Unified API entry point |
+When an actor fails, its supervision strategy decides what to do: `Resume` (ignore and continue), `Restart`, `Stop`, or `Escalate` (hand the failure to the parent). Built-in strategies include `OneForOneStrategy`, `OneForAllStrategy`, `EscalateStrategy` and the exponential-backoff `BackoffSupervisorStrategy`, all in `cactor_core.supervision`.
 
 ---
 
-## 📚 API Reference
+## Architecture
 
-### CActor - Unified Entry Point
+The project is a cjpm workspace of 12 modules under `modules/`. Dependencies only point from higher layers to lower ones:
 
-```cangjie
-// Create Actor system
-let system = CActor.system("my-system")
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                          User code                              │
+│   usually goes through the cactor facade; modules can also be   │
+│   used directly when needed                                     │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+     ┌──────────────┬───────────┴──────┬───────────────────┐
+     ▼              ▼                  ▼                   ▼
+┌───────────┐ ┌──────────────┐ ┌───────────────┐ ┌───────────────┐
+│  Streams  │ │ Distribution │ │    XState     │ │  Integration  │
+├───────────┤ ├──────────────┤ ├───────────────┤ ├───────────────┤
+│ • DSL     │ │ • Sharding   │ │ • Machines    │ │ • Logging     │
+│ • Back-   │ │ • Remoting   │ │ • Parallel    │ │ • Metrics     │
+│  pressure │ │ • Persistence│ │   states      │ │ • Config      │
+│ Experim.  │ │ Prototype    │ │ Experimental  │ │               │
+└───────────┘ └──────────────┘ └───────────────┘ └───────────────┘
+     │              │                  │                   │
+     └──────────────┴────────┬─────────┴───────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor (facade API)                         │
+│   CActor.system() | CActorSystem | ActorProps                   │
+│   CActorFactory | CActorSystemBuilder                           │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor_patterns                             │
+│   Ask | Router | Backpressure                                   │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor_runtime                              │
+│   CActorRuntime | Mailbox | Dispatcher | Guardian               │
+│   Registry | ActorLifecycleManager                              │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor_core                                 │
+│   Actor | ActorRef | Props | ActorSystem                        │
+│   Message | ActorContext | Supervision                          │
+│   TypedBehavior | TypedActorRef                                 │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor_foundation                           │
+│   Queue | Serializer | Memory | Monitoring                      │
+│   Network | Config | DI | CircuitBreaker                        │
+└─────────────────────────────────────────────────────────────────┘
 
-// Create Actor system with config
-let config = CActorRuntimeConfig.createDefault()
-let system = CActor.system("my-system", config)
-
-// Create Actor Props
-let props = CActor.props({ => MyActor() })
+cactor_macros is a standalone macro module; cactor_tests and
+cactor_examples sit at the top.
 ```
 
-### CActorSystem - Actor System API
+| Module | Package | Responsibility |
+|--------|---------|----------------|
+| foundation | `cactor_foundation` | Queues, memory, serialization, networking, config, DI, monitoring, circuit breaker |
+| core | `cactor_core` | Core abstractions: Actor, ActorRef, ActorSystem, Message, supervision, typed actors |
+| runtime | `cactor_runtime` | Mailboxes, dispatchers, guardian, registry, lifecycle |
+| patterns | `cactor_patterns` | Ask, routing, backpressure |
+| cactor | `cactor` | Public facade API (`cactor`, `cactor.api`, `cactor.config`) |
+| macros | `cactor_macros` | Actor DSL macros |
+| streams | `cactor_streams` | Stream processing DSL |
+| distribution | `cactor_distribution` | Cluster, remoting, persistence (prototype) |
+| xstate | `cactor_xstate` | State machines |
+| integration | `cactor_integration` | Logging, metrics and config integration, plus integration test programs |
+| tests | `cactor_tests` | Unit and integration tests |
+| examples | `cactor_examples` | Example programs |
 
-```cangjie
-// Create Actor
-let actor = system.actorOf({ => MyActor() }, "my-actor")
-
-// Create Actor with mailbox config
-let actor = system.actorOfWithMailbox(
-    { => MyActor() },
-    "my-actor",
-    MailboxConfig.unbounded()
-)
-
-// Create type-safe Actor
-let typedRef = system.typedActorOf<MyMessage>(behavior, "my-typed-actor")
-
-// Type conversion bridge
-let typedRef = system.wrapAsTypedActor<MyMessage>(actor, "my-actor")
-let actorRef = system.unwrapTypedActor<MyMessage>(typedRef)
-
-// Terminate system
-system.terminate()
-```
-
-### Props - Actor Configuration
-
-```cangjie
-let props = PropsFactory.create({ => MyActor() })
-    .withDispatcher("work-stealing")
-    .withMailbox("priority")
-    .withSupervisionStrategy("one-for-one")
-```
-
-### Supervision Strategies
-
-```cangjie
-// OneForOne - only affects the failed child
-let strategy = DefaultSupervisionStrategy.oneForOne(
-    maxRetries = 3,
-    withinTimeRange = Duration.minutes(5)
-)
-
-// OneForAll - affects all children
-let strategy = DefaultSupervisionStrategy.oneForAll(
-    maxRetries = 5,
-    withinTimeRange = Duration.minutes(1)
-)
-
-// Backoff strategy
-let strategy = BackoffSupervisorStrategy(
-    childName = "backoff-child",
-    minBackoff = Duration.seconds(1),
-    maxBackoff = Duration.minutes(5),
-    randomFactor = 0.2
-)
-```
-
-### Circuit Breaker
-
-```cangjie
-let breaker = BasicCircuitBreaker<String>(
-    maxFailureCount = 5,
-    successThreshold = 2,
-    openTimeout = Duration.seconds(30)
-)
-
-// Decorator with fallback
-let decorated = CircuitBreakerDecorator<String>(
-    breaker,
-    fallback = { err => "fallback result" }
-)
-```
-
-### Backpressure Control
-
-```cangjie
-let controller = BasicBackpressureController<String>(
-    strategy = BackpressureStrategy.Drop,
-    maxBufferSize = 1000,
-    windowSize = Duration.seconds(1)
-)
-
-// Get statistics
-let stats = controller.getStats()
-println("Dropped: ${stats.droppedCount}, Buffered: ${stats.bufferedCount}")
-```
-
-### Message Routing
-
-```cangjie
-let router = BasicRouter<String>(
-    routeStrategy = RouteStrategy.RoundRobin,
-    routees = [actor1, actor2, actor3]
-)
-
-// Wrap as ActorRef
-let routerRef = RouterActorRef(router, "my-router")
-```
+For more detail, see [Architecture](docs/en/architecture.md) and [Package and Module Structure](docs/en/package-structure.md).
 
 ---
 
-## 💡 Examples
+## Example Programs
 
-### Basic Examples
+Examples live in [`modules/examples/src`](modules/examples/src). After building, each one is available as `target/release/bin/cactor_examples.<example-name>`.
 
-| Example | Description |
-|---------|-------------|
-| [hello_world_demo](modules/examples/src/hello_world_demo/main.cj) | Simplest Actor example |
-| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Ask request-response pattern |
-| [api_demo](modules/examples/src/api_demo/main.cj) | Full API demonstration |
-
-### Advanced Features
-
-| Example | Description |
-|---------|-------------|
-| [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | Multiple dispatcher types |
-| [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | Multiple mailbox implementations |
-| [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | Type-safe Actors |
-| [circuit_breaker_demo](modules/examples/src/circuit_breaker_demo/main.cj) | Circuit breaker usage |
-
-### Distributed Examples
-
-| Example | Description |
-|---------|-------------|
-| [cluster_sharding_demo](modules/examples/src/cluster_sharding_demo/main.cj) | Cluster sharding |
-| [persistence_demo](modules/examples/src/persistence_demo/main.cj) | Event sourcing persistence |
-
-### Performance Examples
-
-| Example | Description |
-|---------|-------------|
-| [benchmark_demo](modules/examples/src/benchmark_demo/main.cj) | Performance benchmarks |
+| Example | Topic |
+|---------|-------|
+| [hello_world_demo](modules/examples/src/hello_world_demo/main.cj) | Creating actors and sending messages |
+| [api_demo](modules/examples/src/api_demo/main.cj) | Public API usage |
+| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Ask request-response, timeouts and batch requests |
+| [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | Typed actor system |
+| [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | Mailbox implementations |
+| [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | Dispatcher implementations |
+| [streams_demo](modules/examples/src/streams_demo/main.cj) | Stream processing (experimental) |
+| [xstate_demo](modules/examples/src/xstate_demo) | State machines (experimental) |
+| [simple_macro_demo](modules/examples/src/simple_macro_demo/main.cj) | DSL macros (prototype) |
+| [cluster_sharding_demo](modules/examples/src/cluster_sharding_demo/main.cj) | Cluster sharding (prototype) |
+| [persistence_demo](modules/examples/src/persistence_demo/main.cj) | Event sourcing (prototype) |
 
 ---
 
-## 📊 Performance Benchmarks
-
-### Test Results
-
-```
-🧪 CActor Performance Benchmark Results
-
-=== Light Benchmark ===
-Messages: 10,000 | Actors: 5
-Throughput: 10,000,000 msg/s
-Level: 🏆 World-Class
-
-=== Default Benchmark ===
-Messages: 100,000 | Actors: 10
-Throughput: 20,000,000 msg/s
-Level: 🏆 World-Class
-
-=== Intensive Benchmark ===
-Messages: 1,000,000 | Actors: 100
-Throughput: 17,857,142 msg/s
-Level: 🏆 World-Class
-```
-
-### Comparison with Akka
-
-| Metric | Akka | CActor | Result |
-|--------|------|--------|--------|
-| Throughput | 10-50M msg/s | **20M msg/s** | ✅ Matches Akka |
-| Latency | P99 < 1ms | **P99 < 1ms** | ✅ Matches Akka |
-| Memory | 500B/Actor | **<1KB/Actor** | ✅ Matches Akka |
-| Concurrency | 1M+ | **1M+** | ✅ Matches Akka |
-
-### Run Benchmarks
+## Testing
 
 ```bash
-# Simple benchmark
-./target/release/bin/cactor_integration.testing.simple_benchmark_test
-
-# Full benchmark
-./target/release/bin/cactor_examples.benchmark_demo
+cjpm test                           # run all tests
+python3 tools/check_module_deps.py  # check module layering
 ```
 
----
-
-## 📖 Documentation
-
-### Getting Started
-- [Quick Start Guide](docs/en/architecture.md) - Start using CActor from scratch
-- [Core Concepts](docs/en/architecture.md) - Actor model explained
-- [First Application](docs/en/architecture.md) - Write your first Actor application
-
-### Architecture
-- [Architecture Overview](docs/en/architecture.md) - 6-layer architecture deep dive
-- [Package Structure](docs/en/package-structure.md) - Module dependencies
-- [Design Patterns](docs/en/architecture.md) - Pattern implementations
-
-### API Reference
-- [API Reference](docs/en/api-reference.md) - Complete API documentation
-- [Configuration System](docs/en/api-reference.md) - Configuration management
-- [Testing Framework](docs/en/api-reference.md) - Unit testing guide
-
-### Performance
-- [Performance Guide](docs/en/performance.md) - Performance tuning best practices
-- [Dispatcher Selection](docs/en/performance.md) - Choosing the right dispatcher
-- [Memory Optimization](docs/en/performance.md) - Reducing memory footprint
-
-### 中文文档
-- [架构概览](docs/zh/architecture.md) - 6层架构详解
-- [API参考](docs/zh/api-reference.md) - 完整API文档
-- [性能指南](docs/zh/performance.md) - 性能调优
+There are currently 121 test cases, all passing on Cangjie 1.2.0. They cover supervision strategies, typed actors (behavior transforms, stash, timers), mailboxes and more. Tests for concurrency semantics are still being added.
 
 ---
 
-## 🗺️ Roadmap
+## Current Limitations
 
-### ✅ Completed
+The following issues are known and are being addressed according to the [development plan](docs/plan/20261028.md) (in Chinese):
 
-- 🏆 **World-class performance** - 20M msg/s throughput achieved
-- ✅ **6-layer architecture** - Stable modular architecture
-- ✅ **Complete testing framework** - 1616 test cases, 100% pass rate
-- ✅ **Enterprise monitoring** - Metrics and Tracing support
-- ✅ **Enterprise configuration** - YAML/JSON config system
-
-### 🔄 In Progress
-
-- 🔄 **Distributed cluster support** - Cluster sharding and failover
-- 🔄 **Persistence** - Event sourcing and snapshots
-- 🔄 **Stream processing** - Reactive Streams support
-
-### 📋 Planned
-
-- 📋 **Cloud-native support** - Kubernetes integration
-- 📋 **Multi-language bindings** - Java/Kotlin/Swift SDK
-- 📋 **Visualization tools** - Runtime state monitoring
-- 📋 **Community ecosystem** - Templates and best practices
+- **Message scheduling**: `tell` currently runs `receive` directly on the caller's thread, so an actor is not yet guaranteed to process one message at a time, and dispatchers are not yet wired into the main message path.
+- **Concurrency safety**: some queues and shared containers still lack proper synchronization.
+- **Distribution**: remoting, persistence and clustering exist only as interfaces and prototypes, without real network transport or storage.
+- **Macros**: most DSL macros do not yet perform real expansion.
+- **Log output**: the runtime prints startup and shutdown logs directly to standard output, and this cannot be turned off yet.
+- **Performance figures**: the benchmark programs in the repository currently measure synchronous function-call overhead rather than message passing, so no performance numbers are given here.
 
 ---
 
-## 🤝 Contributing
+## Roadmap
 
-We welcome community contributions!
+In priority order; see the [development plan](docs/plan/20261028.md) (in Chinese) for details.
 
-### Development Process
+- [x] Upgrade to Cangjie 1.2.0
+- [x] Split into 12 cjpm modules with a layering check
+- [ ] **Core runtime**: one mailbox per actor, messages processed serially by a dispatcher, `tell` only enqueues, fixed concurrent containers, concurrency-semantics tests
+- [ ] **API cleanup and deduplication**: smaller public API per module, remove duplicate and placeholder code
+- [ ] **Engineering quality**: a logging abstraction instead of `println`, zero compiler warnings, no `sleep`-based synchronization in tests, CI
+- [ ] **Reproducible benchmarks**: nanosecond timing, ping-pong / fan-out scenarios, P50 / P99 statistics
+- [ ] **Distribution**: remoting on stdx.net, a file-based event store, then clustering on top of both
 
-1. **Fork** the repository
-2. **Clone** your fork locally
-3. **Create a branch** - `git checkout -b feature/your-feature`
-4. **Write code** - Follow code conventions
-5. **Add tests** - Ensure test coverage
-6. **Commit changes** - `git commit -m 'feat: add some feature'`
-7. **Push branch** - `git push origin feature/your-feature`
-8. **Create PR** - Describe your changes in the Pull Request
+---
 
-### Code Standards
+## Documentation
 
-- Follow Cangjie language conventions
-- Add appropriate comments and documentation
-- Write corresponding test cases
-- Ensure all tests pass: `cjpm test`
+| Document | Description |
+|----------|-------------|
+| [Quick Start](docs/en/QUICK_START.md) | Installation and a first program |
+| [Getting Started](docs/en/getting-started.md) | Basic concepts and common usage |
+| [Architecture](docs/en/architecture.md) | Layered design and key components |
+| [Package and Module Structure](docs/en/package-structure.md) | Modules and their dependencies |
+| [API Reference](docs/en/api-reference.md) | Main types and interfaces |
+| [Performance Guide](docs/en/performance.md) | Dispatcher, mailbox and other tuning options |
+| [Documentation index](docs/en/README.md) | All English documents |
+| [Changelog](CHANGELOG.md) | Release history |
 
-### Testing
+Some documents are still being updated alongside the code and may not match the current implementation in every detail. When in doubt, the code is authoritative, and corrections are welcome.
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome, whether they fix bugs, add tests or improve documentation. Please read the [contributing guide](CONTRIBUTING.md) first, and make sure that:
 
 ```bash
-# Run all tests
-cjpm test
-
-# Run performance tests
-./target/release/bin/cactor_integration.testing.simple_benchmark_test
+cjpm build                          # the build succeeds
+cjpm test                           # all tests pass
+python3 tools/check_module_deps.py  # the layering check passes
 ```
 
----
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
+New features should come with tests, and changes to the public API should update the documentation and the [Changelog](CHANGELOG.md).
 
 ---
 
-## 🙏 Acknowledgments
+## License
 
-Thanks to the Cangjie language team for providing an excellent programming language and toolchain, making the CActor project possible.
+CActor is released under the [MIT License](LICENSE).
 
-Special thanks to all developers who contributed code, documentation, tests, and feedback to the CActor project!
+## Acknowledgements
 
----
-
-## 📞 Contact
-
-- **Project Homepage**: [GitHub Repository]
-- **Issue Reporting**: [GitHub Issues]
-- **Feature Requests**: [GitHub Discussions]
-
----
-
-<div align="center">
-
-**CActor - Bringing World-Class Actor System to Cangjie Language!** 🚀
-
-*Built with ❤️ for the Cangjie Community*
-
-</div>
+- The [Cangjie programming language](https://cangjie-lang.cn/) team for the language and toolchain
+- The [Akka](https://akka.io/) project, which inspired much of CActor's design
+- Everyone who has contributed to this project

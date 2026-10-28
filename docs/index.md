@@ -1,8 +1,8 @@
 # CActor 文档中心
 
-> 🎯 欢迎来到 CActor 文档中心 — 世界级仓颉语言 Actor 系统
+> CActor 文档中心
 
-CActor 是基于仓颉（Cangjie）语言实现的世界级高性能 Actor 系统，采用 6+1 层模块化架构，提供企业级特性和分布式能力。
+CActor 是用仓颉（Cangjie）语言实现的 Actor 模型库，由 12 个 cjpm 模块组成，目前处于早期开发阶段。
 
 ---
 
@@ -203,6 +203,6 @@ main(): Int64 {
 
 <div align="center">
 
-**CActor 文档中心** - 让仓颉语言拥有世界级的 Actor 系统！
+**CActor 文档中心**
 
 </div>

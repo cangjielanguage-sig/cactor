@@ -1,96 +1,115 @@
-# CActor - 世界级高性能Actor系统
+<div align="center">
 
-> 🎯 **CActor** 是基于仓颉（Cangjie）语言实现的世界级高性能Actor系统，提供企业级特性和分布式能力。
+# CActor
 
-[![仓颉语言](https://img.shields.io/badge/仓颉-1.2.0-blue.svg)](https://cangjie-lang.cn/)
-[![构建状态](https://img.shields.io/badge/构建-通过-brightgreen.svg)](https://github.com/your-repo/cactor)
+**仓颉语言的 Actor 模型库**
+
+设计参考 Akka / Akka Typed，提供经典 Actor、类型化 Actor、监督容错和 Ask 等常用模式。
+
+[![仓颉](https://img.shields.io/badge/仓颉-1.2.0-blue.svg)](https://cangjie-lang.cn/)
+[![版本](https://img.shields.io/badge/版本-1.2.0-orange.svg)](CHANGELOG.md)
 [![许可证](https://img.shields.io/badge/许可证-MIT-green.svg)](LICENSE)
 
 [English](README_EN.md) | 中文
 
----
+</div>
 
-## 📋 目录
-
-- [特性概览](#-特性概览)
-- [快速开始](#-快速开始)
-- [核心概念](#-核心概念)
-- [架构设计](#-架构设计)
-- [API参考](#-api参考)
-- [示例代码](#-示例代码)
-- [性能基准](#-性能基准)
-- [文档导航](#-文档导航)
-- [路线图](#-路线图)
-- [贡献指南](#-贡献指南)
+> **项目状态：早期开发阶段（1.2.0）。** API 仍可能调整，暂不建议在生产环境使用。已知问题见 [当前限制](#当前限制)，后续计划见 [路线图](#路线图)。
 
 ---
 
-## 🏆 特性概览
+## 目录
 
-### 🚀 世界级性能
+- [简介](#简介)
+- [功能概览](#功能概览)
+- [快速开始](#快速开始)
+- [在项目中使用](#在项目中使用)
+- [使用示例](#使用示例)
+- [核心概念](#核心概念)
+- [架构设计](#架构设计)
+- [示例程序](#示例程序)
+- [测试](#测试)
+- [当前限制](#当前限制)
+- [路线图](#路线图)
+- [文档](#文档)
+- [参与贡献](#参与贡献)
+- [许可证](#许可证)
 
-| 指标 | 数值 | 说明 |
+---
+
+## 简介
+
+Actor 模型用"彼此隔离、只通过消息通信的 Actor"来组织并发程序：每个 Actor 拥有自己的状态，按顺序处理邮箱里的消息，出错时由上级按监督策略处理。
+
+CActor 尝试在仓颉语言中提供这套模型，主要包括：
+
+- **两种编程风格**：继承 `Actor` 的经典风格，以及基于 `TypedBehavior` 的类型化风格
+- **容错机制**：监督策略与断路器
+- **常用模式**：Ask 请求-响应、消息路由、背压
+- **模块化结构**：12 个 cjpm 模块，分层清晰，可以按需依赖
+
+---
+
+## 功能概览
+
+| 方向 | 内容 | 状态 |
 |------|------|------|
-| 消息吞吐量 | **20,000,000 msg/s** | 4000倍性能提升 |
-| 延迟 | **P99 < 1ms** | 超低延迟 |
-| 并发Actor | **1,000,000+** | 支持大规模并发 |
-| 内存效率 | **<1KB/Actor** | 高效内存利用 |
-
-### 🎯 核心特性
-
-#### Actor模型
-- **标准Actor**: 完整Actor生命周期管理
-- **类型安全Actor**: 编译期类型检查，参考Akka Typed
-- **Actor间通信**: tell/ask双模式支持
-
-#### 容错与弹性
-- **监督策略**: OneForOne / OneForAll / Escalate / BackoffSupervisor
-- **断路器**: 三态自动转换，故障隔离
-- **背压控制**: Drop/Block/Buffer/Reject/Throttle五种策略
-
-#### 高性能运行时
-- **无锁队列**: 基于环形缓冲区的高性能队列
-- **工作窃取调度器**: 优化CPU利用率
-- **优先级邮箱**: 消息优先级支持
-- **批量处理**: 批处理优化
-
-#### 分布式能力
-- **集群分片**: 自动负载均衡和故障转移
-- **事件溯源**: 持久化和状态重放
-- **CQRS模式**: 命令查询职责分离
-- **远程通信**: 透明的远程Actor调用
-
-### 🔧 开发工具
-
-- **测试框架**: TestProbe、TestActorSystem、虚拟时间控制
-- **配置系统**: YAML/JSON配置、类型安全配置访问
-- **DSL宏**: 编译时元编程，简化Actor定义
-- **监控集成**: 完整的Metrics和Tracing支持
+| Actor 基础 | Actor / ActorRef / ActorSystem、生命周期回调、`tell` | 可用 |
+| 类型化 Actor | `TypedBehaviors`、`TypedActorRef`，参考 Akka Typed | 可用 |
+| 容错 | 监督策略（OneForOne / OneForAll / Escalate / Backoff）、断路器 | 可用 |
+| 通用模式 | Ask、消息路由、背压控制 | 可用 |
+| 运行时组件 | 多种 mailbox 与 dispatcher 实现 | 可用，见 [当前限制](#当前限制) |
+| 流处理 | Streams DSL | 实验性 |
+| 状态机 | XState 风格的状态机 | 实验性 |
+| 分布式 | 集群分片、远程通信、事件溯源 / 持久化 | 原型，尚无真实网络与存储 |
+| 宏 | Actor DSL 宏 | 原型 |
 
 ---
 
-## 📦 快速开始
+## 快速开始
 
 ### 环境要求
 
-- 仓颉语言 1.2.0+
-- cjpm (仓颉包管理器)
+- 仓颉 SDK 1.2.0（含 `cjc` 和 `cjpm`）
+- Linux x86_64（目前只在该平台上验证过）
 
-### 安装构建
+### 从源码构建
 
 ```bash
-# 克隆项目
-git clone <repository-url>
+git clone https://atomgit.com/Cangjie-SIG/cactor.git
 cd cactor
 
-# 构建项目
 cjpm build
+```
 
-# 运行示例
+### 运行示例
+
+```bash
 ./target/release/bin/cactor_examples.hello_world_demo
 ```
 
-### 你的第一个Actor
+---
+
+## 在项目中使用
+
+目前通过本地路径引用 CActor 的模块。在你的 `cjpm.toml` 中添加：
+
+```toml
+[dependencies]
+cactor          = { path = "/path/to/cactor/modules/cactor" }    # 门面 API
+cactor_core     = { path = "/path/to/cactor/modules/core" }      # Actor、Message 等核心类型
+cactor_patterns = { path = "/path/to/cactor/modules/patterns" }  # Ask 等模式（按需）
+```
+
+其他模块（如 `cactor_streams`、`cactor_xstate`）按需添加，路径为 `modules/<模块名>`。
+
+---
+
+## 使用示例
+
+下面三段代码都在一个独立工程中按上面的依赖配置编译运行过。
+
+### 经典 Actor
 
 ```cangjie
 import cactor.api.{CActor}
@@ -98,10 +117,9 @@ import cactor_core.actor.{Actor}
 import cactor_core.message.{Message, StringMessage, MessageResult}
 import cactor_core.context.{ActorContext}
 
-// 定义你的第一个Actor
 class HelloActor <: Actor {
     public prop name: String { get() { "HelloActor" } }
-    public prop description: String { get() { "简单的问候Actor" } }
+    public prop description: String { get() { "简单的问候 Actor" } }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
         match (message) {
@@ -113,71 +131,142 @@ class HelloActor <: Actor {
     }
 }
 
-// 创建Actor系统并使用
 main(): Int64 {
-    let system = CActor.system("HelloSystem")
+    let system = CActor.system("hello-system")
     let actor = system.actorOf({ => HelloActor() }, "hello")
-
-    actor.tell(StringMessage("Hello, CActor!"))
+    actor.tell(StringMessage("Hello, CActor!"))   // 输出：收到消息: Hello, CActor!
     system.terminate()
-
     return 0
 }
 ```
 
+### 类型化 Actor
+
+消息类型由编译器检查；状态通过返回新的行为来更新，不需要可变字段。
+
+```cangjie
+import cactor.api.{CActorSystemFactory}
+import cactor_core.typed.{TypedBehavior, TypedBehaviors}
+
+enum CounterMsg {
+    | Increment
+    | Print
+}
+
+func counter(count: Int64): TypedBehavior<CounterMsg> {
+    TypedBehaviors.receive<CounterMsg>({ ctx, msg =>
+        match (msg) {
+            case Increment => counter(count + 1)
+            case Print =>
+                println("count = ${count}")
+                TypedBehaviors.same<CounterMsg>()
+        }
+    })
+}
+
+main(): Int64 {
+    let system = CActorSystemFactory.create("typed-system")
+    let ref = system.typedActorOf<CounterMsg>(counter(0), "counter")
+    ref.tell(Increment)
+    ref.tell(Increment)
+    ref.tell(Print)                               // 输出：count = 2
+    system.terminate()
+    return 0
+}
+```
+
+### Ask 请求-响应
+
+```cangjie
+import std.time.*
+import cactor.api.{CActor}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, StringMessage, MessageResult}
+import cactor_core.context.{ActorContext}
+import cactor_patterns.ask.{Ask, AskMessage, AskResponse, Result}
+
+class EchoActor <: Actor {
+    public prop name: String { get() { "EchoActor" } }
+    public prop description: String { get() { "回显 Ask 请求" } }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case ask: AskMessage =>
+                let reply = match (ask.getOriginalMessage()) {
+                    case s: StringMessage => StringMessage("echo: ${s.getContent()}")
+                    case _ => StringMessage("unknown")
+                }
+                ask.getReplyTo().tell(AskResponse(ask.getRequestId(), reply, true))
+                MessageResult.Handled
+            case _ => MessageResult.Unhandled
+        }
+    }
+}
+
+main(): Int64 {
+    let system = CActor.system("ask-system")
+    let echo = system.actorOf({ => EchoActor() }, "echo")
+
+    let future = Ask.ask(echo, StringMessage("hi"), Duration.second * 3)
+    match (future.get()) {
+        case Result.Success(response) =>
+            match (response) {
+                case s: StringMessage => println("响应: ${s.getContent()}")   // 输出：响应: echo: hi
+                case _ => ()
+            }
+        case Result.Failure(error) => println("失败: ${error.message}")
+    }
+
+    Ask.shutdown()
+    system.terminate()
+    return 0
+}
+```
+
+更多用法见 [示例程序](#示例程序) 和 [API 参考](docs/zh/api-reference.md)。
+
 ---
 
-## 🎓 核心概念
+## 核心概念
 
-### Actor模型
+### Actor
 
-Actor是并发计算的基本单元，每个Actor拥有：
-- **私有状态**: 状态只能通过消息传递修改
-- **邮箱**: 接收其他Actor发送的消息
-- **行为**: 定义如何处理接收到的消息
+Actor 是并发计算的基本单元，每个 Actor 包含：
+
+- **私有状态**：只能通过消息修改
+- **邮箱**：接收其他 Actor 发来的消息
+- **行为**：定义如何处理收到的消息
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Actor                                │
-│  ┌─────────────────────────────────────────────────────┐     │
-│  │                    状态 (State)                      │     │
-│  │              messageCount: Int64                    │     │
-│  └─────────────────────────────────────────────────────┘     │
-│  ┌─────────────────────────────────────────────────────┐     │
-│  │                    邮箱 (Mailbox)                    │     │
-│  │  [msg1] [msg2] [msg3] [msg4] ...                    │     │
-│  └─────────────────────────────────────────────────────┘     │
-│  ┌─────────────────────────────────────────────────────┐     │
-│  │                   行为 (Behavior)                     │     │
-│  │           receive(message, context)                  │     │
-│  │              → MessageResult                         │     │
-│  └─────────────────────────────────────────────────────┘     │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                    状态 (State)                     │    │
+│  │              messageCount: Int64                    │    │
+│  └─────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                    邮箱 (Mailbox)                   │    │
+│  │  [msg1] [msg2] [msg3] [msg4] ...                    │    │
+│  └─────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │                   行为 (Behavior)                   │    │
+│  │           receive(message, context)                 │    │
+│  │              → MessageResult                        │    │
+│  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### 消息传递
+### 消息处理结果
 
-#### tell - 异步消息发送
-```cangjie
-actor.tell(StringMessage("异步消息"))
-```
+`receive` 返回 `MessageResult`，告诉运行时这条消息的处理情况，例如 `Handled`（已处理）、`Unhandled`（未处理）、`Stop`（处理后停止 Actor）。
 
-#### ask - 请求-响应模式
-```cangjie
-let future = actor.ask<StringMessage, StringMessage>(StringMessage("请求"))
-future.onComplete { result =>
-    match (result) {
-        case Ok(response) => println("收到响应: ${response}")
-        case Err(error) => println("错误: ${error}")
-    }
-}
-```
+### 生命周期
 
-### Actor生命周期
+状态定义见 `ActorLifecycleState`，各阶段对应 `preStart`、`postStop`、`preRestart`、`postRestart` 回调。
 
 ```
     ┌─────────┐
-    │ Created │  ← Actor实例创建
+    │ Created │  ← Actor 实例创建
     └────┬────┘
          │ preStart()
          ▼
@@ -192,7 +281,7 @@ future.onComplete { result =>
          │
     ┌────┴────┐
     │         │
- Stopped  Failed ← 异常或停止
+ Stopped  Failed ← 停止或异常
     │         │
     │    preRestart()
     │         │
@@ -203,402 +292,187 @@ future.onComplete { result =>
          └──→ Running
 ```
 
----
+### 监督
 
-## 🏗️ 架构设计
-
-CActor采用**6+1层模块化架构**，总计326个源文件：
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         用户代码                                 │
-│          import cactor.api.* 即可使用全部功能                      │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     API Layer (API层)                            │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │ CActor.system() | CActorSystem | ActorProps             │     │
-│  │ CActorFactory | CActorSystemBuilder                      │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│  提供统一对外接口，隐藏实现细节                                    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-     ┌────────────────────────┼────────────────────────┐
-     │                        │                        │
-     ▼                        ▼                        ▼
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐
-│  Integration    │  │   Patterns      │  │   Distribution      │
-│   Layer         │  │   Layer         │  │   Layer             │
-│ (集成层)        │  │  (模式层)       │  │   (分布式层)         │
-├─────────────────┤  ├─────────────────┤  ├─────────────────────┤
-│ • 配置管理      │  │ • Ask模式       │  │ • 集群分片          │
-│ • 日志集成      │  │ • 断路器        │  │ • 事件溯源          │
-│ • 监控集成      │  │ • 背压控制      │  │ • CQRS系统          │
-│ • 测试框架      │  │ • 消息路由      │  │ • 远程通信          │
-└─────────────────┘  └─────────────────┘  └─────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Runtime Layer (运行时层)                       │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │ CActorRuntime | Mailbox | Dispatcher | Scheduler       │     │
-│  │ ActorLifecycleManager | SupervisionManager              │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│  提供Core层接口的具体实现，是系统的"引擎"                          │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Core Layer (核心层)                            │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │ Actor | ActorRef | Props | ActorSystem                 │     │
-│  │ Message | ActorContext | Supervision                    │     │
-│  │ TypedBehavior | TypedActorRef                           │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│  定义所有核心抽象接口和数据类型，是系统的"灵魂"                    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  Foundation Layer (基础设施层)                    │
-│  ┌─────────────────────────────────────────────────────────┐     │
-│  │ LockFreeQueue | Serializer | Memory | Monitoring        │     │
-│  │ Network | Config | DI Container                         │     │
-│  └─────────────────────────────────────────────────────────┘     │
-│  零依赖基础设施，环形缓冲区、缓存行填充优化                        │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 各层详情
-
-| 层级 | 文件数 | 描述 |
-|------|--------|------|
-| **Foundation** | 33 | 基础设施：队列、序列化、内存、监控、网络 |
-| **Core** | 31 | 核心抽象：Actor、Message、ActorSystem、TypedActor |
-| **Runtime** | 63 | 运行时实现：邮箱、调度器、生命周期、监督管理 |
-| **Patterns** | 13 | 设计模式：Ask、断路器、背压、路由 |
-| **Distribution** | 21 | 分布式能力：集群、持久化、远程通信 |
-| **Integration** | 28 | 集成服务：配置、日志、监控、测试 |
-| **API** | 13 | 统一API入口 |
+Actor 失败时，由监督策略决定如何处理：`Resume`（忽略并继续）、`Restart`（重启）、`Stop`（停止）或 `Escalate`（交给上级）。内置策略包括 `OneForOneStrategy`、`OneForAllStrategy`、`EscalateStrategy` 和带指数退避的 `BackoffSupervisorStrategy`，位于 `cactor_core.supervision`。
 
 ---
 
-## 📚 API参考
+## 架构设计
 
-### CActor - 统一入口
+项目是一个 cjpm workspace，由 `modules/` 下的 12 个模块组成。依赖只能从上层指向下层：
 
-```cangjie
-// 创建Actor系统
-let system = CActor.system("my-system")
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                           用户代码                              │
+│        一般通过 cactor 门面使用，需要时直接引用各模块              │
+└─────────────────────────────────────────────────────────────────┘
+                                │
+     ┌──────────────┬───────────┴──────┬───────────────────┐
+     ▼              ▼                  ▼                   ▼
+┌───────────┐ ┌──────────────┐ ┌───────────────┐ ┌───────────────┐
+│  Streams  │ │ Distribution │ │    XState     │ │  Integration  │
+│ (流处理)  │ │  (分布式)    │ │   (状态机)    │ │    (集成)     │
+├───────────┤ ├──────────────┤ ├───────────────┤ ├───────────────┤
+│ • 流 DSL  │ │ • 集群分片   │ │ • 状态机定义  │ │ • 日志        │
+│ • 背压    │ │ • 远程通信   │ │ • 并行状态    │ │ • 指标        │
+│           │ │ • 持久化     │ │               │ │ • 配置        │
+│ 实验性    │ │ 原型         │ │ 实验性        │ │               │
+└───────────┘ └──────────────┘ └───────────────┘ └───────────────┘
+     │              │                  │                   │
+     └──────────────┴────────┬─────────┴───────────────────┘
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor（门面 API）                          │
+│   CActor.system() | CActorSystem | ActorProps                   │
+│   CActorFactory | CActorSystemBuilder                           │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor_patterns（通用模式）                 │
+│   Ask | Router | Backpressure                                   │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor_runtime（运行时）                    │
+│   CActorRuntime | Mailbox | Dispatcher | Guardian               │
+│   Registry | ActorLifecycleManager                              │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor_core（核心抽象）                     │
+│   Actor | ActorRef | Props | ActorSystem                        │
+│   Message | ActorContext | Supervision                          │
+│   TypedBehavior | TypedActorRef                                 │
+└─────────────────────────────────────────────────────────────────┘
+                             │
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     cactor_foundation（基础设施）               │
+│   Queue | Serializer | Memory | Monitoring                      │
+│   Network | Config | DI | CircuitBreaker                        │
+└─────────────────────────────────────────────────────────────────┘
 
-// 创建带配置的Actor系统
-let config = CActorRuntimeConfig.createDefault()
-let system = CActor.system("my-system", config)
-
-// 创建Actor Props
-let props = CActor.props({ => MyActor() })
+cactor_macros 是独立的宏模块；cactor_tests 和 cactor_examples 位于最上层。
 ```
 
-### CActorSystem - Actor系统API
+| 模块 | 包名 | 职责 |
+|------|------|------|
+| foundation | `cactor_foundation` | 队列、内存、序列化、网络、配置、DI、监控、断路器 |
+| core | `cactor_core` | Actor、ActorRef、ActorSystem、Message、监督、类型化 Actor 等核心抽象 |
+| runtime | `cactor_runtime` | mailbox、dispatcher、guardian、registry、生命周期 |
+| patterns | `cactor_patterns` | Ask、路由、背压 |
+| cactor | `cactor` | 对外统一 API（`cactor`、`cactor.api`、`cactor.config`） |
+| macros | `cactor_macros` | Actor DSL 宏 |
+| streams | `cactor_streams` | 流处理 DSL |
+| distribution | `cactor_distribution` | 集群、远程、持久化（原型） |
+| xstate | `cactor_xstate` | 状态机 |
+| integration | `cactor_integration` | 日志、指标、配置集成，以及集成测试程序 |
+| tests | `cactor_tests` | 单元测试与集成测试 |
+| examples | `cactor_examples` | 示例程序 |
 
-```cangjie
-// 创建Actor
-let actor = system.actorOf({ => MyActor() }, "my-actor")
-
-// 创建带配置的Actor
-let actor = system.actorOfWithMailbox(
-    { => MyActor() },
-    "my-actor",
-    MailboxConfig.unbounded()
-)
-
-// 创建类型安全Actor
-let typedRef = system.typedActorOf<MyMessage>(behavior, "my-typed-actor")
-
-// 类型转换
-let typedRef = system.wrapAsTypedActor<MyMessage>(actor, "my-actor")
-let actorRef = system.unwrapTypedActor<MyMessage>(typedRef)
-
-// 关闭系统
-system.terminate()
-```
-
-### Props - Actor配置
-
-```cangjie
-let props = PropsFactory.create({ => MyActor() })
-    .withDispatcher("work-stealing")
-    .withMailbox("priority")
-    .withSupervisionStrategy("one-for-one")
-```
-
-### 监督策略
-
-```cangjie
-// OneForOne - 只影响失败的子Actor
-let strategy = DefaultSupervisionStrategy.oneForOne(
-    maxRetries = 3,
-    withinTimeRange = Duration.minutes(5)
-)
-
-// OneForAll - 影响所有子Actor
-let strategy = DefaultSupervisionStrategy.oneForAll(
-    maxRetries = 5,
-    withinTimeRange = Duration.minutes(1)
-)
-
-// Backoff退避策略
-let strategy = BackoffSupervisorStrategy(
-    childName = "backoff-child",
-    minBackoff = Duration.seconds(1),
-    maxBackoff = Duration.minutes(5),
-    randomFactor = 0.2
-)
-```
-
-### 断路器
-
-```cangjie
-let breaker = BasicCircuitBreaker<String>(
-    maxFailureCount = 5,
-    successThreshold = 2,
-    openTimeout = Duration.seconds(30)
-)
-
-// 使用装饰器
-let decorated = CircuitBreakerDecorator<String>(
-    breaker,
-    fallback = { err => "fallback result" }
-)
-```
-
-### 背压控制
-
-```cangjie
-let controller = BasicBackpressureController<String>(
-    strategy = BackpressureStrategy.Drop,
-    maxBufferSize = 1000,
-    windowSize = Duration.seconds(1)
-)
-
-// 获取统计信息
-let stats = controller.getStats()
-println("丢弃: ${stats.droppedCount}, 缓冲: ${stats.bufferedCount}")
-```
-
-### 消息路由
-
-```cangjie
-let router = BasicRouter<String>(
-    routeStrategy = RouteStrategy.RoundRobin,
-    routees = [actor1, actor2, actor3]
-)
-
-// 包装为ActorRef
-let routerRef = RouterActorRef(router, "my-router")
-```
+更详细的设计说明见 [架构设计](docs/zh/architecture.md) 和 [包与模块结构](docs/zh/package-structure.md)。
 
 ---
 
-## 💡 示例代码
+## 示例程序
 
-### 基础示例
+示例位于 [`modules/examples/src`](modules/examples/src)，构建后的可执行文件为 `target/release/bin/cactor_examples.<示例名>`。
 
-| 示例 | 描述 |
+| 示例 | 内容 |
 |------|------|
-| [hello_world_demo](modules/examples/src/hello_world_demo/main.cj) | 最简单的Actor入门 |
-| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Ask请求-响应模式 |
-| [api_demo](modules/examples/src/api_demo/main.cj) | 完整API演示 |
-
-### 高级特性
-
-| 示例 | 描述 |
-|------|------|
-| [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | 多种调度器演示 |
-| [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | 多种邮箱实现 |
-| [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | 类型安全Actor |
-| [circuit_breaker_demo](modules/examples/src/circuit_breaker_demo/main.cj) | 断路器使用 |
-
-### 分布式示例
-
-| 示例 | 描述 |
-|------|------|
-| [cluster_sharding_demo](modules/examples/src/cluster_sharding_demo/main.cj) | 集群分片 |
-| [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源持久化 |
-
-### 性能示例
-
-| 示例 | 描述 |
-|------|------|
-| [benchmark_demo](modules/examples/src/benchmark_demo/main.cj) | 性能基准测试 |
+| [hello_world_demo](modules/examples/src/hello_world_demo/main.cj) | Actor 创建与消息发送 |
+| [api_demo](modules/examples/src/api_demo/main.cj) | 对外 API 用法 |
+| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Ask 请求-响应、超时与批量请求 |
+| [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | 类型化 Actor 系统 |
+| [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | 不同 mailbox 实现 |
+| [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | 不同 dispatcher 实现 |
+| [streams_demo](modules/examples/src/streams_demo/main.cj) | 流处理（实验性） |
+| [xstate_demo](modules/examples/src/xstate_demo) | 状态机（实验性） |
+| [simple_macro_demo](modules/examples/src/simple_macro_demo/main.cj) | DSL 宏（原型） |
+| [cluster_sharding_demo](modules/examples/src/cluster_sharding_demo/main.cj) | 集群分片（原型） |
+| [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
 ---
 
-## 📊 性能基准
-
-### 测试结果
-
-```
-🧪 CActor性能压测结果
-
-=== 轻量级压测 ===
-消息数: 10,000 | Actor数: 5
-吞吐量: 10,000,000 msg/s
-性能等级: 🏆 世界级
-
-=== 默认压测 ===
-消息数: 100,000 | Actor数: 10
-吞吐量: 20,000,000 msg/s
-性能等级: 🏆 世界级
-
-=== 高强度压测 ===
-消息数: 1,000,000 | Actor数: 100
-吞吐量: 17,857,142 msg/s
-性能等级: 🏆 世界级
-```
-
-### 与Akka对比
-
-| 性能指标 | Akka | CActor | 结果 |
-|----------|------|--------|------|
-| 消息吞吐量 | 10-50M msg/s | **20M msg/s** | ✅ 达到Akka水平 |
-| 延迟 | P99 < 1ms | **P99 < 1ms** | ✅ 达到Akka水平 |
-| 内存效率 | 500B/Actor | **<1KB/Actor** | ✅ 达到Akka水平 |
-| 并发Actor | 1M+ | **1M+** | ✅ 达到Akka水平 |
-
-### 运行性能测试
+## 测试
 
 ```bash
-# 简化基准测试
-./target/release/bin/cactor_integration.testing.simple_benchmark_test
-
-# 完整基准测试
-./target/release/bin/cactor_examples.benchmark_demo
+cjpm test                           # 运行全部测试
+python3 tools/check_module_deps.py  # 检查模块分层约束
 ```
 
----
-
-## 📖 文档导航
-
-### 快速入门
-- [快速开始指南](docs/zh/getting-started.md) - 从零开始使用CActor
-- [核心概念](docs/zh/architecture.md) - Actor模型详解
-- [第一个应用](docs/zh/getting-started.md#你的第一个actor) - 编写你的第一个Actor应用
-
-### 架构设计
-- [架构概览](docs/zh/architecture.md) - 6层架构详解
-- [包结构](docs/zh/package-structure.md) - 模块依赖关系
-- [设计模式](docs/zh/architecture.md#patterns-layer) - 设计模式实现
-
-### API参考
-- [API参考](docs/zh/api-reference.md) - 完整API文档
-- [配置系统](docs/zh/api-reference.md#配置系统) - 配置管理详解
-- [测试框架](docs/zh/api-reference.md#测试框架) - 单元测试指南
-
-### 性能优化
-- [性能指南](docs/zh/performance.md) - 性能调优最佳实践
-- [调度器选择](docs/zh/performance.md#调度器配置) - 选择合适的调度器
-- [内存优化](docs/zh/performance.md#内存优化) - 减少内存占用
-
-### 高级特性
-- [类型安全Actor](docs/zh/architecture.md#typed-actor) - TypedBehavior使用
-- [分布式集群](docs/zh/architecture.md#distribution-layer) - 集群分片
-- [事件溯源](docs/zh/architecture.md#持久化) - 持久化与恢复
-
-### English Documentation
-- [Architecture](docs/en/architecture.md) - Architecture overview
-- [API Reference](docs/en/api-reference.md) - Complete API documentation
-- [Performance](docs/en/performance.md) - Performance guide
+目前共有 121 个测试用例，在仓颉 1.2.0 下全部通过，覆盖监督策略、类型化 Actor（行为变换、Stash、定时器）、mailbox 等模块。并发语义方面的测试还在补充中。
 
 ---
 
-## 🗺️ 路线图
+## 当前限制
 
-### ✅ 已完成
+以下问题已经确认，正在按 [开发计划](docs/plan/20261028.md) 逐步处理：
 
-- 🏆 **世界级性能优化** - 20M msg/s吞吐量达成
-- ✅ **6层架构完善** - 模块化架构稳定
-- ✅ **完整测试框架** - 1616个测试用例100%通过
-- ✅ **企业级监控** - Metrics和Tracing支持
-- ✅ **企业级配置** - YAML/JSON配置系统
-
-### 🔄 进行中
-
-- 🔄 **分布式集群支持** - 完善集群分片和故障转移
-- 🔄 **持久化能力** - 事件溯源和快照
-- 🔄 **流处理能力** - Reactive Streams支持
-
-### 📋 规划中
-
-- 📋 **云原生支持** - Kubernetes集成
-- 📋 **多语言绑定** - Java/Kotlin/Swift SDK
-- 📋 **可视化工具** - 运行时状态监控
-- 📋 **社区生态** - 模板和最佳实践
+- **消息调度**：`tell` 目前在调用方线程上直接执行 `receive`，还不能保证同一个 Actor 同一时刻只处理一条消息；dispatcher 尚未接入主消息路径。
+- **并发安全**：部分队列和共享容器还缺少同步。
+- **分布式能力**：远程通信、持久化和集群目前只有接口与原型，没有真实的网络传输和存储。
+- **宏**：DSL 宏大多还没有实际展开逻辑。
+- **日志输出**：运行时会把启动、停止等日志直接打印到标准输出，暂时无法关闭。
+- **性能数据**：仓库里的 benchmark 程序目前测到的是同步函数调用的开销，不能代表消息传递性能，所以这里暂不给出性能数字。
 
 ---
 
-## 🤝 贡献指南
+## 路线图
 
-我们欢迎社区贡献！
+按优先级排列，细节见 [开发计划](docs/plan/20261028.md)：
 
-### 开发流程
+- [x] 升级到仓颉 1.2.0
+- [x] 拆分为 12 个 cjpm 模块，并加入分层检查
+- [ ] **核心运行时**：每个 Actor 独立 mailbox，由 dispatcher 串行处理消息；`tell` 只负责入队；修复并发容器；补充并发语义测试
+- [ ] **API 收口与去重**：精简各模块对外 API，清理重复实现和占位代码
+- [ ] **工程质量**：日志抽象替换 `println`，清零编译告警，测试去掉 `sleep` 同步，接入 CI
+- [ ] **可复现的基准测试**：纳秒级计时，ping-pong / fan-out 场景，统计 P50 / P99
+- [ ] **分布式**：基于 stdx.net 实现远程通信，基于文件系统实现事件存储，再在此基础上实现集群
 
-1. **Fork** 项目到你的仓库
-2. **Clone** 你的Fork到本地
-3. **创建分支** - `git checkout -b feature/your-feature`
-4. **编写代码** - 遵循代码规范
-5. **添加测试** - 确保测试覆盖率
-6. **提交变更** - `git commit -m 'feat: add some feature'`
-7. **推送分支** - `git push origin feature/your-feature`
-8. **创建PR** - Pull Request描述变更内容
+---
 
-### 代码规范
+## 文档
 
-- 遵循仓颉语言规范
-- 添加适当的注释和文档
-- 编写相应的测试用例
-- 确保所有测试通过：`cjpm test`
+| 文档 | 说明 |
+|------|------|
+| [快速开始](docs/zh/QUICK_START.md) | 安装与第一个程序 |
+| [入门指南](docs/zh/getting-started.md) | 基础概念与常见用法 |
+| [架构设计](docs/zh/architecture.md) | 分层设计与关键组件 |
+| [包与模块结构](docs/zh/package-structure.md) | 模块划分与依赖关系 |
+| [API 参考](docs/zh/api-reference.md) | 主要类型与接口 |
+| [性能指南](docs/zh/performance.md) | 调度器、邮箱等调优选项 |
+| [文档索引](docs/zh/README.md) | 全部中文文档 |
+| [更新日志](CHANGELOG.md) | 版本变更记录 |
 
-### 测试要求
+部分文档还在随代码一起更新，个别内容可能和当前实现不一致，以代码为准，也欢迎指出。
+
+---
+
+## 参与贡献
+
+欢迎提交 Issue 和 Pull Request，无论是修复问题、补充测试还是改进文档。提交前请先阅读 [贡献指南](CONTRIBUTING.md)，并确认：
 
 ```bash
-# 运行所有测试
-cjpm test
-
-# 运行性能测试
-./target/release/bin/cactor_integration.testing.simple_benchmark_test
+cjpm build                          # 构建通过
+cjpm test                           # 测试通过
+python3 tools/check_module_deps.py  # 分层检查通过
 ```
 
----
-
-## 📄 许可证
-
-本项目采用 [MIT 许可证](LICENSE)。
+新功能请附带测试；涉及对外 API 的改动请同步更新文档和 [更新日志](CHANGELOG.md)。
 
 ---
 
-## 🙏 致谢
+## 许可证
 
-感谢仓颉语言团队提供的优秀编程语言和工具链，使得CActor项目得以实现。
+本项目基于 [MIT 许可证](LICENSE) 开源。
 
-特别感谢所有为CActor项目贡献代码、文档、测试和反馈的开发者们！
+## 致谢
 
----
-
-## 📞 联系方式
-
-- **项目主页**: [GitHub Repository]
-- **问题反馈**: [GitHub Issues]
-- **功能请求**: [GitHub Discussions]
-
----
-
-<div align="center">
-
-**CActor - 让仓颉语言拥有世界级的Actor系统！** 🚀
-
-*Built with ❤️ for the Cangjie Community*
-
-</div>
+- [仓颉编程语言](https://cangjie-lang.cn/) 团队提供的语言和工具链
+- [Akka](https://akka.io/) 项目，CActor 的许多设计参考了它
+- 所有参与过本项目的贡献者

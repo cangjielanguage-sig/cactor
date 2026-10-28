@@ -2,16 +2,15 @@
 
 ## 📚 示例概览
 
-CActor提供了丰富的示例代码，帮助你快速学习和掌握Actor系统的各种功能。所有示例都已更新到最新版本，支持仓颉1.2.0语言特性。
+这里收集了 CActor 的示例程序，基于仓颉 1.2.0。标注为“原型”的示例演示的是接口设计，还没有真实的网络传输或存储，详见根目录 README 的“当前限制”。
 
-## 🎉 最新功能示例
+## 🎉 功能示例
 
-### 🚀 企业级功能示例
-- **Ask模式示例** - 生产级请求-响应模式，657,894 req/s
-- **集群分片示例** - 完整的集群分片系统，支持100万Actor
-- **持久化示例** - 事件溯源和CQRS架构演示
-- **流处理示例** - CActor Streams，500万元素/秒
-- **状态机示例** - XState企业级状态机系统
+- **Ask模式示例** - 请求-响应模式
+- **集群分片示例** - 集群分片接口演示（原型）
+- **持久化示例** - 事件溯源和CQRS接口演示（原型）
+- **流处理示例** - CActor Streams（实验性）
+- **状态机示例** - XState 风格状态机（实验性）
 
 ## 🎯 入门示例
 
@@ -55,24 +54,22 @@ CActor提供了丰富的示例代码，帮助你快速学习和掌握Actor系统
 **运行**: `cjpm run --name cactor_examples.ask_demo`
 **难度**: ⭐⭐⭐ 中级
 
-展示生产级Ask模式实现：
+展示 Ask 模式的用法：
 - 请求-响应模式
 - 异步回调处理
 - 批量请求处理
 - 超时管理机制
-- 性能：657,894 req/s
 
 ### 🏢 集群分片示例
 **文件**: `cluster_sharding_demo/`
 **运行**: `cjpm run --name cactor_examples.cluster_sharding_demo`
 **难度**: ⭐⭐⭐⭐ 高级
 
-展示企业级集群分片系统：
+演示集群分片的接口设计（原型，尚无真实网络通信）：
 - 集群分片协调
 - 多种路由策略
 - 负载均衡
 - 故障转移
-- 支持：100万Actor
 
 ### 💾 持久化示例
 **文件**: `persistence_demo/`
@@ -96,7 +93,6 @@ CActor提供了丰富的示例代码，帮助你快速学习和掌握Actor系统
 - 背压控制
 - 丰富操作符
 - DSL支持
-- 性能：500万元素/秒
 
 ### 🔄 状态机示例
 **文件**: `xstate_demo/`
@@ -106,9 +102,7 @@ CActor提供了丰富的示例代码，帮助你快速学习和掌握Actor系统
 展示XState状态机系统：
 - 强类型状态机
 - 模式匹配引擎
-- CActor深度集成
-- 企业级特性
-- 纳秒级转换
+- 与 CActor 集成
 
 ### 4. Advanced Dispatcher Examples
 **文件**: `advanced_dispatcher_examples/`  
@@ -250,6 +244,6 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 
 ## 🔗 相关文档
 
-- [CActor API参考](../docs/zh/api-reference.md)
-- [快速开始指南](../docs/zh/quick-start.md)
-- [架构设计文档](../docs/zh/architecture.md)
+- [CActor API参考](../../../docs/zh/api-reference.md)
+- [快速开始指南](../../../docs/zh/QUICK_START.md)
+- [架构设计文档](../../../docs/zh/architecture.md)

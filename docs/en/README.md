@@ -1,58 +1,10 @@
-# CActor - Modern Actor System for Cangjie Language (v1.2.0)
+# CActor Documentation (English)
 
-## 🎯 Project Overview
+This directory contains the English documentation for CActor. For an overview of the project, build instructions and current status, start with the [README](../../README_EN.md) at the repository root.
 
-CActor is a modern high-performance Actor system implemented in Cangjie language, providing complete Actor model implementation, enterprise-grade features, and distributed capabilities. The project adopts a 7-layer modular architecture design, supporting ultra-high concurrency and ultra-low latency message processing, making it an ideal choice for building distributed systems.
+> The project is in early development. Some documents are still being updated alongside the code and may not match the current implementation in every detail. When in doubt, the code is authoritative, and issue reports are welcome.
 
-## 🎉 v1.2.0 Major Update
-
-### ✅ Completed Enterprise Features
-- **Ask Pattern Enhancement** ✅ - Production-ready implementation, 657,894 req/s
-- **Cluster Management Enhancement** ✅ - Complete cluster sharding system, supports 1M Actors
-- **Persistence System Enhancement** ✅ - Complete event sourcing and CQRS system
-- **Test Framework Development** ✅ - Complete TestKit framework
-- **CActor Streams** ✅ - High-performance stream processing, 5M elements/s
-- **XState State Machine** ✅ - Enterprise-grade state machine system based on Cangjie features
-
-### 🏆 Performance Achievements
-
-- **Ask Pattern**: 657,894 req/s, 1,520 ns/req
-- **Cluster Sharding**: Supports 1M Actors
-- **Stream Processing**: 5M elements/s
-- **State Machine**: Nanosecond-level transitions
-- **Overall Latency**: Maintains microsecond-level latency
-
-## ✨ Core Features
-
-### 🚀 World-Class Performance
-- **Ultra-High Throughput**: 20,000,000+ messages/second
-- **Ultra-Low Latency**: P99 < 1 millisecond
-- **Massive Concurrency**: Supports 1,000,000+ concurrent Actors
-- **Memory Optimization**: Efficient object pools and memory allocation
-- **Zero-Copy**: Optimized message passing mechanism
-
-### 🏢 Enterprise-Grade Features
-- **Ask Pattern**: Complete request-response pattern support
-- **Supervision Strategy**: Complete fault recovery mechanism
-- **Circuit Breaker**: Fault isolation and automatic recovery
-- **Backpressure Control**: Flow control and overload protection
-- **Lifecycle Management**: Complete Actor lifecycle management
-
-### 🌐 Distributed Capabilities
-- **Remote Communication**: Transparent remote Actor communication
-- **Cluster Management**: Node discovery and state management
-- **Fault Tolerance**: Automatic fault detection and recovery
-- **Serialization**: JSON and binary serialization support
-- **Persistence**: Event sourcing and snapshot support
-
-### 🔧 Complete Ecosystem
-- **Configuration Management**: Flexible configuration system
-- **Monitoring Integration**: Complete metrics and monitoring
-- **Debugging Tools**: Performance analysis and diagnostic tools
-- **Testing Framework**: Comprehensive test coverage
-- **DSL Support**: Macro-based DSL syntax
-
-## 🏗️ Architecture Design
+## Architecture
 
 CActor adopts a 6-layer modular architecture, ensuring clear separation of concerns and high scalability:
 
@@ -84,124 +36,46 @@ CActor adopts a 6-layer modular architecture, ensuring clear separation of conce
 6. **Integration Layer**: Provides monitoring, logging integration features
 7. **API Layer**: Provides unified external interface
 
-## 📦 Quick Start
+### Layer-to-module mapping
 
-### Requirements
-- Cangjie 1.2.0+
-- cjpm (Cangjie Package Manager)
+| Layer | Module |
+|---|---|
+| Foundation | `cactor_foundation` (the circuit breaker also lives here) |
+| Core | `cactor_core` |
+| Runtime | `cactor_runtime` |
+| Patterns | `cactor_patterns` |
+| Distribution | `cactor_distribution`, `cactor_streams`, `cactor_xstate` |
+| Integration | `cactor_integration` |
+| API | `cactor` (facade module) |
 
-### Installation & Build
-```bash
-# Clone the project
-git clone <repository-url>
-cd cangjie
+See [Package and Module Structure](package-structure.md) for module dependencies.
 
-# Build the project
-cjpm build
+## Getting Started
 
-# Run performance tests
-./target/release/bin/cactor_integration.testing.simple_benchmark_test
-```
+- [Quick Start](QUICK_START.md)
+- [Getting Started Guide](getting-started.md)
+- [Features](FEATURES.md)
 
-### Simple Example
+## Design and Reference
 
-```cangjie
-import cactor.api.{CActor}
+- [Architecture](architecture.md)
+- [Package and Module Structure](package-structure.md)
+- [API Reference](api-reference.md)
 
-// 1. Define Actor
-class HelloActor <: Actor {
-    public func receive(message: Message, context: ActorContext): MessageResult {
-        match (message) {
-            case msg: StringMessage =>
-                println("Received message: ${msg.content}")
-                MessageResult.Handled
-            case _ => MessageResult.Unhandled
-        }
-    }
-}
+## Development and Operations
 
-// 2. Create Actor System
-main(): Int64 {
-    let system = CActor.system("HelloSystem")
-    let actor = system.actorOf({ => HelloActor() }, "hello")
-    
-    actor.tell(StringMessage("Hello, CActor!"))
-    
-    return 0
-}
-```
+- [Best Practices](BEST_PRACTICES.md)
+- [Code Style](CODE_STYLE_GUIDE.md)
+- [Performance Guide](performance.md)
+- [Monitoring and Logging](MONITORING.md)
+- [Deployment](DEPLOYMENT.md)
+- [Security](SECURITY.md)
+- [Troubleshooting](TROUBLESHOOTING.md)
+- [Migration](MIGRATION.md)
 
-## 📊 Performance Benchmarks
+## Planning
 
-### Benchmark Results
+- [Roadmap](roadmap.md)
+- [Changelog](../../CHANGELOG.md)
 
-```
-🧪 CActor Performance Benchmark Results
-
-=== Light Benchmark ===
-Messages: 10,000
-Actors: 5
-Throughput: 10,000,000 msg/s
-Performance Level: 🏆 World-Class
-
-=== Default Benchmark ===
-Messages: 100,000
-Actors: 10
-Throughput: 20,000,000 msg/s
-Performance Level: 🏆 World-Class
-
-=== Intensive Benchmark ===
-Messages: 1,000,000
-Actors: 100
-Throughput: 17,857,142 msg/s
-Performance Level: 🏆 World-Class
-```
-
-### Comparison with Akka
-
-| Performance Metric | Akka | CActor | Result |
-|-------------------|------|--------|--------|
-| Message Throughput | 10-50M msg/s | 20M msg/s | ✅ Matches Akka Level |
-| Latency | P99 < 1ms | P99 < 1ms | ✅ Matches Akka Level |
-| Memory Efficiency | 500B/Actor | <1KB/Actor | ✅ Matches Akka Level |
-| Concurrent Actors | 1M+ | 1M+ | ✅ Matches Akka Level |
-
-## 🎯 Future Roadmap
-
-### Short-term Goals (Completed)
-- ✅ World-class performance optimization (20M msg/s)
-- ✅ Enterprise-grade monitoring and configuration
-- ✅ Complete testing framework
-- ✅ 6-layer architecture refinement
-
-### Medium-term Goals (In Progress)
-- 🔄 Distributed cluster support
-- 🔄 Persistence and event sourcing
-- 🔄 Stream processing capabilities
-- 🔄 Complete documentation system
-
-### Long-term Goals (Planned)
-- 📋 Cloud-native support
-- 📋 Multi-language bindings
-- 📋 Visualization tools
-- 📋 Community ecosystem building
-
-## 📚 Documentation Navigation
-
-- [Architecture Design](architecture.md) - Detailed architecture documentation
-- [API Reference](api-reference.md) - Complete API documentation
-- [Performance Optimization](performance.md) - Performance optimization guide
-- [Best Practices](best-practices.md) - Usage best practices
-- [Examples Collection](examples.md) - Rich example code
-
-## 🤝 Contributing
-
-We welcome community contributions! Please see the [Contributing Guide](contributing.md) to learn how to participate in project development.
-
-## 📄 License
-
-This project is licensed under the [MIT License](../../LICENSE).
-
----
-
-**CActor - Bringing World-Class Actor System to Cangjie Language!** 🚀
+[中文](../zh/README.md)
