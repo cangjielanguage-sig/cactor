@@ -300,7 +300,7 @@ Actor 失败时，由监督策略决定如何处理：`Resume`（忽略并继续
 
 ## 架构设计
 
-项目是一个 cjpm workspace，由 `modules/` 下的 12 个模块组成。依赖只能从上层指向下层：
+项目是一个 cjpm workspace，由 `modules/` 下的 15 个模块组成。依赖只能从上层指向下层：
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -368,7 +368,10 @@ cactor_macros 是独立的宏模块；cactor_tests 和 cactor_examples 位于最
 | cactor | `cactor` | 对外统一 API（`cactor`、`cactor.api`、`cactor.config`） |
 | macros | `cactor_macros` | Actor DSL 宏 |
 | streams | `cactor_streams` | 流处理 DSL |
-| distribution | `cactor_distribution` | 集群、远程、持久化（原型） |
+| remote | `cactor_remote` | 远程通信（原型） |
+| persistence | `cactor_persistence` | 事件溯源、快照、CQRS（原型） |
+| cluster | `cactor_cluster` | 集群、分片、故障转移（原型） |
+| distribution | `cactor_distribution` | 聚合模块：重导出 remote / persistence / cluster，含 streaming（原型） |
 | xstate | `cactor_xstate` | 状态机 |
 | integration | `cactor_integration` | 日志、指标、配置集成，以及集成测试程序 |
 | tests | `cactor_tests` | 单元测试与集成测试 |
@@ -405,7 +408,9 @@ cjpm test                           # 运行全部测试
 python3 tools/check_module_deps.py  # 检查模块分层约束
 ```
 
-目前共有 121 个测试用例，在仓颉 1.2.0 下全部通过，覆盖监督策略、类型化 Actor（行为变换、Stash、定时器）、mailbox 等模块。并发语义方面的测试还在补充中。
+目前共有 163 个测试用例，在仓颉 1.2.0 下全部通过。除监督策略、类型化 Actor（行为变换、Stash、定时器）、mailbox 外，还覆盖并发语义（串行处理、并发创建/停止、监督重启）、队列压力、TCP/UDP 传输、远程端到端、文件事件日志与事件溯源恢复。
+
+基准程序：`./target/release/bin/cactor_examples.real_benchmark`。在 32 核机器上实测：单 Actor 约 1.5 M msg/s，ping-pong 往返 P50 约 6 µs，本机回环远程 TCP 约 47 k msg/s。完整数据见 [开发计划](docs/plan/20261028.md) 第 6.3 节。
 
 ---
 
@@ -413,12 +418,12 @@ python3 tools/check_module_deps.py  # 检查模块分层约束
 
 以下问题已经确认，正在按 [开发计划](docs/plan/20261028.md) 逐步处理：
 
-- **消息调度**：`tell` 目前在调用方线程上直接执行 `receive`，还不能保证同一个 Actor 同一时刻只处理一条消息；dispatcher 尚未接入主消息路径。
-- **并发安全**：部分队列和共享容器还缺少同步。
-- **分布式能力**：远程通信、持久化和集群目前只有接口与原型，没有真实的网络传输和存储。
+- **调度**：所有 Actor 共用一个就绪队列，Actor 数量多时扇出吞吐受锁竞争限制；在 `receive` 中阻塞会占用工作线程。
+- **远程通信**：基于 `std.net` 的 TCP 传输，投递语义是至多一次，暂不支持远程 ask。
+- **集群**：目前只有原型。
 - **宏**：DSL 宏大多还没有实际展开逻辑。
 - **日志输出**：运行时会把启动、停止等日志直接打印到标准输出，暂时无法关闭。
-- **性能数据**：仓库里的 benchmark 程序目前测到的是同步函数调用的开销，不能代表消息传递性能，所以这里暂不给出性能数字。
+- **旧基准程序**：除 `real_benchmark` 外，仓库里其他 benchmark 程序测到的是同步函数调用的开销，不代表消息传递性能。
 
 ---
 
@@ -428,11 +433,12 @@ python3 tools/check_module_deps.py  # 检查模块分层约束
 
 - [x] 升级到仓颉 1.2.0
 - [x] 拆分为 12 个 cjpm 模块，并加入分层检查
-- [ ] **核心运行时**：每个 Actor 独立 mailbox，由 dispatcher 串行处理消息；`tell` 只负责入队；修复并发容器；补充并发语义测试
+- [x] **核心运行时**：每个 Actor 独立 mailbox，由 dispatcher 串行处理消息；`tell` 只负责入队；修复并发容器；补充并发语义测试
 - [ ] **API 收口与去重**：精简各模块对外 API，清理重复实现和占位代码
 - [ ] **工程质量**：日志抽象替换 `println`，清零编译告警，测试去掉 `sleep` 同步，接入 CI
-- [ ] **可复现的基准测试**：纳秒级计时，ping-pong / fan-out 场景，统计 P50 / P99
-- [ ] **分布式**：基于 stdx.net 实现远程通信，基于文件系统实现事件存储，再在此基础上实现集群
+- [x] **可复现的基准测试**：纳秒级计时，ping-pong / fan-out 场景，统计 P50 / P99
+- [x] **远程与持久化**：基于 std.net 的远程通信，基于文件系统的事件日志、快照与事件溯源 Actor
+- [ ] **集群**：在远程通信之上实现成员管理与心跳
 
 ---
 

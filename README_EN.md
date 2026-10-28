@@ -300,7 +300,7 @@ When an actor fails, its supervision strategy decides what to do: `Resume` (igno
 
 ## Architecture
 
-The project is a cjpm workspace of 12 modules under `modules/`. Dependencies only point from higher layers to lower ones:
+The project is a cjpm workspace of 15 modules under `modules/`. Dependencies only point from higher layers to lower ones:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -369,7 +369,10 @@ cactor_examples sit at the top.
 | cactor | `cactor` | Public facade API (`cactor`, `cactor.api`, `cactor.config`) |
 | macros | `cactor_macros` | Actor DSL macros |
 | streams | `cactor_streams` | Stream processing DSL |
-| distribution | `cactor_distribution` | Cluster, remoting, persistence (prototype) |
+| remote | `cactor_remote` | Remoting (prototype) |
+| persistence | `cactor_persistence` | Event sourcing, snapshots, CQRS (prototype) |
+| cluster | `cactor_cluster` | Cluster, sharding, failover (prototype) |
+| distribution | `cactor_distribution` | Umbrella: re-exports remote / persistence / cluster, plus streaming (prototype) |
 | xstate | `cactor_xstate` | State machines |
 | integration | `cactor_integration` | Logging, metrics and config integration, plus integration test programs |
 | tests | `cactor_tests` | Unit and integration tests |
@@ -406,7 +409,9 @@ cjpm test                           # run all tests
 python3 tools/check_module_deps.py  # check module layering
 ```
 
-There are currently 121 test cases, all passing on Cangjie 1.2.0. They cover supervision strategies, typed actors (behavior transforms, stash, timers), mailboxes and more. Tests for concurrency semantics are still being added.
+There are currently 163 test cases, all passing on Cangjie 1.2.0. Besides supervision strategies, typed actors (behavior transforms, stash, timers) and mailboxes, they cover concurrency semantics (serial processing, concurrent create/stop, supervised restart), queue stress, TCP/UDP transport, remote end-to-end messaging, and file-based event journal and event-sourcing recovery.
+
+Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measured on a 32-core machine: about 1.5 M msg/s for a single actor, ping-pong round-trip P50 about 6 µs, about 47 k msg/s for remote TCP over loopback. Full numbers are in section 6.3 of the [development plan](docs/plan/20261028.md).
 
 ---
 
@@ -414,12 +419,12 @@ There are currently 121 test cases, all passing on Cangjie 1.2.0. They cover sup
 
 The following issues are known and are being addressed according to the [development plan](docs/plan/20261028.md) (in Chinese):
 
-- **Message scheduling**: `tell` currently runs `receive` directly on the caller's thread, so an actor is not yet guaranteed to process one message at a time, and dispatchers are not yet wired into the main message path.
-- **Concurrency safety**: some queues and shared containers still lack proper synchronization.
-- **Distribution**: remoting, persistence and clustering exist only as interfaces and prototypes, without real network transport or storage.
+- **Scheduling**: all actors share one ready queue, so fan-out throughput with many actors is limited by lock contention; blocking inside `receive` occupies a worker thread.
+- **Remoting**: TCP transport on `std.net` with at-most-once delivery; remote ask is not supported yet.
+- **Clustering**: prototype only.
 - **Macros**: most DSL macros do not yet perform real expansion.
 - **Log output**: the runtime prints startup and shutdown logs directly to standard output, and this cannot be turned off yet.
-- **Performance figures**: the benchmark programs in the repository currently measure synchronous function-call overhead rather than message passing, so no performance numbers are given here.
+- **Old benchmark programs**: apart from `real_benchmark`, the benchmark programs in the repository measure synchronous function-call overhead, not message passing.
 
 ---
 
@@ -429,11 +434,12 @@ In priority order; see the [development plan](docs/plan/20261028.md) (in Chinese
 
 - [x] Upgrade to Cangjie 1.2.0
 - [x] Split into 12 cjpm modules with a layering check
-- [ ] **Core runtime**: one mailbox per actor, messages processed serially by a dispatcher, `tell` only enqueues, fixed concurrent containers, concurrency-semantics tests
+- [x] **Core runtime**: one mailbox per actor, messages processed serially by a dispatcher, `tell` only enqueues, fixed concurrent containers, concurrency-semantics tests
 - [ ] **API cleanup and deduplication**: smaller public API per module, remove duplicate and placeholder code
 - [ ] **Engineering quality**: a logging abstraction instead of `println`, zero compiler warnings, no `sleep`-based synchronization in tests, CI
-- [ ] **Reproducible benchmarks**: nanosecond timing, ping-pong / fan-out scenarios, P50 / P99 statistics
-- [ ] **Distribution**: remoting on stdx.net, a file-based event store, then clustering on top of both
+- [x] **Reproducible benchmarks**: nanosecond timing, ping-pong / fan-out scenarios, P50 / P99 statistics
+- [x] **Remoting and persistence**: remoting on std.net, a file-based event journal, snapshots and event-sourced actors
+- [ ] **Clustering**: membership and heartbeats on top of remoting
 
 ---
 

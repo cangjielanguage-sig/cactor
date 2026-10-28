@@ -1,68 +1,84 @@
 # CActor 包与模块结构
 
-CActor 是一个 cjpm **workspace（工作区）**，由 12 个仓颉 **module（模块）**组成。仓颉中，一个模块就是“一个根包加上它的全部子包”构成的树，模块的根包名必须与模块名相同；包之间、模块之间都不允许出现循环依赖。
+CActor 是一个 cjpm **workspace（工作区）**，由 15 个仓颉 **module（模块）** 组成。仓颉中，一个模块就是“根包加上它的全部子包”构成的树，模块的根包名必须与模块名相同；包之间、模块之间都不允许出现循环依赖。
 
 ## 目录布局
 
 ```
 cactor/
 ├── cjpm.toml                 # [workspace]：成员列表 + 公共编译选项
+├── tools/check_module_deps.py  # 模块分层检查
 └── modules/
     ├── foundation/           # 模块 cactor_foundation
     │   ├── cjpm.toml         # [package] name = "cactor_foundation"
     │   └── src/
     │       ├── pkg.cj        # 根包 cactor_foundation
     │       └── queue/ ...    # 子包 cactor_foundation.queue
-    ├── core/                 # cactor_core
-    ├── patterns/             # cactor_patterns
-    ├── runtime/              # cactor_runtime
-    ├── cactor/               # cactor（门面：cactor / cactor.api.* / cactor.config.*）
-    ├── macros/               # cactor_macros（macro package）
-    ├── streams/              # cactor_streams
-    ├── distribution/         # cactor_distribution
-    ├── xstate/               # cactor_xstate
-    ├── integration/          # cactor_integration
-    ├── tests/                # cactor_tests
-    └── examples/             # cactor_examples
+    ├── core/  runtime/  patterns/  cactor/  macros/  streams/
+    ├── remote/  persistence/  cluster/  distribution/  xstate/
+    └── integration/  tests/  examples/
 ```
 
 ## 模块一览与依赖
 
-| 模块 | 文件/行数 | 直接依赖 | 子包 |
-|---|---|---|---|
-| `cactor_foundation` | 35 / 9,350 | — | abstractions, circuit_breaker, config, contracts, di, memory, monitoring, network, queue, serialization, simple_config |
-| `cactor_core` | 31 / 6,733 | foundation | actor, config, context, error, guardian, memory, message, supervision, system, typed |
-| `cactor_patterns` | 11 / 2,990 | foundation, core | ask, backpressure, routing(.advanced/.factory) |
-| `cactor_runtime` | 63 / 16,185 | foundation, core, patterns | actor, context, dispatcher.*, events, execution, guardian, lifecycle, mailbox.*, message, monitoring, registry, scheduler, supervision, system, typed, wrappers |
-| `cactor` | 16 / 2,140 | core, runtime | api, api.config, api.extensions, api.public, config, config.file |
-| `cactor_macros` | 1 / 695 | — | （宏包本身） |
-| `cactor_streams` | 6 / 2,551 | core, cactor | core, dsl, unified |
-| `cactor_distribution` | 20 / 4,993 | foundation, core, cactor | cluster, persistence, remote, streaming |
-| `cactor_xstate` | 17 / 4,867 | core, cactor, distribution | core.*, features.*, enterprise.*, lang.macros |
-| `cactor_integration` | 28 / 8,138 | foundation, core, runtime, cactor | configuration, logging, monitoring, testing(.*可执行) |
-| `cactor_tests` | 37 / 4,812 | core, runtime, cactor | unit.*, integration |
-| `cactor_examples` | 61 / 14,015 | 以上全部 | 38 个可执行示例 |
+| 层 | 模块 | 文件/行数 | 直接依赖 | 说明 |
+|---|---|---|---|---|
+| L0 | `cactor_foundation` | 35 / 9,323 | — | 队列、内存、序列化、网络、配置、DI、监控、断路器 |
+| L0 | `cactor_macros` | 1 / 695 | — | 宏包（macro package） |
+| L1 | `cactor_core` | 31 / 6,756 | foundation | Actor / ActorRef / Message / Supervision / Typed 抽象，`DeadLetterRef` |
+| L2 | `cactor_runtime` | 63 / 16,238 | foundation, core | Actor Cell（独立邮箱 + 串行调度）、mailbox、dispatcher、guardian、lifecycle |
+| L2 | `cactor_remote` | 2 / 285 | foundation, core | 远程管理（实验性） |
+| L2 | `cactor_persistence` | 8 / 2,021 | core | 事件溯源、快照、CQRS（实验性） |
+| L3 | `cactor_patterns` | 11 / 2,984 | foundation, core | Ask、路由、背压；重导出断路器 |
+| L4 | `cactor` | 16 / 2,132 | core, runtime | 门面：`cactor` / `cactor.api.*` / `cactor.config.*` |
+| L5 | `cactor_streams` | 6 / 2,541 | core, cactor | 流 DSL |
+| L5 | `cactor_cluster` | 6 / 2,004 | foundation, core, remote, cactor | 集群、分片、路由、故障转移（实验性） |
+| L6 | `cactor_distribution` | 4 / 654 | core, remote, persistence, cluster | 聚合模块：重导出三者 + streaming |
+| L6 | `cactor_xstate` | 17 / 4,852 | core, cactor, cluster | 状态机 |
+| L6 | `cactor_integration` | 28 / 8,107 | foundation, core, runtime, cactor | 日志、指标、配置 + 11 个集成测试程序 |
+| L7 | `cactor_tests` | 38 / 5,021 | core, runtime, cactor | @Test 用例 |
+| L7 | `cactor_examples` | 61 / 13,891 | 多个 | 38 个可执行示例 |
 
-依赖方向（自底向上，无环）：
+依赖方向（自底向上，无环，由 `cjpm` 与 `tools/check_module_deps.py` 共同保证）：
 
 ```
-foundation ─► core ─► patterns ─► runtime ─► cactor ─┬─► streams
-                                                     ├─► distribution ─► xstate
-                                                     └─► integration
-tests / examples 位于最上层；macros 独立，只被 examples 依赖
+┌─────────────────────────────────────────────────────────────────────────┐
+│ L7   cactor_tests          cactor_examples                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L6   cactor_distribution   cactor_xstate         cactor_integration     │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L5   cactor_cluster        cactor_streams                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L4   cactor（门面）                                                     │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L3   cactor_patterns                                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L2   cactor_runtime        cactor_remote         cactor_persistence     │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L1   cactor_core                                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L0   cactor_foundation     cactor_macros                                │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
+
+每个模块只依赖比自己低的层，具体依赖见上表。
 
 ## 可见性约定
 
 - **模块对外 API**：放在 `public package`（默认）中，声明为 `public`。
-- **模块内部实现**：声明为 `protected package`，只在本模块内可见，其他模块 `import` 会直接编译失败。目前 `cactor_runtime` 下的 actor、context、guardian、registry、message、monitoring、execution、scheduler、mailbox.lockfree、mailbox.ringbuffer、dispatcher.batch_processing / optimized / work_stealing 均为 protected。
-- **重导出**：模块根包通过 `public import x.y.{A, B}` 对外提供精选 API。例如 `cactor_patterns` 重导出 `cactor_foundation.circuit_breaker.*`，用户只需 `import cactor_patterns.*`。
+- **模块内部实现**：声明为 `protected package`，只在本模块内可见；从其他模块 `import` 会编译失败。目前 `cactor_runtime` 下的 actor、context、guardian、registry、message、monitoring、execution、scheduler、mailbox.lockfree、mailbox.ringbuffer、dispatcher.batch_processing / optimized / work_stealing 均为 protected。
+- **重导出**：模块根包通过 `public import` 对外提供 API。例如 `cactor_patterns` 重导出 `cactor_foundation.circuit_breaker.*`，`cactor_distribution` 重导出 `cactor_remote.*`、`cactor_persistence.*`、`cactor_cluster.*`。
+- **测试文件**：同包的 `xxx_test.cj` 可以访问 `internal` 成员，且只在 `cjpm test` 时编译（已在 1.2.0 上验证）。
 
 ## 常用命令
 
 ```bash
 cjpm build                                        # 构建整个 workspace
+cjpm build -m modules/core                        # 只构建某个成员模块（及其依赖）
+cjpm check                                        # 检查依赖并输出包的编译顺序
+cjpm tree --depth 1                               # 查看包依赖树
 cjpm test                                         # 运行所有模块的 @Test
+python3 tools/check_module_deps.py                # 模块分层检查
 cjpm run --name cactor_examples.hello_world_demo  # 在 workspace 根目录运行示例
 ```
 
@@ -96,13 +112,6 @@ modules/core/src/            # 模块 cactor_core
 ├── system/  (3)
 └── typed/  (4)
 
-modules/patterns/src/            # 模块 cactor_patterns
-├── ask/  (4)
-├── backpressure/  (2)
-└── routing/  (2)
-    ├── advanced/  (1)
-    └── factory/  (1)
-
 modules/runtime/src/            # 模块 cactor_runtime
 ├── actor/  (2)
 ├── context/  (2)
@@ -135,6 +144,13 @@ modules/runtime/src/            # 模块 cactor_runtime
 ├── typed/  (4)
 └── wrappers/  (1)
 
+modules/patterns/src/            # 模块 cactor_patterns
+├── ask/  (4)
+├── backpressure/  (2)
+└── routing/  (2)
+    ├── advanced/  (1)
+    └── factory/  (1)
+
 modules/cactor/src/            # 模块 cactor
 ├── api/  (5)
 │   ├── config/  (2)
@@ -150,10 +166,13 @@ modules/streams/src/            # 模块 cactor_streams
 ├── dsl/  (1)
 └── unified/  (1)
 
+modules/remote/src/            # 模块 cactor_remote
+
+modules/persistence/src/            # 模块 cactor_persistence
+
+modules/cluster/src/            # 模块 cactor_cluster
+
 modules/distribution/src/            # 模块 cactor_distribution
-├── cluster/  (6)
-├── persistence/  (8)
-├── remote/  (2)
 └── streaming/  (3)
 
 modules/xstate/src/            # 模块 cactor_xstate

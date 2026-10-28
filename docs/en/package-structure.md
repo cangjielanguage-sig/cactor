@@ -1,68 +1,84 @@
 # CActor Package & Module Structure
 
-CActor is a cjpm **workspace** made of 12 Cangjie **modules**. In Cangjie, a module is the tree formed by a root package and all of its subpackages, and the root package name must equal the module name. Cyclic dependencies are forbidden between packages and between modules.
+CActor is a cjpm **workspace** made of 15 Cangjie **modules**. In Cangjie, a module is the tree formed by a root package and all of its subpackages, and the root package name must equal the module name. Cyclic dependencies are forbidden between packages and between modules.
 
 ## Layout
 
 ```
 cactor/
 ├── cjpm.toml                 # [workspace]: members + shared compile options
+├── tools/check_module_deps.py  # module layering check
 └── modules/
     ├── foundation/           # module cactor_foundation
     │   ├── cjpm.toml         # [package] name = "cactor_foundation"
     │   └── src/
     │       ├── pkg.cj        # root package cactor_foundation
     │       └── queue/ ...    # subpackage cactor_foundation.queue
-    ├── core/                 # cactor_core
-    ├── patterns/             # cactor_patterns
-    ├── runtime/              # cactor_runtime
-    ├── cactor/               # cactor (facade: cactor / cactor.api.* / cactor.config.*)
-    ├── macros/               # cactor_macros (macro package)
-    ├── streams/              # cactor_streams
-    ├── distribution/         # cactor_distribution
-    ├── xstate/               # cactor_xstate
-    ├── integration/          # cactor_integration
-    ├── tests/                # cactor_tests
-    └── examples/             # cactor_examples
+    ├── core/  runtime/  patterns/  cactor/  macros/  streams/
+    ├── remote/  persistence/  cluster/  distribution/  xstate/
+    └── integration/  tests/  examples/
 ```
 
 ## Modules and dependencies
 
-| Module | Files / lines | Direct deps | Subpackages |
-|---|---|---|---|
-| `cactor_foundation` | 35 / 9,350 | — | abstractions, circuit_breaker, config, contracts, di, memory, monitoring, network, queue, serialization, simple_config |
-| `cactor_core` | 31 / 6,733 | foundation | actor, config, context, error, guardian, memory, message, supervision, system, typed |
-| `cactor_patterns` | 11 / 2,990 | foundation, core | ask, backpressure, routing(.advanced/.factory) |
-| `cactor_runtime` | 63 / 16,185 | foundation, core, patterns | actor, context, dispatcher.*, events, execution, guardian, lifecycle, mailbox.*, message, monitoring, registry, scheduler, supervision, system, typed, wrappers |
-| `cactor` | 16 / 2,140 | core, runtime | api, api.config, api.extensions, api.public, config, config.file |
-| `cactor_macros` | 1 / 695 | — | (the macro package itself) |
-| `cactor_streams` | 6 / 2,551 | core, cactor | core, dsl, unified |
-| `cactor_distribution` | 20 / 4,993 | foundation, core, cactor | cluster, persistence, remote, streaming |
-| `cactor_xstate` | 17 / 4,867 | core, cactor, distribution | core.*, features.*, enterprise.*, lang.macros |
-| `cactor_integration` | 28 / 8,138 | foundation, core, runtime, cactor | configuration, logging, monitoring, testing (executables) |
-| `cactor_tests` | 37 / 4,812 | core, runtime, cactor | unit.*, integration |
-| `cactor_examples` | 61 / 14,015 | all of the above | 38 runnable examples |
+| Layer | Module | Files / lines | Direct deps | Notes |
+|---|---|---|---|---|
+| L0 | `cactor_foundation` | 35 / 9,323 | — | queues, memory, serialization, network, config, DI, monitoring, circuit breaker |
+| L0 | `cactor_macros` | 1 / 695 | — | macro package |
+| L1 | `cactor_core` | 31 / 6,756 | foundation | Actor / ActorRef / Message / Supervision / Typed abstractions, `DeadLetterRef` |
+| L2 | `cactor_runtime` | 63 / 16,238 | foundation, core | actor cell (own mailbox + serial scheduling), mailbox, dispatcher, guardian, lifecycle |
+| L2 | `cactor_remote` | 2 / 285 | foundation, core | remoting (experimental) |
+| L2 | `cactor_persistence` | 8 / 2,021 | core | event sourcing, snapshots, CQRS (experimental) |
+| L3 | `cactor_patterns` | 11 / 2,984 | foundation, core | ask, routing, backpressure; re-exports the circuit breaker |
+| L4 | `cactor` | 16 / 2,132 | core, runtime | facade: `cactor` / `cactor.api.*` / `cactor.config.*` |
+| L5 | `cactor_streams` | 6 / 2,541 | core, cactor | streams DSL |
+| L5 | `cactor_cluster` | 6 / 2,004 | foundation, core, remote, cactor | cluster, sharding, routing, failover (experimental) |
+| L6 | `cactor_distribution` | 4 / 654 | core, remote, persistence, cluster | umbrella: re-exports the three + streaming |
+| L6 | `cactor_xstate` | 17 / 4,852 | core, cactor, cluster | state machines |
+| L6 | `cactor_integration` | 28 / 8,107 | foundation, core, runtime, cactor | logging, metrics, config + 11 integration programs |
+| L7 | `cactor_tests` | 38 / 5,021 | core, runtime, cactor | @Test cases |
+| L7 | `cactor_examples` | 61 / 13,891 | many | 38 runnable examples |
 
-Dependency direction (bottom-up, acyclic):
+Dependency direction (bottom-up, acyclic; enforced by `cjpm` and `tools/check_module_deps.py`):
 
 ```
-foundation ─► core ─► patterns ─► runtime ─► cactor ─┬─► streams
-                                                     ├─► distribution ─► xstate
-                                                     └─► integration
-tests / examples sit on top; macros is standalone and only used by examples
+┌─────────────────────────────────────────────────────────────────────────┐
+│ L7   cactor_tests          cactor_examples                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L6   cactor_distribution   cactor_xstate         cactor_integration     │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L5   cactor_cluster        cactor_streams                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L4   cactor (facade)                                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L3   cactor_patterns                                                    │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L2   cactor_runtime        cactor_remote         cactor_persistence     │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L1   cactor_core                                                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│ L0   cactor_foundation     cactor_macros                                │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
+
+Each module depends only on lower layers; see the table above for exact edges.
 
 ## Visibility conventions
 
 - **Module public API** lives in `public` packages (the default) as `public` declarations.
-- **Module internals** are declared `protected package`: visible only inside the module, and any `import` from another module is a compile error. Currently protected in `cactor_runtime`: actor, context, guardian, registry, message, monitoring, execution, scheduler, mailbox.lockfree, mailbox.ringbuffer, dispatcher.batch_processing / optimized / work_stealing.
-- **Re-export**: a module's root package exposes a curated API with `public import x.y.{A, B}`. For example, `cactor_patterns` re-exports `cactor_foundation.circuit_breaker.*`, so `import cactor_patterns.*` is enough.
+- **Module internals** are declared `protected package`: visible only inside the module, and importing them from another module is a compile error. Currently protected in `cactor_runtime`: actor, context, guardian, registry, message, monitoring, execution, scheduler, mailbox.lockfree, mailbox.ringbuffer, dispatcher.batch_processing / optimized / work_stealing.
+- **Re-export**: a module's root package exposes its API with `public import`. For example, `cactor_patterns` re-exports `cactor_foundation.circuit_breaker.*`, and `cactor_distribution` re-exports `cactor_remote.*`, `cactor_persistence.*` and `cactor_cluster.*`.
+- **Test files**: a same-package `xxx_test.cj` can access `internal` members and is only compiled by `cjpm test` (verified on 1.2.0).
 
 ## Commands
 
 ```bash
 cjpm build                                        # build the whole workspace
+cjpm build -m modules/core                        # build one member (and its deps)
+cjpm check                                        # check deps, print package compile order
+cjpm tree --depth 1                               # show the package dependency tree
 cjpm test                                         # run @Test in all modules
+python3 tools/check_module_deps.py                # module layering check
 cjpm run --name cactor_examples.hello_world_demo  # run an example from the workspace root
 ```
 
@@ -96,13 +112,6 @@ modules/core/src/            # module cactor_core
 ├── system/  (3)
 └── typed/  (4)
 
-modules/patterns/src/            # module cactor_patterns
-├── ask/  (4)
-├── backpressure/  (2)
-└── routing/  (2)
-    ├── advanced/  (1)
-    └── factory/  (1)
-
 modules/runtime/src/            # module cactor_runtime
 ├── actor/  (2)
 ├── context/  (2)
@@ -135,6 +144,13 @@ modules/runtime/src/            # module cactor_runtime
 ├── typed/  (4)
 └── wrappers/  (1)
 
+modules/patterns/src/            # module cactor_patterns
+├── ask/  (4)
+├── backpressure/  (2)
+└── routing/  (2)
+    ├── advanced/  (1)
+    └── factory/  (1)
+
 modules/cactor/src/            # module cactor
 ├── api/  (5)
 │   ├── config/  (2)
@@ -150,10 +166,13 @@ modules/streams/src/            # module cactor_streams
 ├── dsl/  (1)
 └── unified/  (1)
 
+modules/remote/src/            # module cactor_remote
+
+modules/persistence/src/            # module cactor_persistence
+
+modules/cluster/src/            # module cactor_cluster
+
 modules/distribution/src/            # module cactor_distribution
-├── cluster/  (6)
-├── persistence/  (8)
-├── remote/  (2)
 └── streaming/  (3)
 
 modules/xstate/src/            # module cactor_xstate
