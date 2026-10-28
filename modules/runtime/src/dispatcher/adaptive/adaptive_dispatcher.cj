@@ -7,10 +7,9 @@ package cactor_runtime.dispatcher.adaptive
 
 import std.sync.*
 import std.time.*
-import std.collection.*
 import std.collection.concurrent.*
-import cactor_core.config.{DispatcherConfig, DispatcherType}
-import cactor_core.message.{Message, Envelope}
+import cactor_core.config.{DispatcherConfig}
+import cactor_core.message.{Envelope}
 import cactor_core.actor.ActorRef
 import cactor_runtime.dispatcher.advanced.{AdvancedMessageDispatcher, Priority}
 import cactor_runtime.dispatcher.dynamic.{DynamicDispatcherConfigManager, ConfigUpdate}

@@ -7,8 +7,6 @@
 package cactor_foundation.serialization
 
 import std.collection.*
-import std.sync.*
-import std.time.*
 
 /**
  * 序列化版本信息

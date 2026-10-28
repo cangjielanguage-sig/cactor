@@ -6,8 +6,6 @@
  */
 package cactor_examples.simple_macro_demo
 
-import std.time.*
-import std.collection.*
 import cactor_macros.*
 import cactor.api.{CActorSystem, CActorSystemFactory}
 import cactor_core.actor.{Actor, ActorRef}

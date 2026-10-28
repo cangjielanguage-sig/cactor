@@ -5,7 +5,6 @@
  */
 package cactor_runtime.dispatcher.factory
 
-import std.sync.*
 import std.time.*
 import std.collection.*
 import std.collection.concurrent.*

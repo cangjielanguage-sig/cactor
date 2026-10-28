@@ -3,7 +3,6 @@
  */
 package cactor_runtime.typed
 
-import std.time.*
 import std.collection.*
 import std.sync.*
 import cactor_core.typed.{TypedActorRef, TypedScheduler, TypedCancellable, TypedAdapters}

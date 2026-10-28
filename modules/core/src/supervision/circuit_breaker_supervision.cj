@@ -5,11 +5,8 @@
  */
 package cactor_core.supervision
 
-import std.sync.*
-import std.time.*
-import std.collection.*
 import std.collection.concurrent.*
-import cactor_core.actor.{ActorRef, ActorLifecycleState}
+import cactor_core.actor.{ActorRef}
 import cactor_foundation.circuit_breaker.{BasicCircuitBreaker, CircuitBreakerConfig, CircuitBreakerState}
 
 /**

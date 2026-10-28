@@ -6,10 +6,9 @@
 package cactor_runtime.dispatcher.dynamic
 
 import std.sync.*
-import std.time.*
 import std.collection.*
 import std.collection.concurrent.*
-import cactor_core.config.{DispatcherConfig, DispatcherType, ExecutorConfig}
+import cactor_core.config.{DispatcherConfig, ExecutorConfig}
 
 /**
  * 动态调度器配置管理器

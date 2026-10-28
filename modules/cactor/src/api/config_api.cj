@@ -6,7 +6,6 @@
 package cactor.api
 
 import cactor.api.config.{MailboxConfig, DispatcherConfig, SupervisionConfig}
-import std.time.*
 
 /**
  * Actor配置组合类

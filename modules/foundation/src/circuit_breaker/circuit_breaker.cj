@@ -7,7 +7,6 @@ package cactor_foundation.circuit_breaker
 
 import std.sync.*
 import std.time.*
-import std.collection.*
 
 /**
  * 断路器状态

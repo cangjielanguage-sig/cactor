@@ -6,7 +6,6 @@
  */
 protected package cactor_runtime.guardian
 
-import std.sync.*
 import std.collection.*
 import cactor_core.actor.{Actor, ActorRef, Props, ActorPath, SimpleActorFactory}
 import cactor_core.message.{Message, MessageResult}

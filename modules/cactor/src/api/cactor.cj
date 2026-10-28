@@ -6,7 +6,7 @@
  */
 package cactor.api
 
-import cactor_core.actor.{Actor, ActorRef, PropsFactory}
+import cactor_core.actor.{Actor}
 import cactor_runtime.{CActorRuntimeConfig}
 
 /**

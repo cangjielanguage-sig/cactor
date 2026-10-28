@@ -5,9 +5,7 @@
  */
 package cactor.config.file
 
-import std.time.*
 import std.collection.*
-import std.fs.*
 import cactor_core.config.{
     ActorConfiguration,
     MailboxConfig,

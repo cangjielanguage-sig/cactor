@@ -4,7 +4,6 @@
 package cactor_runtime.supervision
 
 import std.sync.*
-import std.time.*
 import std.collection.*
 import cactor_core.actor.{ActorRef}
 import cactor_core.supervision.{ActorFailure, BackoffSupervisorStrategy}

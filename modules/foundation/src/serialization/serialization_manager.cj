@@ -5,7 +5,6 @@
  */
 package cactor_foundation.serialization
 
-import std.collection.*
 import std.sync.*
 
 /**

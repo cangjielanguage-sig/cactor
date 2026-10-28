@@ -8,7 +8,6 @@ package cactor_runtime.mailbox.batching
 import std.sync.*
 import std.time.*
 import std.collection.*
-import std.math.*
 import cactor_runtime.mailbox.{Mailbox, BatchDequeueSemantics, MetricsSemantics, MailboxMetrics}
 import cactor_core.message.Envelope
 

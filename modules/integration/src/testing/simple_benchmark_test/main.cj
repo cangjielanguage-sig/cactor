@@ -5,7 +5,6 @@
  */
 package cactor_integration.testing.simple_benchmark_test
 
-import std.time.*
 import cactor_integration.testing.{SimpleBenchmark, SimpleBenchmarkConfig, SimpleBenchmarkResult, RealPerformanceTest}
 
 /**

@@ -6,8 +6,7 @@
 package cactor_xstate.core.machine
 
 import std.collection.*
-import std.time.*
-import cactor_xstate.core.types.{StateMachineState, StateMachineEvent, TransitionDefinition, TransitionResult}
+import cactor_xstate.core.types.{TransitionDefinition}
 
 /**
  * 状态机定义

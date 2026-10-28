@@ -5,15 +5,12 @@
  */
 package cactor_examples.advanced_dispatcher_examples
 
-import std.sync.*
 import std.time.*
-import std.collection.*
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, StringMessage, MessageResult}
 import cactor_core.context.{ActorContext}
 import cactor.api.{CActor, CActorSystem}
 import cactor_core.config.{DispatcherConfig as CoreDispatcherConfig, DispatcherType, ExecutorConfig}
-import cactor_runtime.dispatcher.advanced.{AdvancedMessageDispatcher, ThreadPoolDispatcher, AdvancedWorkStealingDispatcher, PinnedDispatcher}
 
 /**
  * CPU密集型Actor - 适合线程池调度器

@@ -7,8 +7,7 @@ protected package cactor_runtime.mailbox.lockfree
 
 import std.sync.*
 import std.collection.*
-import std.math.*
-import cactor_core.message.{Message, Envelope}
+import cactor_core.message.{Envelope}
 import cactor_runtime.mailbox.Mailbox
 
 /**

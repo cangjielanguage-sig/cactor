@@ -5,7 +5,6 @@
  */
 package cactor_integration.testing.unified_cactor_system_test
 
-import std.time.*
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.context.ActorContext
 import cactor_core.message.{Message, MessageResult, StringMessage}

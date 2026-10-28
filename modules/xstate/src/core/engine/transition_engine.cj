@@ -7,7 +7,7 @@ package cactor_xstate.core.engine
 
 import std.collection.*
 import std.time.*
-import cactor_xstate.core.types.{StateMachineState, StateMachineEvent, TransitionDefinition, TransitionResult, TransitionEffect}
+import cactor_xstate.core.types.{StateMachineEvent, TransitionDefinition, TransitionResult, TransitionEffect}
 import cactor_xstate.core.machine.{StateMachineDefinition}
 
 /**

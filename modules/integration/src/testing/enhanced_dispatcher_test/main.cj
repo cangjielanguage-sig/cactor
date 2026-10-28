@@ -5,10 +5,7 @@
  */
 package cactor_integration.testing.enhanced_dispatcher_test
 
-import std.sync.*
-import std.time.*
-import std.collection.*
-import cactor_core.config.{DispatcherConfig, DispatcherType}
+import cactor_core.config.{DispatcherConfig}
 import cactor_runtime.dispatcher.factory.EnhancedDispatcherFactory
 import cactor_runtime.dispatcher.dynamic.{DynamicDispatcherConfigManager, ConfigUpdate}
 import cactor_runtime.dispatcher.adaptive.AdaptiveDispatcher

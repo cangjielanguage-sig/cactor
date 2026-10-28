@@ -5,8 +5,8 @@
  */
 package cactor_core.actor
 
-import std.time.*
-import cactor_core.message.{Message, Envelope}
+import std.sync.*
+import cactor_core.message.{Message}
 
 
 
@@ -179,5 +179,49 @@ public class SimpleFuture<T> {
             case Some(Result.Failure(error)) => throw error
             case None => throw Exception("Future not completed")
         }
+    }
+}
+
+/**
+ * 死信 ActorRef（空对象）
+ * 用于“没有真实接收者”的场景：发送给它的消息被丢弃并计数，不会抛异常
+ */
+public class DeadLetterRef <: DeadLetterActorRef {
+    private let id: String
+    private let dropped: AtomicInt64
+
+    public init(id: String) {
+        this.id = id
+        this.dropped = AtomicInt64(0)
+    }
+
+    public prop path: ActorPath {
+        get() {
+            ActorPath("deadLetters", id)
+        }
+    }
+
+    public func tell(message: Message): Unit {
+        dropped.fetchAdd(1)
+    }
+
+    public func tell(message: Message, sender: Option<String>): Unit {
+        dropped.fetchAdd(1)
+    }
+
+    /** 被丢弃的消息数 */
+    public func droppedCount(): Int64 {
+        dropped.load()
+    }
+
+    public func equals(other: ActorRef): Bool {
+        match (other) {
+            case ref: DeadLetterRef => this.id == ref.id
+            case _ => false
+        }
+    }
+
+    public func hashCode(): Int32 {
+        Int32(id.hashCode() & 0x7FFFFFFF)
     }
 }

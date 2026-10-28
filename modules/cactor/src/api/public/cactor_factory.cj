@@ -5,9 +5,8 @@
  */
 package cactor.api.public
 
-import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory}
+import cactor_core.actor.{Actor, Props, PropsFactory}
 import cactor_core.system.{ActorSystem}
-import cactor_core.message.{Message}
 
 /**
  * CActor系统工厂

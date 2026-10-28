@@ -5,11 +5,10 @@
  */
 package cactor_examples.configuration_usage_test
 
-import std.time.{DateTime}
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, StringMessage, MessageResult}
 import cactor_core.context.{ActorContext}
-import cactor_core.config.{MailboxConfig, DispatcherConfig, SupervisionConfig, MailboxType, DispatcherType, SupervisionStrategyType, ExecutorConfig}
+import cactor_core.config.{MailboxConfig, DispatcherConfig, SupervisionConfig, MailboxType, DispatcherType, ExecutorConfig}
 import cactor.api.{CActor, CActorSystem}
 
 /**

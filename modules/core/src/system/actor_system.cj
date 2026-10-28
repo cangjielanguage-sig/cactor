@@ -5,7 +5,6 @@
  */
 package cactor_core.system
 
-import std.time.*
 import std.sync.*
 import cactor_core.actor.{Actor, ActorRef, Props}
 import cactor_core.message.{Message}

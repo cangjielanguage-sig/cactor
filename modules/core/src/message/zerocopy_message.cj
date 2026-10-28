@@ -7,7 +7,6 @@ package cactor_core.message
 
 import std.sync.*
 import std.time.*
-import std.collection.*
 
 /**
  * CRC32校验和计算器

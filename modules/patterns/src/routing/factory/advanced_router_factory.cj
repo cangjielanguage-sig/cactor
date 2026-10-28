@@ -5,10 +5,8 @@
  */
 package cactor_patterns.routing.factory
 
-import std.time.*
 import std.collection.*
 import cactor_core.message.Message
-import cactor_core.actor.ActorRef
 import cactor_patterns.routing.{
     RoutingStrategy,
     Router,

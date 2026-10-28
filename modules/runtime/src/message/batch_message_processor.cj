@@ -9,7 +9,7 @@ protected package cactor_runtime.message
 import std.sync.*
 import std.time.*
 import std.collection.*
-import cactor_core.message.{Message, Envelope, StringMessage}
+import cactor_core.message.{Envelope, StringMessage}
 
 /**
  * 批量消息处理器 - Runtime层实现

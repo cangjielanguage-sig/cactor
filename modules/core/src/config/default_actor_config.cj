@@ -5,7 +5,6 @@
  */
 package cactor_core.config
 
-import std.time.*
 import std.collection.*
 import cactor_core.message.Message
 

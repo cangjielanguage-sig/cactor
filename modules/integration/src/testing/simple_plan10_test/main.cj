@@ -5,7 +5,6 @@
  */
 package cactor_integration.testing.simple_plan10_test
 
-import std.sync.*
 import std.collection.*
 
 /**

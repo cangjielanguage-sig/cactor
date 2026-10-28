@@ -6,9 +6,6 @@
  */
 package cactor_core.typed
 
-import std.time.*
-import cactor_core.message.*
-import cactor_core.actor.*
 
 /**
  * 类型安全的Actor行为接口

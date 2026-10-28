@@ -12,10 +12,9 @@
  */
 package cactor_examples.streams_unified_demo
 
-import std.collection.*
 import std.time.*
 import cactor.api.{CActorSystem, CActorSystemFactory}
-import cactor_streams.core.{NotUsed, MaterializerSettings}
+import cactor_streams.core.{MaterializerSettings}
 import cactor_streams.dsl.{
     StreamSource, StreamSink, StreamFlow, StreamGraph,
     SourceFactory, SinkFactory, FlowFactory, AdvancedFlowFactory,

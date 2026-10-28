@@ -6,12 +6,11 @@
 package cactor_xstate.features.parallel
 
 import std.collection.*
-import std.time.*
-import cactor.api.{CActor, CActorSystem}
+import cactor.api.{CActorSystem}
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.context.{ActorContext}
 import cactor_core.message.{Message, MessageResult}
-import cactor_xstate.core.types.{StateMachineState, StateMachineEvent}
+import cactor_xstate.core.types.{StateMachineState}
 import cactor_xstate.core.machine.{StateMachineDefinition}
 import cactor_xstate.core.engine.{PatternTransitionEngine}
 

@@ -5,14 +5,10 @@
  */
 package cactor_examples.xstate_demo
 
-import std.collection.*
 import std.time.*
-import cactor.api.{CActor, CActorSystem}
-import cactor_core.actor.{ActorRef}
-import cactor_xstate.core.machine.{StateMachineDefinition, StateMachineBuilder}
+import cactor.api.{CActor}
 import cactor_xstate.core.actor.{StateMachineActorFactory}
 import cactor_xstate.core.engine.{PatternTransitionEngine}
-import cactor_xstate.lang.macros.{XStateDSLSupport}
 
 /**
  * 高级特性演示

@@ -10,7 +10,6 @@ import std.time.*
 import std.collection.*
 import std.collection.concurrent.*
 import cactor_core.actor.*
-import cactor_core.message.*
 
 // 性能指标数据
 public class Metric {

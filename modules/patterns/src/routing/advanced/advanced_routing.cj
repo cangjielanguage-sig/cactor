@@ -8,7 +8,7 @@ package cactor_patterns.routing.advanced
 import std.time.*
 import std.collection.*
 import std.sync.*
-import cactor_core.message.{Message, Envelope}
+import cactor_core.message.{Message}
 import cactor_core.actor.ActorRef
 import cactor_patterns.routing.{
     RoutingStrategy, 

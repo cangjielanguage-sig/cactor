@@ -5,11 +5,10 @@
  */
 package cactor_runtime.wrappers
 
-import cactor_core.actor.{Actor, ActorRef}
+import cactor_core.actor.{Actor, ActorRef, DeadLetterRef}
 import cactor_core.context.ActorContext
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.typed.{TypedBehavior, TypedActorRef, TypedActorContext, TypedActorSelection, TypedFuture, TypedScheduler, TypedCancellable, TypedActorSystem, TypedLogger}
-import cactor_patterns.ask.DummyActorRef
 import std.time.*
 import std.collection.*
 
@@ -129,7 +128,7 @@ public class TypedActorContextWrapper<T> <: TypedActorContext<T> {
     public prop self: TypedActorRef<T> {
         get() {
             // 简化实现：创建虚拟的自身引用
-            TypedActorRefWrapper<T>(createDummyActorRef(), "self")
+            TypedActorRefWrapper<T>(createDeadLetterRef(), "self")
         }
     }
 
@@ -425,13 +424,13 @@ public class MessageBridge<T> {
 /**
  * 创建虚拟的ActorRef用于测试
  */
-func createDummyActorRef(): ActorRef {
-    DummyActorRef("dummy")
+func createDeadLetterRef(): ActorRef {
+    DeadLetterRef("dummy")
 }
 
 /**
  * 创建虚拟的TypedActorRef用于测试
  */
 func createDummyTypedActorRef<T>(name: String): TypedActorRef<T> {
-    TypedActorRefWrapper<T>(DummyActorRef(name), name)
+    TypedActorRefWrapper<T>(DeadLetterRef(name), name)
 }

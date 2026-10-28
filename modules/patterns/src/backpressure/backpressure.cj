@@ -9,8 +9,7 @@ import std.sync.*
 import std.time.*
 import std.collection.{HashMap, ArrayList}  // 明确导入std.collection的类型
 import cactor_foundation.queue.{Queue as CActorQueue, LockFreeQueue}  // 使用别名避免冲突
-import cactor_core.message.{Message, Envelope}
-import cactor_core.actor.ActorRef
+import cactor_core.message.{Message}
 
 /**
  * 背压策略

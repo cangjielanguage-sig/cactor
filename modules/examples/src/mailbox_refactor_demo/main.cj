@@ -4,13 +4,10 @@
  */
 package cactor_examples.mailbox_refactor_demo
 
-import std.sync.*
 import std.time.*
-import std.collection.*
 import cactor_core.message.*
 import cactor_runtime.mailbox.*
 import cactor_runtime.mailbox.batching.*
-import cactor_runtime.mailbox.queue.*
 
 /**
  * Mailbox功能演示主类

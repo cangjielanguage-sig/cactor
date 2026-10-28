@@ -7,8 +7,6 @@ package cactor_integration.logging
 import std.collection.*
 import std.sync.*
 import std.time.*
-import cactor_core.message.{Message, StringMessage}
-import cactor_core.actor.{Actor, ActorRef, ActorPath}
 // import cactor_integration.logging.{Logger, LoggerFactory, LogLevel}  // 避免循环依赖
 
 /**

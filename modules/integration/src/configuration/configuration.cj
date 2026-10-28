@@ -6,7 +6,6 @@ package cactor_integration.configuration
 
 import std.collection.*
 import std.sync.*
-import std.time.*
 
 /**
  * 配置值类型

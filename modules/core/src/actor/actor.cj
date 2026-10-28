@@ -5,7 +5,6 @@
  */
 package cactor_core.actor
 
-import std.time.*
 import cactor_core.message.*
 import cactor_core.context.*
 

@@ -6,7 +6,6 @@
 package cactor_xstate.core.types
 
 import std.collection.*
-import std.time.*
 
 /**
  * 转换结果枚举

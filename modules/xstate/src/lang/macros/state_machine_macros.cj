@@ -5,8 +5,6 @@
  */
 package cactor_xstate.lang.macros
 
-import std.collection.*
-import std.time.*
 
 /**
  * XState DSL支持工具

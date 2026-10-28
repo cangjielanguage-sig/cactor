@@ -7,7 +7,6 @@ package cactor_integration.testing
 
 import std.time.*
 import std.sync.*
-import std.collection.*
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}

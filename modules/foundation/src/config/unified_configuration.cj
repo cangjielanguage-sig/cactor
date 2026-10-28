@@ -8,7 +8,6 @@ package cactor_foundation.config
 
 import std.collection.*
 import std.sync.*
-import std.time.*
 
 /**
  * 配置值类型枚举

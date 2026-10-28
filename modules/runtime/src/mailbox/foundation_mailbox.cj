@@ -9,7 +9,7 @@ import std.sync.*
 import std.time.*
 import std.collection.{HashMap, ArrayList}  // 明确导入std.collection的类型
 import cactor_foundation.queue.{Queue as CActorQueue, LockFreeQueue, SimpleQueue, QueueStats}  // 使用别名避免冲突
-import cactor_core.message.{Message, Envelope}
+import cactor_core.message.{Envelope}
 
 /**
  * 基于Foundation Queue的Actor邮箱

@@ -12,8 +12,6 @@
 package cactor_streams.core
 
 import std.collection.*
-import std.time.*
-import std.sync.*
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}

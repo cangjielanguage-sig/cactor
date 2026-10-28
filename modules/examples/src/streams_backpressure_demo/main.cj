@@ -12,9 +12,7 @@
  */
 package cactor_examples.streams_backpressure_demo
 
-import std.collection.*
 import std.time.*
-import cactor.api.{CActorSystem, CActorSystemFactory}
 import cactor_streams.core.{
     StreamElement, BackpressureStrategy, OverflowStrategy, BackpressureController,
     SimpleStreamElement

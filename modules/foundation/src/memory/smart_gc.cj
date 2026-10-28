@@ -7,7 +7,6 @@ package cactor_foundation.memory
 
 import std.sync.*
 import std.time.*
-import std.collection.*
 import cactor_foundation.queue.*
 
 /**

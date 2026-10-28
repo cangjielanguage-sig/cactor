@@ -9,7 +9,7 @@ import std.collection.*
 import std.time.*
 import cactor_xstate.core.types.{StateMachineState, StateMachineEvent}
 import cactor_xstate.core.machine.{StateMachineDefinition, StateMachineBuilder, StateNode}
-import cactor_xstate.core.types.{TransitionDefinition, TransitionBuilder}
+import cactor_xstate.core.types.{TransitionBuilder}
 import cactor_xstate.core.engine.{PatternTransitionEngine}
 
 /**

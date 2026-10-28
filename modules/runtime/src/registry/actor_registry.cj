@@ -8,7 +8,7 @@ protected package cactor_runtime.registry
 import std.sync.*
 import std.collection.*
 import std.time.*
-import cactor_core.actor.{Actor, ActorRef, ActorPath}
+import cactor_core.actor.{ActorRef, ActorPath}
 
 /**
  * Actor注册信息

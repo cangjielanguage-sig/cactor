@@ -5,9 +5,6 @@
  */
 package cactor_examples.xstate_demo
 
-import std.collection.*
-import std.time.*
-import cactor.api.{CActor}
 import cactor_xstate.core.engine.{PatternTransitionEngine}
 import cactor_xstate.core.factory.{EnterpriseStateMachineConfig, StateMachineTemplateFactory}
 // 暂时注释掉高级特性导入，使用简化验证

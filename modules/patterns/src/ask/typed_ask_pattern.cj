@@ -6,11 +6,9 @@
 package cactor_patterns.ask
 
 import std.time.*
-import std.sync.*
-import std.collection.*
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.{Message}
-import cactor_core.typed.{TypedActorRef, TypedFuture}
+import cactor_core.typed.{TypedActorRef}
 // 避免循环依赖，直接使用相对导入
 
 /**

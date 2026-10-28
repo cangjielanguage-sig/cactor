@@ -7,7 +7,6 @@
 package cactor_foundation.contracts
 
 import std.collection.*
-import cactor_foundation.abstractions.*
 
 /**
  * 模块层次枚举

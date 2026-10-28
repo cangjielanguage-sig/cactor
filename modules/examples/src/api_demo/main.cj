@@ -10,7 +10,6 @@ import cactor_core.message.{Message, StringMessage, MessageResult}
 import cactor_core.context.{ActorContext}
 import cactor.api.extensions.{ActorSystemExtensions, ActorRefExtensions}
 import cactor.api.config.{MailboxConfig, DispatcherConfig, SupervisionConfig}
-import std.time.*
 
 /**
  * 演示Actor

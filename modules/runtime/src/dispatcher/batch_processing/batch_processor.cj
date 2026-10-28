@@ -7,10 +7,8 @@
 protected package cactor_runtime.dispatcher.batch_processing
 
 import std.sync.*
-import std.time.*
 import std.collection.*
 import cactor_core.message.*
-import cactor_core.actor.*
 import cactor_runtime.mailbox.{Mailbox, BatchDequeueSemantics}
 
 /**

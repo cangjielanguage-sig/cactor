@@ -5,7 +5,6 @@
  */
 package cactor_examples.functional_actor_demo
 
-import std.time.*
 import std.collection.*
 import cactor.api.{CActorSystem, CActorSystemFactory}
 import cactor_core.actor.{Actor, ActorRef}

@@ -6,15 +6,12 @@
 package cactor_examples.comprehensive_improvement_test
 
 import cactor_macros.*
-import cactor.api.{CActor}
-import cactor_core.actor.{Actor, ActorRef}
-import cactor_core.message.{Message, MessageResult, StringMessage, PingMessage, StopMessage}
+import cactor_core.actor.{Actor}
+import cactor_core.message.{Message, MessageResult, StringMessage, PingMessage}
 import cactor_core.context.{ActorContext}
-import cactor_core.typed.{TypedBehavior, TypedActorRef, TypedActorContext, TypedLogger, TypedFuture, TypedActorSystem, TypedScheduler}
-import cactor_core.actor.{ActorPath}
-import cactor_core.supervision.{EscalateStrategy, BackoffSupervisorStrategy, SupervisionDirective, ActorFailure}
-import cactor_patterns.ask.{TypedAsk, TypedAskFuture, TypedResult, TypedAskPattern}
-import std.time.*
+import cactor_core.typed.{TypedBehavior, TypedActorContext}
+import cactor_core.supervision.{EscalateStrategy, BackoffSupervisorStrategy}
+import cactor_patterns.ask.{TypedAskPattern}
 
 /**
  * 测试消息类型

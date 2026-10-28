@@ -7,8 +7,8 @@ package cactor_runtime.mailbox
 
 import std.sync.*
 import std.collection.*
-import cactor_core.actor.{Actor, ActorRef, Props}
-import cactor_core.message.{Message, Envelope}
+import cactor_core.actor.{Actor, Props}
+import cactor_core.message.{Envelope}
 
 
 

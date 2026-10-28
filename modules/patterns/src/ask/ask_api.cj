@@ -7,7 +7,7 @@ package cactor_patterns.ask
 
 import std.time.*
 import cactor_core.actor.{ActorRef}
-import cactor_core.message.{Message, StringMessage}
+import cactor_core.message.{Message}
 
 /**
  * Ask模式统一API - 参考Akka设计

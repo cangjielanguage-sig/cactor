@@ -5,7 +5,6 @@
  */
 package cactor_examples.advanced_mailbox_examples
 
-import std.sync.*
 import std.time.*
 import std.collection.*
 import cactor_core.actor.{Actor, ActorRef}
@@ -13,9 +12,6 @@ import cactor_core.message.{Message, StringMessage, MessageResult}
 import cactor_core.context.{ActorContext}
 import cactor_core.config.{MailboxConfig, MailboxType}
 import cactor.api.{CActor, CActorSystem}
-import cactor.api.extensions.{ActorSystemExtensions, PropsExtensions}
-import cactor_runtime.mailbox.advanced.{SPSCMailbox, MPSCMailbox, FoundationBoundedMailbox}
-import cactor_runtime.mailbox.factory.{AdvancedMailboxFactory, DefaultAdvancedMailboxFactory, UsagePattern}
 
 /**
  * 高频交易Actor - 使用SPSC邮箱优化单线程性能

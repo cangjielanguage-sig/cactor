@@ -5,7 +5,6 @@
  */
 package cactor_examples.simple_objectpool_test
 
-import std.time.*
 import std.collection.*
 import cactor_core.memory.{SimpleObjectPool, SimpleMemoryManager}
 import cactor_core.message.{StringMessage}

@@ -6,10 +6,8 @@
 package cactor_core.system
 
 import std.time.*
-import std.sync.*
 import std.collection.*
-import cactor_core.actor.{Actor, ActorRef, Props}
-import cactor_core.message.{Message}
+import cactor_core.actor.{ActorRef}
 
 /**
  * 企业级ActorSystem接口

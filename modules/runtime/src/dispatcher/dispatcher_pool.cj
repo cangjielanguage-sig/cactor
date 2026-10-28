@@ -8,10 +8,9 @@ package cactor_runtime.dispatcher
 import std.sync.*
 import std.collection.*
 import std.time.*
-import cactor_core.actor.{Actor, ActorRef, Props}
-import cactor_core.message.{Message, Envelope}
+import cactor_core.actor.{Actor, Props}
 import cactor_core.config.{DispatcherConfig, DispatcherType}
-import cactor_runtime.dispatcher.advanced.{AdvancedMessageDispatcher, ThreadPoolDispatcher, AdvancedWorkStealingDispatcher, PinnedDispatcher, CallingThreadDispatcher}
+import cactor_runtime.dispatcher.advanced.{AdvancedMessageDispatcher}
 import cactor_runtime.dispatcher.factory.{DefaultAdvancedDispatcherFactory}
 
 /**

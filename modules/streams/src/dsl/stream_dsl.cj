@@ -15,10 +15,8 @@ package cactor_streams.dsl
 
 import std.collection.*
 import std.time.*
-import std.sync.*
-import cactor_core.actor.{ActorRef}
 import cactor.api.{CActorSystem}
-import cactor_streams.core.{NotUsed, Materializer, MaterializerSettings, Materialized}
+import cactor_streams.core.{Materializer, MaterializerSettings}
 
 /**
  * 流处理异常 - 流处理过程中的异常

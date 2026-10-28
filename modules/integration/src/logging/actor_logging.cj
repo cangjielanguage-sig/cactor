@@ -8,7 +8,7 @@ import std.collection.*
 import std.sync.*
 import std.time.*
 import cactor_core.message.{Message, StringMessage}
-import cactor_core.actor.{Actor, ActorRef, ActorPath}
+import cactor_core.actor.{Actor}
 
 /**
  * Actor日志上下文

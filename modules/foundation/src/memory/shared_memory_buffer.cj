@@ -6,7 +6,6 @@
 package cactor_foundation.memory
 
 import std.sync.*
-import std.collection.*
 
 /**
  * 共享内存缓冲区

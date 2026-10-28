@@ -6,10 +6,8 @@
 package cactor_xstate.core.factory
 
 import std.collection.*
-import std.time.*
-import cactor.api.{CActor, CActorSystem}
+import cactor.api.{CActorSystem}
 import cactor_core.actor.{ActorRef}
-import cactor_xstate.core.types.{StateMachineState, StateMachineEvent}
 import cactor_xstate.core.machine.{StateMachineDefinition, StateMachineBuilder}
 import cactor_xstate.core.actor.{StateMachineActorFactory}
 

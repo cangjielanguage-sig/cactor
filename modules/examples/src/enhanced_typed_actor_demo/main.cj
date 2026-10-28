@@ -5,7 +5,6 @@
  */
 package cactor_examples.enhanced_typed_actor_demo
 
-import std.time.*
 import cactor_core.typed.*
 import cactor.api.{CActorSystem, CActorSystemFactory}
 

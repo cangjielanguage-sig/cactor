@@ -12,8 +12,7 @@
 package cactor_examples.macro_test_demo
 
 import cactor_macros.*
-import cactor.api.{CActor}
-import cactor_core.actor.{Actor, ActorRef}
+import cactor_core.actor.{Actor}
 import cactor_core.message.{Message, MessageResult, StringMessage, PingMessage}
 import cactor_core.context.{ActorContext}
 import std.time.*

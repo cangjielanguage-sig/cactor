@@ -5,10 +5,6 @@
  */
 package cactor.api.config
 
-import cactor_runtime.mailbox.*
-import cactor_runtime.dispatcher.*
-import cactor_core.supervision.*
-import std.time.*
 import std.collection.*
 
 /**

@@ -9,8 +9,7 @@ import std.time.*
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage, PingMessage}
 import cactor_core.context.{ActorContext}
-import cactor_integration.testing.{TestActorSystem, TestProbe, TestActorRef, TestActorRefFactory, TestAssertions, TestExpectation, PerformanceTestFramework, PerformanceTestConfig}
-import cactor_patterns.ask.{Ask, AskFuture, Result}
+import cactor_integration.testing.{TestActorSystem, TestProbe, TestActorRef, TestActorRefFactory, TestAssertions, PerformanceTestFramework, PerformanceTestConfig}
 
 /**
  * 复杂测试Actor - 支持多种消息类型和状态管理

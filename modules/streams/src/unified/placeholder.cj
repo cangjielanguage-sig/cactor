@@ -8,8 +8,6 @@ package cactor_streams.unified
 import std.collection.*
 import std.sync.*
 import std.time.*
-import cactor_core.message.{Message, StringMessage}
-import cactor_core.actor.{Actor, ActorRef}
 
 /**
  * 流元素接口

@@ -5,11 +5,10 @@
  */
 package cactor_examples.test_framework_demo
 
-import std.time.*
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage, PingMessage}
 import cactor_core.context.{ActorContext}
-import cactor_integration.testing.{TestActorSystem, TestProbe, TestActorRef, TestActorRefFactory, TestAssertions, TestExpectation}
+import cactor_integration.testing.{TestActorSystem, TestProbe, TestActorRef, TestActorRefFactory, TestAssertions}
 
 /**
  * 测试用的Echo Actor

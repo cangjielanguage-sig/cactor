@@ -9,7 +9,7 @@ package cactor.api
 import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory}
 import cactor_core.config.{MailboxConfig as CoreMailboxConfig, DispatcherConfig as CoreDispatcherConfig, SupervisionConfig as CoreSupervisionConfig}
 import cactor_core.typed.{TypedBehavior, TypedActorRef, TypedActorSelection}
-import cactor_runtime.wrappers.{TypedActorWrapper, TypedActorRefWrapper, TypedActorSelectionWrapper, MessageBridge}
+import cactor_runtime.wrappers.{TypedActorRefWrapper, TypedActorSelectionWrapper, MessageBridge}
 import cactor_runtime.{CActorRuntime, CActorRuntimeConfig}
 import cactor_runtime.typed.{TypedActorSystemImpl}
 import std.time.*

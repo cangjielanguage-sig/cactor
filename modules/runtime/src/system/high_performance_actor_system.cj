@@ -11,9 +11,8 @@ import std.time.*
 import std.collection.*
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.*
-import cactor_runtime.context.{PooledActorContext, PooledActorContextPool, PoolStats}
+import cactor_runtime.context.{PooledActorContextPool, PoolStats}
 import cactor_runtime.actor.{HighPerformanceActor, HighPerformanceActorBehavior, ActorStats}
-import cactor_foundation.memory.*
 
 // 简化时间函数
 func getCurrentTimeNanos(): Int64 {

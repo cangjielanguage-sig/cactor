@@ -9,8 +9,8 @@ import std.time.*
 import std.collection.*
 import cactor_core.message.{Message, Envelope}
 import cactor_runtime.mailbox.Mailbox
-import cactor_foundation.queue.{Queue, LockFreeQueue, SPSCQueue, MPSCQueue}
-import cactor_core.config.{MailboxConfig, MailboxType}
+import cactor_foundation.queue.{LockFreeQueue, SPSCQueue, MPSCQueue}
+import cactor_core.config.{MailboxConfig}
 
 /**
  * 基于Foundation LockFreeQueue的无界邮箱

@@ -7,10 +7,8 @@ package cactor_runtime
 
 import std.sync.*
 import std.time.*
-import std.collection.*
 import cactor_core.actor.{Actor, ActorRef, Props}
 import cactor_core.system.{ActorSystem}
-import cactor_core.guardian.{GuardianType}
 import cactor_runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian}
 import cactor_runtime.system.{HighPerformanceActorSystem, HighPerformanceActorSystemConfig, SystemStats}
 import cactor_runtime.mailbox.factory.{AdvancedMailboxFactory, DefaultAdvancedMailboxFactory}

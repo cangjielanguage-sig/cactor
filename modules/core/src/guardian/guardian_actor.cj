@@ -6,13 +6,10 @@
  */
 package cactor_core.guardian
 
-import std.sync.*
 import std.time.*
-import std.collection.*
-import cactor_core.actor.{Actor, ActorRef, Props, ActorPath, ActorFactory, SimpleActorFactory}
-import cactor_core.message.{Message, MessageResult}
-import cactor_core.context.{ActorContext}
-import cactor_core.supervision.{SupervisionStrategy, ActorFailure, SupervisionDirective}
+import cactor_core.actor.{Actor, ActorRef, Props, ActorPath}
+import cactor_core.message.{Message}
+import cactor_core.supervision.{SupervisionStrategy, ActorFailure}
 
 /**
  * Guardian类型枚举

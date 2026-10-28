@@ -6,7 +6,6 @@
 package cactor_runtime.system
 
 import std.sync.*
-import std.collection.*
 import std.collection.concurrent.*
 import cactor_core.actor.{Actor, ActorRef, Props, ActorPath}
 import cactor_core.system.{ActorSystem, ActorSelection, SimpleFuture}

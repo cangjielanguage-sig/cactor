@@ -6,14 +6,12 @@
 package cactor_runtime.dispatcher.advanced
 
 import std.time.*
-import std.collection.*
 import std.sync.*
-import cactor_core.message.{Message, Envelope}
-import cactor_core.actor.{Actor, ActorRef}
+import cactor_core.message.{Envelope}
+import cactor_core.actor.{ActorRef}
 import cactor_runtime.dispatcher.work_stealing.{WorkStealingDispatcher, Priority as WSPriority}
 import cactor_runtime.dispatcher.optimized.OptimizedWorkStealingDispatcher
-import cactor_runtime.dispatcher.batch_processing.BatchProcessor
-import cactor_core.config.{DispatcherConfig, DispatcherType}
+import cactor_core.config.{DispatcherConfig}
 import cactor_foundation.queue.LockFreeQueue
 
 /**
