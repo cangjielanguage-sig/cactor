@@ -119,615 +119,152 @@ public class AtomicSlot<T> {
 }
 
 /**
- * 无锁环形缓冲区队列 - 优化版本
+ * 有界 MPMC 无锁队列
  *
- * 设计特点：
- * 1. 使用环形缓冲区减少内存分配
- * 2. 通过原子操作实现无锁并发
- * 3. 支持多生产者多消费者模式
- * 4. 容量必须是2的幂，便于位运算优化
- * 5. 缓存行填充避免false sharing
- * 6. 适应性模式切换优化
+ * 实现：Dmitry Vyukov 的 bounded MPMC 队列
+ * - 每个槽位带一个序号（AtomicInt64），由序号决定槽位当前可写/可读
+ * - 入队：CAS 推进 tail 获得槽位 → 写数据 → 发布序号 pos+1
+ * - 出队：CAS 推进 head 获得槽位 → 读数据 → 发布序号 pos+capacity
+ * - 只有真正“满”时 enqueue 才返回 false，只有真正“空”时 dequeue 才返回 None，
+ *   不会因竞争而虚假失败
+ * - 容量向上取整为 2 的幂
  */
 public class LockFreeQueue<T> <: Queue<T> {
-    // 缓存行填充1 - 避免false sharing
-    private let pad1_1: Int64 = 0
-    private let pad1_2: Int64 = 0
-    private let pad1_3: Int64 = 0
-    private let pad1_4: Int64 = 0
-    private let pad1_5: Int64 = 0
-    private let pad1_6: Int64 = 0
-    private let pad1_7: Int64 = 0
-    private let pad1_8: Int64 = 0
-
-    private let buffer: Array<AtomicSlot<T>>
+    private let slots: Array<Option<T>>
+    private let sequences: Array<AtomicInt64>
     private let queueCapacity: Int64
-    private let mask: Int64        // 容量掩码，用于快速取模
-    private let head: AtomicInt64  // 读指针
-    private let tail: AtomicInt64  // 写指针
+    private let mask: Int64
+    private let head: AtomicInt64  // 下一个出队位置
+    private let tail: AtomicInt64  // 下一个入队位置
 
-    // 缓存行填充2 - 分离热点数据
-    private let pad2_1: Int64 = 0
-    private let pad2_2: Int64 = 0
-    private let pad2_3: Int64 = 0
-    private let pad2_4: Int64 = 0
-    private let pad2_5: Int64 = 0
-    private let pad2_6: Int64 = 0
-    private let pad2_7: Int64 = 0
-    private let pad2_8: Int64 = 0
-
-    // 性能统计
     private let enqueueCount: AtomicInt64
     private let dequeueCount: AtomicInt64
     private let failedEnqueues: AtomicInt64
     private let failedDequeues: AtomicInt64
 
-    // 适应性优化
-    private let producerThreadCount: AtomicInt32 = AtomicInt32(0)
-    private let consumerThreadCount: AtomicInt32 = AtomicInt32(0)
-    private let lastModeCheck: AtomicInt64 = AtomicInt64(0)
-    private var currentMode: QueueMode = QueueMode.MPMC  // 默认多生产者多消费者
-
-    // 缓存行填充3 - 最终填充
-    private let pad3_1: Int64 = 0
-    private let pad3_2: Int64 = 0
-    private let pad3_3: Int64 = 0
-    private let pad3_4: Int64 = 0
-    private let pad3_5: Int64 = 0
-    private let pad3_6: Int64 = 0
-    private let pad3_7: Int64 = 0
-    private let pad3_8: Int64 = 0
-    
     public init(requestedCapacity: Int64) {
-        // 初始化指针
+        let actualCapacity = LockFreeQueue<T>.nextPowerOfTwo(requestedCapacity)
+        this.queueCapacity = actualCapacity
+        this.mask = actualCapacity - 1
+        this.slots = Array<Option<T>>(actualCapacity, { _ => None<T> })
+        this.sequences = Array<AtomicInt64>(actualCapacity, { i => AtomicInt64(i) })
         this.head = AtomicInt64(0)
         this.tail = AtomicInt64(0)
-
-        // 初始化统计
         this.enqueueCount = AtomicInt64(0)
         this.dequeueCount = AtomicInt64(0)
         this.failedEnqueues = AtomicInt64(0)
         this.failedDequeues = AtomicInt64(0)
-
-        // 确保容量是2的幂
-        let actualCapacity = LockFreeQueue<T>.nextPowerOfTwo(requestedCapacity)
-        this.queueCapacity = actualCapacity
-        this.mask = actualCapacity - 1
-
-        // 初始化缓冲区
-        this.buffer = Array<AtomicSlot<T>>(actualCapacity, { _ => AtomicSlot<T>() })
-    }
-    
-    /**
-     * 适应性模式检测和更新
-     */
-    private func updateModeIfNeeded(): Unit {
-        let currentTime = getCurrentTimeMillis()
-        let lastCheck = this.lastModeCheck.load()
-
-        // 每1000ms检查一次模式
-        if (currentTime - lastCheck > 1000) {
-            if (this.lastModeCheck.compareAndSwap(lastCheck, currentTime)) {
-                let producers = this.producerThreadCount.load()
-                let consumers = this.consumerThreadCount.load()
-
-                // 根据线程数量决定模式
-                if (producers == 1 && consumers == 1) {
-                    this.currentMode = QueueMode.SPSC
-                } else if (producers > 1 && consumers == 1) {
-                    this.currentMode = QueueMode.MPSC
-                } else if (producers == 1 && consumers > 1) {
-                    this.currentMode = QueueMode.SPMC
-                } else {
-                    this.currentMode = QueueMode.MPMC
-                }
-            }
-        }
     }
 
     /**
-     * 获取当前时间毫秒
-     */
-    private func getCurrentTimeMillis(): Int64 {
-        return DateTime.now().toUnixTimeStamp().toMilliseconds()
-    }
-
-    /**
-     * 入队操作（无锁实现）- 适应性优化版本
+     * 入队；队列满时返回 false
      */
     public func enqueue(item: T): Bool {
-        // 注册生产者线程
-        this.producerThreadCount.fetchAdd(1)
-
-        // 适应性模式检测
-        this.updateModeIfNeeded()
-
-        let result = match (this.currentMode) {
-            case QueueMode.SPSC => this.spscEnqueue(item)
-            case QueueMode.MPSC => this.mpscEnqueue(item)
-            case _ => this.mpmcEnqueue(item)  // SPMC和MPMC使用通用实现
-        }
-
-        // 注销生产者线程
-        this.producerThreadCount.fetchSub(1)
-        return result
-    }
-
-    /**
-     * SPSC模式入队 - 无CAS竞争
-     */
-    private func spscEnqueue(item: T): Bool {
-        let currentTail = tail.load()
-        let currentHead = head.load()
-
-        // 检查队列是否已满
-        if (currentTail - currentHead >= queueCapacity) {
-            failedEnqueues.fetchAdd(1)
-            return false
-        }
-
-        let index = currentTail & mask
-        let slot = buffer[index]
-
-        // SPSC模式下，直接写入无需CAS
-        if (slot.tryStartWrite()) {
-            tail.store(currentTail + 1)  // 直接设置，无需CAS
-            slot.finishWrite(item)
-            enqueueCount.fetchAdd(1)
-            return true
-        }
-
-        failedEnqueues.fetchAdd(1)
-        return false
-    }
-
-    /**
-     * MPSC模式入队 - 优化的CAS策略
-     */
-    private func mpscEnqueue(item: T): Bool {
-        // 减少重试次数，使用适应性退避
-        let maxRetries = 100
-        var retries = 0
-
-        while (retries < maxRetries) {
-            let currentTail = tail.load()
-            let currentHead = head.load()
-
-            // 检查队列是否已满
-            if (currentTail - currentHead >= queueCapacity) {
+        while (true) {
+            let pos = tail.load()
+            let idx = pos & mask
+            let dif = sequences[idx].load() - pos
+            if (dif == 0) {
+                if (tail.compareAndSwap(pos, pos + 1)) {
+                    slots[idx] = Some(item)
+                    sequences[idx].store(pos + 1)
+                    enqueueCount.fetchAdd(1)
+                    return true
+                }
+            } else if (dif < 0) {
                 failedEnqueues.fetchAdd(1)
                 return false
             }
-
-            let index = currentTail & mask
-            let slot = buffer[index]
-
-            // 尝试开始写入
-            if (slot.tryStartWrite()) {
-                // 成功获得写入权限，尝试推进tail指针
-                if (tail.compareAndSwap(currentTail, currentTail + 1)) {
-                    slot.finishWrite(item)
-                    enqueueCount.fetchAdd(1)
-                    return true
-                } else {
-                    slot.cancelWrite()
-                }
-            }
-
-            retries += 1
-
-            // 适应性退避
-            if (retries > 50) {
-                var backoff = 0
-                while (backoff < (retries - 50) && backoff < 10) {
-                    backoff += 1
-                }
-            }
+            // dif > 0：其他生产者已推进 tail，重新读取
         }
-
-        failedEnqueues.fetchAdd(1)
         return false
     }
 
     /**
-     * MPMC模式入队 - 通用实现
-     */
-    private func mpmcEnqueue(item: T): Bool {
-        // 减少重试次数，提高性能
-        let maxRetries = 200
-        var retries = 0
-
-        while (retries < maxRetries) {
-            let currentTail = tail.load()
-            let currentHead = head.load()
-
-            // 检查队列是否已满
-            if (currentTail - currentHead >= queueCapacity) {
-                failedEnqueues.fetchAdd(1)
-                return false  // 队列已满
-            }
-
-            let index = currentTail & mask
-            let slot = buffer[index]
-
-            // 尝试开始写入
-            if (slot.tryStartWrite()) {
-                // 成功获得写入权限，尝试推进tail指针
-                if (tail.compareAndSwap(currentTail, currentTail + 1)) {
-                    // 成功推进指针，完成写入
-                    slot.finishWrite(item)
-                    enqueueCount.fetchAdd(1)
-                    return true
-                } else {
-                    // 指针推进失败，取消写入
-                    slot.cancelWrite()
-                }
-            }
-
-            retries += 1
-        }
-
-        failedEnqueues.fetchAdd(1)
-        return false  // 重试次数用完
-    }
-    
-    /**
-     * 出队操作（无锁实现）- 适应性优化版本
+     * 出队；队列空时返回 None
      */
     public func dequeue(): Option<T> {
-        // 注册消费者线程
-        this.consumerThreadCount.fetchAdd(1)
-
-        let result = match (this.currentMode) {
-            case QueueMode.SPSC => this.spscDequeue()
-            case QueueMode.SPMC => this.spmcDequeue()
-            case _ => this.mpmcDequeue()  // MPSC和MPMC使用通用实现
-        }
-
-        // 注销消费者线程
-        this.consumerThreadCount.fetchSub(1)
-        return result
-    }
-
-    /**
-     * SPSC模式出队 - 无CAS竞争
-     */
-    private func spscDequeue(): Option<T> {
-        let currentHead = head.load()
-        let currentTail = tail.load()
-
-        // 检查队列是否为空
-        if (currentHead >= currentTail) {
-            failedDequeues.fetchAdd(1)
-            return None
-        }
-
-        let index = currentHead & mask
-        let slot = buffer[index]
-
-        // SPSC模式下，直接读取无需CAS
-        if (slot.tryStartRead()) {
-            head.store(currentHead + 1)  // 直接设置，无需CAS
-            let result = slot.finishRead()
-            dequeueCount.fetchAdd(1)
-            return result
-        }
-
-        failedDequeues.fetchAdd(1)
-        return None
-    }
-
-    /**
-     * SPMC模式出队 - 优化的CAS策略
-     */
-    private func spmcDequeue(): Option<T> {
-        let maxRetries = 100
-        var retries = 0
-
-        while (retries < maxRetries) {
-            let currentHead = head.load()
-            let currentTail = tail.load()
-
-            // 检查队列是否为空
-            if (currentHead >= currentTail) {
-                failedDequeues.fetchAdd(1)
-                return None
-            }
-
-            let index = currentHead & mask
-            let slot = buffer[index]
-
-            // 尝试开始读取
-            if (slot.tryStartRead()) {
-                if (head.compareAndSwap(currentHead, currentHead + 1)) {
-                    let result = slot.finishRead()
+        while (true) {
+            let pos = head.load()
+            let idx = pos & mask
+            let dif = sequences[idx].load() - (pos + 1)
+            if (dif == 0) {
+                if (head.compareAndSwap(pos, pos + 1)) {
+                    let item = slots[idx]
+                    slots[idx] = None<T>
+                    sequences[idx].store(pos + queueCapacity)
                     dequeueCount.fetchAdd(1)
-                    return result
-                } else {
-                    slot.cancelRead()
+                    return item
                 }
-            }
-
-            retries += 1
-
-            // 适应性退避
-            if (retries > 50) {
-                var backoff = 0
-                while (backoff < (retries - 50) && backoff < 10) {
-                    backoff += 1
-                }
-            }
-        }
-
-        failedDequeues.fetchAdd(1)
-        return None
-    }
-
-    /**
-     * MPMC模式出队 - 通用实现
-     */
-    private func mpmcDequeue(): Option<T> {
-        // 减少重试次数，提高性能
-        let maxRetries = 200
-        var retries = 0
-
-        while (retries < maxRetries) {
-            let currentHead = head.load()
-            let currentTail = tail.load()
-
-            // 检查队列是否为空
-            if (currentHead >= currentTail) {
+            } else if (dif < 0) {
                 failedDequeues.fetchAdd(1)
-                return None
+                return None<T>
             }
-
-            let index = currentHead & mask
-            let slot = buffer[index]
-
-            // 尝试开始读取
-            if (slot.tryStartRead()) {
-                // 成功获得读取权限，尝试推进head指针
-                if (head.compareAndSwap(currentHead, currentHead + 1)) {
-                    // 成功推进指针，完成读取
-                    let result = slot.finishRead()
-                    dequeueCount.fetchAdd(1)
-                    return result
-                } else {
-                    // 指针推进失败，取消读取
-                    slot.cancelRead()
-                }
-            }
-
-            retries += 1
         }
-
-        failedDequeues.fetchAdd(1)
-        return None  // 重试次数用完
+        return None<T>
     }
-    
-    /**
-     * 检查队列是否为空
-     */
+
     public func isEmpty(): Bool {
-        return head.load() >= tail.load()
+        return size() == 0
     }
-    
+
     /**
-     * 获取当前队列大小
+     * 当前元素个数（并发下为近似值，范围 [0, capacity]）
      */
     public func size(): Int64 {
-        let currentTail = tail.load()
-        let currentHead = head.load()
-        let diff = currentTail - currentHead
-        return if (diff > 0) { diff } else { 0 }
+        let n = tail.load() - head.load()
+        if (n < 0) { 0 } else if (n > queueCapacity) { queueCapacity } else { n }
     }
-    
-    /**
-     * 获取队列容量
-     */
+
     public func capacity(): Int64 {
-        return this.queueCapacity
+        return queueCapacity
     }
-    
+
     /**
-     * 清空队列
+     * 清空队列（与并发入队同时调用时，只保证清掉调用时已存在的元素）
      */
     public func clear(): Unit {
-        // 通过重置头尾指针来清空队列
-        let currentTail = tail.load()
-        head.store(currentTail)
-
-        // 清空所有槽位
-        for (i in 0..queueCapacity) {
-            let slot = buffer[i]
-            if (slot.isFilled()) {
-                slot.finishRead()  // 清空槽位
-            }
-        }
+        while (dequeue().isSome()) {}
     }
 
     /**
-     * 高性能批量入队操作 - 减少原子操作
+     * 批量入队，返回成功数量（遇到满即停止）
      */
     public func enqueueBatch(items: Array<T>): Int32 {
-        let batchSize = Int32(items.size)
-        if (batchSize == 0) { return 0 }
-
-        // 一次性预留空间，减少原子操作
-        let currentTail = tail.load()
-        let currentHead = head.load()
-        let availableSpace = queueCapacity - (currentTail - currentHead)
-
-        if (availableSpace <= 0) {
-            failedEnqueues.fetchAdd(Int64(batchSize))
-            return 0
-        }
-
-        let actualBatchSize = if (Int64(batchSize) <= availableSpace) {
-            batchSize
-        } else {
-            Int32(availableSpace)
-        }
-
-        // 尝试一次性推进tail指针
-        if (!tail.compareAndSwap(currentTail, currentTail + Int64(actualBatchSize))) {
-            // 如果失败，回退到单个操作
-            var successCount: Int32 = 0
-            for (i in 0..actualBatchSize) {
-                if (enqueue(items[Int64(i)])) {
-                    successCount += 1
-                } else {
-                    break
-                }
+        var n: Int32 = 0
+        for (item in items) {
+            if (!enqueue(item)) {
+                break
             }
-            return successCount
+            n++
         }
-
-        // 批量写入数据
-        for (i in 0..actualBatchSize) {
-            let index = (currentTail + Int64(i)) & mask
-            let slot = buffer[index]
-
-            // 等待槽位可用并写入
-            var retries = 0
-            while (retries < 100) {  // 减少重试次数
-                if (slot.tryStartWrite()) {
-                    slot.finishWrite(items[Int64(i)])
-                    break
-                }
-                retries += 1
-            }
-        }
-
-        enqueueCount.fetchAdd(Int64(actualBatchSize))
-        return actualBatchSize
+        return n
     }
 
     /**
-     * 高性能批量出队操作 - 减少原子操作
+     * 批量出队
      */
     public func dequeueBatch(maxCount: Int32): Array<T> {
         let results = ArrayList<T>()
-        if (maxCount <= 0) {
-            return results.toArray()
-        }
-
-        let currentHead = head.load()
-        let currentTail = tail.load()
-        let availableItems = currentTail - currentHead
-
-        if (availableItems <= 0) {
-            return results.toArray()
-        }
-
-        let actualBatchSize = if (Int64(maxCount) <= availableItems) {
-            maxCount
-        } else {
-            Int32(availableItems)
-        }
-
-        // 批量读取数据 - 使用更高效的方式
-        var successCount: Int32 = 0
-        for (i in 0..Int64(actualBatchSize)) {
-            let index = (currentHead + i) & mask
-            let slot = buffer[index]
-
-            // 尝试读取槽位
-            var retries = 0
-            var success = false
-            while (retries < 50 && !success) {  // 减少重试次数
-                if (slot.tryStartRead()) {
-                    match (slot.finishRead()) {
-                        case Some(item) =>
-                            results.add(item)
-                            successCount += 1
-                            success = true
-                        case None => break
-                    }
-                }
-                retries += 1
-            }
-
-            if (!success) {
-                break  // 如果读取失败，停止批量操作
+        while (Int32(results.size) < maxCount) {
+            match (dequeue()) {
+                case Some(item) => results.add(item)
+                case None => break
             }
         }
-
-        // 更新统计
-        if (successCount > 0) {
-            // 尝试推进head指针
-            head.compareAndSwap(currentHead, currentHead + Int64(successCount))
-            dequeueCount.fetchAdd(Int64(successCount))
-        }
-
         return results.toArray()
     }
 
-    /**
-     * 快速入队 - 无重试版本，适用于高性能场景
-     */
+    /** 与 enqueue 相同（保留旧 API） */
     public func fastEnqueue(item: T): Bool {
-        let currentTail = tail.load()
-        let currentHead = head.load()
-
-        // 快速检查是否有空间
-        if (currentTail - currentHead >= queueCapacity) {
-            failedEnqueues.fetchAdd(1)
-            return false
-        }
-
-        let index = currentTail & mask
-        let slot = buffer[index]
-
-        // 只尝试一次，不重试
-        if (slot.tryStartWrite()) {
-            if (tail.compareAndSwap(currentTail, currentTail + 1)) {
-                slot.finishWrite(item)
-                enqueueCount.fetchAdd(1)
-                return true
-            } else {
-                slot.cancelWrite()
-            }
-        }
-
-        failedEnqueues.fetchAdd(1)
-        return false
+        enqueue(item)
     }
 
-    /**
-     * 快速出队 - 无重试版本，适用于高性能场景
-     */
+    /** 与 dequeue 相同（保留旧 API） */
     public func fastDequeue(): Option<T> {
-        let currentHead = head.load()
-        let currentTail = tail.load()
-
-        // 快速检查是否有数据
-        if (currentHead >= currentTail) {
-            failedDequeues.fetchAdd(1)
-            return None
-        }
-
-        let index = currentHead & mask
-        let slot = buffer[index]
-
-        // 只尝试一次，不重试
-        if (slot.tryStartRead()) {
-            if (head.compareAndSwap(currentHead, currentHead + 1)) {
-                let result = slot.finishRead()
-                dequeueCount.fetchAdd(1)
-                return result
-            } else {
-                slot.cancelRead()
-            }
-        }
-
-        failedDequeues.fetchAdd(1)
-        return None
+        dequeue()
     }
 
-    /**
-     * 获取性能统计信息
-     */
     public func getStats(): QueueStats {
         QueueStats(
             enqueueCount.load(),
@@ -738,26 +275,15 @@ public class LockFreeQueue<T> <: Queue<T> {
             queueCapacity
         )
     }
-    
+
     /**
-     * 计算下一个2的幂
+     * 向上取整为 2 的幂，范围 [1, 2^30]
      */
     private static func nextPowerOfTwo(n: Int64): Int64 {
-        if (n <= 1) { return 1 }
-        if (n <= 2) { return 2 }
-        if (n <= 4) { return 4 }
-        if (n <= 8) { return 8 }
-        if (n <= 16) { return 16 }
-        if (n <= 32) { return 32 }
-        if (n <= 64) { return 64 }
-        if (n <= 128) { return 128 }
-        if (n <= 256) { return 256 }
-        if (n <= 512) { return 512 }
-        if (n <= 1024) { return 1024 }
-        if (n <= 2048) { return 2048 }
-        if (n <= 4096) { return 4096 }
-        if (n <= 8192) { return 8192 }
-        if (n <= 16384) { return 16384 }
-        return 32768  // 最大支持32K
+        var c: Int64 = 1
+        while (c < n && c < (1 << 30)) {
+            c = c << 1
+        }
+        return c
     }
 }

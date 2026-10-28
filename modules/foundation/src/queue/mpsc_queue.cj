@@ -1,319 +1,161 @@
 /*
  * MPSC (Multi Producer Single Consumer) 无锁队列
- * 基于现有LockFreeQueue优化，专门针对多生产者单消费者场景
- * 性能优化：
- * 1. 生产者使用CAS竞争，消费者无锁
- * 2. 缓存行填充避免false sharing
- * 3. 批量操作减少竞争
- * 4. 适应性退避策略
+ *
+ * 实现：Dmitry Vyukov 的侵入式 MPSC 链表队列（Akka 邮箱同款）
+ * - 生产者：一次原子 swap 把新节点挂到 head，再链接 prev.next —— 无等待（wait-free）
+ * - 消费者：沿 tail.next 前进；生产者处于 swap 与链接之间时短暂自旋等待
+ * - 无界（受 maxCapacity 保护），天然 FIFO，不存在扩容竞态
+ * - 消费端用 Mutex 串行化，多个消费者误用时也保持正确
  */
 package cactor_foundation.queue
 
 import std.sync.*
 import std.collection.*
 
+/** 链表节点 */
+class MPSCNode<T> {
+    var value: Option<T>
+    let next: AtomicOptionReference<MPSCNode<T>>
+
+    init(value: Option<T>) {
+        this.value = value
+        this.next = AtomicOptionReference<MPSCNode<T>>()
+    }
+}
+
 /**
- * MPSC无锁队列 - 针对多生产者单消费者优化
- * 基于JCTools设计原理，结合现有LockFreeQueue的优势
+ * MPSC 无锁队列
  */
 public class MPSCQueue<T> {
-    // 缓存行填充1 - 避免false sharing
-    private let pad1_1: Int64 = 0
-    private let pad1_2: Int64 = 0
-    private let pad1_3: Int64 = 0
-    private let pad1_4: Int64 = 0
-    private let pad1_5: Int64 = 0
-    private let pad1_6: Int64 = 0
-    private let pad1_7: Int64 = 0
-    private let pad1_8: Int64 = 0
-    
-    // 生产者字段 - 多个生产者线程竞争
-    private let producerIndex: AtomicInt64 = AtomicInt64(0)
-    private let producerLimit: AtomicInt64 = AtomicInt64(0)
-    private var producerMask: Int64 = 0
-    private var producerBuffer: Array<Option<T>>
-    
-    // 缓存行填充2 - 分离生产者和消费者
-    private let pad2_1: Int64 = 0
-    private let pad2_2: Int64 = 0
-    private let pad2_3: Int64 = 0
-    private let pad2_4: Int64 = 0
-    private let pad2_5: Int64 = 0
-    private let pad2_6: Int64 = 0
-    private let pad2_7: Int64 = 0
-    private let pad2_8: Int64 = 0
-    
-    // 消费者字段 - 单个消费者线程，无需原子操作
-    private var consumerIndex: Int64 = 0
-    private var consumerMask: Int64 = 0
-    private var consumerBuffer: Array<Option<T>>
-    
-    // 缓存行填充3 - 最终填充
-    private let pad3_1: Int64 = 0
-    private let pad3_2: Int64 = 0
-    private let pad3_3: Int64 = 0
-    private let pad3_4: Int64 = 0
-    private let pad3_5: Int64 = 0
-    private let pad3_6: Int64 = 0
-    private let pad3_7: Int64 = 0
-    private let pad3_8: Int64 = 0
-    
-    // 共享的消费者索引 - 供生产者读取
-    private let sharedConsumerIndex: AtomicInt64 = AtomicInt64(0)
-    
-    // 容量和统计
+    // 生产者端：最新节点
+    private let head: AtomicReference<MPSCNode<T>>
+    // 消费者端：已消费的哨兵节点
+    private var tail: MPSCNode<T>
+    private let consumerLock: Mutex
+
     private let initialCapacity: Int64
-    private let maxCapacity: Int64 = 16777216  // 16M最大容量
+    private let maxCapacity: Int64 = 16777216  // 16M，防止无限增长
     private let enqueueCount: AtomicInt64 = AtomicInt64(0)
     private let dequeueCount: AtomicInt64 = AtomicInt64(0)
     private let expansionCount: AtomicInt64 = AtomicInt64(0)
-    
-    // 适应性退避
-    private let maxRetries: Int32 = 1000
-    private let backoffThreshold: Int32 = 100
-    
+
     public init(capacity: Int32) {
-        // 确保容量是2的幂
-        var actualCapacity: Int64 = 1
-        let targetCapacity = Int64(capacity)
-        while (actualCapacity < targetCapacity) {
-            actualCapacity = actualCapacity << 1
-        }
-        
-        this.initialCapacity = actualCapacity
-        this.producerMask = actualCapacity - 1
-        this.consumerMask = actualCapacity - 1
-        
-        // 初始化缓冲区
-        this.producerBuffer = Array<Option<T>>(actualCapacity, { _ => None<T> })
-        this.consumerBuffer = this.producerBuffer
-        
-        // 设置初始限制
-        this.producerLimit.store(actualCapacity - 1)
+        let stub = MPSCNode<T>(None<T>)
+        this.head = AtomicReference<MPSCNode<T>>(stub)
+        this.tail = stub
+        this.consumerLock = Mutex()
+        this.initialCapacity = if (capacity > 0) { Int64(capacity) } else { 1 }
     }
-    
+
     /**
-     * 多生产者入队 - 使用CAS竞争
+     * 多生产者入队（wait-free）
+     * @return 超过 maxCapacity 时返回 false
      */
     public func offer(item: T): Bool {
-        var retries: Int32 = 0
-        
-        while (retries < this.maxRetries) {
-            let currentProducerIndex = this.producerIndex.load()
-            let currentProducerLimit = this.producerLimit.load()
-            
-            // 检查是否需要扩容
-            if (currentProducerIndex >= currentProducerLimit) {
-                if (this.tryExpansion()) {
-                    continue  // 扩容后重试
-                } else {
-                    return false  // 扩容失败
-                }
-            }
-            
-            // 尝试CAS获取槽位
-            if (this.producerIndex.compareAndSwap(currentProducerIndex, currentProducerIndex + 1)) {
-                let index = currentProducerIndex & this.producerMask
-                
-                // 写入数据
-                this.producerBuffer[index] = Some(item)
-                
-                this.enqueueCount.fetchAdd(1)
-                return true
-            }
-            
-            retries += 1
-            
-            // 适应性退避
-            if (retries > this.backoffThreshold) {
-                // 简单的退避策略
-                var backoff: Int32 = 0
-                let backoffLimit = retries - this.backoffThreshold
-                while (backoff < backoffLimit && backoff < 100) {
-                    backoff += 1
-                }
-            }
+        if (size() >= maxCapacity) {
+            return false
         }
-        
-        return false
+        let node = MPSCNode<T>(Some(item))
+        let prev = head.swap(node)
+        prev.next.store(node)
+        enqueueCount.fetchAdd(1)
+        return true
     }
-    
+
     /**
-     * 单消费者出队 - 无需CAS
+     * 出队；队列为空时返回 None
      */
     public func poll(): Option<T> {
-        let currentConsumerIndex = this.consumerIndex
-        let currentProducerIndex = this.producerIndex.load()
-        
-        // 队列为空
-        if (currentConsumerIndex >= currentProducerIndex) {
-            return None
-        }
-        
-        let index = currentConsumerIndex & this.consumerMask
-        let item = this.consumerBuffer[index]
-        
-        match (item) {
-            case Some(value) =>
-                // 清空槽位
-                this.consumerBuffer[index] = None
-                
-                // 更新消费者索引
-                this.consumerIndex = currentConsumerIndex + 1
-                
-                // 更新共享的消费者索引供生产者读取
-                this.sharedConsumerIndex.store(currentConsumerIndex + 1)
-                
-                this.dequeueCount.fetchAdd(1)
-                return Some(value)
-            case None =>
-                // 可能生产者还没写入，短暂自旋
-                var spinCount: Int32 = 0
-                while (spinCount < 10) {
-                    match (this.consumerBuffer[index]) {
-                        case Some(value) =>
-                            this.consumerBuffer[index] = None
-                            this.consumerIndex = currentConsumerIndex + 1
-                            this.sharedConsumerIndex.store(currentConsumerIndex + 1)
-                            this.dequeueCount.fetchAdd(1)
-                            return Some(value)
-                        case None => spinCount += 1
-                    }
-                }
-                return None
+        consumerLock.lock()
+        try {
+            return pollLocked()
+        } finally {
+            consumerLock.unlock()
         }
     }
-    
+
+    private func pollLocked(): Option<T> {
+        var spins = 0
+        while (true) {
+            match (tail.next.load()) {
+                case Some(next) =>
+                    tail = next
+                    let v = next.value
+                    next.value = None<T>
+                    dequeueCount.fetchAdd(1)
+                    return v
+                case None =>
+                    // head 与 tail 相同才是真正为空；否则有生产者正在链接节点
+                    if (refEq(head.load(), tail)) {
+                        return None<T>
+                    }
+                    spins++
+                    if (spins > 64) {
+                        sleep(Duration.Zero)
+                        spins = 0
+                    }
+            }
+        }
+        return None<T>
+    }
+
     /**
-     * 批量入队 - 多生产者优化
+     * 批量入队，返回实际入队数量
      */
     public func offerBatch(items: Array<T>): Int32 {
-        let batchSize = Int32(items.size)
-        if (batchSize == 0) { return 0 }
-        
-        // 尝试一次性预留多个槽位
-        var retries: Int32 = 0
-        while (retries < this.maxRetries) {
-            let currentProducerIndex = this.producerIndex.load()
-            let currentProducerLimit = this.producerLimit.load()
-            
-            let availableSpace = currentProducerLimit - currentProducerIndex
-            let actualBatchSize = if (Int64(batchSize) <= availableSpace) { 
-                batchSize 
-            } else { 
-                Int32(availableSpace) 
+        var n: Int32 = 0
+        for (item in items) {
+            if (!offer(item)) {
+                break
             }
-            
-            if (actualBatchSize <= 0) {
-                if (this.tryExpansion()) {
-                    continue
-                } else {
-                    return 0
-                }
-            }
-            
-            // 一次性CAS预留多个槽位
-            if (this.producerIndex.compareAndSwap(currentProducerIndex, currentProducerIndex + Int64(actualBatchSize))) {
-                // 批量写入
-                for (i in 0..actualBatchSize) {
-                    let index = (currentProducerIndex + Int64(i)) & this.producerMask
-                    this.producerBuffer[index] = Some(items[Int64(i)])
-                }
-                
-                this.enqueueCount.fetchAdd(Int64(actualBatchSize))
-                return actualBatchSize
-            }
-            
-            retries += 1
+            n++
         }
-        
-        return 0
+        return n
     }
-    
+
     /**
-     * 批量出队 - 单消费者优化
+     * 批量出队
      */
     public func pollBatch(maxCount: Int32): Array<T> {
         let results = ArrayList<T>()
-        var count: Int32 = 0
-        
-        while (count < maxCount) {
-            match (this.poll()) {
-                case Some(item) =>
-                    results.add(item)
-                    count += 1
-                case None => break
+        consumerLock.lock()
+        try {
+            while (Int32(results.size) < maxCount) {
+                match (pollLocked()) {
+                    case Some(item) => results.add(item)
+                    case None => break
+                }
             }
+        } finally {
+            consumerLock.unlock()
         }
-        
         return results.toArray()
     }
-    
+
     /**
-     * 尝试扩容 - 动态增长避免队列满
-     */
-    private func tryExpansion(): Bool {
-        let currentCapacity = this.producerMask + 1
-        if (currentCapacity >= this.maxCapacity) {
-            return false  // 已达最大容量
-        }
-        
-        let newCapacity = currentCapacity * 2
-        let newBuffer = Array<Option<T>>(newCapacity, { _ => None<T> })
-        
-        // 复制现有数据到新缓冲区
-        let currentConsumerIndex = this.sharedConsumerIndex.load()
-        let currentProducerIndex = this.producerIndex.load()
-        
-        for (i in currentConsumerIndex..currentProducerIndex) {
-            let oldIndex = i & this.producerMask
-            let newIndex = i & (newCapacity - 1)
-            newBuffer[newIndex] = this.producerBuffer[oldIndex]
-        }
-        
-        // 更新缓冲区和掩码
-        this.producerBuffer = newBuffer
-        this.consumerBuffer = newBuffer
-        this.producerMask = newCapacity - 1
-        this.consumerMask = newCapacity - 1
-        
-        // 更新生产者限制
-        let newLimit = currentConsumerIndex + Int64(Float64(newCapacity) * 0.75)
-        this.producerLimit.store(newLimit)
-        
-        this.expansionCount.fetchAdd(1)
-        return true
-    }
-    
-    /**
-     * 获取队列大小
+     * 当前元素个数（并发下为近似值）
      */
     public func size(): Int64 {
-        return this.producerIndex.load() - this.sharedConsumerIndex.load()
+        let n = enqueueCount.load() - dequeueCount.load()
+        if (n < 0) { 0 } else { n }
     }
-    
-    /**
-     * 检查队列是否为空
-     */
+
     public func isEmpty(): Bool {
         return size() == 0
     }
-    
+
     /**
-     * 获取当前容量
+     * 容量上限（链表实现无需扩容）
      */
     public func getCapacity(): Int64 {
-        return this.producerMask + 1
+        return maxCapacity
     }
-    
-    /**
-     * 获取性能统计
-     */
+
     public func getPerformanceStats(): MPSCPerformanceStats {
         MPSCPerformanceStats(
-            this.enqueueCount.load(),
-            this.dequeueCount.load(),
-            this.expansionCount.load(),
+            enqueueCount.load(),
+            dequeueCount.load(),
+            expansionCount.load(),
             getCapacity(),
             size()
         )
