@@ -411,7 +411,7 @@ python3 tools/check_module_deps.py  # check module layering
 
 There are currently 163 test cases, all passing on Cangjie 1.2.0. Besides supervision strategies, typed actors (behavior transforms, stash, timers) and mailboxes, they cover concurrency semantics (serial processing, concurrent create/stop, supervised restart), queue stress, TCP/UDP transport, remote end-to-end messaging, and file-based event journal and event-sourcing recovery.
 
-Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measured on a 32-core machine: about 1.5 M msg/s for a single actor, ping-pong round-trip P50 about 6 µs, about 47 k msg/s for remote TCP over loopback. Full numbers are in section 6.3 of the [development plan](docs/plan/20261028.md).
+Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measured on a 32-core machine: 5.6–7.2 M msg/s for a single actor, ping-pong round-trip P50 about 2 µs, about 150–190 k msg/s for remote TCP over loopback. A same-machine comparison with Akka 2.6.21 is in the [performance analysis](docs/plan/20261028-performance.md) (in Chinese): point-to-point scenarios match or beat Akka, while fan-out is still about 3× slower and remoting about 1.6× slower.
 
 ---
 
@@ -419,7 +419,7 @@ Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measur
 
 The following issues are known and are being addressed according to the [development plan](docs/plan/20261028.md) (in Chinese):
 
-- **Scheduling**: all actors share one ready queue, so fan-out throughput with many actors is limited by lock contention; blocking inside `receive` occupies a worker thread.
+- **Scheduling**: affinity scheduling without work stealing yet; fan-out throughput is still well below Akka; blocking inside `receive` occupies a worker thread and slows other actors pinned to it.
 - **Remoting**: TCP transport on `std.net` with at-most-once delivery; remote ask is not supported yet.
 - **Clustering**: prototype only.
 - **Macros**: most DSL macros do not yet perform real expansion.

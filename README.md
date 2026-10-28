@@ -410,7 +410,7 @@ python3 tools/check_module_deps.py  # 检查模块分层约束
 
 目前共有 163 个测试用例，在仓颉 1.2.0 下全部通过。除监督策略、类型化 Actor（行为变换、Stash、定时器）、mailbox 外，还覆盖并发语义（串行处理、并发创建/停止、监督重启）、队列压力、TCP/UDP 传输、远程端到端、文件事件日志与事件溯源恢复。
 
-基准程序：`./target/release/bin/cactor_examples.real_benchmark`。在 32 核机器上实测：单 Actor 约 1.5 M msg/s，ping-pong 往返 P50 约 6 µs，本机回环远程 TCP 约 47 k msg/s。完整数据见 [开发计划](docs/plan/20261028.md) 第 6.3 节。
+基准程序：`./target/release/bin/cactor_examples.real_benchmark`。在 32 核机器上实测：单 Actor 5.6–7.2 M msg/s，ping-pong 往返 P50 约 2 µs，本机回环远程 TCP 约 150–190 k msg/s。同机与 Akka 2.6.21 的对比见 [性能分析](docs/plan/20261028-performance.md)：点对点场景已追平或超过 Akka，扇出仍慢约 3 倍，远程慢约 1.6 倍。
 
 ---
 
@@ -418,7 +418,7 @@ python3 tools/check_module_deps.py  # 检查模块分层约束
 
 以下问题已经确认，正在按 [开发计划](docs/plan/20261028.md) 逐步处理：
 
-- **调度**：所有 Actor 共用一个就绪队列，Actor 数量多时扇出吞吐受锁竞争限制；在 `receive` 中阻塞会占用工作线程。
+- **调度**：亲和调度，还没有工作窃取；扇出吞吐仍明显低于 Akka；在 `receive` 中阻塞会占住工作线程，同一线程上的其他 Actor 也会被拖慢。
 - **远程通信**：基于 `std.net` 的 TCP 传输，投递语义是至多一次，暂不支持远程 ask。
 - **集群**：目前只有原型。
 - **宏**：DSL 宏大多还没有实际展开逻辑。
