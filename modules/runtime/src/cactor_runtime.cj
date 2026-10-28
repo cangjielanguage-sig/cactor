@@ -62,6 +62,9 @@ public class CActorRuntime {
     private let isRunning: AtomicBool
     private let startTime: AtomicInt64
     private let actorCount: AtomicInt64
+    private let nameSequence: AtomicInt64
+    // 串行化 Actor 创建中的“名称检查 + 创建 + 注册”
+    private let creationLock: Mutex
 
     // 配置
     private let config: CActorRuntimeConfig
@@ -96,6 +99,8 @@ public class CActorRuntime {
         this.isRunning = AtomicBool(false)
         this.startTime = AtomicInt64(0)
         this.actorCount = AtomicInt64(0)
+        this.nameSequence = AtomicInt64(0)
+        this.creationLock = Mutex()
     }
 
     /**
@@ -158,14 +163,15 @@ public class CActorRuntime {
             throw Exception("Runtime系统未启动")
         }
 
-        // 1. 验证和准备
-        validateActorCreation(name, None<ActorRef>)
-
-        // 2. 通过用户Guardian创建Actor
-        let actorRef = userGuardian.createUserActor(props, name)
-
-        // 3. 注册到Actor注册表
-        actorRegistry.register(actorRef, Some("/user"))
+        let actorRef = synchronized(creationLock) {
+            // 1. 验证和准备
+            validateActorCreation(name, None<ActorRef>)
+            // 2. 通过用户Guardian创建Actor
+            let created = userGuardian.createUserActor(props, name)
+            // 3. 注册到Actor注册表
+            actorRegistry.register(created, Some("/user"))
+            created
+        }
 
         // 4. 注册到生命周期管理器
         lifecycleManager.registerActor(actorRef)
@@ -195,8 +201,13 @@ public class CActorRuntime {
      * 停止Actor
      */
     public func stop(actorRef: ActorRef): Unit {
-        userGuardian.stopChild(actorRef)
-        actorCount.fetchAdd(-1)
+        // 重复停止同一个 Actor 不会重复计数
+        if (userGuardian.removeUserActor(actorRef)) {
+            actorRegistry.unregister(actorRef)
+            lifecycleManager.unregisterActor(actorRef)
+            systemMetrics.decrementActorCount()
+            actorCount.fetchAdd(-1)
+        }
     }
 
     /**
@@ -320,9 +331,7 @@ public class CActorRuntime {
     }
 
     private func generateActorName(): String {
-        let timestamp = DateTime.now().toUnixTimeStamp().toMilliseconds()
-        let counter = actorCount.load()
-        "actor-${timestamp}-${counter}"
+        "auto-${nameSequence.fetchAdd(1)}"
     }
 
     private func getCurrentTimeNanos(): Int64 {

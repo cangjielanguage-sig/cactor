@@ -9,6 +9,7 @@ protected package cactor_runtime.guardian
 import std.sync.*
 import std.collection.*
 import std.collection.concurrent.*
+import std.runtime.*
 import cactor_core.actor.{Actor, ActorRef, Props, ActorPath}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.context.{ActorContext}
@@ -46,86 +47,147 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         if (!isValidUserActorName(name)) {
             throw Exception("非法的用户Actor名称: ${name}")
         }
-        
-        let userActor = doCreateChild(props, name)
-        userActors.add(name, userActor)
-        
-        // 应用用户级监督策略
-        let supervisionStrategy = defaultSupervisionStrategy  // 简化实现，使用默认策略
-        supervise(userActor, supervisionStrategy)
-        
-        return userActor
+        // 名称检查与登记在同一把锁内完成，避免并发创建同名 Actor
+        synchronized(guardianLock) {
+            if (userActors.contains(name)) {
+                throw Exception("Actor名称已存在: ${name}")
+            }
+            let userActor = doCreateChild(props, name)
+            userActors.add(name, userActor)
+            childCounter.fetchAdd(1)
+            supervise(userActor, defaultSupervisionStrategy)
+            return userActor
+        }
+    }
+
+    /**
+     * 移除用户Actor并发送停止消息
+     * @return 该 Actor 是否仍在本 Guardian 管理下（重复停止返回 false）
+     */
+    public func removeUserActor(child: ActorRef): Bool {
+        let removed = synchronized(guardianLock) {
+            var found: Option<String> = None
+            for ((name, actorRef) in userActors) {
+                if (actorRef.equals(child)) {
+                    found = Some(name)
+                    break
+                }
+            }
+            match (found) {
+                case Some(name) =>
+                    userActors.remove(name)
+                    supervisionStrategies.remove(child.path.toString())
+                    backoffSupervisors.remove(child.path.toString())
+                    stopCounter.fetchAdd(1)
+                    true
+                case None => false
+            }
+        }
+        if (removed) {
+            child.tell(StopMessage())
+        }
+        return removed
     }
     
     /**
      * 获取用户Actor
      */
     public func getUserActor(name: String): Option<ActorRef> {
-        userActors.get(name)
+        synchronized(guardianLock) {
+            userActors.get(name)
+        }
     }
     
     /**
      * 获取所有用户Actor
      */
     public func getAllUserActors(): Array<ActorRef> {
-        let actorList = ArrayList<ActorRef>()
-        for ((_, actorRef) in userActors) {
-            actorList.add(actorRef)
+        synchronized(guardianLock) {
+            let actorList = ArrayList<ActorRef>()
+            for ((_, actorRef) in userActors) {
+                actorList.add(actorRef)
+            }
+            return actorList.toArray()
         }
-        return actorList.toArray()
     }
     
     /**
      * 处理Actor失败
      */
     public func handleActorFailure(failure: ActorFailure): Unit {
+        failureCounter.fetchAdd(1)
         let childPath = failure.actor.path.toString()
-        
-        match (supervisionStrategies.get(childPath)) {
-            case Some(strategy) =>
-                let directive = strategy.decide(failure)
-                executeSupervisionDirective(failure.actor, directive, failure.cause)
-            case None =>
-                // 使用默认策略
-                let directive = defaultSupervisionStrategy.decide(failure)
-                executeSupervisionDirective(failure.actor, directive, failure.cause)
+        let strategy = synchronized(guardianLock) {
+            supervisionStrategies.get(childPath) ?? defaultSupervisionStrategy
         }
+        let directive = strategy.decide(failure)
+        executeSupervisionDirective(failure.actor, directive, failure.cause)
     }
     
+    /**
+     * 在 Actor Cell 内处理失败（与该 Actor 的消息处理串行）
+     * Restart / Stop 立即生效，邮箱中尚未处理的消息由新实例处理或被丢弃
+     */
+    func handleFailureInCell(cell: SimpleUserActorRef, cause: Exception): Unit {
+        failureCounter.fetchAdd(1)
+        let key = cell.path.toString()
+        let failure = ActorFailure(cell, cause, 1)
+        let strategy = synchronized(guardianLock) {
+            supervisionStrategies.get(key) ?? defaultSupervisionStrategy
+        }
+        match (strategy.decide(failure)) {
+            case SupervisionDirective.Resume => ()
+            case SupervisionDirective.Restart =>
+                match (strategy) {
+                    case _: BackoffSupervisorStrategy =>
+                        // 退避重启由 BackoffSupervisor 按延迟调度
+                        executeSupervisionDirective(cell, SupervisionDirective.Restart, cause)
+                    case _ =>
+                        restartCounter.fetchAdd(1)
+                        cell.restartInCell(cause)
+                }
+            case SupervisionDirective.Stop =>
+                cell.terminateInCell()
+                removeUserActor(cell)
+            case SupervisionDirective.Escalate =>
+                escalateFailure(cell, cause)
+        }
+    }
+
     /**
      * 执行监督指令
      */
     private func executeSupervisionDirective(actor: ActorRef, directive: SupervisionDirective, cause: Exception): Unit {
         match (directive) {
             case SupervisionDirective.Resume =>
-                println("恢复Actor: ${actor.path.toString()}")
-                // 恢复Actor执行
+                // 保留 Actor 状态，继续处理后续消息
+                ()
 
             case SupervisionDirective.Restart =>
-                println("重启Actor: ${actor.path.toString()}")
-                match (supervisionStrategies.get(actor.path.toString())) {
-                    case Some(s: BackoffSupervisorStrategy) =>
-                        // 获取/创建缓存的监督器以保持重试计数
-                        let key = actor.path.toString()
-                        let bof = match (backoffSupervisors.get(key)) {
-                            case Some(existing) => existing
-                            case None =>
-                                let created = BackoffSupervisor(s, this)
-                                backoffSupervisors.add(key, created)
-                                created
-                        }
-                        bof.handleFailure(ActorFailure(actor, cause, 1))
-                    case _ =>
-                        restartChild(actor, cause)
+                let key = actor.path.toString()
+                let backoff: Option<BackoffSupervisor> = synchronized(guardianLock) {
+                    match (supervisionStrategies.get(key)) {
+                        case Some(s: BackoffSupervisorStrategy) =>
+                            // 获取/创建缓存的监督器以保持重试计数
+                            match (backoffSupervisors.get(key)) {
+                                case Some(existing) => Some(existing)
+                                case None =>
+                                    let created = BackoffSupervisor(s, this)
+                                    backoffSupervisors.add(key, created)
+                                    Some(created)
+                            }
+                        case _ => None<BackoffSupervisor>
+                    }
+                }
+                match (backoff) {
+                    case Some(bof) => bof.handleFailure(ActorFailure(actor, cause, 1))
+                    case None => restartChild(actor, cause)
                 }
 
             case SupervisionDirective.Stop =>
-                println("停止Actor: ${actor.path.toString()}")
-                stopChild(actor)
+                removeUserActor(actor)
 
             case SupervisionDirective.Escalate =>
-                println("升级失败到系统Guardian: ${actor.path.toString()}")
-                // 将失败升级到系统Guardian
                 escalateFailure(actor, cause)
         }
     }
@@ -163,48 +225,18 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         let actor = props.create()
         actor.preStart()
         let actorPath = ActorPath("user-system", "${actorPathPrefix}/${name}")
-        
-        // 创建用户ActorRef
-        return createUserActorRef(actor, name, actorPath)
+        return SimpleUserActorRef(name, actor, { => props.create() }, actorPath, this)
     }
     
     protected func doStopChild(child: ActorRef): Unit {
-        println("停止用户Actor: ${child.path.toString()}")
-        
-        // 从用户Actor列表中移除
-        for ((name, actorRef) in userActors) {
-            if (actorRef.equals(child)) {
-                userActors.remove(name)
-                break
-            }
-        }
-        
-        // 执行Actor停止逻辑
-        child.tell(StopMessage())
+        removeUserActor(child)
     }
     
     protected func doRestartChild(child: ActorRef, reason: Exception): Unit {
-        println("重启用户Actor: ${child.path.toString()}, 原因: ${reason}")
-        
-        // 用户Actor重启逻辑
-        // 1. 保存Actor状态
-        // 2. 停止当前Actor
-        // 3. 重新创建Actor
-        // 4. 恢复Actor状态
-        
-        // 发送重启消息
+        // 重启通过邮箱串行执行：在 Actor Cell 中 preRestart → 重新创建实例 → postRestart
         child.tell(RestartMessage(reason))
     }
     
-    /**
-     * 创建用户ActorRef
-     */
-    private func createUserActorRef(actor: Actor, name: String, path: ActorPath): ActorRef {
-        // 这里应该与Runtime层集成，使用真正的邮箱和调度器
-        // 最小改造：将guardian引用注入子ActorRef以路由失败
-        return SimpleUserActorRef(name, actor, path, this)
-    }
-
     // 重写Actor属性
     public prop name: String {
         get() { "user" }
@@ -316,7 +348,8 @@ public class SimpleUserActorRef <: ActorRef {
     private static let THROUGHPUT: Int64 = 64
 
     private let actorName: String
-    private let actor: Actor
+    private var actor: Actor
+    private let actorFactory: () -> Actor
     private let actorPath: ActorPath
     private let guardian: RuntimeUserGuardian
     private let mailbox: ConcurrentLinkedQueue<(Message, Option<String>)>
@@ -324,10 +357,16 @@ public class SimpleUserActorRef <: ActorRef {
     private let terminated: AtomicBool
     private let processedCount: AtomicInt64
     private let deadLetterCount: AtomicInt64
+    private let restartCount: AtomicInt64
 
     public init(name: String, actor: Actor, path: ActorPath, guardian: RuntimeUserGuardian) {
+        this(name, actor, { => actor }, path, guardian)
+    }
+
+    public init(name: String, actor: Actor, factory: () -> Actor, path: ActorPath, guardian: RuntimeUserGuardian) {
         this.actorName = name
         this.actor = actor
+        this.actorFactory = factory
         this.actorPath = path
         this.guardian = guardian
         this.mailbox = ConcurrentLinkedQueue<(Message, Option<String>)>()
@@ -335,6 +374,7 @@ public class SimpleUserActorRef <: ActorRef {
         this.terminated = AtomicBool(false)
         this.processedCount = AtomicInt64(0)
         this.deadLetterCount = AtomicInt64(0)
+        this.restartCount = AtomicInt64(0)
     }
 
     public prop path: ActorPath {
@@ -369,6 +409,11 @@ public class SimpleUserActorRef <: ActorRef {
         mailbox.size
     }
 
+    /** 被监督重启的次数 */
+    public func restarts(): Int64 {
+        restartCount.load()
+    }
+
     /** Actor 是否已停止 */
     public func isTerminated(): Bool {
         terminated.load()
@@ -376,13 +421,12 @@ public class SimpleUserActorRef <: ActorRef {
 
     private func trySchedule(): Unit {
         if (scheduled.compareAndSwap(false, true)) {
-            spawn {
-                run()
-            }
+            ActorCellDispatcher.execute(this)
         }
     }
 
-    private func run(): Unit {
+    /** 由调度器工作线程调用 */
+    func run(): Unit {
         var count: Int64 = 0
         while (count < THROUGHPUT) {
             match (mailbox.remove()) {
@@ -404,23 +448,58 @@ public class SimpleUserActorRef <: ActorRef {
             deadLetterCount.fetchAdd(1)
             return
         }
+        if (let Some(restartMsg) <- (message as RestartMessage)) {
+            doRestart(restartMsg.getReason())
+            return
+        }
         let context = SimpleUserActorContext(this, sender)
         try {
             actor.receive(message, context)
         } catch (e: Exception) {
-            // 将失败上报给用户Guardian进行监督处理
-            let failure = ActorFailure(this, e, 1)
-            guardian.receive(ActorFailureMessage(failure), context)
+            // 在本 Cell 内同步执行监督决策
+            guardian.handleFailureInCell(this, e)
         }
         processedCount.fetchAdd(1)
         if (message is StopMessage) {
-            terminated.store(true)
+            terminateInCell()
+        }
+    }
+
+    /**
+     * 重启：旧实例 preRestart → 用工厂创建新实例 → 新实例 postRestart
+     * 在 Actor Cell 内执行，与消息处理串行，邮箱中的后续消息由新实例处理
+     */
+    func restartInCell(reason: Exception): Unit {
+        doRestart(reason)
+    }
+
+    /** 立即停止（在 Cell 内调用） */
+    func terminateInCell(): Unit {
+        if (!terminated.swap(true)) {
             try {
                 actor.preStop()
                 actor.postStop()
             } catch (e: Exception) {
                 println("Actor ${actorName} 停止回调失败: ${e}")
             }
+        }
+    }
+
+    private func doRestart(reason: Exception): Unit {
+        try {
+            actor.preRestart(reason)
+        } catch (e: Exception) {
+            println("Actor ${actorName} preRestart 失败: ${e}")
+        }
+        try {
+            let fresh = actorFactory()
+            actor = fresh
+            fresh.postRestart(reason)
+            restartCount.fetchAdd(1)
+        } catch (e: Exception) {
+            // 无法重建实例时停止该 Actor，避免继续用损坏的状态处理消息
+            println("Actor ${actorName} 重启失败，已停止: ${e}")
+            terminated.store(true)
         }
     }
 
@@ -456,5 +535,70 @@ public class SimpleUserActorContext <: ActorContext {
 
     public func sender(): Option<String> {
         currentSender
+    }
+}
+
+/**
+ * Actor Cell 调度器（进程级共享）
+ *
+ * 固定数量的工作线程（CPU 核数，至少 4、至多 64）从就绪队列取出 Cell 执行，
+ * 避免每次调度都创建新线程。Cell 每次最多处理 THROUGHPUT 条消息后让出，保证公平。
+ * 注意：在 receive 中执行阻塞操作会占用一个工作线程。
+ */
+public class ActorCellDispatcher {
+    private static let readyQueue: LinkedBlockingQueue<SimpleUserActorRef> = LinkedBlockingQueue<SimpleUserActorRef>()
+    private static let started: AtomicBool = AtomicBool(false)
+    private static let workerCount: AtomicInt64 = AtomicInt64(0)
+    private static let executedCount: AtomicInt64 = AtomicInt64(0)
+
+    static func execute(cell: SimpleUserActorRef): Unit {
+        ensureStarted()
+        readyQueue.add(cell)
+    }
+
+    private static func ensureStarted(): Unit {
+        if (started.load() || !started.compareAndSwap(false, true)) {
+            return
+        }
+        var n = Int64(getProcessorCount())
+        if (n < 4) {
+            n = 4
+        }
+        if (n > 64) {
+            n = 64
+        }
+        for (_ in 0..n) {
+            spawn {
+                workerLoop()
+            }
+        }
+        workerCount.store(n)
+    }
+
+    private static func workerLoop(): Unit {
+        while (true) {
+            let cell = readyQueue.remove()
+            try {
+                cell.run()
+            } catch (e: Exception) {
+                println("Actor Cell 执行异常: ${e}")
+            }
+            executedCount.fetchAdd(1)
+        }
+    }
+
+    /** 工作线程数（未启动时为 0） */
+    public static func getWorkerCount(): Int64 {
+        workerCount.load()
+    }
+
+    /** 已执行的调度次数 */
+    public static func getExecutedCount(): Int64 {
+        executedCount.load()
+    }
+
+    /** 等待执行的 Cell 数 */
+    public static func getQueuedCount(): Int64 {
+        readyQueue.size
     }
 }

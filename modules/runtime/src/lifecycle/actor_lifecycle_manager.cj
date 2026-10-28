@@ -66,8 +66,11 @@ public class ActorLifecycleManager {
     private let lifecycleInfos: HashMap<String, ActorLifecycleInfo>
     private let eventBus: ActorEventBus
     private let isRunning: AtomicBool
+    // 保护 lifecycleInfos（可重入）
+    private let lock: Mutex
 
     public init() {
+        this.lock = Mutex()
         this.lifecycleInfos = HashMap<String, ActorLifecycleInfo>()
         this.eventBus = ActorEventBus()
         this.isRunning = AtomicBool(true)
@@ -77,27 +80,29 @@ public class ActorLifecycleManager {
      * 启动Actor
      */
     public func startActor(actorRef: ActorRef): Unit {
-        let path = actorRef.path.toString()
-        let currentTime = getCurrentTimeNanos()
+        synchronized(lock) {
+            let path = actorRef.path.toString()
+            let currentTime = getCurrentTimeNanos()
         
-        // 更新状态为启动中
-        updateActorState(actorRef, ActorLifecycleState.Starting, None<Exception>)
+            // 更新状态为启动中
+            updateActorState(actorRef, ActorLifecycleState.Starting, None<Exception>)
         
-        try {
-            // 发送启动消息
-            actorRef.tell(StartMessage())
+            try {
+                // 发送启动消息
+                actorRef.tell(StartMessage())
             
-            // 更新状态为运行中
-            updateActorState(actorRef, ActorLifecycleState.Running, None<Exception>)
+                // 更新状态为运行中
+                updateActorState(actorRef, ActorLifecycleState.Running, None<Exception>)
             
-            // 发布启动事件
-            eventBus.publish(ActorStartedEvent(actorRef, currentTime))
+                // 发布启动事件
+                eventBus.publish(ActorStartedEvent(actorRef, currentTime))
             
-        } catch (e: Exception) {
-            // 启动失败，更新状态
-            updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
-            eventBus.publish(ActorStartFailedEvent(actorRef, e, currentTime))
-            throw e
+            } catch (e: Exception) {
+                // 启动失败，更新状态
+                updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
+                eventBus.publish(ActorStartFailedEvent(actorRef, e, currentTime))
+                throw e
+            }
         }
     }
     
@@ -105,43 +110,45 @@ public class ActorLifecycleManager {
      * 停止Actor
      */
     public func stopActor(actorRef: ActorRef): Unit {
-        let path = actorRef.path.toString()
-        let currentTime = getCurrentTimeNanos()
+        synchronized(lock) {
+            let path = actorRef.path.toString()
+            let currentTime = getCurrentTimeNanos()
         
-        // 检查当前状态
-        match (getActorState(actorRef)) {
-            case Some(info) =>
-                match (info.state) {
-                    case ActorLifecycleState.Stopped =>
-                        return  // 已经停止
-                    case _ =>
-                        ()  // 继续处理
-                }
-            case None =>
-                return  // Actor不存在
-        }
+            // 检查当前状态
+            match (getActorState(actorRef)) {
+                case Some(info) =>
+                    match (info.state) {
+                        case ActorLifecycleState.Stopped =>
+                            return  // 已经停止
+                        case _ =>
+                            ()  // 继续处理
+                    }
+                case None =>
+                    return  // Actor不存在
+            }
         
-        // 更新状态为停止中
-        updateActorState(actorRef, ActorLifecycleState.Stopping, None<Exception>)
+            // 更新状态为停止中
+            updateActorState(actorRef, ActorLifecycleState.Stopping, None<Exception>)
         
-        try {
-            // 发送停止消息
-            actorRef.tell(StopMessage())
+            try {
+                // 发送停止消息
+                actorRef.tell(StopMessage())
             
-            // 更新状态为已停止
-            updateActorState(actorRef, ActorLifecycleState.Stopped, None<Exception>)
+                // 更新状态为已停止
+                updateActorState(actorRef, ActorLifecycleState.Stopped, None<Exception>)
             
-            // 发布停止事件
-            eventBus.publish(ActorStoppedEvent(actorRef, currentTime))
+                // 发布停止事件
+                eventBus.publish(ActorStoppedEvent(actorRef, currentTime))
             
-            // 清理生命周期信息
-            lifecycleInfos.remove(path)
+                // 清理生命周期信息
+                lifecycleInfos.remove(path)
             
-        } catch (e: Exception) {
-            // 停止失败，更新状态
-            updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
-            eventBus.publish(ActorStopFailedEvent(actorRef, e, currentTime))
-            throw e
+            } catch (e: Exception) {
+                // 停止失败，更新状态
+                updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
+                eventBus.publish(ActorStopFailedEvent(actorRef, e, currentTime))
+                throw e
+            }
         }
     }
     
@@ -149,34 +156,36 @@ public class ActorLifecycleManager {
      * 重启Actor
      */
     public func restartActor(actorRef: ActorRef, reason: Exception): Unit {
-        let path = actorRef.path.toString()
-        let currentTime = getCurrentTimeNanos()
+        synchronized(lock) {
+            let path = actorRef.path.toString()
+            let currentTime = getCurrentTimeNanos()
         
-        // 更新状态为重启中
-        updateActorState(actorRef, ActorLifecycleState.Restarting, Some(reason))
+            // 更新状态为重启中
+            updateActorState(actorRef, ActorLifecycleState.Restarting, Some(reason))
         
-        try {
-            // 先停止Actor
-            actorRef.tell(StopMessage())
+            try {
+                // 先停止Actor
+                actorRef.tell(StopMessage())
             
-            // 等待一小段时间确保停止完成
-            // Thread.sleep(Duration.millisecond * 10)  // 简化实现，跳过sleep
+                // 等待一小段时间确保停止完成
+                // Thread.sleep(Duration.millisecond * 10)  // 简化实现，跳过sleep
             
-            // 重新启动Actor
-            actorRef.tell(StartMessage())
+                // 重新启动Actor
+                actorRef.tell(StartMessage())
             
-            // 更新状态为运行中，增加重启计数
-            incrementRestartCount(actorRef)
-            updateActorState(actorRef, ActorLifecycleState.Running, None<Exception>)
+                // 更新状态为运行中，增加重启计数
+                incrementRestartCount(actorRef)
+                updateActorState(actorRef, ActorLifecycleState.Running, None<Exception>)
             
-            // 发布重启事件
-            eventBus.publish(ActorRestartedEvent(actorRef, reason, currentTime))
+                // 发布重启事件
+                eventBus.publish(ActorRestartedEvent(actorRef, reason, currentTime))
             
-        } catch (e: Exception) {
-            // 重启失败，更新状态
-            updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
-            eventBus.publish(ActorRestartFailedEvent(actorRef, e, currentTime))
-            throw e
+            } catch (e: Exception) {
+                // 重启失败，更新状态
+                updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
+                eventBus.publish(ActorRestartFailedEvent(actorRef, e, currentTime))
+                throw e
+            }
         }
     }
     
@@ -184,64 +193,74 @@ public class ActorLifecycleManager {
      * 注册Actor
      */
     public func registerActor(actorRef: ActorRef): Unit {
-        let path = actorRef.path.toString()
-        let currentTime = getCurrentTimeNanos()
+        synchronized(lock) {
+            let path = actorRef.path.toString()
+            let currentTime = getCurrentTimeNanos()
         
-        let info = ActorLifecycleInfo(
-            actorRef,
-            ActorLifecycleState.Created,
-            currentTime,
-            currentTime,
-            0,
-            None<Exception>
-        )
+            let info = ActorLifecycleInfo(
+                actorRef,
+                ActorLifecycleState.Created,
+                currentTime,
+                currentTime,
+                0,
+                None<Exception>
+            )
         
-        lifecycleInfos.add(path, info)
-        eventBus.publish(ActorRegisteredEvent(actorRef, currentTime))
+            lifecycleInfos.add(path, info)
+            eventBus.publish(ActorRegisteredEvent(actorRef, currentTime))
+        }
     }
     
     /**
      * 注销Actor
      */
     public func unregisterActor(actorRef: ActorRef): Unit {
-        let path = actorRef.path.toString()
-        lifecycleInfos.remove(path)
-        eventBus.publish(ActorUnregisteredEvent(actorRef, getCurrentTimeNanos()))
+        synchronized(lock) {
+            let path = actorRef.path.toString()
+            lifecycleInfos.remove(path)
+            eventBus.publish(ActorUnregisteredEvent(actorRef, getCurrentTimeNanos()))
+        }
     }
     
     /**
      * 获取Actor状态
      */
     public func getActorState(actorRef: ActorRef): Option<ActorLifecycleInfo> {
-        let path = actorRef.path.toString()
-        lifecycleInfos.get(path)
+        synchronized(lock) {
+            let path = actorRef.path.toString()
+            lifecycleInfos.get(path)
+        }
     }
     
     /**
      * 获取所有Actor状态
      */
     public func getAllActorStates(): ArrayList<ActorLifecycleInfo> {
-        let states = ArrayList<ActorLifecycleInfo>()
-        for ((path, info) in lifecycleInfos) {
-            states.add(info)
+        synchronized(lock) {
+            let states = ArrayList<ActorLifecycleInfo>()
+            for ((path, info) in lifecycleInfos) {
+                states.add(info)
+            }
+            states
         }
-        states
     }
     
     /**
      * 获取运行中的Actor数量
      */
     public func getRunningActorCount(): Int32 {
-        var count: Int32 = 0
-        for ((path, info) in lifecycleInfos) {
-            match (info.state) {
-                case ActorLifecycleState.Running =>
-                    count += 1
-                case _ =>
-                    ()
+        synchronized(lock) {
+            var count: Int32 = 0
+            for ((path, info) in lifecycleInfos) {
+                match (info.state) {
+                    case ActorLifecycleState.Running =>
+                        count += 1
+                    case _ =>
+                        ()
+                }
             }
+            count
         }
-        count
     }
     
     /**
@@ -255,55 +274,61 @@ public class ActorLifecycleManager {
      * 关闭生命周期管理器
      */
     public func shutdown(): Unit {
-        isRunning.store(false)
-        lifecycleInfos.clear()
+        synchronized(lock) {
+            isRunning.store(false)
+            lifecycleInfos.clear()
+        }
     }
     
     // 私有辅助方法
     private func updateActorState(actorRef: ActorRef, newState: ActorLifecycleState, failureReason: Option<Exception>): Unit {
-        let path = actorRef.path.toString()
-        let currentTime = getCurrentTimeNanos()
+        synchronized(lock) {
+            let path = actorRef.path.toString()
+            let currentTime = getCurrentTimeNanos()
         
-        match (lifecycleInfos.get(path)) {
-            case Some(oldInfo) =>
-                let newInfo = ActorLifecycleInfo(
-                    actorRef,
-                    newState,
-                    oldInfo.createdAt,
-                    currentTime,
-                    oldInfo.restartCount,
-                    failureReason
-                )
-                lifecycleInfos.add(path, newInfo)
-            case None =>
-                let newInfo = ActorLifecycleInfo(
-                    actorRef,
-                    newState,
-                    currentTime,
-                    currentTime,
-                    0,
-                    failureReason
-                )
-                lifecycleInfos.add(path, newInfo)
+            match (lifecycleInfos.get(path)) {
+                case Some(oldInfo) =>
+                    let newInfo = ActorLifecycleInfo(
+                        actorRef,
+                        newState,
+                        oldInfo.createdAt,
+                        currentTime,
+                        oldInfo.restartCount,
+                        failureReason
+                    )
+                    lifecycleInfos.add(path, newInfo)
+                case None =>
+                    let newInfo = ActorLifecycleInfo(
+                        actorRef,
+                        newState,
+                        currentTime,
+                        currentTime,
+                        0,
+                        failureReason
+                    )
+                    lifecycleInfos.add(path, newInfo)
+            }
         }
     }
     
     private func incrementRestartCount(actorRef: ActorRef): Unit {
-        let path = actorRef.path.toString()
-        match (lifecycleInfos.get(path)) {
-            case Some(oldInfo) =>
-                let newInfo = ActorLifecycleInfo(
-                    oldInfo.actorRef,
-                    oldInfo.state,
-                    oldInfo.createdAt,
-                    oldInfo.lastStateChange,
-                    oldInfo.restartCount + 1,
-                    oldInfo.failureReason
-                )
-                lifecycleInfos.add(path, newInfo)
-            case None =>
-                // Actor不存在，忽略
-                ()
+        synchronized(lock) {
+            let path = actorRef.path.toString()
+            match (lifecycleInfos.get(path)) {
+                case Some(oldInfo) =>
+                    let newInfo = ActorLifecycleInfo(
+                        oldInfo.actorRef,
+                        oldInfo.state,
+                        oldInfo.createdAt,
+                        oldInfo.lastStateChange,
+                        oldInfo.restartCount + 1,
+                        oldInfo.failureReason
+                    )
+                    lifecycleInfos.add(path, newInfo)
+                case None =>
+                    // Actor不存在，忽略
+                    ()
+            }
         }
     }
     

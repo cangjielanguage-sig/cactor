@@ -43,12 +43,15 @@ public interface SimpleEventListener {
  * 3. 提供基本的事件统计
  */
 public class SimpleActorEventBus {
-    private let listeners: ArrayList<SimpleEventListener>
+    // 写时复制：订阅/退订时替换整个数组，发布时读取快照，无需在回调期间持锁
+    private var listeners: Array<SimpleEventListener>
+    private let listenersLock: Mutex
     private let eventCount: AtomicInt64
     private let isRunning: AtomicBool
 
     public init() {
-        this.listeners = ArrayList<SimpleEventListener>()
+        this.listeners = Array<SimpleEventListener>()
+        this.listenersLock = Mutex()
         this.eventCount = AtomicInt64(0)
         this.isRunning = AtomicBool(true)
     }
@@ -62,9 +65,8 @@ public class SimpleActorEventBus {
         }
         
         eventCount.fetchAdd(1)
-        
-        // 通知所有监听器
-        for (listener in listeners) {
+        let snapshot = synchronized(listenersLock) { listeners }
+        for (listener in snapshot) {
             try {
                 listener.onEvent(event)
             } catch (e: Exception) {
@@ -78,25 +80,35 @@ public class SimpleActorEventBus {
      * 添加事件监听器
      */
     public func subscribe(listener: SimpleEventListener): Unit {
-        listeners.add(listener)
+        synchronized(listenersLock) {
+            let next = ArrayList<SimpleEventListener>(listeners)
+            next.add(listener)
+            listeners = next.toArray()
+        }
     }
-    
+
     /**
-     * 移除事件监听器
+     * 移除事件监听器（按对象身份比较）
      */
     public func unsubscribe(listener: SimpleEventListener): Unit {
-        // 简化实现：重新创建列表
-        let newListeners = ArrayList<SimpleEventListener>()
-        for (l in listeners) {
-            // 简化实现，不做比较，直接保留所有监听器
-            newListeners.add(l)
-        }
-        listeners.clear()
-        for (l in newListeners) {
-            listeners.add(l)
+        synchronized(listenersLock) {
+            let next = ArrayList<SimpleEventListener>()
+            for (l in listeners) {
+                if (!sameListener(l, listener)) {
+                    next.add(l)
+                }
+            }
+            listeners = next.toArray()
         }
     }
-    
+
+    private static func sameListener(a: SimpleEventListener, b: SimpleEventListener): Bool {
+        match ((a as Object, b as Object)) {
+            case (Some(x), Some(y)) => refEq(x, y)
+            case _ => false
+        }
+    }
+
     /**
      * 获取事件总数
      */
@@ -108,14 +120,14 @@ public class SimpleActorEventBus {
      * 获取订阅者数量
      */
     public func getSubscriberCount(): Int32 {
-        Int32(listeners.size)
+        Int32(synchronized(listenersLock) { listeners.size })
     }
 
     /**
      * 检查是否有订阅者
      */
     public func hasSubscribers(): Bool {
-        listeners.size > 0
+        synchronized(listenersLock) { listeners.size > 0 }
     }
     
     /**
@@ -174,7 +186,9 @@ public class SimpleActorEventBus {
      * 清空所有监听器
      */
     public func clear(): Unit {
-        listeners.clear()
+        synchronized(listenersLock) {
+            listeners = Array<SimpleEventListener>()
+        }
     }
     
     /**

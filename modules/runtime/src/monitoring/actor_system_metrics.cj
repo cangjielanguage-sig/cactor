@@ -103,6 +103,8 @@ public class ActorSystemMetrics {
     // 自定义指标 - 简化实现
     private let customMetrics: HashMap<String, AtomicInt64>
     private let customGauges: HashMap<String, Float64>
+    // 保护自定义指标表
+    private let customLock: Mutex = Mutex()
     
     public init() {
         this.totalActors = AtomicInt64(0)
@@ -212,12 +214,14 @@ public class ActorSystemMetrics {
      * 设置自定义计数器
      */
     public func setCustomCounter(name: String, value: Int64): Unit {
-        match (customMetrics.get(name)) {
-            case Some(counter) =>
-                counter.store(value)
-            case None =>
-                let newCounter = AtomicInt64(value)
-                customMetrics.add(name, newCounter)
+        synchronized(customLock) {
+            match (customMetrics.get(name)) {
+                case Some(counter) =>
+                    counter.store(value)
+                case None =>
+                    let newCounter = AtomicInt64(value)
+                    customMetrics.add(name, newCounter)
+            }
         }
     }
     
@@ -225,12 +229,14 @@ public class ActorSystemMetrics {
      * 增加自定义计数器
      */
     public func incrementCustomCounter(name: String, delta: Int64): Unit {
-        match (customMetrics.get(name)) {
-            case Some(counter) =>
-                counter.fetchAdd(delta)
-            case None =>
-                let newCounter = AtomicInt64(delta)
-                customMetrics.add(name, newCounter)
+        synchronized(customLock) {
+            match (customMetrics.get(name)) {
+                case Some(counter) =>
+                    counter.fetchAdd(delta)
+                case None =>
+                    let newCounter = AtomicInt64(delta)
+                    customMetrics.add(name, newCounter)
+            }
         }
     }
     
@@ -238,7 +244,9 @@ public class ActorSystemMetrics {
      * 设置自定义仪表
      */
     public func setCustomGauge(name: String, value: Float64): Unit {
-        customGauges.add(name, value)
+        synchronized(customLock) {
+            customGauges.add(name, value)
+        }
     }
     
     /**
@@ -321,39 +329,45 @@ public class ActorSystemMetrics {
      * 获取自定义指标
      */
     public func getCustomMetrics(): HashMap<String, Int64> {
-        let result = HashMap<String, Int64>()
-        for ((name, counter) in customMetrics) {
-            result.add(name, counter.load())
+        synchronized(customLock) {
+            let result = HashMap<String, Int64>()
+            for ((name, counter) in customMetrics) {
+                result.add(name, counter.load())
+            }
+            result
         }
-        result
     }
     
     /**
      * 获取自定义仪表
      */
     public func getCustomGauges(): HashMap<String, Float64> {
-        customGauges
+        synchronized(customLock) {
+            HashMap<String, Float64>(customGauges)
+        }
     }
     
     /**
      * 重置所有指标
      */
     public func reset(): Unit {
-        totalActors.store(0)
-        activeActors.store(0)
-        totalMessages.store(0)
-        processedMessages.store(0)
-        failedMessages.store(0)
-        restartCount.store(0)
-        latencyIndex.store(0)
+        synchronized(customLock) {
+            totalActors.store(0)
+            activeActors.store(0)
+            totalMessages.store(0)
+            processedMessages.store(0)
+            failedMessages.store(0)
+            restartCount.store(0)
+            latencyIndex.store(0)
 
-        // 清空延迟样本
-        for (i in 0..Int64(maxLatencySamples)) {
-            messageLatencies[i] = 0
+            // 清空延迟样本
+            for (i in 0..Int64(maxLatencySamples)) {
+                messageLatencies[i] = 0
+            }
+
+            customMetrics.clear()
+            customGauges.clear()
         }
-
-        customMetrics.clear()
-        customGauges.clear()
     }
     
     /**

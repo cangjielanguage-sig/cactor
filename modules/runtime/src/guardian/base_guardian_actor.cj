@@ -30,6 +30,8 @@ public open class BaseGuardianActor <: GuardianActor {
     protected let startTime: DateTime
     protected let guardianTypeValue: GuardianType
     protected let parentRef: Option<ActorRef>
+    // 保护 children / supervisionStrategies 等共享状态（可重入）
+    protected let guardianLock: Mutex
 
     public init(guardianType: GuardianType, parent: Option<ActorRef>) {
         this.children = HashMap<String, ActorRef>()
@@ -42,6 +44,7 @@ public open class BaseGuardianActor <: GuardianActor {
         this.startTime = DateTime.now()
         this.guardianTypeValue = guardianType
         this.parentRef = parent
+        this.guardianLock = Mutex()
     }
 
     // 实现GuardianActor接口属性
@@ -54,56 +57,66 @@ public open class BaseGuardianActor <: GuardianActor {
     }
     
     public func createChild(props: Props<Actor>, name: String): ActorRef {
-        // 检查名称是否已存在
-        match (children.get(name)) {
-            case Some(_) => throw Exception("子Actor名称 '${name}' 已存在")
-            case None => ()
+        synchronized(guardianLock) {
+            // 检查名称是否已存在
+            match (children.get(name)) {
+                case Some(_) => throw Exception("子Actor名称 '${name}' 已存在")
+                case None => ()
+            }
+        
+            // 创建子Actor（由子类实现具体逻辑）
+            let childRef = doCreateChild(props, name)
+        
+            // 注册子Actor
+            children.add(name, childRef)
+            childCounter.fetchAdd(1)
+        
+            return childRef
         }
-        
-        // 创建子Actor（由子类实现具体逻辑）
-        let childRef = doCreateChild(props, name)
-        
-        // 注册子Actor
-        children.add(name, childRef)
-        childCounter.fetchAdd(1)
-        
-        return childRef
     }
     
     public func supervise(child: ActorRef, strategy: SupervisionStrategy): Unit {
-        let childPath = child.path.toString()
-        supervisionStrategies.add(childPath, strategy)
+        synchronized(guardianLock) {
+            let childPath = child.path.toString()
+            supervisionStrategies.add(childPath, strategy)
+        }
     }
     
     public func getChildren(): Array<ActorRef> {
-        let childList = ArrayList<ActorRef>()
-        for ((_, childRef) in children) {
-            childList.add(childRef)
+        synchronized(guardianLock) {
+            let childList = ArrayList<ActorRef>()
+            for ((_, childRef) in children) {
+                childList.add(childRef)
+            }
+            return childList.toArray()
         }
-        return childList.toArray()
     }
 
     public func findChild(name: String): Option<ActorRef> {
-        children.get(name)
+        synchronized(guardianLock) {
+            children.get(name)
+        }
     }
     
     public func stopChild(child: ActorRef): Unit {
-        let childPath = child.path.toString()
+        synchronized(guardianLock) {
+            let childPath = child.path.toString()
         
-        // 从children中移除
-        for ((name, childRef) in children) {
-            if (childRef.path.toString() == childPath) {
-                children.remove(name)
-                break
+            // 从children中移除
+            for ((name, childRef) in children) {
+                if (childRef.path.toString() == childPath) {
+                    children.remove(name)
+                    break
+                }
             }
+        
+            // 移除监督策略
+            supervisionStrategies.remove(childPath)
+            stopCounter.fetchAdd(1)
+        
+            // 执行停止逻辑（由子类实现）
+            doStopChild(child)
         }
-        
-        // 移除监督策略
-        supervisionStrategies.remove(childPath)
-        stopCounter.fetchAdd(1)
-        
-        // 执行停止逻辑（由子类实现）
-        doStopChild(child)
     }
     
     public func restartChild(child: ActorRef, reason: Exception): Unit {
@@ -114,32 +127,35 @@ public open class BaseGuardianActor <: GuardianActor {
     }
     
     public func handleFailure(failure: ActorFailure): Unit {
-        failureCounter.fetchAdd(1)
-        lastFailureTime = Some(DateTime.now())
+        synchronized(guardianLock) {
+            failureCounter.fetchAdd(1)
+            lastFailureTime = Some(DateTime.now())
 
-        // 默认实现：打印失败信息
-        println("Guardian处理Actor失败: ${failure.actor.path.toString()}, 原因: ${failure.cause}")
+            // 默认实现：打印失败信息
+            println("Guardian处理Actor失败: ${failure.actor.path.toString()}, 原因: ${failure.cause}")
 
-        // 可以由子类重写以实现更复杂的失败处理逻辑
-        doHandleFailure(failure)
+            // 可以由子类重写以实现更复杂的失败处理逻辑
+            doHandleFailure(failure)
+        }
     }
 
     /**
      * 获取Guardian统计信息
      */
     public func getStats(): GuardianStats {
-        let currentTime = DateTime.now()
-        let uptime = Duration.second * 1  // 简化实现，实际应该计算真实运行时间
+        synchronized(guardianLock) {
+            let uptime = DateTime.now() - startTime
 
-        GuardianStats(
-            childCounter.load(),
-            Int64(children.size),
-            restartCounter.load(),
-            stopCounter.load(),
-            failureCounter.load(),
-            lastFailureTime,
-            uptime
-        )
+            GuardianStats(
+                childCounter.load(),
+                Int64(children.size),
+                restartCounter.load(),
+                stopCounter.load(),
+                failureCounter.load(),
+                lastFailureTime,
+                uptime
+            )
+        }
     }
 
     public func getHealthStatus(): GuardianHealthStatus {
