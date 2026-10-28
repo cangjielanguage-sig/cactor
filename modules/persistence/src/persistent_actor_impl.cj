@@ -3,12 +3,11 @@
  * CActor - 持久化Actor具体实现
  * Plan20阶段1：持久化系统完善 - 持久化Actor和恢复机制
  */
-package cactor_distribution.persistence
+package cactor_persistence
 
 import std.collection.*
-import std.time.*
 import std.sync.*
-import cactor_core.actor.{Actor, ActorRef}
+import cactor_core.actor.{ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}
 

@@ -3,15 +3,14 @@
  * CActor - 集群路由系统
  * Plan20阶段1：集群管理增强 - 路由策略和负载均衡
  */
-package cactor_distribution.cluster
+package cactor_cluster
 
 import std.collection.*
 import std.sync.*
 import std.time.*
 import std.random.*
-import cactor_core.actor.{Actor, ActorRef, ActorPath}
-import cactor_core.message.{Message, MessageResult, StringMessage}
-import cactor_core.context.{ActorContext}
+import cactor_core.actor.{ActorRef, ActorPath}
+import cactor_core.message.{Message}
 
 /**
  * 路由策略枚举

@@ -7,18 +7,17 @@ package cactor_examples.cluster_sharding_demo
 
 import std.time.*
 import std.collection.*
-import cactor_core.actor.{Actor, ActorRef, ActorPath}
-import cactor_core.message.{Message, MessageResult, StringMessage}
-import cactor_core.context.{ActorContext}
+import cactor_core.actor.{ActorRef, ActorPath}
+import cactor_core.message.{Message, StringMessage}
 import cactor.api.{CActorSystem, CActorSystemFactory}
-import cactor_distribution.cluster.{
+import cactor_cluster.{
     ClusterState, SimpleClusterManager, NodeId, ClusterNode,
     ShardCoordinator, LeastShardsAllocationStrategy, ShardRegion,
     DefaultEntityExtractor, DefaultEntityActorFactory,
     ShardId, EntityId, ShardEnvelope,
     ClusterRouter, RoutingStrategy, RoutingTarget, ClusterLoadBalancer
 }
-import cactor_foundation.network.{NetworkAddress, TransportProtocol}
+import cactor_foundation.network.{NetworkAddress}
 
 /**
  * 集群分片演示主程序

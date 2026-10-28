@@ -1,7 +1,8 @@
 # CActor workspace —— 按仓颉 module（模块）划分的多模块工程
 # 依赖方向（自底向上，无环）：
-#   foundation -> core -> patterns -> runtime -> cactor(门面)
-#   -> streams / distribution -> xstate -> integration -> tests / examples
+#   foundation -> core -> runtime -> patterns；runtime -> cactor(门面)
+#   -> streams；remote / persistence -> cluster -> distribution(聚合) / xstate
+#   -> integration -> tests / examples
 #   macros 为独立宏模块，仅被 examples 使用
 [workspace]
 members = [
@@ -12,6 +13,9 @@ members = [
   "modules/cactor",
   "modules/macros",
   "modules/streams",
+  "modules/remote",
+  "modules/persistence",
+  "modules/cluster",
   "modules/distribution",
   "modules/xstate",
   "modules/integration",

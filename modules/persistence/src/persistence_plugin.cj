@@ -1,9 +1,7 @@
-package cactor_distribution.persistence
+package cactor_persistence
 
-import cactor_core.actor.*
 import cactor_core.message.*
 import std.collection.*
-import std.time.*
 import std.sync.*
 
 // 持久化配置

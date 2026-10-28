@@ -1,10 +1,8 @@
-package cactor_distribution.persistence
+package cactor_persistence
 
 import std.collection.*
 import std.time.*
 import std.sync.*
-import std.fs.*
-import std.io.*
 
 // 快照接口
 public interface Snapshot {

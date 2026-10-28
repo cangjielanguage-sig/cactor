@@ -1,10 +1,9 @@
-package cactor_distribution.persistence
+package cactor_persistence
 
 import std.collection.*
 import std.time.*
 import std.sync.*
 import std.fs.*
-import std.io.*
 
 // 事件接口
 public interface Event {

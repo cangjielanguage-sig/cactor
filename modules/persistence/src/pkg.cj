@@ -2,4 +2,4 @@
  * Copyright (c) 2024. All rights reserved.
  * CActor Distribution - Persistence Package
  */
-package cactor_distribution.persistence
+package cactor_persistence

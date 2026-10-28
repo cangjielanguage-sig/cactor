@@ -1,11 +1,12 @@
 [package]
 name = "cactor_distribution"
 version = "1.2.0"
-description = "分布式：cluster / remote / persistence / streaming（实验性）"
+description = "分布式聚合模块：重导出 remote / persistence / cluster，并包含 streaming（实验性）"
 cjc-version = "1.2.0"
 output-type = "static"
 
 [dependencies]
-cactor_foundation = { path = "../foundation" }
 cactor_core = { path = "../core" }
-cactor = { path = "../cactor" }
+cactor_remote = { path = "../remote" }
+cactor_persistence = { path = "../persistence" }
+cactor_cluster = { path = "../cluster" }

@@ -2,15 +2,14 @@
  * Copyright (c) 2024. All rights reserved.
  * CActor - 集群支持实现
  */
-package cactor_distribution.cluster
+package cactor_cluster
 
 import std.collection.*
 import std.sync.*
 import std.time.*
-import cactor_core.message.{Message, StringMessage}
-import cactor_core.actor.{ActorRef, ActorPath}
+import cactor_core.message.{StringMessage}
 import cactor_foundation.network.{NetworkAddress}
-import cactor_distribution.remote.{SimpleRemoteManager}
+import cactor_remote.{SimpleRemoteManager}
 import cactor_foundation.network.{TransportProtocol}
 
 /**

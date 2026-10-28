@@ -1,0 +1,12 @@
+[package]
+name = "cactor_cluster"
+version = "1.2.0"
+description = "集群：成员管理、分片、路由、故障转移（实验性）"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_foundation = { path = "../foundation" }
+cactor_core = { path = "../core" }
+cactor_remote = { path = "../remote" }
+cactor = { path = "../cactor" }

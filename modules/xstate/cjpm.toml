@@ -8,4 +8,4 @@ output-type = "static"
 [dependencies]
 cactor_core = { path = "../core" }
 cactor = { path = "../cactor" }
-cactor_distribution = { path = "../distribution" }
+cactor_cluster = { path = "../cluster" }

@@ -1,0 +1,10 @@
+[package]
+name = "cactor_remote"
+version = "1.2.0"
+description = "远程通信：传输抽象与远程管理（实验性，尚未接入真实网络）"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_foundation = { path = "../foundation" }
+cactor_core = { path = "../core" }

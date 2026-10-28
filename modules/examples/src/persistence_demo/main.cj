@@ -6,12 +6,11 @@
 package cactor_examples.persistence_demo
 
 import std.time.*
-import std.collection.*
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}
 import cactor.api.{CActorSystem, CActorSystemFactory}
-import cactor_distribution.persistence.{
+import cactor_persistence.{
     EventStore, MemoryEventStore, BasicEvent,
     SnapshotStore, MemorySnapshotStore, BasicSnapshot,
     PersistencePlugin, DefaultPersistencePlugin, PersistenceConfig,
@@ -23,7 +22,6 @@ import cactor_distribution.persistence.{
     PersistentCounterActor, CounterIncrementedEvent, CounterDecrementedEvent,
     AggregateRoot, CompletedFuture
 }
-import cactor_distribution.persistence.{Future as PersistenceFuture}
 
 /**
  * 持久化系统演示主程序

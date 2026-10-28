@@ -6,7 +6,7 @@
 package cactor_distribution
 
 // 分布式组件导出
-public import cactor_distribution.remote.*
-public import cactor_distribution.cluster.*
-public import cactor_distribution.persistence.*
+public import cactor_remote.*
+public import cactor_cluster.*
+public import cactor_persistence.*
 public import cactor_distribution.streaming.*

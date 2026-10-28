@@ -3,14 +3,11 @@
  * CActor - CQRS系统实现
  * Plan20阶段1：持久化系统完善 - 命令查询责任分离
  */
-package cactor_distribution.persistence
+package cactor_persistence
 
 import std.collection.*
 import std.time.*
 import std.sync.*
-import cactor_core.actor.{Actor, ActorRef}
-import cactor_core.message.{Message, MessageResult, StringMessage}
-import cactor_core.context.{ActorContext}
 
 /**
  * 命令接口 - 所有命令必须实现此接口

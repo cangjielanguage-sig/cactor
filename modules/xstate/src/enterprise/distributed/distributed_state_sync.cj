@@ -8,11 +8,10 @@ package cactor_xstate.enterprise.distributed
 import std.collection.*
 import std.time.*
 import std.sync.*
-import cactor.api.{CActor, CActorSystem}
-import cactor_core.actor.{Actor, ActorRef}
+import cactor_core.actor.{Actor}
 import cactor_core.context.{ActorContext}
 import cactor_core.message.{Message, MessageResult}
-import cactor_distribution.cluster.{SimpleClusterManager, ClusterNode, NodeId}
+import cactor_cluster.{SimpleClusterManager}
 
 /**
  * 分布式状态同步消息

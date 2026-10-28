@@ -13,7 +13,8 @@ cactor_runtime = { path = "../runtime" }
 cactor = { path = "../cactor" }
 cactor_macros = { path = "../macros" }
 cactor_streams = { path = "../streams" }
-cactor_distribution = { path = "../distribution" }
+cactor_persistence = { path = "../persistence" }
+cactor_cluster = { path = "../cluster" }
 cactor_xstate = { path = "../xstate" }
 cactor_integration = { path = "../integration" }
 

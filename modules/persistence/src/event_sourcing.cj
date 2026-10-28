@@ -3,14 +3,13 @@
  * CActor - 事件溯源系统增强实现
  * Plan20阶段1：持久化系统完善 - 事件溯源、CQRS支持
  */
-package cactor_distribution.persistence
+package cactor_persistence
 
 import std.collection.*
 import std.time.*
 import std.sync.*
 import cactor_core.actor.{Actor, ActorRef}
-import cactor_core.message.{Message, MessageResult, StringMessage}
-import cactor_core.context.{ActorContext}
+import cactor_core.message.{Message}
 
 /**
  * 事件载荷接口 - 所有事件数据必须实现此接口

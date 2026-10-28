@@ -3,15 +3,11 @@
  * CActor - 集群分片系统实现
  * Plan20阶段1：集群管理增强 - 分片、路由、故障转移
  */
-package cactor_distribution.cluster
+package cactor_cluster
 
 import std.collection.*
 import std.sync.*
 import std.time.*
-import cactor_core.actor.{Actor, ActorRef, ActorPath}
-import cactor_core.message.{Message, MessageResult, StringMessage}
-import cactor_core.context.{ActorContext}
-import cactor.api.{CActorSystem}
 
 /**
  * 分片标识
