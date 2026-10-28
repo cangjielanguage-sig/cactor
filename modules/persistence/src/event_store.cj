@@ -24,9 +24,14 @@ public class BasicEvent <: Event {
     private let eventData: String
     
     public init(eventId: String, actorId: String, eventType: String, eventData: String) {
+        this(eventId, actorId, eventType, eventData, DateTime.now().toUnixTimeStamp().toMilliseconds())
+    }
+
+    /** 从存储恢复时使用：保留原始时间戳 */
+    public init(eventId: String, actorId: String, eventType: String, eventData: String, timestamp: Int64) {
         this.eventId = eventId
         this.actorId = actorId
-        this.timestamp = DateTime.now().toUnixTimeStamp().toMilliseconds()
+        this.timestamp = timestamp
         this.eventType = eventType
         this.eventData = eventData
     }
@@ -130,63 +135,116 @@ public class MemoryEventStore <: EventStore {
     }
 }
 
-// 文件事件存储
+/**
+ * 文件事件存储
+ *
+ * - 每个 Actor 一个追加写的日志文件：<basePath>/<hex(actorId)>.journal
+ * - 每条事件一条带长度前缀的二进制记录，写入后 flush
+ * - 读取时忽略写入中断留下的残缺尾部，下一次写入前截断该尾部，保证日志可继续追加
+ * - 进程重启后可以完整恢复事件
+ */
 public class FileEventStore <: EventStore {
     private let basePath: String
     private let mutex: Mutex
-    
+
     public init(basePath: String) {
         this.basePath = basePath
         this.mutex = Mutex()
-        // 确保目录存在
-        try {
-            Directory.create(basePath, recursive: true)
-        } catch (e: Exception) {
-            println("创建事件存储目录失败: ${e}")
-        }
+        ensureDirectory(basePath)
     }
-    
+
+    private func journalPath(actorId: String): String {
+        "${basePath}/${safeFileName(actorId)}.journal"
+    }
+
     public func saveEvent(event: Event): Unit {
-        mutex.lock()
-        try {
-            // 简化实现：只打印事件信息
-            // 在实际实现中，这里会将事件写入文件
-            println("保存事件到文件: ${event.toString()}")
-        } finally {
-            mutex.unlock()
+        let record = RecordWriter()
+            .putString(event.getEventId())
+            .putString(event.getActorId())
+            .putString(event.getEventType())
+            .putString(event.getEventData())
+            .putInt64(event.getTimestamp())
+            .toRecord()
+        synchronized(mutex) {
+            let path = journalPath(event.getActorId())
+            if (exists(path)) {
+                truncateTornTail(path)
+                let f = File(path, OpenMode.Append)
+                try {
+                    f.write(record)
+                    f.flush()
+                } finally {
+                    f.close()
+                }
+            } else {
+                File.writeTo(path, record)
+            }
         }
     }
-    
+
     public func getEvents(actorId: String): Array<Event> {
-        mutex.lock()
-        try {
-            // 简化实现：返回空数组
-            // 在实际实现中，这里会从文件读取事件
-            println("从文件读取事件: ${actorId}")
-            Array<Event>()
-        } finally {
-            mutex.unlock()
+        synchronized(mutex) {
+            readJournal(actorId)
         }
     }
-    
+
     public func getEventsAfter(actorId: String, timestamp: Int64): Array<Event> {
-        // 简化实现：返回空数组
-        println("获取时间戳${timestamp}之后的事件: ${actorId}")
-        Array<Event>()
+        let result = ArrayList<Event>()
+        for (e in getEvents(actorId)) {
+            if (e.getTimestamp() > timestamp) {
+                result.add(e)
+            }
+        }
+        result.toArray()
     }
-    
+
+    /** 事件条数 */
+    public func countEvents(actorId: String): Int64 {
+        getEvents(actorId).size
+    }
+
     public func deleteEvents(actorId: String): Unit {
-        mutex.lock()
-        try {
-            // 简化实现：只打印删除信息
-            println("删除事件文件: ${actorId}")
-        } finally {
-            mutex.unlock()
+        synchronized(mutex) {
+            let path = journalPath(actorId)
+            if (exists(path)) {
+                remove(path)
+            }
         }
     }
-    
-    public func close(): Unit {
-        // 文件存储无需特殊关闭操作
+
+    public func close(): Unit {}
+
+    private func readJournal(actorId: String): Array<Event> {
+        let path = journalPath(actorId)
+        if (!exists(path)) {
+            return Array<Event>()
+        }
+        let (records, _) = splitRecords(File.readFrom(path))
+        let events = ArrayList<Event>()
+        for (payload in records) {
+            let r = RecordReader(payload)
+            let eventId = r.getString()
+            let owner = r.getString()
+            let eventType = r.getString()
+            let eventData = r.getString()
+            let ts = r.getInt64()
+            events.add(BasicEvent(eventId, owner, eventType, eventData, ts))
+        }
+        events.toArray()
+    }
+
+    /** 截断写入中断留下的残缺尾部 */
+    private func truncateTornTail(path: String): Unit {
+        let content = File.readFrom(path)
+        let (_, validLength) = splitRecords(content)
+        if (validLength < content.size) {
+            let f = File(path, OpenMode.ReadWrite)
+            try {
+                f.setLength(validLength)
+            } finally {
+                f.close()
+            }
+        }
     }
 }
 

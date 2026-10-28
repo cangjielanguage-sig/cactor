@@ -3,6 +3,7 @@ package cactor_persistence
 import std.collection.*
 import std.time.*
 import std.sync.*
+import std.fs.*
 
 // 快照接口
 public interface Snapshot {
@@ -21,8 +22,13 @@ public class BasicSnapshot <: Snapshot {
     private let stateData: String
     
     public init(actorId: String, sequenceNumber: Int64, stateData: String) {
+        this(actorId, sequenceNumber, stateData, DateTime.now().toUnixTimeStamp().toMilliseconds())
+    }
+
+    /** 从存储恢复时使用：保留原始时间戳 */
+    public init(actorId: String, sequenceNumber: Int64, stateData: String, timestamp: Int64) {
         this.actorId = actorId
-        this.timestamp = DateTime.now().toUnixTimeStamp().toMilliseconds()
+        this.timestamp = timestamp
         this.sequenceNumber = sequenceNumber
         this.stateData = stateData
     }
@@ -65,7 +71,7 @@ public class MemorySnapshotStore <: SnapshotStore {
                     snapshotList.add(snapshot)
                     // 保持最新的5个快照
                     if (snapshotList.size > 5) {
-                        // 简化实现：重新创建列表保持最新的5个
+                        // 只保留最新的 5 个
                         let newList = ArrayList<Snapshot>()
                         for (i in (snapshotList.size - 5)..snapshotList.size) {
                             newList.add(snapshotList[i])
@@ -133,96 +139,96 @@ public class MemorySnapshotStore <: SnapshotStore {
     }
 }
 
-// 文件快照存储（简化实现）
+/**
+ * 文件快照存储
+ *
+ * - 每个 Actor 一个快照文件：<basePath>/<hex(actorId)>.snapshots，保留最新 keep 个
+ * - 写入采用“写临时文件 + rename 覆盖”，任何时刻文件要么是旧版本要么是新版本
+ */
 public class FileSnapshotStore <: SnapshotStore {
     private let basePath: String
     private let mutex: Mutex
-    private let snapshots: HashMap<String, ArrayList<Snapshot>>
+    private let keep: Int64
 
     public init(basePath: String) {
+        this(basePath, 5)
+    }
+
+    public init(basePath: String, keep: Int64) {
         this.basePath = basePath
         this.mutex = Mutex()
-        this.snapshots = HashMap<String, ArrayList<Snapshot>>()
-        println("文件快照存储初始化: ${basePath}")
+        this.keep = if (keep < 1) { 1 } else { keep }
+        ensureDirectory(basePath)
     }
-    
+
+    private func snapshotPath(actorId: String): String {
+        "${basePath}/${safeFileName(actorId)}.snapshots"
+    }
+
     public func saveSnapshot(snapshot: Snapshot): Unit {
-        mutex.lock()
-        try {
-            let actorId = snapshot.getActorId()
-            match (snapshots.get(actorId)) {
-                case Some(snapshotList) =>
-                    snapshotList.add(snapshot)
-                    // 保持最新的5个快照
-                    if (snapshotList.size > 5) {
-                        let newList = ArrayList<Snapshot>()
-                        for (i in (snapshotList.size - 5)..snapshotList.size) {
-                            newList.add(snapshotList[i])
-                        }
-                        snapshots.add(actorId, newList)
-                    }
-                case None =>
-                    let newList = ArrayList<Snapshot>()
-                    newList.add(snapshot)
-                    snapshots.add(actorId, newList)
+        synchronized(mutex) {
+            let all = ArrayList<Snapshot>(readAll(snapshot.getActorId()))
+            all.add(snapshot)
+            let start = if (all.size > keep) { all.size - keep } else { 0 }
+            let out = ArrayList<UInt8>()
+            for (i in start..all.size) {
+                let sn = all[i]
+                out.add(all: RecordWriter()
+                    .putString(sn.getActorId())
+                    .putString(sn.getStateData())
+                    .putInt64(sn.getSequenceNumber())
+                    .putInt64(sn.getTimestamp())
+                    .toRecord())
             }
-            println("文件快照已保存: ${snapshot.toString()}")
-        } finally {
-            mutex.unlock()
+            let path = snapshotPath(snapshot.getActorId())
+            let tmp = path + ".tmp"
+            File.writeTo(tmp, out.toArray())
+            rename(tmp, to: path, overwrite: true)
         }
     }
-    
-    // 简化实现：不需要文件清理
-    
+
     public func getLatestSnapshot(actorId: String): Option<Snapshot> {
-        mutex.lock()
-        try {
-            match (snapshots.get(actorId)) {
-                case Some(snapshotList) =>
-                    if (snapshotList.size > 0) {
-                        Some(snapshotList[snapshotList.size - 1])
-                    } else {
-                        None<Snapshot>
-                    }
-                case None =>
-                    None<Snapshot>
-            }
-        } finally {
-            mutex.unlock()
-        }
+        let all = synchronized(mutex) { readAll(actorId) }
+        if (all.size == 0) { None<Snapshot> } else { Some(all[all.size - 1]) }
     }
-    
+
     public func getSnapshot(actorId: String, sequenceNumber: Int64): Option<Snapshot> {
-        mutex.lock()
-        try {
-            match (snapshots.get(actorId)) {
-                case Some(snapshotList) =>
-                    for (snapshot in snapshotList) {
-                        if (snapshot.getSequenceNumber() == sequenceNumber) {
-                            return Some(snapshot)
-                        }
-                    }
-                    None<Snapshot>
-                case None =>
-                    None<Snapshot>
+        let all = synchronized(mutex) { readAll(actorId) }
+        for (sn in all) {
+            if (sn.getSequenceNumber() == sequenceNumber) {
+                return Some(sn)
             }
-        } finally {
-            mutex.unlock()
         }
+        None<Snapshot>
     }
-    
+
     public func deleteSnapshots(actorId: String): Unit {
-        mutex.lock()
-        try {
-            snapshots.remove(actorId)
-            println("删除快照: ${actorId}")
-        } finally {
-            mutex.unlock()
+        synchronized(mutex) {
+            let path = snapshotPath(actorId)
+            if (exists(path)) {
+                remove(path)
+            }
         }
     }
-    
-    public func close(): Unit {
-        // 文件存储无需特殊关闭操作
+
+    public func close(): Unit {}
+
+    private func readAll(actorId: String): Array<Snapshot> {
+        let path = snapshotPath(actorId)
+        if (!exists(path)) {
+            return Array<Snapshot>()
+        }
+        let (records, _) = splitRecords(File.readFrom(path))
+        let result = ArrayList<Snapshot>()
+        for (payload in records) {
+            let r = RecordReader(payload)
+            let owner = r.getString()
+            let state = r.getString()
+            let seq = r.getInt64()
+            let ts = r.getInt64()
+            result.add(BasicSnapshot(owner, seq, state, ts))
+        }
+        result.toArray()
     }
 }
 
