@@ -29,84 +29,62 @@ public enum TypedResult<T> {
 public class TypedAskFuture<T> {
     private let requestId: String
     private let timeout: Duration
-    private let startTime: Int64
-    private var completed: Bool
-    private var resultValue: Option<TypedResult<T>>
+    private let startTime: MonoTime
+    private let completion: Completion<TypedResult<T>>
 
     public init(requestId: String, timeout: Duration) {
         this.requestId = requestId
         this.timeout = timeout
-        this.startTime = getCurrentTimeNanos()
-        this.completed = false
-        this.resultValue = None<TypedResult<T>>
+        this.startTime = MonoTime.now()
+        this.completion = Completion<TypedResult<T>>()
     }
 
     /**
-     * 完成Future，设置成功结果
+     * 完成Future，设置成功结果（只有第一次完成生效）
      */
     public func complete(value: T): Unit {
-        completeWith(TypedResult.Success(value))
+        completion.tryComplete(TypedResult.Success(value))
     }
 
     /**
      * 完成Future，设置错误结果
      */
     public func completeWithError(error: Exception): Unit {
-        completeWith(TypedResult.Failure(error))
+        completion.tryComplete(TypedResult.Failure(error))
     }
 
     /**
      * 完成Future，设置超时结果
      */
     public func completeWithTimeout(): Unit {
-        completeWith(TypedResult.Timeout(requestId))
-    }
-
-    private func completeWith(resultValue: TypedResult<T>): Unit {
-        if (!completed) {
-            completed = true
-            this.resultValue = Some(resultValue)
-        }
+        completion.tryComplete(TypedResult.Timeout(requestId))
     }
 
     /**
-     * 获取结果（阻塞等待）
+     * 阻塞等待结果，直到完成或超时（Condition 通知）
      */
     public func get(): TypedResult<T> {
-        if (isCompleted()) {
-            match (resultValue) {
-                case Some(res) => res
-                case None => TypedResult.Timeout(requestId)
-            }
-        } else if (isTimedOut()) {
-            TypedResult.Timeout(requestId)
-        } else {
-            // 等待一段时间
-            sleep(Duration.millisecond * 10)
-            get()  // 递归调用
+        let remaining = timeout - (MonoTime.now() - startTime)
+        let wait = if (remaining > Duration.Zero) { remaining } else { Duration.Zero }
+        match (completion.await(wait)) {
+            case Some(res) => res
+            case None => TypedResult.Timeout(requestId)
         }
     }
 
     /**
-     * 异步处理结果
+     * 注册完成回调；已完成时立即执行
      */
     public func onComplete(handler: (TypedResult<T>) -> Unit): Unit {
-        // 简化实现：如果已完成，立即调用处理器
-        if (isCompleted()) {
-            let res = get()
-            handler(res)
-        }
-        // 实际实现中应该注册回调
+        completion.onComplete(handler)
     }
 
     public func isCompleted(): Bool {
-        completed
+        completion.isDone()
     }
 
     public func isTimedOut(): Bool {
-        let currentTime = getCurrentTimeNanos()
-        let elapsed = currentTime - startTime
-        elapsed > timeout.toNanoseconds()
+        MonoTime.now() - startTime > timeout
     }
 
     public func getRequestId(): String {
@@ -232,25 +210,5 @@ public struct TypedAsk {
 
     public static func askTyped<T, R>(target: TypedActorRef<T>, message: T, timeout: Duration): TypedAskFuture<R> {
         instance.askTyped<T, R>(target, message, timeout)
-    }
-}
-
-/**
- * 简化的时间函数
- */
-func getCurrentTimeNanos(): Int64 {
-    let now = DateTime.now()
-    now.toUnixTimeStamp().toMilliseconds() * 1000000
-}
-
-/**
- * 简化的sleep函数
- */
-func sleep(duration: Duration): Unit {
-    // 简化实现，实际应该使用系统sleep
-    let start = getCurrentTimeNanos()
-    let target = start + duration.toNanoseconds()
-    while (getCurrentTimeNanos() < target) {
-        // 忙等待
     }
 }

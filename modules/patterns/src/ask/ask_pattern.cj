@@ -108,162 +108,67 @@ public class AskTimeoutException <: Exception {
 public class AskFuture<T> {
     private let requestId: String
     private let timeout: Duration
-    private let startTime: Int64
-    private var result: Option<Result<T>>
-    private let completed: AtomicBool
-    private let mutex: Mutex
-    private var callbacks: Array<(Result<T>) -> Unit>
+    private let startTime: MonoTime
+    private let completion: Completion<Result<T>>
 
     public init(requestId: String, timeout: Duration) {
         this.requestId = requestId
         this.timeout = timeout
-        this.startTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
-        this.result = None
-        this.completed = AtomicBool(false)
-        this.mutex = Mutex()
-        this.callbacks = Array<(Result<T>) -> Unit>(0, { _ => { _ => () } })
+        this.startTime = MonoTime.now()
+        this.completion = Completion<Result<T>>()
     }
 
     /**
-     * 完成Future并设置成功结果
+     * 完成Future并设置成功结果（只有第一次完成生效）
      */
     public func complete(value: T): Unit {
-        completeWith(Result.Success(value))
+        completion.tryComplete(Result.Success(value))
     }
 
     /**
      * 完成Future并设置错误结果
      */
     public func completeWithError(error: Exception): Unit {
-        completeWith(Result.Failure(error))
+        completion.tryComplete(Result.Failure(error))
     }
 
     /**
-     * 内部方法：完成Future并通知等待者
-     */
-    private func completeWith(resultValue: Result<T>): Unit {
-        if (completed.compareAndSwap(false, true)) {
-            mutex.lock()
-            try {
-                result = Some(resultValue)
-
-                // 执行所有回调函数
-                for (callback in callbacks) {
-                    try {
-                        callback(resultValue)
-                    } catch (e: Exception) {
-                        println("Ask Future回调执行失败: ${e.message}")
-                    }
-                }
-
-                // 注意：仓颉语言暂不支持条件变量，使用轮询机制
-                // 在实际生产环境中，可以考虑使用更高效的通知机制
-            } finally {
-                mutex.unlock()
-            }
-        }
-    }
-
-    /**
-     * 阻塞等待结果（改进版本，使用条件变量）
+     * 阻塞等待结果，最长等待创建时指定的超时时间
      */
     public func get(): Result<T> {
-        return await(timeout)
+        let remaining = timeout - (MonoTime.now() - startTime)
+        return await(if (remaining > Duration.Zero) { remaining } else { Duration.Zero })
     }
 
     /**
-     * 带超时的等待（改进版本，使用智能轮询）
+     * 带超时的阻塞等待（Condition 通知，不轮询）
      */
     public func await(waitTimeout: Duration): Result<T> {
-        if (isCompleted()) {
-            return getCompletedResult()
-        }
-
-        let endTime = DateTime.now().toUnixTimeStamp().toNanoseconds() + waitTimeout.toNanoseconds()
-        let sleepInterval = Duration.millisecond * 1  // 1ms间隔
-
-        while (!completed.load() && DateTime.now().toUnixTimeStamp().toNanoseconds() < endTime) {
-            // 智能等待：短暂休眠后检查状态
-            sleep(sleepInterval)
-
-            if (completed.load()) {
-                return getCompletedResult()
-            }
-        }
-
-        // 最后检查一次
-        if (completed.load()) {
-            return getCompletedResult()
-        } else {
-            // 超时处理
-            let timeoutError = AskTimeoutException(requestId, waitTimeout)
-            return Result.Failure(timeoutError)
-        }
-    }
-
-    /**
-     * 获取已完成的结果
-     */
-    private func getCompletedResult(): Result<T> {
-        match (result) {
+        match (completion.await(waitTimeout)) {
             case Some(res) => res
-            case None => Result.Failure(AskTimeoutException(requestId, timeout))
+            case None => Result.Failure(AskTimeoutException(requestId, waitTimeout))
         }
     }
 
     /**
-     * 异步处理结果（添加回调函数）
+     * 注册完成回调；已完成时立即执行
      */
     public func onComplete(callback: (Result<T>) -> Unit): Unit {
-        mutex.lock()
-        try {
-            if (completed.load()) {
-                // 如果已完成，立即执行回调
-                match (result) {
-                    case Some(res) => callback(res)
-                    case None => callback(Result.Failure(AskTimeoutException(requestId, timeout)))
-                }
-            } else {
-                // 添加到回调列表
-                let newCallbacks = Array<(Result<T>) -> Unit>(Int64(callbacks.size) + 1, { i =>
-                    if (i < Int64(callbacks.size)) {
-                        callbacks[i]
-                    } else {
-                        callback
-                    }
-                })
-                callbacks = newCallbacks
-            }
-        } finally {
-            mutex.unlock()
-        }
+        completion.onComplete(callback)
     }
 
-    /**
-     * 检查是否已完成
-     */
     public func isCompleted(): Bool {
-        completed.load()
+        completion.isDone()
     }
 
-    /**
-     * 检查是否超时
-     */
     public func isTimedOut(): Bool {
-        let elapsed = DateTime.now().toUnixTimeStamp().toNanoseconds() - startTime
-        elapsed >= timeout.toNanoseconds()
+        MonoTime.now() - startTime >= timeout
     }
 
-    /**
-     * 获取请求ID
-     */
     public func getRequestId(): String {
         requestId
     }
 
-    /**
-     * 获取超时时间
-     */
     public func getTimeout(): Duration {
         timeout
     }
@@ -278,8 +183,12 @@ public class AskPatternManager {
     private let defaultTimeout: Duration
     private let cleanupInterval: Duration
     private let isRunning: AtomicBool
+    private let stopLock: Mutex
+    private let stopCond: Condition
 
     public init(defaultTimeout: Duration) {
+        this.stopLock = Mutex()
+        this.stopCond = synchronized(stopLock) { stopLock.condition() }
         this.pendingRequests = ConcurrentHashMap<String, AskFuture<Message>>()
         this.requestCounter = AtomicInt64(0)
         this.defaultTimeout = defaultTimeout
@@ -298,6 +207,9 @@ public class AskPatternManager {
 
     public func stop(): Unit {
         isRunning.store(false)
+        synchronized(stopLock) {
+            stopCond.notifyAll()
+        }
     }
 
     public func ask(target: ActorRef, message: Message): AskFuture<Message> {
@@ -338,8 +250,7 @@ public class AskPatternManager {
 
     private func generateRequestId(): String {
         let counter = requestCounter.fetchAdd(1)
-        let timestamp = DateTime.now().toUnixTimeStamp().toMilliseconds()
-        "ask-${timestamp}-${counter}"
+        "ask-${counter}"
     }
 
     private func createReplyActor(requestId: String): ActorRef {
@@ -351,7 +262,12 @@ public class AskPatternManager {
     private func cleanupLoop(): Unit {
         while (isRunning.load()) {
             cleanupTimedOutRequests()
-            sleep(cleanupInterval)
+            // 可被 stop() 立即唤醒的定时等待
+            synchronized(stopLock) {
+                if (isRunning.load()) {
+                    stopCond.wait(timeout: cleanupInterval)
+                }
+            }
         }
     }
 
@@ -367,7 +283,7 @@ public class AskPatternManager {
         for (requestId in toRemove) {
             match (pendingRequests.remove(requestId)) {
                 case Some(future) => 
-                    future.completeWithError(AskTimeoutException(requestId, defaultTimeout))
+                    future.completeWithError(AskTimeoutException(requestId, future.getTimeout()))
                 case None => ()
             }
         }
