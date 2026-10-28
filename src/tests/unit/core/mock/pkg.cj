@@ -1,4 +1,0 @@
-package cactor.tests.unit.core.mock
-
-// 导入测试框架
-import std.unittest.*

@@ -1,0 +1,10 @@
+[package]
+name = "cactor_patterns"
+version = "1.2.0"
+description = "通用模式：Ask、路由、背压（断路器由 foundation 提供并在此重导出）"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_foundation = { path = "../foundation" }
+cactor_core = { path = "../core" }

@@ -1,0 +1,8 @@
+[package]
+name = "cactor_foundation"
+version = "1.2.0"
+description = "基础设施：队列、内存、序列化、网络、配置、DI、监控、断路器"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]

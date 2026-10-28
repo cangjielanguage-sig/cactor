@@ -1,0 +1,11 @@
+[package]
+name = "cactor_xstate"
+version = "1.2.0"
+description = "状态机（XState 风格）"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_core = { path = "../core" }
+cactor = { path = "../cactor" }
+cactor_distribution = { path = "../distribution" }

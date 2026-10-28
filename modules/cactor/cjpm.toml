@@ -1,0 +1,10 @@
+[package]
+name = "cactor"
+version = "1.2.0"
+description = "门面模块：统一对外 API（cactor / cactor.api / cactor.config）"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_core = { path = "../core" }
+cactor_runtime = { path = "../runtime" }

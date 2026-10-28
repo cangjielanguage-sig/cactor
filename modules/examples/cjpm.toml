@@ -1,0 +1,132 @@
+[package]
+name = "cactor_examples"
+version = "1.2.0"
+description = "示例程序"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_foundation = { path = "../foundation" }
+cactor_core = { path = "../core" }
+cactor_patterns = { path = "../patterns" }
+cactor_runtime = { path = "../runtime" }
+cactor = { path = "../cactor" }
+cactor_macros = { path = "../macros" }
+cactor_streams = { path = "../streams" }
+cactor_distribution = { path = "../distribution" }
+cactor_xstate = { path = "../xstate" }
+cactor_integration = { path = "../integration" }
+
+[package.package-configuration."cactor_examples.advanced_mailbox_examples"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.advanced_dispatcher_examples"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.configuration_usage_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.typed_actor_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.enhanced_typed_actor_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.macro_test_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.comprehensive_macro_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real_macro_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.enhanced_actor_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.true_actor_macro_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.typed_actor_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.comprehensive_improvement_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.hello_world_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ask_pattern_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ask_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.test_framework_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.test_framework_validation"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.cluster_sharding_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.persistence_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.streams_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.streams_dsl_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.streams_advanced_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.streams_unified_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.streams_backpressure_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.functional_actor_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.objectpool_performance_comparison"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.cangjie_features_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.simple_objectpool_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.stdlib_objectpool_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.cangjie_dsl_features"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.streams_integration_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.cangjie_streams_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.streams_enhanced_dsl_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.simple_config_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.monitoring_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.simple_macro_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.simple_serialization_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.xstate_demo"]
+output-type = "executable"

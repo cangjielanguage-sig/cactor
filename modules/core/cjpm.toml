@@ -1,0 +1,9 @@
+[package]
+name = "cactor_core"
+version = "1.2.0"
+description = "核心抽象：Actor/ActorRef/ActorSystem/Message/Supervision/Typed"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_foundation = { path = "../foundation" }

@@ -1,0 +1,10 @@
+[package]
+name = "cactor_streams"
+version = "1.2.0"
+description = "流处理 DSL"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_core = { path = "../core" }
+cactor = { path = "../cactor" }

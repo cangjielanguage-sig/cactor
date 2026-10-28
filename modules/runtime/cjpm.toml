@@ -1,0 +1,11 @@
+[package]
+name = "cactor_runtime"
+version = "1.2.0"
+description = "运行时：mailbox、dispatcher、guardian、registry、lifecycle"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_foundation = { path = "../foundation" }
+cactor_core = { path = "../core" }
+cactor_patterns = { path = "../patterns" }

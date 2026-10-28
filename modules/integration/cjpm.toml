@@ -1,0 +1,45 @@
+[package]
+name = "cactor_integration"
+version = "1.2.0"
+description = "集成：日志、指标、配置与集成测试可执行程序"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_foundation = { path = "../foundation" }
+cactor_core = { path = "../core" }
+cactor_runtime = { path = "../runtime" }
+cactor = { path = "../cactor" }
+
+[package.package-configuration."cactor_integration.testing.plan10_comprehensive_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.simple_plan10_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.plan10_cactor_runtime_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.plan10_api_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.plan10_actorcontext_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.plan10_router_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.unified_cactor_system_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.simple_benchmark_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.enhanced_dispatcher_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.plan10_advanced_supervision_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_integration.testing.simple_realistic_benchmark"]
+output-type = "executable"

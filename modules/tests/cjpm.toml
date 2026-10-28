@@ -1,0 +1,11 @@
+[package]
+name = "cactor_tests"
+version = "1.2.0"
+description = "单元测试与集成测试（@Test）"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_core = { path = "../core" }
+cactor_runtime = { path = "../runtime" }
+cactor = { path = "../cactor" }
