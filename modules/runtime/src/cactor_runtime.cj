@@ -143,6 +143,10 @@ public class CActorRuntime {
      */
     public func shutdown(): Unit {
         if (isRunning.compareAndSwap(true, false)) {
+            // 先停止全部用户 Actor：与 Akka 一致，terminate 会让每个 Actor 执行 postStop、取消定时器
+            //（旧实现不停止任何 Actor，终止后 Actor 和定时器仍在运行）
+            userGuardian.terminateAll(Duration.second * 10)
+
             // 停止高性能系统
             highPerformanceSystem.shutdown()
 

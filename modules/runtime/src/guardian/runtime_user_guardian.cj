@@ -303,6 +303,42 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     }
 
     /** Cell 完全停止后调用：注销路径；顶层 Actor 还要从 Guardian 中移除并通知运行时 */
+    /**
+     * 系统终止：立即停止全部顶层 Actor（各自先停止子 Actor 再执行 postStop），
+     * 最多等待 timeout 让全部 Cell 终止；返回仍未终止的 Cell 数
+     */
+    public func terminateAll(timeout: Duration): Int64 {
+        let tops = synchronized(guardianLock) {
+            let l = ArrayList<ActorRef>()
+            for ((_, r) in userActors) {
+                l.add(r)
+            }
+            l.toArray()
+        }
+        for (r in tops) {
+            if (let Some(cell) <- (r as SimpleUserActorRef)) {
+                cell.sendSystem(SysTerminate())
+            }
+        }
+        if (isActorThread()) {
+            // 在 Actor 中调用 terminate：等待会等到自己，只发出停止请求
+            return synchronized(pathLock) { cellsByPath.size }
+        }
+        let deadline = MonoTime.now() + timeout
+        while (true) {
+            let alive = synchronized(pathLock) { cellsByPath.size }
+            if (alive == 0) {
+                return 0
+            }
+            if (MonoTime.now() > deadline) {
+                log.warn("系统终止：${alive} 个 Actor 在 ${timeout.toMilliseconds()}ms 内没有停止")
+                return alive
+            }
+            sleep(Duration.millisecond)
+        }
+        0
+    }
+
     func onCellTerminated(cell: SimpleUserActorRef): Unit {
         synchronized(pathLock) {
             match (cellsByPath.get(cell.pathString)) {

@@ -49,6 +49,18 @@ class SysClosed <: SysMsg {}
 /** Cell 终止后栈顶被换成这个哨兵，之后发来的系统消息按“死亡后”规则处理 */
 let SYS_CLOSED: SysNode = SysNode(SysClosed(), None<SysNode>)
 
+/** 标记 Actor 调度线程：系统终止时据此判断调用方是否就在某个 Actor 中 */
+let actorThreadFlag: ThreadLocal<Bool> = ThreadLocal<Bool>()
+
+func markActorThread(): Unit {
+    actorThreadFlag.set(true)
+}
+
+/** 当前线程是否是 Actor 调度线程（在 Actor 的消息处理中） */
+public func isActorThread(): Bool {
+    actorThreadFlag.get() ?? false
+}
+
 class SysTerminate <: SysMsg {}
 
 /** 创建后的第一条系统消息：在 Cell 线程中调用 Actor.onStarted */
@@ -1626,6 +1638,7 @@ public class ActorCellDispatcher <: CellExecutor {
             workers = ws
             for (w in ws) {
                 spawn {
+                    markActorThread()
                     w.loop(spin)
                 }
             }
@@ -1718,6 +1731,7 @@ class BlockingCellExecutor <: CellExecutor {
             threads.store(n)
             for (_ in 0..n) {
                 spawn {
+                    markActorThread()
                     workerLoop()
                 }
             }
