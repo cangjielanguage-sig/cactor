@@ -8,7 +8,8 @@ package cactor.api
 
 import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory}
 import cactor_core.config.{MailboxConfig as CoreMailboxConfig, DispatcherConfig as CoreDispatcherConfig, SupervisionConfig as CoreSupervisionConfig}
-import cactor_core.typed.{TypedBehavior, TypedActorRef, TypedActorSelection}
+import cactor_core.typed.{TypedBehavior, TypedActorRef, TypedActorSelection, ClassicTypedRef, TypedProps}
+import std.sync.{Mutex}
 import cactor_runtime.wrappers.{TypedActorRefWrapper, TypedActorSelectionWrapper, MessageBridge}
 import cactor_runtime.{CActorRuntime, CActorRuntimeConfig}
 import cactor_runtime.typed.{TypedActorSystemImpl}
@@ -21,6 +22,8 @@ import cactor_core.message.{Message}
  */
 public class CActorSystem {
     private let runtime: CActorRuntime
+    private let typedLock = Mutex()
+    private var typedValue: Option<TypedActorSystemImpl> = None<TypedActorSystemImpl>
 
     public init(name: String) {
         let config = CActorRuntimeConfig.createDefault()
@@ -176,9 +179,27 @@ public class CActorSystem {
      * @return 类型安全的Actor引用
      */
     public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String): TypedActorRef<T> {
-        // 通过类型安全系统创建，避免Dummy包装
-        let typedSystem = TypedActorSystemImpl(this.getName(), this.getRuntime())
-        typedSystem.createActor<T>(behavior, name)
+        typed().actorOf<T>(behavior, name)
+    }
+
+    /** 指定调度器 / 邮箱创建类型安全 Actor */
+    public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String, props: TypedProps): TypedActorRef<T> {
+        typed().actorOf<T>(behavior, name, props)
+    }
+
+    /**
+     * 本系统的类型化视图（共享同一个运行时；提供 ask、receptionist、findActor 等）
+     */
+    public func typed(): TypedActorSystemImpl {
+        synchronized(typedLock) {
+            match (typedValue) {
+                case Some(t) => t
+                case None =>
+                    let t = TypedActorSystemImpl(this.getName(), runtime)
+                    typedValue = Some(t)
+                    t
+            }
+        }
     }
 
     /**
@@ -199,7 +220,7 @@ public class CActorSystem {
      * @return 类型安全的Actor选择器
      */
     public func typedActorSelection<T>(path: String): TypedActorSelection<T> {
-        TypedActorSelectionWrapper<T>(path)
+        typed().actorSelectionAs<T>(path)
     }
 
     /**
@@ -223,7 +244,7 @@ public class CActorSystem {
      * @return 类型安全的Actor引用
      */
     public func wrapAsTypedActor<T>(actorRef: ActorRef, name: String): TypedActorRef<T> {
-        TypedActorRefWrapper<T>(actorRef, name)
+        ClassicTypedRef<T>(actorRef)
     }
 
     /**
@@ -235,10 +256,12 @@ public class CActorSystem {
      */
     public func unwrapTypedActor<T>(typedActorRef: TypedActorRef<T>): ActorRef {
         match (typedActorRef) {
-            case wrapper: TypedActorRefWrapper<T> =>
-                wrapper.getUnderlyingActorRef()
+            case wrapper: TypedActorRefWrapper<T> => wrapper.getUnderlyingActorRef()
             case _ =>
-                throw Exception("不支持的TypedActorRef类型")
+                match (typedActorRef.toClassic()) {
+                    case Some(c) => c
+                    case None => throw IllegalArgumentException("${typedActorRef.pathString()} 不是由 Actor 支撑的引用")
+                }
         }
     }
 

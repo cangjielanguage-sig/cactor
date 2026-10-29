@@ -13,11 +13,11 @@ public class BehaviorTransformTestSuite {
             TypedBehaviors.same<Int32>()
         })
         let partial = TypedBehaviors.receivePartial<Int32>({ x => x > 0 }, { ctx, x => TypedBehaviors.stopped<Int32>() })
-        // 负数不匹配，保持 partial
+        // 负数不匹配：计为未处理（行为保持不变）
         let b1 = partial.onMessage(-1, NullTypedContext<Int32>())
         // 正数匹配，转为 stopped
         let b2 = partial.onMessage(1, NullTypedContext<Int32>())
-        @Assert(b1.getDescription(), "PartialBehavior")
+        @Assert(b1.getDescription(), "UnhandledBehavior")
         @Assert(b2.getDescription(), "StoppedBehavior")
     }
 
@@ -26,7 +26,8 @@ public class BehaviorTransformTestSuite {
         let inner = TypedBehaviors.receive<Int32>({ ctx, x => TypedBehaviors.same<Int32>() })
         let transformed = TypedBehaviors.transformMessages<String, Int32>(inner, { s => 1 })
         let next = transformed.onMessage("hello", NullTypedContext<String>())
-        @Assert(next.getDescription(), "TransformBehavior")
+        // 内部行为返回 same：整体保持不变
+        @Assert(next.getDescription(), "SameBehavior")
     }
 }
 
