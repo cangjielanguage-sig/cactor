@@ -169,6 +169,14 @@ public class CActorSystem {
         runtime
     }
 
+    /**
+     * Prometheus 文本格式的指标，可直接作为 /metrics 响应体
+     * @param perActor 是否包含每个 Actor 的指标
+     */
+    public func metricsText(perActor: Bool): String {
+        runtime.prometheusMetrics(perActor)
+    }
+
     // ========== 类型安全Actor支持 ==========
 
     /**

@@ -21,7 +21,7 @@ import std.env.*
 import std.time.*
 import std.convert.*
 import cactor_core.actor.*
-import cactor_core.message.{Message, MessageResult}
+import cactor_core.message.{Message, MessageResult, AutoReceivedMessage}
 import cactor_foundation.logging.{Logger, Logging, LogLevel}
 
 let cellLog = Logging.logger("cactor.cell")
@@ -77,7 +77,7 @@ class SysReceiveTimeout <: SysMsg {
 }
 
 /** 定时器投递的包装消息：投递时校验代次，已取消或已被替换的定时器消息会被丢弃 */
-class TimerEnvelope <: NotInfluenceReceiveTimeout {
+class TimerEnvelope <: AutoReceivedMessage & NotInfluenceReceiveTimeout {
     let key: String
     let generation: Int64
     let payload: Message
@@ -87,6 +87,9 @@ class TimerEnvelope <: NotInfluenceReceiveTimeout {
         this.payload = payload
     }
     public func messageType(): String { "TimerEnvelope" }
+    public func priority(): Int32 { payload.priority() }
+    public func messageId(): String { payload.messageId() }
+    public func timestamp(): Int64 { payload.timestamp() }
 }
 
 /** Stash / 优先级邮箱中保存的一条消息 */
@@ -248,7 +251,7 @@ let MAILBOX_PRIORITY: Int64 = 2
 /**
  * 用户 Actor 的引用与执行单元（Actor Cell）
  */
-public class SimpleUserActorRef <: ActorRef {
+public class SimpleUserActorRef <: RunLink & ActorRef {
     private let actorName: String
     private var actor: Actor
     private let actorFactory: () -> Actor
@@ -531,30 +534,34 @@ public class SimpleUserActorRef <: ActorRef {
         currentSender = sender
         currentSenderRef = senderRef
         var payload = message
-        match (message) {
-            case te: TimerEnvelope =>
-                if (!timersImpl().accept(te)) {
+        // 只对控制消息做具体类型匹配（普通消息只付出这一次类型检查）
+        let control = message is AutoReceivedMessage
+        if (control) {
+            match (message) {
+                case te: TimerEnvelope =>
+                    if (!timersImpl().accept(te)) {
+                        clearCurrent()
+                        return
+                    }
+                    payload = te.payload
+                    currentMessage = Some(payload)
+                case _: PoisonPill =>
+                    processedCount.fetchAdd(1)
                     clearCurrent()
+                    initiateTerminate()
                     return
-                }
-                payload = te.payload
-                currentMessage = Some(payload)
-            case _: PoisonPill =>
-                processedCount.fetchAdd(1)
-                clearCurrent()
-                initiateTerminate()
-                return
-            case _: Kill =>
-                processedCount.fetchAdd(1)
-                clearCurrent()
-                handleFailure(ActorKilledException(pathString))
-                return
-            case restart: RestartMessage =>
-                // 兼容旧路径：guardian.restartChild / BackoffSupervisor 通过邮箱请求重启
-                clearCurrent()
-                doRestart(restart.getReason())
-                return
-            case _ => ()
+                case _: Kill =>
+                    processedCount.fetchAdd(1)
+                    clearCurrent()
+                    handleFailure(ActorKilledException(pathString))
+                    return
+                case restart: RestartMessage =>
+                    // 兼容旧路径：guardian.restartChild / BackoffSupervisor 通过邮箱请求重启
+                    clearCurrent()
+                    doRestart(restart.getReason())
+                    return
+                case _ => ()
+            }
         }
         try {
             let result = if (behaviors.size > 0) {
@@ -583,7 +590,7 @@ public class SimpleUserActorRef <: ActorRef {
             lastActivity = MonoTime.now()
         }
         clearCurrent()
-        if (message is StopMessage) {
+        if (control && message is StopMessage) {
             // 旧接口 system.stop：在已入队的消息之后停止
             initiateTerminate()
         }
@@ -1319,54 +1326,86 @@ interface CellExecutor {
  * 工作线程的就绪队列：与邮箱相同的 Vyukov MPSC 结构（任意线程提交，只有所属工作线程取出）。
  * std ConcurrentLinkedQueue 单次入队+出队约 190ns，这里约 30–40ns。
  */
-class RunNode {
-    var cell: Option<SimpleUserActorRef>
-    let next: AtomicOptionReference<RunNode> = AtomicOptionReference<RunNode>()
-    init(cell: Option<SimpleUserActorRef>) {
-        this.cell = cell
-    }
+/**
+ * 就绪队列的侵入式链接：Cell 自身就是队列节点（同一时刻最多入队一次，由 scheduled 标志保证），
+ * 调度时不再为每次入队分配节点
+ */
+public abstract class RunLink {
+    let runNext: AtomicOptionReference<RunLink> = AtomicOptionReference<RunLink>()
 }
 
+class RunStub <: RunLink {}
+
+/**
+ * 侵入式 MPSC 队列（Vyukov）：多个生产者 add，只有所属工作线程 remove
+ */
 class RunQueue {
-    private let head: AtomicReference<RunNode>
-    private var tail: RunNode
+    private let head: AtomicReference<RunLink>
+    private var tail: RunLink
+    private let stub: RunStub
 
     init() {
-        let stub = RunNode(None<SimpleUserActorRef>)
-        this.head = AtomicReference<RunNode>(stub)
-        this.tail = stub
+        let s = RunStub()
+        this.stub = s
+        this.head = AtomicReference<RunLink>(s)
+        this.tail = s
+    }
+
+    private func push(node: RunLink): Unit {
+        node.runNext.store(None<RunLink>)
+        let prev = head.swap(node)
+        prev.runNext.store(Some(node))
     }
 
     func add(cell: SimpleUserActorRef): Unit {
-        let node = RunNode(Some(cell))
-        let prev = head.swap(node)
-        prev.next.store(node)
+        push(cell)
     }
 
     /** 只由所属工作线程调用；遇到尚未链接完成的节点时返回 None，由工作线程让出后重试 */
     func remove(): Option<SimpleUserActorRef> {
-        match (tail.next.load()) {
-            case Some(next) =>
-                let cell = next.cell
-                next.cell = None<SimpleUserActorRef>
-                tail = next
-                cell
-            case None => None<SimpleUserActorRef>
+        var t = tail
+        var next = t.runNext.load()
+        if (refEq(t, stub)) {
+            match (next) {
+                case Some(n) =>
+                    tail = n
+                    t = n
+                    next = n.runNext.load()
+                case None => return None<SimpleUserActorRef>
+            }
         }
+        if (let Some(n) <- next) {
+            tail = n
+            return (t as SimpleUserActorRef)
+        }
+        // t 是最后一个节点：生产者正在入队时稍后重试
+        if (!refEq(t, head.load())) {
+            return None<SimpleUserActorRef>
+        }
+        // 放回哨兵，使 t 可以出队
+        push(stub)
+        if (let Some(n) <- t.runNext.load()) {
+            tail = n
+            return (t as SimpleUserActorRef)
+        }
+        None<SimpleUserActorRef>
     }
 
+    /** 只有哨兵、且没有生产者正在入队时为空 */
     func isEmpty(): Bool {
-        refEq(head.load(), tail)
+        refEq(tail, stub) && refEq(head.load(), stub)
     }
 
     /** 近似长度（O(n)，仅诊断用） */
     prop size: Int64 {
         get() {
             var n: Int64 = 0
-            var cur = tail.next.load()
+            var cur: Option<RunLink> = Some(tail)
             while (let Some(node) <- cur) {
-                n++
-                cur = node.next.load()
+                if (!refEq(node, stub)) {
+                    n++
+                }
+                cur = node.runNext.load()
             }
             n
         }

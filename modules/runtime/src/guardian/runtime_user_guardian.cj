@@ -12,7 +12,7 @@ import std.collection.concurrent.*
 import std.time.*
 import cactor_core.actor.{Actor, ActorRef, Props, ActorPath}
 import cactor_foundation.logging.{Logging}
-import cactor_core.message.{Message, MessageResult}
+import cactor_core.message.{Message, MessageResult, AutoReceivedMessage}
 import cactor_core.context.{ActorContext}
 import cactor_core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy, SupervisionDirective, ActorFailure, BackoffSupervisorStrategy}
 import cactor_runtime.supervision.{BackoffSupervisor}
@@ -273,6 +273,17 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         }
     }
 
+    /** 当前存活的全部 Actor（含子 Actor）的快照 */
+    public func liveCells(): Array<SimpleUserActorRef> {
+        let result = ArrayList<SimpleUserActorRef>()
+        for ((_, c) in cellsByPath) {
+            if (!c.isTerminated()) {
+                result.add(c)
+            }
+        }
+        result.toArray()
+    }
+
     /** 当前存活的 Actor 总数（含子 Actor） */
     public func liveCellCount(): Int64 {
         cellsByPath.size
@@ -423,7 +434,9 @@ public class ActorFailureMessage <: Message {
 /**
  * 停止消息
  */
-public class StopMessage <: Message {
+public class StopMessage <: AutoReceivedMessage {
+    // 与普通消息同一优先级：在已入队的消息之后停止
+    public func priority(): Int32 { 0 }
     public func getType(): String { "Stop" }
     public func getPayload(): String { "Stop" }
     public func messageType(): String { "Stop" }
@@ -432,8 +445,10 @@ public class StopMessage <: Message {
 /**
  * 重启消息
  */
-public class RestartMessage <: Message {
+public class RestartMessage <: AutoReceivedMessage {
     private let reason: Exception
+
+    public func priority(): Int32 { 0 }
 
     public init(reason: Exception) {
         this.reason = reason

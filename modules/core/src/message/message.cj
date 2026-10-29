@@ -58,6 +58,14 @@ public interface SystemMessage <: Message {
 }
 
 /**
+ * 由 Actor Cell 自己处理（而不是交给 receive）的控制消息的标记，例如 PoisonPill、Kill、
+ * 定时器信封、旧接口的 StopMessage / RestartMessage。
+ * Cell 对每条消息只做这一次类型检查，普通消息不再逐个匹配控制消息类型。
+ * 继承 SystemMessage 的默认优先级 1000；需要按普通顺序处理的（例如 PoisonPill）应把 priority 改回 0。
+ */
+public interface AutoReceivedMessage <: SystemMessage {}
+
+/**
  * 用户消息接口
  * 用于业务逻辑的消息
  */
@@ -85,7 +93,7 @@ public enum MessageResult {
  * 停止消息
  * 用于请求Actor停止
  */
-public struct StopMessage <: SystemMessage {
+public struct StopMessage <: AutoReceivedMessage {
     private let reason: String
 
     public init(reason: String) {
@@ -109,7 +117,7 @@ public struct StopMessage <: SystemMessage {
  * 重启消息
  * 用于请求Actor重启
  */
-public struct RestartMessage <: SystemMessage {
+public struct RestartMessage <: AutoReceivedMessage {
     private let cause: Exception
 
     public init(cause: Exception) {

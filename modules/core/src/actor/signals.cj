@@ -4,7 +4,7 @@
  */
 package cactor_core.actor
 
-import cactor_core.message.{Message}
+import cactor_core.message.{Message, AutoReceivedMessage}
 
 /**
  * 被监视的 Actor 已停止。通过 context.watch 订阅，作为普通消息交给 receive 处理。
@@ -30,22 +30,32 @@ public interface NotInfluenceReceiveTimeout <: Message {}
 /**
  * 处理到这条消息时停止 Actor：排在它之前的消息会先被处理完
  */
-public class PoisonPill <: Message {
+public class PoisonPill <: AutoReceivedMessage {
     public init() {}
 
     public func messageType(): String {
         "PoisonPill"
+    }
+
+    /** 与普通消息同一优先级：排在已入队的消息之后处理 */
+    public func priority(): Int32 {
+        0
     }
 }
 
 /**
  * 处理到这条消息时让 Actor 以 ActorKilledException 失败，交由监督策略处理
  */
-public class Kill <: Message {
+public class Kill <: AutoReceivedMessage {
     public init() {}
 
     public func messageType(): String {
         "Kill"
+    }
+
+    /** 与普通消息同一优先级：排在已入队的消息之后处理 */
+    public func priority(): Int32 {
+        0
     }
 }
 

@@ -290,6 +290,10 @@ public class CActorRuntime {
     /**
      * 获取用户Guardian
      */
+    public func getSystemName(): String {
+        systemName
+    }
+
     public func getUserGuardian(): RuntimeUserGuardian {
         userGuardian
     }
