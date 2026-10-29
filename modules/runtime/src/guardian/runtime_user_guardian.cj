@@ -245,6 +245,8 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         actor.preStart()
         let cell = SimpleUserActorRef(name, actor, { => props.create() }, ActorPath("user-system", path), this,
             parent, props)
+        // 第一条系统消息：保证 onStarted 先于任何用户消息执行
+        cell.sendSystem(SysStarted())
         synchronized(pathLock) {
             cellsByPath.add(path, cell)
         }

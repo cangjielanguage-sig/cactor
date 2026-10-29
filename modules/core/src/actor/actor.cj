@@ -117,6 +117,15 @@ public interface Actor {
     }
 
     /**
+     * 在 Actor 自己的执行线程中、处理第一条消息之前调用（重启后的新实例同样会调用）。
+     * 与 preStart 不同，这里可以使用完整的上下文：创建子 Actor、启动定时器、监视其他 Actor 等。
+     * 抛出异常按消息处理失败交给监督策略处理。
+     */
+    func onStarted(context: ActorContext): Unit {
+        // 默认空实现
+    }
+
+    /**
      * 本 Actor 作为父 Actor 时，对其子 Actor 使用的监督策略（对标 Akka 的 supervisorStrategy）。
      * 返回 None 时使用系统默认策略：OneForOne，异常时重启，1 分钟内最多 10 次。
      * 子 Actor 的 Props 若通过 withSupervisorStrategy 指定了策略，以 Props 为准。

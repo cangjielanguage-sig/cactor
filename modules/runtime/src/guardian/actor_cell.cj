@@ -32,6 +32,9 @@ abstract class SysMsg {}
 
 class SysTerminate <: SysMsg {}
 
+/** 创建后的第一条系统消息：在 Cell 线程中调用 Actor.onStarted */
+class SysStarted <: SysMsg {}
+
 class SysResume <: SysMsg {}
 
 class SysRecreate <: SysMsg {
@@ -673,6 +676,17 @@ public class SimpleUserActorRef <: ActorRef {
             // 无法重建实例时停止该 Actor，避免继续用损坏的状态处理消息
             cellLog.error("Actor ${pathString} 重启失败，已停止: ${e}")
             initiateTerminate()
+            return
+        }
+        startInstance()
+    }
+
+    /** 在 Cell 线程中调用 onStarted；失败按普通失败交给监督 */
+    private func startInstance(): Unit {
+        try {
+            actor.onStarted(contextImpl())
+        } catch (e: Exception) {
+            handleFailure(e)
         }
     }
 
@@ -703,6 +717,10 @@ public class SimpleUserActorRef <: ActorRef {
     private func handleSystem(message: SysMsg): Unit {
         match (message) {
             case _: SysTerminate => initiateTerminate()
+            case _: SysStarted =>
+                if (state == STATE_RUNNING) {
+                    startInstance()
+                }
             case _: SysResume =>
                 if (state == STATE_SUSPENDED) {
                     state = STATE_RUNNING

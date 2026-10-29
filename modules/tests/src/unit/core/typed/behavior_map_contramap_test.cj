@@ -12,7 +12,7 @@ public class BehaviorMapContramapTestSuite {
         let inner = TypedBehaviors.receive<Int32>({ ctx, x => TypedBehaviors.same<Int32>() })
         let mapped = TypedBehaviors.mapMessages<String, Int32>(inner, { s => 42 })
         let next = mapped.onMessage("any", MapNullTypedContext<String>())
-        @Assert(next.getDescription(), "TransformBehavior")
+        @Assert(next.getDescription(), "SameBehavior")
     }
 
     @TestCase
@@ -20,7 +20,7 @@ public class BehaviorMapContramapTestSuite {
         let inner = TypedBehaviors.receive<Int32>({ ctx, x => TypedBehaviors.same<Int32>() })
         let mapped = TypedBehaviors.contramap<String, Int32>(inner, { s => 1 })
         let next = mapped.onMessage("x", MapNullTypedContext<String>())
-        @Assert(next.getDescription(), "TransformBehavior")
+        @Assert(next.getDescription(), "SameBehavior")
     }
 }
 
