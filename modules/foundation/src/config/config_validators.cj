@@ -7,6 +7,9 @@
 package cactor_foundation.config
 
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_config_validators: Logger = Logging.logger("cactor_foundation.config.config_validators")
 
 /**
  * 范围验证器
@@ -256,7 +259,7 @@ public struct CActorConfigValidators {
         configManager.addValidator("cactor.actor.creation.timeout.ms", createTimeoutValidator())
         configManager.addValidator("cactor.supervision.strategy", createSupervisionStrategyValidator())
         
-        println("✅ CActor配置验证器注册完成")
+        log_config_validators.debug("✅ CActor配置验证器注册完成")
     }
 }
 
@@ -279,7 +282,7 @@ public class ConfigHotReloadManager {
      */
     public func enable(): Unit {
         isEnabled = true
-        println("✅ 配置热更新已启用")
+        log_config_validators.debug("✅ 配置热更新已启用")
     }
     
     /**
@@ -287,7 +290,7 @@ public class ConfigHotReloadManager {
      */
     public func disable(): Unit {
         isEnabled = false
-        println("⏸️ 配置热更新已禁用")
+        log_config_validators.debug("⏸️ 配置热更新已禁用")
     }
     
     /**
@@ -303,10 +306,10 @@ public class ConfigHotReloadManager {
      */
     public func triggerReload(): Unit {
         if (isEnabled) {
-            println("🔄 手动触发配置重新加载")
+            log_config_validators.debug("🔄 手动触发配置重新加载")
             configManager.reload()
         } else {
-            println("⚠️ 配置热更新已禁用，无法重新加载")
+            log_config_validators.warn("⚠️ 配置热更新已禁用，无法重新加载")
         }
     }
     

@@ -16,6 +16,9 @@ import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}
 import cactor.api.{CActorSystem}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_simple_stream_api: Logger = Logging.logger("cactor_streams.core.simple_stream_api")
 
 /**
  * 流处理结果类型
@@ -157,9 +160,9 @@ public class SimpleStreamActor<T, R> <: Actor {
                     case "get-result" =>
                         match (result) {
                             case Some(r) =>
-                                println("流处理结果: 已完成")
+                                log_simple_stream_api.debug("流处理结果: 已完成")
                             case None =>
-                                println("流处理尚未完成")
+                                log_simple_stream_api.debug("流处理尚未完成")
                         }
                         MessageResult.Handled
                     case _ =>
@@ -172,16 +175,16 @@ public class SimpleStreamActor<T, R> <: Actor {
     
     private func processStream(): Unit {
         try {
-            println("开始处理流: ${source.getSourceId()} -> ${sink.getSinkId()}")
+            log_simple_stream_api.debug("开始处理流: ${source.getSourceId()} -> ${sink.getSinkId()}")
             let elements = source.getElements()
-            println("处理 ${elements.size} 个元素")
+            log_simple_stream_api.debug("处理 ${elements.size} 个元素")
             
             let processedResult = sink.process(elements)
             result = Some(processedResult)
             
-            println("流处理完成")
+            log_simple_stream_api.debug("流处理完成")
         } catch (e: Exception) {
-            println("流处理失败: ${e.message}")
+            log_simple_stream_api.error("流处理失败: ${e.message}")
         }
     }
     

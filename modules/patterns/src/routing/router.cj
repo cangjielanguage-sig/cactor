@@ -10,6 +10,9 @@ import std.time.*
 import std.collection.*
 import cactor_core.message.{Message}
 import cactor_core.actor.{ActorRef, ActorPath}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_router: Logger = Logging.logger("cactor_patterns.routing.router")
 
 /**
  * 路由策略接口
@@ -184,7 +187,7 @@ public class BasicRouter <: Router {
                 match (strategy.selectRoutee(routeeArray, message)) {
                     case Some(routee) => routee.tell(message)
                     case None => 
-                        println("警告: 没有可用的路由目标")
+                        log_router.warn("警告: 没有可用的路由目标")
                 }
         }
     }

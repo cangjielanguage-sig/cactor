@@ -7,6 +7,9 @@
 package cactor_foundation.contracts
 
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_module_contracts: Logger = Logging.logger("cactor_foundation.contracts.module_contracts")
 
 /**
  * 模块层次枚举
@@ -355,9 +358,9 @@ public class ModuleRegistry {
             for (module in moduleList) {
                 try {
                     module.initialize()
-                    println("✅ 模块 ${module.moduleName} 初始化成功")
+                    log_module_contracts.debug("✅ 模块 ${module.moduleName} 初始化成功")
                 } catch (e: Exception) {
-                    println("❌ 模块 ${module.moduleName} 初始化失败: ${e.message}")
+                    log_module_contracts.error("❌ 模块 ${module.moduleName} 初始化失败: ${e.message}")
                 }
             }
         }
@@ -381,9 +384,9 @@ public class ModuleRegistry {
             for (module in moduleList) {
                 try {
                     module.dispose()
-                    println("✅ 模块 ${module.moduleName} 清理成功")
+                    log_module_contracts.debug("✅ 模块 ${module.moduleName} 清理成功")
                 } catch (e: Exception) {
-                    println("❌ 模块 ${module.moduleName} 清理失败: ${e.message}")
+                    log_module_contracts.error("❌ 模块 ${module.moduleName} 清理失败: ${e.message}")
                 }
             }
         }
@@ -462,7 +465,7 @@ public struct GlobalModuleRegistry {
             case Some(registry) =>
                 registry.disposeAll()
             case None =>
-                println("无需处理") // 无需处理
+                log_module_contracts.debug("无需处理") // 无需处理
         }
         instance = None<ModuleRegistry>
     }

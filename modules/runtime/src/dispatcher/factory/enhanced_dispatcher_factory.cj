@@ -15,6 +15,9 @@ import cactor_runtime.dispatcher.advanced.{AdvancedMessageDispatcher, AdvancedWo
 import cactor_runtime.dispatcher.dynamic.{DynamicDispatcherConfigManager, DynamicDispatcherConfig}
 import cactor_runtime.dispatcher.adaptive.AdaptiveDispatcher
 import cactor_runtime.dispatcher.monitoring.DispatcherMetricsCollector
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_enhanced_dispatcher_factory: Logger = Logging.logger("cactor_runtime.dispatcher.factory.enhanced_dispatcher_factory")
 
 /**
  * 增强调度器工厂
@@ -37,7 +40,7 @@ public class EnhancedDispatcherFactory {
     public func start(): Unit {
         configManager.start()
         metricsCollector.start()
-        println("[ENHANCED-FACTORY] 增强调度器工厂启动")
+        log_enhanced_dispatcher_factory.debug("[ENHANCED-FACTORY] 增强调度器工厂启动")
     }
     
     /**
@@ -52,7 +55,7 @@ public class EnhancedDispatcherFactory {
         
         metricsCollector.stop()
         configManager.stop()
-        println("[ENHANCED-FACTORY] 增强调度器工厂停止")
+        log_enhanced_dispatcher_factory.debug("[ENHANCED-FACTORY] 增强调度器工厂停止")
     }
     
     /**
@@ -66,7 +69,7 @@ public class EnhancedDispatcherFactory {
         metricsCollector.registerDispatcher(name, baseDispatcher)
         createdDispatchers.add(name, baseDispatcher)
         
-        println("[ENHANCED-FACTORY] 创建标准调度器: ${name}")
+        log_enhanced_dispatcher_factory.debug("[ENHANCED-FACTORY] 创建标准调度器: ${name}")
         baseDispatcher
     }
     
@@ -85,7 +88,7 @@ public class EnhancedDispatcherFactory {
         metricsCollector.registerDispatcher(name, baseDispatcher)
         createdDispatchers.add(name, baseDispatcher)
         
-        println("[ENHANCED-FACTORY] 创建动态配置调度器: ${name}")
+        log_enhanced_dispatcher_factory.debug("[ENHANCED-FACTORY] 创建动态配置调度器: ${name}")
         baseDispatcher
     }
     
@@ -107,7 +110,7 @@ public class EnhancedDispatcherFactory {
         metricsCollector.registerDispatcher(name, adaptiveDispatcher)
         createdDispatchers.add(name, adaptiveDispatcher)
         
-        println("[ENHANCED-FACTORY] 创建自适应调度器: ${name}")
+        log_enhanced_dispatcher_factory.debug("[ENHANCED-FACTORY] 创建自适应调度器: ${name}")
         adaptiveDispatcher
     }
     
@@ -125,7 +128,7 @@ public class EnhancedDispatcherFactory {
         metricsCollector.registerDispatcher(name, monitoredDispatcher)
         createdDispatchers.add(name, monitoredDispatcher)
         
-        println("[ENHANCED-FACTORY] 创建监控调度器: ${name}")
+        log_enhanced_dispatcher_factory.debug("[ENHANCED-FACTORY] 创建监控调度器: ${name}")
         monitoredDispatcher
     }
     
@@ -147,7 +150,7 @@ public class EnhancedDispatcherFactory {
         metricsCollector.registerDispatcher(name, adaptiveDispatcher)
         createdDispatchers.add(name, adaptiveDispatcher)
         
-        println("[ENHANCED-FACTORY] 创建完全增强调度器: ${name}")
+        log_enhanced_dispatcher_factory.debug("[ENHANCED-FACTORY] 创建完全增强调度器: ${name}")
         adaptiveDispatcher
     }
     
@@ -200,7 +203,7 @@ public class EnhancedDispatcherFactory {
                 dispatcher.stop()
                 createdDispatchers.remove(name)
                 metricsCollector.unregisterDispatcher(name)
-                println("[ENHANCED-FACTORY] 移除调度器: ${name}")
+                log_enhanced_dispatcher_factory.debug("[ENHANCED-FACTORY] 移除调度器: ${name}")
                 true
             case None =>
                 false

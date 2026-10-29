@@ -8,6 +8,9 @@ package cactor_foundation.config
 
 import std.collection.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_unified_configuration: Logger = Logging.logger("cactor_foundation.config.unified_configuration")
 
 /**
  * 配置值类型枚举
@@ -500,7 +503,7 @@ public class DefaultUnifiedConfigManager <: UnifiedConfigManager {
     
     public func removeChangeListener(listener: ConfigChangeListener): Unit {
         // 简化实现：不支持移除
-        println("移除监听器功能暂未实现")
+        log_unified_configuration.debug("移除监听器功能暂未实现")
     }
     
     public func addValidator(key: String, validator: ConfigValidator): Unit {
@@ -533,7 +536,7 @@ public class DefaultUnifiedConfigManager <: UnifiedConfigManager {
         
         mutex.unlock()
         
-        println("配置已重新加载，共 ${configValues.size} 个配置项")
+        log_unified_configuration.debug("配置已重新加载，共 ${configValues.size} 个配置项")
     }
     
     public func getStatistics(): ConfigStatistics {
@@ -564,7 +567,7 @@ public class DefaultUnifiedConfigManager <: UnifiedConfigManager {
             try {
                 listener.onConfigChanged(event)
             } catch (e: Exception) {
-                println("配置变更监听器执行失败: ${e.message}")
+                log_unified_configuration.error("配置变更监听器执行失败: ${e.message}")
             }
         }
     }

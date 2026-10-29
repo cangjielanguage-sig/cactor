@@ -11,6 +11,9 @@ import cactor_core.message.{StringMessage}
 import cactor_foundation.network.{NetworkAddress}
 import cactor_remote.{SimpleRemoteManager}
 import cactor_foundation.network.{TransportProtocol}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_cluster_support: Logger = Logging.logger("cactor_cluster.cluster_support")
 
 /**
  * 集群节点标识
@@ -88,7 +91,7 @@ public class ClusterNode {
         mutex.lock()
         this.state = newState
         mutex.unlock()
-        println("节点 ${nodeId.toString()} 状态变更为: ${newState.toString()}")
+        log_cluster_support.debug("节点 ${nodeId.toString()} 状态变更为: ${newState.toString()}")
     }
     
     public func isLocal(): Bool {
@@ -128,14 +131,14 @@ public class ClusterState {
         mutex.lock()
         nodes[node.nodeId.id] = node
         mutex.unlock()
-        println("添加集群节点: ${node.toString()}")
+        log_cluster_support.debug("添加集群节点: ${node.toString()}")
     }
 
     public func removeNode(nodeId: NodeId): Unit {
         mutex.lock()
         nodes.remove(nodeId.id)
         mutex.unlock()
-        println("移除集群节点: ${nodeId.toString()}")
+        log_cluster_support.debug("移除集群节点: ${nodeId.toString()}")
     }
 
     public func updateNodeState(nodeId: NodeId, newState: NodeState): Unit {
@@ -144,7 +147,7 @@ public class ClusterState {
             case Some(node) =>
                 node.setState(newState)
             case None =>
-                println("警告: 尝试更新不存在的节点状态: ${nodeId.toString()}")
+                log_cluster_support.warn("警告: 尝试更新不存在的节点状态: ${nodeId.toString()}")
         }
         mutex.unlock()
     }
@@ -247,7 +250,7 @@ public class SimpleClusterManager {
             // 设置本地节点为Up状态
             clusterState.updateNodeState(clusterState.getLocalNodeId(), NodeState.Up(DateTime.now()))
             
-            println("集群管理器启动: ${clusterState.getLocalNodeId().toString()}")
+            log_cluster_support.debug("集群管理器启动: ${clusterState.getLocalNodeId().toString()}")
         }
     }
     
@@ -257,21 +260,21 @@ public class SimpleClusterManager {
             clusterState.updateNodeState(clusterState.getLocalNodeId(), NodeState.Leaving(DateTime.now()))
             
             remoteManager.stop()
-            println("集群管理器停止")
+            log_cluster_support.debug("集群管理器停止")
         }
     }
     
     public func joinCluster(seedNodes: Array<NetworkAddress>): Unit {
-        println("尝试加入集群，种子节点: ${seedNodes.size}个")
+        log_cluster_support.debug("尝试加入集群，种子节点: ${seedNodes.size}个")
         
         for (seedAddress in seedNodes) {
             try {
                 // 发送加入请求
                 let joinMessage = StringMessage("JOIN_REQUEST:${clusterState.getLocalNodeId().id}")
                 remoteManager.sendMessage(seedAddress, "cluster-manager", joinMessage)
-                println("发送加入请求到: ${seedAddress.toString()}")
+                log_cluster_support.debug("发送加入请求到: ${seedAddress.toString()}")
             } catch (e: Exception) {
-                println("发送加入请求失败: ${e.message}")
+                log_cluster_support.error("发送加入请求失败: ${e.message}")
             }
         }
     }
@@ -292,7 +295,7 @@ public class SimpleClusterManager {
                 let event = ClusterEvent.NodeLeft(node)
                 notifyEventListeners(event)
             case None => 
-                println("尝试移除不存在的节点: ${nodeId.toString()}")
+                log_cluster_support.debug("尝试移除不存在的节点: ${nodeId.toString()}")
         }
     }
     
@@ -308,7 +311,7 @@ public class SimpleClusterManager {
             try {
                 listener.onClusterEvent(event)
             } catch (e: Exception) {
-                println("集群事件监听器异常: ${e.message}")
+                log_cluster_support.error("集群事件监听器异常: ${e.message}")
             }
         }
         mutex.unlock()

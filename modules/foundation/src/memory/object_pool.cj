@@ -8,6 +8,9 @@ package cactor_foundation.memory
 import std.sync.*
 import std.collection.*
 import std.collection.concurrent.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_object_pool: Logger = Logging.logger("cactor_foundation.memory.object_pool")
 
 /**
  * 对象池接口
@@ -311,7 +314,7 @@ public class PoolManager {
 
     public func registerPool<T>(name: String, pool: ObjectPool<T>): Unit {
         // 简化实现，实际需要类型转换
-        println("注册对象池: ${name}")
+        log_object_pool.debug("注册对象池: ${name}")
     }
 
     public func getPool<T>(name: String): Option<ObjectPool<T>> {

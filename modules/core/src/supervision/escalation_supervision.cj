@@ -10,6 +10,9 @@ import std.time.*
 import std.collection.*
 import std.collection.concurrent.*
 import cactor_core.actor.{ActorRef}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_escalation_supervision: Logger = Logging.logger("cactor_core.supervision.escalation_supervision")
 
 /**
  * 升级监督策略
@@ -35,9 +38,9 @@ public class EscalationSupervisionStrategy <: SupervisionStrategy {
             // 记录升级
             escalationInfo.recordEscalation()
             
-            println("[ESCALATION] Actor ${actorKey} 失败升级到父级监督者")
-            println("[ESCALATION] 升级原因: ${failure.cause.toString()}")
-            println("[ESCALATION] 升级次数: ${escalationInfo.getEscalationCount()}")
+            log_escalation_supervision.error("[ESCALATION] Actor ${actorKey} 失败升级到父级监督者")
+            log_escalation_supervision.error("[ESCALATION] 升级原因: ${failure.cause.toString()}")
+            log_escalation_supervision.debug("[ESCALATION] 升级次数: ${escalationInfo.getEscalationCount()}")
             
             SupervisionDirective.Escalate
         } else {

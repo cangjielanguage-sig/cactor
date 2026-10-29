@@ -7,6 +7,9 @@ package cactor_xstate.features
 
 import std.time.*
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_placeholder: Logger = Logging.logger("cactor_xstate.features.placeholder")
 
 /**
  * 状态机状态枚举
@@ -216,7 +219,7 @@ public class XStateFeatureMachine {
         context.updateTransitionTime()
         context.setProperty("lastTransition", stateToString(oldState) + " -> " + stateToString(currentState))
 
-        println("状态转换: " + stateToString(oldState) + " -> " + stateToString(currentState))
+        log_placeholder.debug("状态转换: " + stateToString(oldState) + " -> " + stateToString(currentState))
 
         TransitionResult.Success
     }

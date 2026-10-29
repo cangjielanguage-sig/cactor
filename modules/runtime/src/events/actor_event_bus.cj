@@ -9,6 +9,9 @@ import std.sync.*
 import std.collection.*
 import std.time.*
 import cactor_core.actor.{ActorRef}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_actor_event_bus: Logger = Logging.logger("cactor_runtime.events.actor_event_bus")
 
 /**
  * Actor生命周期事件基类
@@ -320,7 +323,7 @@ public class ActorEventBus {
                         subscription.listener.onEvent(event)
                     } catch (e: Exception) {
                         // 监听器异常不应该影响其他监听器
-                        println("事件监听器异常: ${e.message}")
+                        log_actor_event_bus.error("事件监听器异常: ${e.message}")
                     }
                 }
             }

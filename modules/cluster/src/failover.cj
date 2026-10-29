@@ -8,6 +8,9 @@ import std.collection.*
 import std.sync.*
 import std.time.*
 import cactor_core.message.{PingMessage}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_failover: Logger = Logging.logger("cactor_cluster.failover")
 
 /**
  * 故障检测器
@@ -33,7 +36,7 @@ public class FailureDetector {
     
     public func startMonitoring(): Unit {
         if (isRunning.compareAndSwap(false, true)) {
-            println("启动故障检测器")
+            log_failover.debug("启动故障检测器")
             
             // 启动心跳检测线程
             spawn {
@@ -47,7 +50,7 @@ public class FailureDetector {
                             // 忙等待，实际应用中应使用更好的等待机制
                         }
                     } catch (e: Exception) {
-                        println("故障检测异常: ${e.message}")
+                        log_failover.error("故障检测异常: ${e.message}")
                     }
                 }
             }
@@ -56,7 +59,7 @@ public class FailureDetector {
     
     public func stopMonitoring(): Unit {
         if (isRunning.compareAndSwap(true, false)) {
-            println("停止故障检测器")
+            log_failover.debug("停止故障检测器")
         }
     }
     
@@ -93,16 +96,16 @@ public class FailureDetector {
                     let pingMessage = PingMessage(DateTime.now().toUnixTimeStamp().toMilliseconds())
                     // 这里应该通过远程管理器发送心跳
                     // remoteManager.sendMessage(node.address, "heartbeat", pingMessage)
-                    println("发送心跳到节点: ${node.nodeId.toString()}")
+                    log_failover.debug("发送心跳到节点: ${node.nodeId.toString()}")
                 } catch (e: Exception) {
-                    println("发送心跳失败: ${e.message}")
+                    log_failover.error("发送心跳失败: ${e.message}")
                 }
             }
         }
     }
     
     private func handleNodeFailure(node: ClusterNode): Unit {
-        println("检测到节点故障: ${node.nodeId.toString()}")
+        log_failover.debug("检测到节点故障: ${node.nodeId.toString()}")
         
         // 更新节点状态为失败
         clusterManager.getClusterState().updateNodeState(node.nodeId, NodeState.Failed(DateTime.now()))
@@ -122,17 +125,17 @@ public class FailureDetector {
     }
     
     private func triggerFailover(failedNode: ClusterNode): Unit {
-        println("触发故障转移，失败节点: ${failedNode.nodeId.toString()}")
+        log_failover.error("触发故障转移，失败节点: ${failedNode.nodeId.toString()}")
         
         // 简化的故障转移逻辑
         let clusterState = clusterManager.getClusterState()
         let availableNodes = clusterState.getAvailableNodes()
         
         if (availableNodes.size > 0) {
-            println("可用节点数量: ${availableNodes.size}")
+            log_failover.debug("可用节点数量: ${availableNodes.size}")
             // 在实际实现中，这里会进行Actor迁移等操作
         } else {
-            println("警告: 没有可用节点进行故障转移")
+            log_failover.warn("警告: 没有可用节点进行故障转移")
         }
     }
     
@@ -214,23 +217,23 @@ public class FailoverManager {
     public func start(): Unit {
         if (isActive.compareAndSwap(false, true)) {
             failureDetector.startMonitoring()
-            println("故障转移管理器启动，策略: ${strategy.toString()}")
+            log_failover.debug("故障转移管理器启动，策略: ${strategy.toString()}")
         }
     }
     
     public func stop(): Unit {
         if (isActive.compareAndSwap(true, false)) {
             failureDetector.stopMonitoring()
-            println("故障转移管理器停止")
+            log_failover.debug("故障转移管理器停止")
         }
     }
     
     public func handleNodeFailure(failedNode: ClusterNode): Unit {
-        println("处理节点故障: ${failedNode.nodeId.toString()}")
+        log_failover.error("处理节点故障: ${failedNode.nodeId.toString()}")
         
         match (strategy) {
             case NoFailover => 
-                println("不执行故障转移")
+                log_failover.debug("不执行故障转移")
             case RestartOnSameNode => 
                 restartOnSameNode(failedNode)
             case MigrateToOtherNode => 
@@ -241,27 +244,27 @@ public class FailoverManager {
     }
     
     private func restartOnSameNode(failedNode: ClusterNode): Unit {
-        println("在同一节点重启: ${failedNode.nodeId.toString()}")
+        log_failover.error("在同一节点重启: ${failedNode.nodeId.toString()}")
         // 实际实现中会重启节点上的Actor
     }
     
     private func migrateToOtherNode(failedNode: ClusterNode): Unit {
-        println("迁移到其他节点: ${failedNode.nodeId.toString()}")
+        log_failover.error("迁移到其他节点: ${failedNode.nodeId.toString()}")
         
         let clusterState = clusterManager.getClusterState()
         let availableNodes = clusterState.getAvailableNodes()
         
         if (availableNodes.size > 0) {
             let targetNode = selectBestNode(availableNodes)
-            println("选择目标节点: ${targetNode.nodeId.toString()}")
+            log_failover.debug("选择目标节点: ${targetNode.nodeId.toString()}")
             // 实际实现中会进行Actor迁移
         } else {
-            println("没有可用节点进行迁移")
+            log_failover.debug("没有可用节点进行迁移")
         }
     }
     
     private func replicateToMultipleNodes(failedNode: ClusterNode): Unit {
-        println("复制到多个节点: ${failedNode.nodeId.toString()}")
+        log_failover.error("复制到多个节点: ${failedNode.nodeId.toString()}")
         
         let clusterState = clusterManager.getClusterState()
         let availableNodes = clusterState.getAvailableNodes()
@@ -270,7 +273,7 @@ public class FailoverManager {
         let targetNodes = selectMultipleNodes(availableNodes, replicationFactor)
         
         for (targetNode in targetNodes) {
-            println("复制到节点: ${targetNode.nodeId.toString()}")
+            log_failover.debug("复制到节点: ${targetNode.nodeId.toString()}")
             // 实际实现中会创建Actor副本
         }
     }
@@ -318,7 +321,7 @@ class ClusterEventListenerImpl <: ClusterEventListener {
                 failoverManager.handleNodeFailure(node)
             case _ =>
                 // 其他事件暂不处理
-                println("处理其他集群事件")
+                log_failover.debug("处理其他集群事件")
         }
     }
 }

@@ -8,6 +8,9 @@ package cactor_xstate.enterprise
 import std.time.*
 import std.collection.*
 import cactor_xstate.features.{StateMachineState, StateMachineEvent, XStateFeatureMachine}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_placeholder: Logger = Logging.logger("cactor_xstate.enterprise.placeholder")
 
 /**
  * 状态转换结果（本地定义）
@@ -149,7 +152,7 @@ public class EnterpriseStateMachine {
         // 检查转换限制
         if (baseMachine.getTransitionCount() >= config.maxTransitions) {
             if (config.enableLogging) {
-                println("状态机达到最大转换次数限制: " + config.maxTransitions.toString())
+                log_placeholder.debug("状态机达到最大转换次数限制: " + config.maxTransitions.toString())
             }
             return false
         }
@@ -226,7 +229,7 @@ public class EnterpriseStateMachine {
     public func pause(): Unit {
         active = false
         if (config.enableLogging) {
-            println("企业状态机已暂停: " + config.name)
+            log_placeholder.debug("企业状态机已暂停: " + config.name)
         }
     }
 
@@ -236,7 +239,7 @@ public class EnterpriseStateMachine {
     public func resume(): Unit {
         active = true
         if (config.enableLogging) {
-            println("企业状态机已恢复: " + config.name)
+            log_placeholder.debug("企业状态机已恢复: " + config.name)
         }
     }
 
@@ -307,7 +310,7 @@ public class EnterpriseStateMachineManager {
         for ((_, machine) in machines) {
             machine.pause()
         }
-        println("所有企业状态机已暂停")
+        log_placeholder.debug("所有企业状态机已暂停")
     }
 
     /**
@@ -317,7 +320,7 @@ public class EnterpriseStateMachineManager {
         for ((_, machine) in machines) {
             machine.resume()
         }
-        println("所有企业状态机已恢复")
+        log_placeholder.debug("所有企业状态机已恢复")
     }
 
     /**

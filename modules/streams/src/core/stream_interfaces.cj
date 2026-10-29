@@ -16,6 +16,9 @@ import std.collection.*
 import std.time.*
 import std.sync.*
 import cactor.api.{CActorSystem}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_stream_interfaces: Logger = Logging.logger("cactor_streams.core.stream_interfaces")
 
 /**
  * 流元素接口 - 所有流中传递的数据都必须实现此接口
@@ -186,7 +189,7 @@ public class BackpressureController {
                 // 检查是否可以解除背压
                 if (isBackpressureActive && buffer.size < Int64(strategy.bufferSize) / 2) {
                     isBackpressureActive = false
-                    println("背压解除，缓冲区大小: ${buffer.size}")
+                    log_stream_interfaces.debug("背压解除，缓冲区大小: ${buffer.size}")
                 }
 
                 mutex.unlock()
@@ -209,13 +212,13 @@ public class BackpressureController {
         backpressureEvents += 1
         isBackpressureActive = true
 
-        println("背压激活，策略: ${strategy.strategy}, 缓冲区大小: ${buffer.size}")
+        log_stream_interfaces.debug("背压激活，策略: ${strategy.strategy}, 缓冲区大小: ${buffer.size}")
 
         match (strategy.strategy) {
             case BackpressureStrategy.Drop =>
                 // 丢弃新元素
                 droppedElements += 1
-                println("丢弃新元素: ${element.getElementId()}")
+                log_stream_interfaces.debug("丢弃新元素: ${element.getElementId()}")
                 return false
 
             case BackpressureStrategy.DropHead =>
@@ -232,7 +235,7 @@ public class BackpressureController {
                         buffer.add(item)
                     }
                     droppedElements += 1
-                    println("丢弃头部元素: ${dropped.getElementId()}")
+                    log_stream_interfaces.debug("丢弃头部元素: ${dropped.getElementId()}")
                 }
                 buffer.add(element)
                 return true
@@ -251,7 +254,7 @@ public class BackpressureController {
                         buffer.add(item)
                     }
                     droppedElements += 1
-                    println("丢弃尾部元素: ${dropped.getElementId()}")
+                    log_stream_interfaces.debug("丢弃尾部元素: ${dropped.getElementId()}")
                 }
                 buffer.add(element)
                 return true
@@ -259,7 +262,7 @@ public class BackpressureController {
             case BackpressureStrategy.DropBuffer =>
                 // 清空整个缓冲区，添加新元素
                 droppedElements += buffer.size
-                println("清空缓冲区: ${buffer.size} 个元素")
+                log_stream_interfaces.debug("清空缓冲区: ${buffer.size} 个元素")
                 buffer.clear()
                 buffer.add(element)
                 return true
@@ -603,7 +606,7 @@ public class SimpleStreamMonitor <: StreamMonitor {
         mutex.lock()
         errorCount += 1
         mutex.unlock()
-        println("流处理错误: ${error.message}")
+        log_stream_interfaces.error("流处理错误: ${error.message}")
     }
     
     public func getStats(): StreamStats {

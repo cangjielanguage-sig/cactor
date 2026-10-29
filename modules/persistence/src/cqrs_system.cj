@@ -8,6 +8,9 @@ package cactor_persistence
 import std.collection.*
 import std.time.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_cqrs_system: Logger = Logging.logger("cactor_persistence.cqrs_system")
 
 /**
  * 命令接口 - 所有命令必须实现此接口
@@ -217,21 +220,21 @@ public class CQRSBus {
         mutex.lock()
         commandHandlers[commandType] = handler
         mutex.unlock()
-        println("注册命令处理器: ${commandType}")
+        log_cqrs_system.debug("注册命令处理器: ${commandType}")
     }
 
     public func registerQueryHandler(queryType: String, handler: QueryHandler): Unit {
         mutex.lock()
         queryHandlers[queryType] = handler
         mutex.unlock()
-        println("注册查询处理器: ${queryType}")
+        log_cqrs_system.debug("注册查询处理器: ${queryType}")
     }
     
     public func registerReadModel(modelId: String, readModel: ReadModel): Unit {
         mutex.lock()
         readModels[modelId] = readModel
         mutex.unlock()
-        println("注册读模型: ${modelId}")
+        log_cqrs_system.debug("注册读模型: ${modelId}")
     }
     
     public func sendCommand(command: Command): Future<Unit> {
@@ -290,7 +293,7 @@ public class CQRSBus {
                 try {
                     readModel.update(event)
                 } catch (e: Exception) {
-                    println("更新读模型失败: ${e.message}")
+                    log_cqrs_system.error("更新读模型失败: ${e.message}")
                 }
             }
         }
@@ -322,7 +325,7 @@ public class SimpleReadModel <: ReadModel {
         data[key] = value
         
         mutex.unlock()
-        println("读模型 ${modelId} 更新: ${event.payload.getEventType()}")
+        log_cqrs_system.debug("读模型 ${modelId} 更新: ${event.payload.getEventType()}")
     }
     
     public func query(querySpec: QuerySpec): Future<String> {

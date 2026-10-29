@@ -7,6 +7,9 @@ package cactor_core.error
 
 import std.time.*
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_error_handling: Logger = Logging.logger("cactor_core.error.error_handling")
 
 /**
  * CActor错误码枚举
@@ -274,13 +277,13 @@ public class ErrorHandlingManager {
         for (strategy in strategies) {
             if (strategy.canHandle(error.getErrorCode())) {
                 let result = strategy.handleError(error)
-                println("错误处理: ${strategy.getName()} 处理错误")
+                log_error_handling.error("错误处理: ${strategy.getName()} 处理错误")
                 return result
             }
         }
 
         // 如果没有找到合适的策略，使用默认处理
-        println("错误处理: 使用默认策略处理错误")
+        log_error_handling.error("错误处理: 使用默认策略处理错误")
         ErrorHandlingResult.Escalate
     }
 

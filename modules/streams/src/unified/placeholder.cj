@@ -8,6 +8,9 @@ package cactor_streams.unified
 import std.collection.*
 import std.sync.*
 import std.time.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_placeholder: Logger = Logging.logger("cactor_streams.unified.placeholder")
 
 /**
  * 流元素接口
@@ -136,7 +139,7 @@ public class UnifiedStreamPipeline {
         for (element in elements) {
             match (process(element)) {
                 case Some(result) => results.add(result)
-                case None => println("跳过被过滤的元素")  // 跳过被过滤的元素
+                case None => log_placeholder.debug("跳过被过滤的元素")  // 跳过被过滤的元素
             }
         }
 

@@ -6,6 +6,7 @@ cjc-version = "1.2.0"
 output-type = "static"
 
 [dependencies]
+cactor_foundation = { path = "../foundation" }
 cactor_core = { path = "../core" }
 cactor_remote = { path = "../remote" }
 cactor_persistence = { path = "../persistence" }

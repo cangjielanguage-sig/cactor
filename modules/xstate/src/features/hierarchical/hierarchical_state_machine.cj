@@ -13,6 +13,9 @@ import cactor_core.message.{Message, MessageResult}
 import cactor_xstate.core.types.{StateMachineState, BaseStateMachineEvent}
 import cactor_xstate.core.machine.{StateMachineDefinition}
 import cactor_xstate.core.engine.{PatternTransitionEngine}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_hierarchical_state_machine: Logger = Logging.logger("cactor_xstate.features.hierarchical.hierarchical_state_machine")
 
 /**
  * 层次状态接口
@@ -137,10 +140,10 @@ public class HierarchicalStateMachineActor <: Actor {
         } else if (message.messageType() == "StateTransition") {
             return handleStateTransition(message, context)
         } else if (message.messageType() == "GetCurrentState") {
-            println("当前层次状态: ${getCurrentHierarchicalState()}")
+            log_hierarchical_state_machine.debug("当前层次状态: ${getCurrentHierarchicalState()}")
             return MessageResult.Handled
         } else {
-            println("未知消息类型: ${message.messageType()}")
+            log_hierarchical_state_machine.debug("未知消息类型: ${message.messageType()}")
             return MessageResult.Unhandled
         }
     }
@@ -211,7 +214,7 @@ public class HierarchicalStateMachineActor <: Actor {
      * 处理层次状态事件
      */
     private func handleHierarchicalEvent(message: Message, context: ActorContext): MessageResult {
-        println("处理层次状态事件: ${message.messageType()}")
+        log_hierarchical_state_machine.debug("处理层次状态事件: ${message.messageType()}")
 
         // 解析事件
         if (message.messageType() == "ProcessEventMessage") {
@@ -318,7 +321,7 @@ public class HierarchicalStateMachineActor <: Actor {
         toState: String,
         context: ActorContext
     ): Unit {
-        println("执行层次状态转换: ${fromState} -> ${toState}")
+        log_hierarchical_state_machine.debug("执行层次状态转换: ${fromState} -> ${toState}")
 
         // 1. 计算状态路径变化
         let fromPath = getStatePath(fromState)
@@ -374,7 +377,7 @@ public class HierarchicalStateMachineActor <: Actor {
      * 处理进入状态事件
      */
     private func handleEnterState(message: Message, context: ActorContext): MessageResult {
-        println("处理进入状态事件: ${message.messageType()}")
+        log_hierarchical_state_machine.debug("处理进入状态事件: ${message.messageType()}")
         // 实现状态进入逻辑
         return MessageResult.Handled
     }
@@ -383,7 +386,7 @@ public class HierarchicalStateMachineActor <: Actor {
      * 处理退出状态事件
      */
     private func handleExitState(message: Message, context: ActorContext): MessageResult {
-        println("处理退出状态事件: ${message.messageType()}")
+        log_hierarchical_state_machine.debug("处理退出状态事件: ${message.messageType()}")
         // 实现状态退出逻辑
         return MessageResult.Handled
     }
@@ -472,7 +475,7 @@ public class HierarchicalStateMachineActor <: Actor {
      * 退出指定状态
      */
     private func exitState(stateId: String, context: ActorContext): Unit {
-        println("退出状态: ${stateId}")
+        log_hierarchical_state_machine.debug("退出状态: ${stateId}")
         // 实现状态退出逻辑
         // 1. 执行退出动作
         // 2. 清理状态相关资源
@@ -483,7 +486,7 @@ public class HierarchicalStateMachineActor <: Actor {
      * 进入指定状态
      */
     private func enterState(stateId: String, context: ActorContext): Unit {
-        println("进入状态: ${stateId}")
+        log_hierarchical_state_machine.debug("进入状态: ${stateId}")
         // 实现状态进入逻辑
         // 1. 执行进入动作
         // 2. 初始化状态资源
@@ -498,14 +501,14 @@ public class HierarchicalStateMachineActor <: Actor {
         message: Message,
         context: ActorContext
     ): Unit {
-        println("处理复合状态事件: ${state.getStateId()}")
+        log_hierarchical_state_machine.debug("处理复合状态事件: ${state.getStateId()}")
         
         // 将事件传递给子状态
         for (childStateId in state.getChildStates()) {
             if (childActors.contains(childStateId)) {
                 let childActor = childActors.get(childStateId).getOrThrow()
                 // 在实际实现中，这里会发送消息给子Actor
-                println("转发事件到子状态: ${childStateId}")
+                log_hierarchical_state_machine.debug("转发事件到子状态: ${childStateId}")
             }
         }
     }
@@ -518,7 +521,7 @@ public class HierarchicalStateMachineActor <: Actor {
         message: Message,
         context: ActorContext
     ): Unit {
-        println("处理简单状态事件: ${state.getStateId()}")
+        log_hierarchical_state_machine.debug("处理简单状态事件: ${state.getStateId()}")
         
         // 处理状态转换逻辑
         // 在实际实现中，这里会调用转换引擎
@@ -528,7 +531,7 @@ public class HierarchicalStateMachineActor <: Actor {
      * 处理状态转换
      */
     private func handleStateTransition(message: Message, context: ActorContext): MessageResult {
-        println("处理状态转换: ${currentState}")
+        log_hierarchical_state_machine.debug("处理状态转换: ${currentState}")
         
         // 实现状态转换逻辑
         // 需要考虑层次状态的进入和退出语义
@@ -586,7 +589,7 @@ public class HierarchicalStateMachineActor <: Actor {
     ): Unit {
         let childActor = HierarchicalStateMachineActor(childMachineDefinition, None)
         // 在实际实现中，这里会通过系统创建子Actor
-        println("创建子状态Actor: ${childStateId}")
+        log_hierarchical_state_machine.debug("创建子状态Actor: ${childStateId}")
     }
 }
 

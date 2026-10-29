@@ -11,6 +11,9 @@ import std.collection.*
 import std.collection.concurrent.*
 import cactor_core.message.{Message}
 import cactor_core.actor.{ActorRef, ActorPath}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_ask_pattern: Logger = Logging.logger("cactor_patterns.ask.ask_pattern")
 
 /**
  * Ask请求消息
@@ -244,7 +247,7 @@ public class AskPatternManager {
                 }
             case None => 
                 // 请求已超时或不存在
-                println("收到未知请求的响应: ${requestId}")
+                log_ask_pattern.debug("收到未知请求的响应: ${requestId}")
         }
     }
 
@@ -289,7 +292,7 @@ public class AskPatternManager {
         }
         
         if (!toRemove.isEmpty()) {
-            println("清理了 ${toRemove.size} 个超时的Ask请求")
+            log_ask_pattern.debug("清理了 ${toRemove.size} 个超时的Ask请求")
         }
     }
 
@@ -319,11 +322,11 @@ public class DummyActorRef <: ActorRef {
     }
 
     public func tell(message: Message): Unit {
-        println("DummyActorRef[${id}] 收到消息: ${message.messageType()}")
+        log_ask_pattern.debug("DummyActorRef[${id}] 收到消息: ${message.messageType()}")
     }
 
     public func tell(message: Message, sender: Option<String>): Unit {
-        println("DummyActorRef[${id}] 收到来自${sender}的消息: ${message.messageType()}")
+        log_ask_pattern.debug("DummyActorRef[${id}] 收到来自${sender}的消息: ${message.messageType()}")
     }
 
     public func equals(other: ActorRef): Bool {

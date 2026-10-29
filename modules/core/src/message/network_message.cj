@@ -10,6 +10,9 @@ import std.sync.*
 import std.time.*
 import cactor_foundation.network.{NetworkTransport, TcpTransport, UdpTransport, NetworkAddress}
 import cactor_foundation.serialization.SerializationManager
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_network_message: Logger = Logging.logger("cactor_core.message.network_message")
 
 /**
  * 网络消息包装器
@@ -224,10 +227,10 @@ public class NetworkMessageTransport {
             let networkMessage = serializer.deserialize(data)
             match (messageHandler) {
                 case Some(handler) => handler(networkMessage)
-                case None => println("警告：没有设置消息处理器")
+                case None => log_network_message.warn("警告：没有设置消息处理器")
             }
         } catch (e: Exception) {
-            println("网络消息反序列化失败: ${e.message}")
+            log_network_message.error("网络消息反序列化失败: ${e.message}")
         }
     }
 }

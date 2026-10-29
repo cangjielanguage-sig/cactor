@@ -9,6 +9,9 @@ import std.sync.*
 import std.collection.*
 import std.time.*
 import cactor_core.actor.{ActorRef}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_simple_actor_event_bus: Logger = Logging.logger("cactor_runtime.events.simple_actor_event_bus")
 
 /**
  * 简化的Actor生命周期事件
@@ -71,7 +74,7 @@ public class SimpleActorEventBus {
                 listener.onEvent(event)
             } catch (e: Exception) {
                 // 忽略监听器错误，避免影响系统运行
-                println("事件监听器错误: ${e.message}")
+                log_simple_actor_event_bus.error("事件监听器错误: ${e.message}")
             }
         }
     }
@@ -256,7 +259,7 @@ public class ConsoleEventListener <: SimpleEventListener {
     
     public func onEvent(event: SimpleActorLifecycleEvent): Unit {
         // 简化时间显示
-        println("${prefix} [${event.timestamp}] ${event.eventType}: ${event.actorRef.path.toString()} - ${event.message}")
+        log_simple_actor_event_bus.debug("${prefix} [${event.timestamp}] ${event.eventType}: ${event.actorRef.path.toString()} - ${event.message}")
     }
 }
 

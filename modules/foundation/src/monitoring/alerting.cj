@@ -8,6 +8,9 @@ package cactor_foundation.monitoring
 
 import std.collection.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_alerting: Logger = Logging.logger("cactor_foundation.monitoring.alerting")
 
 /**
  * 告警级别枚举
@@ -197,12 +200,12 @@ public class ConsoleNotificationChannel <: NotificationChannel {
             return false
         }
         
-        println("🚨 告警通知 [${alert.getLevelString()}]:")
-        println("   ID: ${alert.id}")
-        println("   名称: ${alert.name}")
-        println("   消息: ${alert.message}")
-        println("   时间: ${alert.timestamp}")
-        println("   状态: ${alert.getStatusString()}")
+        log_alerting.debug("🚨 告警通知 [${alert.getLevelString()}]:")
+        log_alerting.debug("   ID: ${alert.id}")
+        log_alerting.debug("   名称: ${alert.name}")
+        log_alerting.debug("   消息: ${alert.message}")
+        log_alerting.debug("   时间: ${alert.timestamp}")
+        log_alerting.debug("   状态: ${alert.getStatusString()}")
         
         true
     }
@@ -235,7 +238,7 @@ public class LogNotificationChannel <: NotificationChannel {
             return false
         }
         
-        println("[${logLevel}] Alert: ${alert.name} - ${alert.message} (${alert.getLevelString()})")
+        log_alerting.debug("[${logLevel}] Alert: ${alert.name} - ${alert.message} (${alert.getLevelString()})")
         true
     }
     

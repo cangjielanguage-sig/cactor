@@ -7,6 +7,9 @@ package cactor_distribution.streaming
 
 import cactor_core.actor.{Actor}
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_stream_builder: Logger = Logging.logger("cactor_distribution.streaming.stream_builder")
 
 // 流管道构建器
 public class StreamPipelineBuilder {
@@ -140,11 +143,11 @@ public class StreamPipeline {
     // 启动流管道
     public func start(): Unit {
         if (isRunning) {
-            println("流管道已经在运行中")
+            log_stream_builder.debug("流管道已经在运行中")
             return
         }
         
-        println("启动流处理管道...")
+        log_stream_builder.debug("启动流处理管道...")
         
         // 创建所有 Actor
         let allStages = ArrayList<StreamStage>()
@@ -172,24 +175,24 @@ public class StreamPipeline {
                 case sourceActor: StreamSourceActor =>
                     let startMsg = StreamControlMessage("START")
                     // 在实际实现中，这里应该通过 ActorRef 发送消息
-                    println("发送启动消息到流源")
+                    log_stream_builder.debug("发送启动消息到流源")
                 case _ =>
-                    println("第一个Actor不是StreamSourceActor")
+                    log_stream_builder.debug("第一个Actor不是StreamSourceActor")
             }
         }
         
         isRunning = true
-        println("流处理管道已启动")
+        log_stream_builder.debug("流处理管道已启动")
     }
     
     // 停止流管道
     public func stop(): Unit {
         if (!isRunning) {
-            println("流管道未在运行")
+            log_stream_builder.debug("流管道未在运行")
             return
         }
         
-        println("停止流处理管道...")
+        log_stream_builder.debug("停止流处理管道...")
         
         // 停止流源
         if (actors.size > 0) {
@@ -197,9 +200,9 @@ public class StreamPipeline {
                 case sourceActor: StreamSourceActor =>
                     let stopMsg = StreamControlMessage("STOP")
                     // 在实际实现中，这里应该通过 ActorRef 发送消息
-                    println("发送停止消息到流源")
+                    log_stream_builder.debug("发送停止消息到流源")
                 case _ =>
-                    println("第一个Actor不是StreamSourceActor")
+                    log_stream_builder.debug("第一个Actor不是StreamSourceActor")
             }
         }
         
@@ -209,12 +212,12 @@ public class StreamPipeline {
         }
         
         isRunning = false
-        println("流处理管道已停止")
+        log_stream_builder.debug("流处理管道已停止")
     }
     
     // 连接管道各阶段
     private func connectPipeline(): Unit {
-        println("连接流处理管道各阶段...")
+        log_stream_builder.debug("连接流处理管道各阶段...")
         
         // 在实际实现中，这里应该设置 ActorRef 连接
         for (i in 0..(actors.size - 1)) {
@@ -227,9 +230,9 @@ public class StreamPipeline {
 
             match (nextStage) {
                 case Some(next) =>
-                    println("连接 ${currentStage} -> ${next}")
+                    log_stream_builder.debug("连接 ${currentStage} -> ${next}")
                 case None =>
-                    println("${currentStage} 是最后一个阶段")
+                    log_stream_builder.debug("${currentStage} 是最后一个阶段")
             }
         }
     }
@@ -258,7 +261,7 @@ public class StreamPipeline {
                 case sinkActor: StreamSinkActor =>
                     stats.setSinkStats("运行中", sinkActor.getReceivedCount())
                 case _ =>
-                    println("未知Actor类型")
+                    log_stream_builder.debug("未知Actor类型")
             }
         }
         

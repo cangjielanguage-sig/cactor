@@ -12,6 +12,9 @@ import std.collection.concurrent.*
 import cactor_core.actor.{ActorRef}
 // 监督的核心类型定义在 cactor_core.actor（供 Actor / Props 引用而不成环），这里重导出以保持兼容
 public import cactor_core.actor.{SupervisionDirective, ActorFailure, SupervisionStrategy}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_supervision_strategy: Logger = Logging.logger("cactor_core.supervision.supervision_strategy")
 
 /**
  * 重试信息
@@ -196,16 +199,16 @@ public class EscalateStrategy <: SupervisionStrategy {
         let actorKey = failure.actor.path.toString()
         let escalateInfo = getOrCreateEscalateInfo(actorKey)
 
-        println("[ESCALATE-STRATEGY] 评估失败: " + actorKey)
-        println("[ESCALATE-STRATEGY] 失败次数: " + escalateInfo.getRetryCount().toString())
-        println("[ESCALATE-STRATEGY] 阈值: " + escalateThreshold.toString())
+        log_supervision_strategy.error("[ESCALATE-STRATEGY] 评估失败: " + actorKey)
+        log_supervision_strategy.error("[ESCALATE-STRATEGY] 失败次数: " + escalateInfo.getRetryCount().toString())
+        log_supervision_strategy.debug("[ESCALATE-STRATEGY] 阈值: " + escalateThreshold.toString())
 
         if (escalateInfo.shouldRetry(Int32(escalateThreshold), escalateTimeWindow)) {
             escalateInfo.recordRetry()
-            println("[ESCALATE-STRATEGY] 失败次数未达到阈值，继续重启")
+            log_supervision_strategy.error("[ESCALATE-STRATEGY] 失败次数未达到阈值，继续重启")
             SupervisionDirective.Restart
         } else {
-            println("[ESCALATE-STRATEGY] 失败次数达到阈值，向上级传播")
+            log_supervision_strategy.error("[ESCALATE-STRATEGY] 失败次数达到阈值，向上级传播")
             SupervisionDirective.Escalate
         }
     }
@@ -262,11 +265,11 @@ public class BackoffSupervisorStrategy <: SupervisionStrategy {
         let actorKey = failure.actor.path.toString()
         let backoffInfo = getOrCreateBackoffInfo(actorKey)
 
-        println("[BACKOFF-STRATEGY] 评估失败: " + actorKey)
-        println("[BACKOFF-STRATEGY] 重试次数: " + backoffInfo.retryCount.toString())
+        log_supervision_strategy.error("[BACKOFF-STRATEGY] 评估失败: " + actorKey)
+        log_supervision_strategy.debug("[BACKOFF-STRATEGY] 重试次数: " + backoffInfo.retryCount.toString())
 
         if (backoffInfo.retryCount >= maxRetries) {
-            println("[BACKOFF-STRATEGY] 达到最大重试次数，停止Actor")
+            log_supervision_strategy.debug("[BACKOFF-STRATEGY] 达到最大重试次数，停止Actor")
             return SupervisionDirective.Stop
         }
 
@@ -276,16 +279,16 @@ public class BackoffSupervisorStrategy <: SupervisionStrategy {
         backoffInfo.lastBackoffTime = backoffTime
         backoffInfo.nextRetryTime = DateTime.now().toUnixTimeStamp().toMilliseconds() + backoffTime.toMilliseconds()
 
-        println("[BACKOFF-STRATEGY] 计算退避时间: " + backoffTime.toString())
-        println("[BACKOFF-STRATEGY] 下次重试时间: " + backoffInfo.nextRetryTime.toString())
+        log_supervision_strategy.debug("[BACKOFF-STRATEGY] 计算退避时间: " + backoffTime.toString())
+        log_supervision_strategy.debug("[BACKOFF-STRATEGY] 下次重试时间: " + backoffInfo.nextRetryTime.toString())
 
         // 检查是否到了重试时间
         let currentTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
         if (currentTime >= backoffInfo.nextRetryTime) {
-            println("[BACKOFF-STRATEGY] 可以重试，执行重启")
+            log_supervision_strategy.debug("[BACKOFF-STRATEGY] 可以重试，执行重启")
             SupervisionDirective.Restart
         } else {
-            println("[BACKOFF-STRATEGY] 还未到重试时间，暂时停止")
+            log_supervision_strategy.debug("[BACKOFF-STRATEGY] 还未到重试时间，暂时停止")
             SupervisionDirective.Stop  // 实际实现中应该延迟重启
         }
     }
@@ -469,17 +472,17 @@ public class BasicSupervisor <: Supervisor {
         match (directive) {
             case SupervisionDirective.Resume =>
                 // 恢复Actor - 简化实现
-                println("恢复Actor: ${failure.actor.path.toString()}")
+                log_supervision_strategy.error("恢复Actor: ${failure.actor.path.toString()}")
             case SupervisionDirective.Restart =>
                 // 重启Actor - 简化实现
-                println("重启Actor: ${failure.actor.path.toString()}")
+                log_supervision_strategy.error("重启Actor: ${failure.actor.path.toString()}")
             case SupervisionDirective.Stop =>
                 // 停止Actor
-                println("停止Actor: ${failure.actor.path.toString()}")
+                log_supervision_strategy.error("停止Actor: ${failure.actor.path.toString()}")
                 removeChild(failure.actor)
             case SupervisionDirective.Escalate =>
                 // 上报失败 - 简化实现
-                println("上报失败: ${failure.actor.path.toString()}")
+                log_supervision_strategy.error("上报失败: ${failure.actor.path.toString()}")
         }
     }
 

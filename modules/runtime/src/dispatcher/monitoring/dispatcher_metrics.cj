@@ -10,6 +10,9 @@ import std.time.*
 import std.collection.*
 import std.collection.concurrent.*
 import cactor_runtime.dispatcher.advanced.{AdvancedMessageDispatcher, Priority}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_dispatcher_metrics: Logger = Logging.logger("cactor_runtime.dispatcher.monitoring.dispatcher_metrics")
 
 /**
  * 调度器指标收集器
@@ -33,7 +36,7 @@ public class DispatcherMetricsCollector {
      */
     public func start(): Unit {
         if (isRunning.compareAndSwap(false, true)) {
-            println("[METRICS] 调度器指标收集器启动")
+            log_dispatcher_metrics.debug("[METRICS] 调度器指标收集器启动")
         }
     }
     
@@ -42,7 +45,7 @@ public class DispatcherMetricsCollector {
      */
     public func stop(): Unit {
         if (isRunning.compareAndSwap(true, false)) {
-            println("[METRICS] 调度器指标收集器停止")
+            log_dispatcher_metrics.debug("[METRICS] 调度器指标收集器停止")
         }
     }
     
@@ -52,7 +55,7 @@ public class DispatcherMetricsCollector {
     public func registerDispatcher(name: String, dispatcher: AdvancedMessageDispatcher): Unit {
         let dispatcherMetrics = DispatcherMetrics(name, dispatcher)
         metrics.add(name, dispatcherMetrics)
-        println("[METRICS] 注册调度器指标: ${name}")
+        log_dispatcher_metrics.debug("[METRICS] 注册调度器指标: ${name}")
     }
     
     /**
@@ -60,7 +63,7 @@ public class DispatcherMetricsCollector {
      */
     public func unregisterDispatcher(name: String): Unit {
         metrics.remove(name)
-        println("[METRICS] 注销调度器指标: ${name}")
+        log_dispatcher_metrics.debug("[METRICS] 注销调度器指标: ${name}")
     }
     
     /**
@@ -74,7 +77,7 @@ public class DispatcherMetricsCollector {
                 dispatcherMetrics.recordDispatch(latencyMs, priority, success)
                 globalMetrics.recordDispatch(latencyMs, priority, success)
             case None =>
-                println("[METRICS] 未找到调度器指标: ${dispatcherName}")
+                log_dispatcher_metrics.debug("[METRICS] 未找到调度器指标: ${dispatcherName}")
         }
     }
     
@@ -89,7 +92,7 @@ public class DispatcherMetricsCollector {
                 dispatcherMetrics.recordBatchDispatch(latencyMs, batchSize, success)
                 globalMetrics.recordBatchDispatch(latencyMs, batchSize, success)
             case None =>
-                println("[METRICS] 未找到调度器指标: ${dispatcherName}")
+                log_dispatcher_metrics.debug("[METRICS] 未找到调度器指标: ${dispatcherName}")
         }
     }
     
@@ -129,7 +132,7 @@ public class DispatcherMetricsCollector {
             dispatcherMetrics.reset()
         }
         globalMetrics.reset()
-        println("[METRICS] 所有指标已重置")
+        log_dispatcher_metrics.debug("[METRICS] 所有指标已重置")
     }
     
     /**

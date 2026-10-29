@@ -5,6 +5,9 @@ package cactor_runtime.lifecycle
 
 import std.collection.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_coordinated_shutdown: Logger = Logging.logger("cactor_runtime.lifecycle.coordinated_shutdown")
 
 /**
  * 一个最小可用的协调关闭实现：
@@ -90,7 +93,7 @@ public class CoordinatedShutdown {
         mutex.unlock()
         for (t in list) {
             try { t() } catch (e: Exception) {
-                println("[CoordinatedShutdown] phase='${phase}' task failed: ${e.message}")
+                log_coordinated_shutdown.error("[CoordinatedShutdown] phase='${phase}' task failed: ${e.message}")
             }
         }
     }

@@ -13,6 +13,9 @@ import cactor_core.message.{Envelope}
 import cactor_core.actor.ActorRef
 import cactor_runtime.dispatcher.advanced.{AdvancedMessageDispatcher, Priority}
 import cactor_runtime.dispatcher.dynamic.{DynamicDispatcherConfigManager, ConfigUpdate}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_adaptive_dispatcher: Logger = Logging.logger("cactor_runtime.dispatcher.adaptive.adaptive_dispatcher")
 
 /**
  * 自适应调度器
@@ -108,7 +111,7 @@ public class AdaptiveDispatcher <: AdvancedMessageDispatcher {
             baseDispatcher.start()
             performanceMonitor.start()
             adaptationEngine.start()
-            println("[ADAPTIVE] 自适应调度器 ${name} 启动")
+            log_adaptive_dispatcher.debug("[ADAPTIVE] 自适应调度器 ${name} 启动")
         }
     }
     
@@ -117,7 +120,7 @@ public class AdaptiveDispatcher <: AdvancedMessageDispatcher {
             adaptationEngine.stop()
             performanceMonitor.stop()
             baseDispatcher.stop()
-            println("[ADAPTIVE] 自适应调度器 ${name} 停止")
+            log_adaptive_dispatcher.debug("[ADAPTIVE] 自适应调度器 ${name} 停止")
         }
     }
     
@@ -396,14 +399,14 @@ public class AdaptationEngine {
     
     public func start(): Unit {
         if (isRunning.compareAndSwap(false, true)) {
-            println("[ADAPTATION] 适应引擎启动")
+            log_adaptive_dispatcher.debug("[ADAPTATION] 适应引擎启动")
             // 在实际实现中，这里会启动一个后台线程定期执行适应逻辑
         }
     }
     
     public func stop(): Unit {
         if (isRunning.compareAndSwap(true, false)) {
-            println("[ADAPTATION] 适应引擎停止")
+            log_adaptive_dispatcher.debug("[ADAPTATION] 适应引擎停止")
         }
     }
     
@@ -422,13 +425,13 @@ public class AdaptationEngine {
             // 增加吞吐量
             let update = ConfigUpdate.throughputUpdate(150)
             configManager.updateConfig(dispatcherName, update)
-            println("[ADAPTATION] 检测到高延迟，增加吞吐量")
+            log_adaptive_dispatcher.debug("[ADAPTATION] 检测到高延迟，增加吞吐量")
             
         } else if (successRate < 0.95) {  // 成功率过低
             // 减少吞吐量，增加稳定性
             let update = ConfigUpdate.throughputUpdate(50)
             configManager.updateConfig(dispatcherName, update)
-            println("[ADAPTATION] 检测到低成功率，减少吞吐量")
+            log_adaptive_dispatcher.debug("[ADAPTATION] 检测到低成功率，减少吞吐量")
         }
     }
 }

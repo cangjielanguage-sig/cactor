@@ -9,6 +9,9 @@ import std.collection.*
 import std.time.*
 import cactor_xstate.core.types.{StateMachineEvent, TransitionDefinition, TransitionResult, TransitionEffect}
 import cactor_xstate.core.machine.{StateMachineDefinition}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_transition_engine: Logger = Logging.logger("cactor_xstate.core.engine.transition_engine")
 
 /**
  * 模式匹配转换引擎
@@ -188,11 +191,11 @@ public struct PatternTransitionEngine {
             let state = stateOption.getOrThrow()
             if (state.hasExitActions()) {
                 for (action in state.onExit) {
-                    println("执行退出动作: ${action}")
+                    log_transition_engine.debug("执行退出动作: ${action}")
                 }
             }
         } else {
-            println("警告: 状态'${stateId}'不存在")
+            log_transition_engine.warn("警告: 状态'${stateId}'不存在")
         }
     }
     
@@ -204,7 +207,7 @@ public struct PatternTransitionEngine {
         event: StateMachineEvent
     ): Unit {
         // 这里可以根据转换的元数据执行相应的动作
-        println("执行转换动作: ${transition.getDescription()}")
+        log_transition_engine.debug("执行转换动作: ${transition.getDescription()}")
     }
     
     /**
@@ -216,11 +219,11 @@ public struct PatternTransitionEngine {
             let state = stateOption.getOrThrow()
             if (state.hasEntryActions()) {
                 for (action in state.onEntry) {
-                    println("执行进入动作: ${action}")
+                    log_transition_engine.debug("执行进入动作: ${action}")
                 }
             }
         } else {
-            println("警告: 状态'${stateId}'不存在")
+            log_transition_engine.warn("警告: 状态'${stateId}'不存在")
         }
     }
     
