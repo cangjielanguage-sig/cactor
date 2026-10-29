@@ -730,7 +730,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         } else {
             [child]
         }
-        cellLog.debug({ => "子 Actor ${child.pathString} 失败（${cause}），指令 ${directiveName(directive)}" })
+        cellLog.error("Actor ${child.pathString} 失败：${cause}，监督指令：${directiveName(directive)}")
         match (directive) {
             case SupervisionDirective.Resume => child.sendSystem(SysResume())
             case SupervisionDirective.Restart =>

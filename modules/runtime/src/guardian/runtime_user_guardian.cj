@@ -158,7 +158,10 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         let strategy = synchronized(guardianLock) {
             supervisionStrategies.get(key) ?? defaultSupervisionStrategy
         }
-        match (strategy.decide(failure)) {
+        let directive = strategy.decide(failure)
+        // 与 Akka 一致：每次失败都以 ERROR 级别记录（否则一直失败并重启的 Actor 完全看不出问题）
+        log.error("Actor ${cell.pathString} 失败：${cause}，监督指令：${directiveLabel(directive)}")
+        match (directive) {
             case SupervisionDirective.Resume => ()
             case SupervisionDirective.Restart =>
                 match (strategy) {
@@ -176,6 +179,15 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                 // 顶层 Actor 没有可以上报的父 Actor：停止它
                 log.error("顶层 Actor ${cell.pathString} 上报失败（${cause}），已停止")
                 cell.terminateInCell()
+        }
+    }
+
+    private static func directiveLabel(d: SupervisionDirective): String {
+        match (d) {
+            case SupervisionDirective.Resume => "Resume"
+            case SupervisionDirective.Restart => "Restart"
+            case SupervisionDirective.Stop => "Stop"
+            case SupervisionDirective.Escalate => "Escalate"
         }
     }
 

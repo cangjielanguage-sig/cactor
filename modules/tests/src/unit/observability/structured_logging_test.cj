@@ -29,8 +29,30 @@ class RequestActor <: Actor {
     }
 }
 
+class Faulty <: Actor {
+    public prop name: String { get() { "faulty" } }
+    public prop description: String { get() { "faulty" } }
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        throw IllegalStateException("boom-${(message as StringMessage).getOrThrow().getContent()}")
+    }
+}
+
 @Test
 public class StructuredLoggingTest {
+    @TestCase
+    public func testActorFailuresAreLoggedAsErrors(): Unit {
+        let sink = MemorySink()
+        Logging.setSink(sink)
+        let kit = ActorTestKit("failure-log")
+        let r = kit.actorOf({ => Faulty() }, "faulty")
+        r << StringMessage("1") << StringMessage("2")
+        @Expect(awaitCondition(Duration.second * 3, { => sink.count(LogLevel.Error, "boom-2") == 1 }), true)
+        Logging.setSink(StderrSink())
+        @Expect(sink.count(LogLevel.Error, "/user/faulty"), 2)
+        @Expect(sink.count(LogLevel.Error, "监督指令：Restart"), 2)
+        kit.shutdown()
+    }
+
     @TestCase
     public func testLoggerFieldsAreImmutableAndFormatted(): Unit {
         let sink = MemorySink()
