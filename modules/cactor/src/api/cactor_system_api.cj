@@ -13,6 +13,7 @@ import cactor_runtime.wrappers.{TypedActorRefWrapper, TypedActorSelectionWrapper
 import cactor_runtime.{CActorRuntime, CActorRuntimeConfig}
 import cactor_runtime.typed.{TypedActorSystemImpl}
 import std.time.*
+import cactor_core.message.{Message}
 
 /**
  * CActorSystem - 参考Akka设计的统一Actor系统API
@@ -122,6 +123,33 @@ public class CActorSystem {
      */
     public func terminate(): Unit {
         runtime.shutdown()
+    }
+
+    /**
+     * 停止顶层 Actor：已入队的消息处理完后停止，其子 Actor 会先被停止
+     */
+    public func stop(actorRef: ActorRef): Unit {
+        runtime.stop(actorRef)
+    }
+
+    /**
+     * 按路径查找存活的 Actor（包括子 Actor），例如 "/user/parent/child"
+     */
+    public func lookup(path: String): Option<ActorRef> {
+        runtime.lookup(path)
+    }
+
+    /**
+     * 订阅死信：投递失败的消息（目标已停止、有界邮箱已满、回复对象不存在等）
+     * 回调参数为消息和原目标路径；回调在发送方线程上执行，应尽快返回
+     */
+    public func subscribeDeadLetters(listener: (Message, String) -> Unit): Unit {
+        runtime.subscribeDeadLetters(listener)
+    }
+
+    /** 系统内累计的死信数 */
+    public func deadLetterCount(): Int64 {
+        runtime.deadLetterCount()
     }
 
     /**

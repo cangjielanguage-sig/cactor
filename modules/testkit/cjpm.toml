@@ -1,0 +1,11 @@
+[package]
+name = "cactor_testkit"
+version = "1.2.0"
+description = "测试工具：TestProbe、ActorTestKit、EventRecorder、awaitCondition"
+cjc-version = "1.2.0"
+output-type = "static"
+
+[dependencies]
+cactor_core = { path = "../core" }
+cactor_runtime = { path = "../runtime" }
+cactor = { path = "../cactor" }

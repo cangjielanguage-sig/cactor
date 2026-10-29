@@ -21,6 +21,7 @@ LAYERS = {
     "cactor_patterns": 3,
     "cactor": 4,
     "cactor_streams": 5,
+    "cactor_testkit": 5,
     "cactor_cluster": 5,
     "cactor_distribution": 6,
     "cactor_xstate": 6,

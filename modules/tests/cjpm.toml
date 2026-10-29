@@ -13,3 +13,4 @@ cactor_remote = { path = "../remote" }
 cactor_persistence = { path = "../persistence" }
 cactor_foundation = { path = "../foundation" }
 cactor = { path = "../cactor" }
+cactor_testkit = { path = "../testkit" }

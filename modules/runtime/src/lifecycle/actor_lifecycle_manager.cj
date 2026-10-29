@@ -88,9 +88,9 @@ public class ActorLifecycleManager {
             updateActorState(actorRef, ActorLifecycleState.Starting, None<Exception>)
         
             try {
-                // 发送启动消息
-                actorRef.tell(StartMessage())
-            
+                // 实例创建时已在 Cell 中执行 preStart，这里不再向用户 Actor 投递 StartMessage
+                // （Akka 也不会向用户 Actor 发送启动消息；多余的消息会被当作业务消息处理）
+
                 // 更新状态为运行中
                 updateActorState(actorRef, ActorLifecycleState.Running, None<Exception>)
             
