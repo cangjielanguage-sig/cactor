@@ -423,23 +423,21 @@ The following issues are known and are being addressed according to the [develop
 - **Remoting**: TCP transport on `std.net` with at-most-once delivery; remote ask is not supported yet.
 - **Clustering**: prototype only.
 - **Macros**: most DSL macros do not yet perform real expansion.
-- **Log output**: the runtime prints startup and shutdown logs directly to standard output, and this cannot be turned off yet.
+- **Logging**: library logging goes through a leveled logger (default WARN, written to stderr, adjustable with the `CACTOR_LOG_LEVEL` environment variable), but the repository still has three logging implementations; they are to be merged in 1.3.0.
 - **Old benchmark programs**: apart from `real_benchmark`, the benchmark programs in the repository measure synchronous function-call overhead, not message passing.
 
 ---
 
 ## Roadmap
 
-In priority order; see the [development plan](docs/plan/20261028.md) (in Chinese) for details.
+See [ROADMAP.md](ROADMAP.md) (in Chinese) for the full roadmap. Release plan in brief:
 
-- [x] Upgrade to Cangjie 1.2.0
-- [x] Split into 12 cjpm modules with a layering check
-- [x] **Core runtime**: one mailbox per actor, messages processed serially by a dispatcher, `tell` only enqueues, fixed concurrent containers, concurrency-semantics tests
-- [ ] **API cleanup and deduplication**: smaller public API per module, remove duplicate and placeholder code
-- [ ] **Engineering quality**: a logging abstraction instead of `println`, zero compiler warnings, no `sleep`-based synchronization in tests, CI
-- [x] **Reproducible benchmarks**: nanosecond timing, ping-pong / fan-out scenarios, P50 / P99 statistics
-- [x] **Remoting and persistence**: remoting on std.net, a file-based event journal, snapshots and event-sourced actors
-- [ ] **Clustering**: membership and heartbeats on top of remoting
+- [x] **1.2.0**: Cangjie 1.2.0; multi-module workspace; core runtime with classic and typed actor semantics (supervision tree, watch, become, timers, stash, ...); remoting on std.net and file-based persistence; reproducible benchmarks
+- [ ] **1.3.0 Consolidation**: remove dead and duplicate code; one logger, one config, one ask kernel and one scheduler; a real JSON codec; API snapshots; no `sleep` in tests; re-run benchmarks on an idle machine
+- [ ] **1.4.0 New API and HTTP**: `actorSystem {}` / `spawn` / `ask` entry points, `@Actor` / `@Message` macros, a Ktor-style HTTP server integrated with actors
+- [ ] **1.5.0 Performance and reliable remoting**: native HTTP engine, fan-out improvements, remote ask / watch, reliable delivery, TLS
+- [ ] **1.6.0 Clustering and production readiness**: membership, singleton, split-brain resolution; HTTP client, WebSocket, production plugins
+- [ ] **2.0.0**: sharding, a persistence plugin API, API freeze and publication to the central repository
 
 ---
 
