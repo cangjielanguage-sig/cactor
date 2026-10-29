@@ -146,3 +146,6 @@ go_protoactor_benchmark/go.sum
 # 外部基准测试项目
 rust_benchmark/Cargo.lock
 go_protoactor_benchmark/go.mod
+# 基准：下载的依赖和运行结果
+bench/akka/jars/
+bench/results/

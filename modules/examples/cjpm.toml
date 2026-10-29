@@ -135,3 +135,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.real_benchmark"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.micro_benchmark"]
+output-type = "executable"
