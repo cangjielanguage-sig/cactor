@@ -419,9 +419,9 @@ python3 tools/check_module_deps.py  # 检查模块分层约束
 以下问题已经确认，正在按 [开发计划](docs/plan/20261028.md) 逐步处理：
 
 - **调度**：亲和调度，还没有工作窃取；扇出吞吐仍明显低于 Akka；在 `receive` 中阻塞会占住工作线程，同一线程上的其他 Actor 也会被拖慢。
-- **远程通信**：基于 `std.net` 的 TCP 传输，投递语义是至多一次，暂不支持远程 ask。
-- **集群**：目前只有原型。
-- **宏**：DSL 宏大多还没有实际展开逻辑。
+- **远程通信**：基于 `std.net` 的 TCP 传输。普通 `tell` 是至多一次；需要可靠性时用 `tellReliable`（序号、确认、重发、去重）。支持远程 ask、跨节点回复和远程 watch。暂不支持 TLS。
+- **集群**：`cactor_cluster.membership` 提供 gossip 成员协议、Cluster Singleton、分布式发布订阅和集群分片，`cactor_cluster.ddata` 提供 CRDT 与 Replicator，均有多节点测试与多进程验证（`tools/cluster_demo.sh`）。分片实体的状态在移交后不保留（需要时结合事件溯源）；还没有脑裂处理策略（只有手动 down 和超时自动 down）。`cactor_cluster` 根包中的旧类（`SimpleClusterManager`、`ShardRegion` 等）是早期原型，将在 1.3.0 删除。
+- **宏**：`@actorReceive` 已可用；其余 DSL 宏大多还没有实际展开逻辑。
 - **日志**：库内日志走分级日志（默认 WARN，输出到 stderr，用环境变量 `CACTOR_LOG_LEVEL` 调整），但仓库中还有三套日志实现，计划在 1.3.0 合并。
 - **旧基准程序**：除 `real_benchmark` 外，仓库里其他 benchmark 程序测到的是同步函数调用的开销，不代表消息传递性能。
 

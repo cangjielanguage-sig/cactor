@@ -420,9 +420,9 @@ Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measur
 The following issues are known and are being addressed according to the [development plan](docs/plan/20261028.md) (in Chinese):
 
 - **Scheduling**: affinity scheduling without work stealing yet; fan-out throughput is still well below Akka; blocking inside `receive` occupies a worker thread and slows other actors pinned to it.
-- **Remoting**: TCP transport on `std.net` with at-most-once delivery; remote ask is not supported yet.
-- **Clustering**: prototype only.
-- **Macros**: most DSL macros do not yet perform real expansion.
+- **Remoting**: TCP transport on `std.net`. Plain `tell` is at-most-once; `tellReliable` adds sequence numbers, acks, resends and de-duplication. Remote ask, cross-node replies and remote watch are supported. No TLS yet.
+- **Clustering**: `cactor_cluster.membership` provides gossip membership, Cluster Singleton, distributed pub/sub and cluster sharding; `cactor_cluster.ddata` provides CRDTs and a Replicator. All are covered by multi-node tests and a multi-process check (`tools/cluster_demo.sh`). Sharded entity state is not kept across handoff (combine with event sourcing if needed), and there is no split-brain resolver yet (only manual down and timed auto-down). The old classes in the `cactor_cluster` root package (`SimpleClusterManager`, `ShardRegion`, ...) are early prototypes and will be removed in 1.3.0.
+- **Macros**: `@actorReceive` works; most other DSL macros do not yet perform real expansion.
 - **Logging**: library logging goes through a leveled logger (default WARN, written to stderr, adjustable with the `CACTOR_LOG_LEVEL` environment variable), but the repository still has three logging implementations; they are to be merged in 1.3.0.
 - **Old benchmark programs**: apart from `real_benchmark`, the benchmark programs in the repository measure synchronous function-call overhead, not message passing.
 
