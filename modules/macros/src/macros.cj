@@ -9,6 +9,7 @@
 macro package cactor_macros
 
 import std.ast.*
+import std.collection.*
 import std.time.*
 
 /**
@@ -689,6 +690,7 @@ public macro actorReceive(input: Tokens): Tokens {
     }
     var arms = quote()
     var handlerCount = 0
+    let seenTypes = ArrayList<String>()
     var hasName = false
     var hasDescription = false
     for (d in cls.body.decls) {
@@ -700,6 +702,13 @@ public macro actorReceive(input: Tokens): Tokens {
                 }
                 if (fname.startsWith("on") && fname.size > 2 && f.funcParams.size == 2) {
                     let t = f.funcParams[0].paramType
+                    let typeText = t.toTokens().toString().replace(" ", "")
+                    for (seen in seenTypes) {
+                        if (seen == typeText) {
+                            throw ASTException("@actorReceive: ${cls.identifier.value} 中有多个处理 ${typeText} 的方法（${fname}），后一个永远不会被调用")
+                        }
+                    }
+                    seenTypes.add(typeText)
                     let id = f.identifier
                     arms = quote($arms
                         case m: $t => this.$id(m, context)

@@ -97,24 +97,31 @@ public class ClassicTypedRef<T> <: TypedActorRef<T> {
 public struct TypedProps {
     public let dispatcher: String
     public let mailboxCapacity: Int64
+    public let overflow: MailboxOverflow
 
     public init() {
-        this("default", 0)
+        this("default", 0, MailboxOverflow.DropNew)
     }
 
-    init(dispatcher: String, mailboxCapacity: Int64) {
+    init(dispatcher: String, mailboxCapacity: Int64, overflow: MailboxOverflow) {
         this.dispatcher = dispatcher
         this.mailboxCapacity = mailboxCapacity
+        this.overflow = overflow
     }
 
     /** "default"（共享线程池）或 "blocking"（独立线程池，用于会阻塞的 Actor） */
     public func withDispatcher(name: String): TypedProps {
-        TypedProps(name, mailboxCapacity)
+        TypedProps(name, mailboxCapacity, overflow)
     }
 
     /** 有界邮箱：超过容量的消息被丢弃并计为死信 */
     public func withBoundedMailbox(capacity: Int64): TypedProps {
-        TypedProps(dispatcher, capacity)
+        TypedProps(dispatcher, capacity, MailboxOverflow.DropNew)
+    }
+
+    /** 有界邮箱，并指定邮箱满时的处理方式 */
+    public func withBoundedMailbox(capacity: Int64, overflow: MailboxOverflow): TypedProps {
+        TypedProps(dispatcher, capacity, overflow)
     }
 }
 
@@ -130,7 +137,7 @@ public struct TypedSpawn {
             p = p.withDispatcher(typedProps.dispatcher)
         }
         if (typedProps.mailboxCapacity > 0) {
-            p = p.withBoundedMailbox(typedProps.mailboxCapacity)
+            p = p.withBoundedMailbox(typedProps.mailboxCapacity, typedProps.overflow)
         }
         p
     }

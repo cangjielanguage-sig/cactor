@@ -15,6 +15,7 @@ package cactor_core.actor
 
 import std.time.*
 import cactor_core.message.{Message, MessageResult}
+import cactor_foundation.logging.{Logger, Logging}
 
 /**
  * 行为函数：become 切换后用它代替 Actor.receive 处理消息
@@ -149,6 +150,18 @@ public interface ActorContext {
     /** 把全部暂存消息按原顺序放回，先于邮箱中的其他消息处理 */
     func unstashAll(): Unit {
         throw UnsupportedContextException("unstashAll")
+    }
+
+    // ---------- 日志 ----------
+
+    /** 以 Actor 路径为来源标签的日志记录器 */
+    func log(): Logger {
+        let source = try {
+            self.path.getPath()
+        } catch (_: Exception) {
+            "actor"
+        }
+        Logging.logger(source)
     }
 
     // ---------- 查找 ----------

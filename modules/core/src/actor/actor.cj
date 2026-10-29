@@ -5,6 +5,7 @@
  */
 package cactor_core.actor
 
+import std.time.*
 import cactor_core.message.*
 
 /**
@@ -213,6 +214,25 @@ public class SimpleActorFactory<T> <: ActorFactory<T> where T <: Actor {
  * Props - Actor创建配置
  * 参考Akka的Props设计
  */
+/**
+ * 有界邮箱满时的处理方式（对标 Akka BoundedMailbox 的 pushTimeout 与 Reactive Streams 的溢出策略）
+ */
+public enum MailboxOverflow {
+    /** 丢弃新消息并计为死信（默认，发送方不受影响） */
+    | DropNew
+    /** 丢弃新消息并向发送方抛出 MailboxFullException */
+    | Fail
+    /** 发送方等待空位，最多等待给定时长；超时后按 DropNew 处理。不要在同一调度器的 Actor 之间使用，以免占住工作线程 */
+    | Block(Duration)
+}
+
+/** 邮箱已满（MailboxOverflow.Fail） */
+public class MailboxFullException <: Exception {
+    public init(message: String) {
+        super(message)
+    }
+}
+
 public struct Props<T> where T <: Actor {
     private let factory: ActorFactory<T>
     private let dispatcher: String
@@ -220,6 +240,7 @@ public struct Props<T> where T <: Actor {
     private let supervisionStrategy: String
     private let mailboxCapacity: Int64
     private let strategy: Option<SupervisionStrategy>
+    private let overflow: MailboxOverflow
 
     public init(factory: ActorFactory<T>) {
         this.factory = factory
@@ -228,23 +249,25 @@ public struct Props<T> where T <: Actor {
         this.supervisionStrategy = "default"
         this.mailboxCapacity = 0
         this.strategy = None<SupervisionStrategy>
+        this.overflow = MailboxOverflow.DropNew
     }
 
     private init(factory: ActorFactory<T>, dispatcher: String, mailboxType: String, supervisionStrategy: String,
-        mailboxCapacity: Int64, strategy: Option<SupervisionStrategy>) {
+        mailboxCapacity: Int64, strategy: Option<SupervisionStrategy>, overflow: MailboxOverflow) {
         this.factory = factory
         this.dispatcher = dispatcher
         this.mailboxType = mailboxType
         this.supervisionStrategy = supervisionStrategy
         this.mailboxCapacity = mailboxCapacity
         this.strategy = strategy
+        this.overflow = overflow
     }
 
     /**
      * 调度器："default"（共享的亲和调度线程池）或 "blocking"（独立线程池，用于会阻塞的 Actor）
      */
     public func withDispatcher(dispatcher: String): Props<T> {
-        Props<T>(factory, dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, strategy)
+        Props<T>(factory, dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, strategy, overflow)
     }
 
     /**
@@ -252,21 +275,30 @@ public struct Props<T> where T <: Actor {
      * "priority"（按 Message.priority() 从高到低处理，同优先级先进先出）
      */
     public func withMailbox(mailboxType: String): Props<T> {
-        Props<T>(factory, this.dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, strategy)
+        Props<T>(factory, this.dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, strategy, overflow)
     }
 
     /** 有界邮箱：超过容量的新消息被丢弃并计为死信 */
     public func withBoundedMailbox(capacity: Int64): Props<T> {
-        Props<T>(factory, dispatcher, "bounded", supervisionStrategy, capacity, strategy)
+        Props<T>(factory, dispatcher, "bounded", supervisionStrategy, capacity, strategy, MailboxOverflow.DropNew)
+    }
+
+    /** 有界邮箱，并指定邮箱满时的处理方式（背压） */
+    public func withBoundedMailbox(capacity: Int64, overflow: MailboxOverflow): Props<T> {
+        Props<T>(factory, dispatcher, "bounded", supervisionStrategy, capacity, strategy, overflow)
+    }
+
+    public func getMailboxOverflow(): MailboxOverflow {
+        overflow
     }
 
     public func withSupervisionStrategy(strategy: String): Props<T> {
-        Props<T>(factory, dispatcher, mailboxType, strategy, mailboxCapacity, this.strategy)
+        Props<T>(factory, dispatcher, mailboxType, strategy, mailboxCapacity, this.strategy, overflow)
     }
 
     /** 为该 Actor 指定监督策略（优先于父 Actor 的 supervisorStrategy） */
     public func withSupervisorStrategy(strategy: SupervisionStrategy): Props<T> {
-        Props<T>(factory, dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, Some(strategy))
+        Props<T>(factory, dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, Some(strategy), overflow)
     }
 
     public func getMailboxCapacity(): Int64 {

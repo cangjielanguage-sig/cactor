@@ -266,6 +266,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     private let mailbox: CellMailbox
     private let mailboxKind: Int64
     private let capacity: Int64
+    private let overflow: MailboxOverflow
     private let boundedCount: AtomicInt64
     private let priorityMailbox: PriorityCellMailbox
 
@@ -332,6 +333,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case _ => MAILBOX_UNBOUNDED
         }
         this.capacity = props.getMailboxCapacity()
+        this.overflow = props.getMailboxOverflow()
         this.boundedCount = AtomicInt64(0)
         this.priorityMailbox = PriorityCellMailbox()
         this.sysLock = Mutex()
@@ -375,9 +377,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (mailboxKind == MAILBOX_UNBOUNDED) {
             mailbox.add(message, sender, senderRef)
         } else if (mailboxKind == MAILBOX_BOUNDED) {
-            if (boundedCount.fetchAdd(1) >= capacity) {
-                boundedCount.fetchAdd(-1)
+            if (!reserveSlot()) {
                 deadLetter(message)
+                match (overflow) {
+                    case MailboxOverflow.Fail => throw MailboxFullException("Actor ${pathString} 的邮箱已满（容量 ${capacity}）")
+                    case _ => ()
+                }
                 return
             }
             mailbox.add(message, sender, senderRef)
@@ -385,6 +390,30 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             priorityMailbox.add(message, sender, senderRef)
         }
         trySchedule()
+    }
+
+    /** 有界邮箱占位；Block 策略下等待空位直到超时 */
+    private func reserveSlot(): Bool {
+        if (boundedCount.fetchAdd(1) < capacity) {
+            return true
+        }
+        boundedCount.fetchAdd(-1)
+        match (overflow) {
+            case MailboxOverflow.Block(timeout) =>
+                let deadline = MonoTime.now() + timeout
+                var spins: Int64 = 0
+                while (MonoTime.now() < deadline && !terminated.load()) {
+                    if (boundedCount.fetchAdd(1) < capacity) {
+                        return true
+                    }
+                    boundedCount.fetchAdd(-1)
+                    spins++
+                    // 先让出处理器，之后短暂休眠，避免空转占用 CPU
+                    sleep(if (spins < 64) { Duration.Zero } else { Duration.microsecond * 50 })
+                }
+                false
+            case _ => false
+        }
     }
 
     func deadLetter(message: Message): Unit {
@@ -1132,6 +1161,7 @@ func directiveName(d: SupervisionDirective): String {
  */
 public class CellContext <: ActorContext {
     private let cell: SimpleUserActorRef
+    private var loggerValue: Option<Logger> = None<Logger>
 
     init(cell: SimpleUserActorRef) {
         this.cell = cell
@@ -1218,6 +1248,16 @@ public class CellContext <: ActorContext {
 
     public func unstashAll(): Unit {
         cell.unstashAllInternal()
+    }
+
+    public func log(): Logger {
+        match (loggerValue) {
+            case Some(l) => l
+            case None =>
+                let l = Logging.logger(cell.pathString)
+                loggerValue = Some(l)
+                l
+        }
     }
 
     public func lookup(path: String): Option<ActorRef> {
