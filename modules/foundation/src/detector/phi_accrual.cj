@@ -1,5 +1,5 @@
 /*
- * CActor Cluster - Phi Accrual 故障检测器（Hayashibara et al., 2004；与 Akka 的实现一致）
+ * CActor Foundation - Phi Accrual 故障检测器（Hayashibara et al., 2004；与 Akka 的实现一致）
  *
  * 不给出“活 / 死”的二值判断，而是根据心跳间隔的历史分布计算怀疑度 φ：
  *   φ = -log10(P(下一次心跳在 now 之后才到达))
@@ -8,7 +8,7 @@
  *
  * 时间通过 clock 注入（毫秒），测试中可以使用手动时钟。
  */
-package cactor_cluster.detector
+package cactor_foundation.detector
 
 import std.math.*
 import std.sync.*

@@ -96,6 +96,7 @@ public class SimpleRemoteReceiver {
     private let receivedCount: AtomicInt64
     private let undeliverableCount: AtomicInt64
     private let decodeFailures: AtomicInt64
+    private var interceptor: Option<(NetworkMessage) -> Bool> = None<(NetworkMessage) -> Bool>
 
     public init(localAddress: NetworkAddress, protocol: TransportProtocol) {
         this(TransportFactory.createTransport(protocol, localAddress), true)
@@ -145,6 +146,13 @@ public class SimpleRemoteReceiver {
         }
     }
 
+    /** 在按名称分发之前处理消息（返回 true 表示已处理），供远程层处理控制消息和可靠投递信封 */
+    public func setInterceptor(f: (NetworkMessage) -> Bool): Unit {
+        synchronized(mutex) {
+            interceptor = Some(f)
+        }
+    }
+
     private func handleReceivedData(data: Array<UInt8>): Unit {
         let networkMessage = try {
             networkMessageSerializer.deserialize(data)
@@ -154,16 +162,38 @@ public class SimpleRemoteReceiver {
             return
         }
         receivedCount.fetchAdd(1)
-        let handler = synchronized(mutex) { messageHandlers.get(networkMessage.targetActor) }
+        if (let Some(f) <- synchronized(mutex) { interceptor }) {
+            let consumed = try {
+                f(networkMessage)
+            } catch (e: Exception) {
+                log_simple_remote.error("远程控制消息处理失败: ${e.message}")
+                true
+            }
+            if (consumed) {
+                return
+            }
+        }
+        dispatch(networkMessage.targetActor, networkMessage.message, networkMessage.sender)
+    }
+
+    /** 按目标名称把消息交给已注册的处理器；找不到时计为不可投递 */
+    public func dispatch(targetActor: String, message: Message, sender: Option<String>): Unit {
+        let handler = synchronized(mutex) { messageHandlers.get(targetActor) }
         match (handler) {
             case Some(h) =>
                 try {
-                    h(networkMessage.message, networkMessage.sender)
+                    h(message, sender)
                 } catch (e: Exception) {
-                    log_simple_remote.error("远程消息处理失败(${networkMessage.targetActor}): ${e.message}")
+                    log_simple_remote.error("远程消息处理失败(${targetActor}): ${e.message}")
                 }
             case None =>
                 undeliverableCount.fetchAdd(1)
+        }
+    }
+
+    public func hasHandler(actorName: String): Bool {
+        synchronized(mutex) {
+            messageHandlers.contains(actorName)
         }
     }
 
@@ -197,12 +227,20 @@ public class SimpleRemoteManager {
     private let sender: SimpleRemoteSender
     private let receiver: SimpleRemoteReceiver
     private let started: AtomicBool
+    let core: RemotingCore
 
     public init(localAddress: NetworkAddress, protocol: TransportProtocol) {
-        this.transport = TransportFactory.createTransport(protocol, localAddress)
+        this(TransportFactory.createTransport(protocol, localAddress))
+    }
+
+    /** 使用指定的传输（例如带故障注入的传输）创建；管理器负责启动和停止它 */
+    public init(transport: NetworkTransport) {
+        this.transport = transport
         this.sender = SimpleRemoteSender(transport, false)
         this.receiver = SimpleRemoteReceiver(transport, false)
         this.started = AtomicBool(false)
+        this.core = RemotingCore(sender, receiver)
+        core.attach(this)
     }
 
     public func start(): Unit {
@@ -210,11 +248,13 @@ public class SimpleRemoteManager {
             transport.start()
             sender.start()
             receiver.start()
+            core.start()
         }
     }
 
     public func stop(): Unit {
         if (started.compareAndSwap(true, false)) {
+            core.stop()
             receiver.stop()
             sender.stop()
             transport.stop()
@@ -237,11 +277,11 @@ public class SimpleRemoteManager {
      * 把本地 Actor 以指定名称暴露给远程节点：收到的消息投递到该 Actor 的邮箱
      */
     public func exposeActor(actorName: String, localRef: ActorRef): Unit {
-        receiver.registerHandler(actorName, { m: Message, from: Option<String> => localRef.tell(m, from) })
+        core.expose(actorName, localRef)
     }
 
     public func unexposeActor(actorName: String): Unit {
-        receiver.unregisterHandler(actorName)
+        core.unexpose(actorName)
     }
 
     /**
@@ -296,6 +336,11 @@ public class RemoteActorRef <: ActorRef {
 
     public func tell(message: Message, sender: Option<String>): Unit {
         manager.sendMessage(targetAddress, actorName, message, sender)
+    }
+
+    /** 带发送方发送：对端 Actor 用 context.reply 回复时，回复会经网络送回 sender */
+    public func tell(message: Message, sender: ActorRef): Unit {
+        manager.sendMessage(targetAddress, actorName, message, Some(manager.core.senderInfoFor(sender)))
     }
 
     public func equals(other: ActorRef): Bool {
