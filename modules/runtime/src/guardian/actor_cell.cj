@@ -30,6 +30,25 @@ let cellLog = Logging.logger("cactor.cell")
 
 abstract class SysMsg {}
 
+/**
+ * 系统消息队列的节点：无锁栈（Treiber stack），出队时整体取下并反转为先进先出。
+ * 系统消息很少，用无锁栈代替“互斥锁 + ArrayList”，每个 Cell 省下约 200 字节。
+ */
+class SysNode {
+    let msg: SysMsg
+    let next: Option<SysNode>
+
+    init(msg: SysMsg, next: Option<SysNode>) {
+        this.msg = msg
+        this.next = next
+    }
+}
+
+class SysClosed <: SysMsg {}
+
+/** Cell 终止后栈顶被换成这个哨兵，之后发来的系统消息按“死亡后”规则处理 */
+let SYS_CLOSED: SysNode = SysNode(SysClosed(), None<SysNode>)
+
 class SysTerminate <: SysMsg {}
 
 /** 创建后的第一条系统消息：在 Cell 线程中调用 Actor.onStarted */
@@ -268,12 +287,16 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     private let capacity: Int64
     private let overflow: MailboxOverflow
     private let boundedCount: AtomicInt64
-    private let priorityMailbox: PriorityCellMailbox
+    private let priorityMailboxValue: Option<PriorityCellMailbox>
+    // 只在 mailboxKind == MAILBOX_PRIORITY 时使用
+    private prop priorityMailbox: PriorityCellMailbox {
+        get() {
+            priorityMailboxValue.getOrThrow()
+        }
+    }
 
     // ---- 系统消息队列（任意线程写，加锁；系统消息很少） ----
-    private let sysLock: Mutex
-    private var sysList: ArrayList<SysMsg>
-    private let sysPending: AtomicBool
+    private let sysHead: AtomicOptionReference<SysNode>
 
     // ---- 调度与状态 ----
     private let scheduled: AtomicBool
@@ -285,13 +308,14 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     // ---- 只在 Cell 线程内访问 ----
     private var state: Int64 = STATE_RUNNING
-    private let childMap: HashMap<String, SimpleUserActorRef> = HashMap<String, SimpleUserActorRef>()
+    // 容量 0：大多数 Actor 没有子 Actor / 不监视别人，默认容量的 HashMap 每个约 900 字节
+    private let childMap: HashMap<String, SimpleUserActorRef> = HashMap<String, SimpleUserActorRef>(0)
     private var anonymousSeq: Int64 = 0
-    private let watchers: ArrayList<SimpleUserActorRef> = ArrayList<SimpleUserActorRef>()
-    private let watching: HashMap<String, SimpleUserActorRef> = HashMap<String, SimpleUserActorRef>()
-    private let behaviors: ArrayList<Receive> = ArrayList<Receive>()
-    private let stashBuffer: ArrayList<Envelope> = ArrayList<Envelope>()
-    private var unstashed: ArrayList<Envelope> = ArrayList<Envelope>()
+    private let watchers: ArrayList<SimpleUserActorRef> = ArrayList<SimpleUserActorRef>(0)
+    private let watching: HashMap<String, SimpleUserActorRef> = HashMap<String, SimpleUserActorRef>(0)
+    private let behaviors: ArrayList<Receive> = ArrayList<Receive>(0)
+    private let stashBuffer: ArrayList<Envelope> = ArrayList<Envelope>(0)
+    private var unstashed: ArrayList<Envelope> = ArrayList<Envelope>(0)
     private var unstashIndex: Int64 = 0
     private var currentMessage: Option<Message> = None<Message>
     private var currentSender: Option<String> = None<String>
@@ -335,10 +359,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         this.capacity = props.getMailboxCapacity()
         this.overflow = props.getMailboxOverflow()
         this.boundedCount = AtomicInt64(0)
-        this.priorityMailbox = PriorityCellMailbox()
-        this.sysLock = Mutex()
-        this.sysList = ArrayList<SysMsg>()
-        this.sysPending = AtomicBool(false)
+        this.priorityMailboxValue = if (mailboxKind == MAILBOX_PRIORITY) { Some(PriorityCellMailbox()) } else { None<PriorityCellMailbox> }
+        this.sysHead = AtomicOptionReference<SysNode>()
         this.scheduled = AtomicBool(false)
         this.terminated = AtomicBool(false)
         this.processedCount = AtomicInt64(0)
@@ -423,20 +445,48 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     /** 投递系统消息；目标已停止时按“死亡后”规则处理（例如对已停止的 Actor 发起 watch 会立即收到通知） */
     func sendSystem(message: SysMsg): Unit {
-        let dead = synchronized(sysLock) {
-            if (terminated.load()) {
-                true
-            } else {
-                sysList.add(message)
-                sysPending.store(true)
-                false
+        while (true) {
+            let cur = sysHead.load()
+            if (let Some(c) <- cur) {
+                if (refEq(c, SYS_CLOSED)) {
+                    handleSystemAfterDeath(message)
+                    return
+                }
+            }
+            if (sysHead.compareAndSwap(cur, SysNode(message, cur))) {
+                break
             }
         }
-        if (dead) {
-            handleSystemAfterDeath(message)
-        } else {
-            trySchedule()
+        trySchedule()
+    }
+
+    private func hasSystemMessages(): Bool {
+        match (sysHead.load()) {
+            case Some(c) => !refEq(c, SYS_CLOSED)
+            case None => false
         }
+    }
+
+    /** 取下栈中全部消息并按发送顺序返回；closing 为 true 时同时关闭队列 */
+    private func takeSystemMessages(closing: Bool): ArrayList<SysMsg> {
+        let taken = if (closing) {
+            sysHead.swap(SYS_CLOSED)
+        } else {
+            sysHead.swap(None<SysNode>)
+        }
+        let result = ArrayList<SysMsg>(0)
+        var cur = taken
+        while (let Some(node) <- cur) {
+            if (refEq(node, SYS_CLOSED)) {
+                // 只有 Cell 线程会关闭队列，正常不会走到这里；保持关闭状态
+                sysHead.store(SYS_CLOSED)
+                break
+            }
+            result.add(node.msg)
+            cur = node.next
+        }
+        result.reverse()
+        result
     }
 
     private func handleSystemAfterDeath(message: SysMsg): Unit {
@@ -508,7 +558,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         let throughput = executor.throughput()
         var count: Int64 = 0
         while (true) {
-            if (sysPending.load()) {
+            if (hasSystemMessages()) {
                 processSystemMessages()
             }
             if (state != STATE_RUNNING || count >= throughput) {
@@ -518,7 +568,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 let env = unstashed[unstashIndex]
                 unstashIndex++
                 if (unstashIndex >= unstashed.size) {
-                    unstashed = ArrayList<Envelope>()
+                    unstashed = ArrayList<Envelope>(0)
                     unstashIndex = 0
                 }
                 invoke(env.message, env.sender, env.senderRef)
@@ -551,7 +601,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         scheduled.store(false)
         // 释放调度权后再检查一次，防止与并发 tell 之间丢失唤醒
-        if (sysPending.load() || (state == STATE_RUNNING && (userNonEmpty() || hasUnstashed()))) {
+        if (hasSystemMessages() || (state == STATE_RUNNING && (userNonEmpty() || hasUnstashed()))) {
             trySchedule()
         }
     }
@@ -575,6 +625,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                     payload = te.payload
                     currentMessage = Some(payload)
                 case _: PoisonPill =>
+                    processedCount.fetchAdd(1)
+                    clearCurrent()
+                    initiateTerminate()
+                    return
+                case _: StopMessage =>
+                    // system.stop：在已入队的消息之后停止，不交给用户的 receive
                     processedCount.fetchAdd(1)
                     clearCurrent()
                     initiateTerminate()
@@ -619,10 +675,6 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             lastActivity = MonoTime.now()
         }
         clearCurrent()
-        if (control && message is StopMessage) {
-            // 旧接口 system.stop：在已入队的消息之后停止
-            initiateTerminate()
-        }
     }
 
     private func clearCurrent(): Unit {
@@ -739,12 +791,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     // ---------------- 系统消息 ----------------
 
     private func processSystemMessages(): Unit {
-        let batch = synchronized(sysLock) {
-            let b = sysList
-            sysList = ArrayList<SysMsg>()
-            sysPending.store(false)
-            b
-        }
+        let batch = takeSystemMessages(false)
         for (m in batch) {
             handleSystem(m)
         }
@@ -863,13 +910,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         } catch (e: Exception) {
             cellLog.warn("Actor ${pathString} postStop 失败: ${e}")
         }
-        let remaining = synchronized(sysLock) {
-            terminated.store(true)
-            let b = sysList
-            sysList = ArrayList<SysMsg>()
-            sysPending.store(false)
-            b
-        }
+        terminated.store(true)
+        let remaining = takeSystemMessages(true)
         guardian.onCellTerminated(this)
         for (w in watchers) {
             w.sendSystem(SysDeathNotification(this))

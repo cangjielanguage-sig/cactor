@@ -27,7 +27,6 @@ import cactor_runtime.supervision.{SupervisionManager, SupervisionConfig}
 import cactor_runtime.monitoring.{ActorSystemMetrics}
 import cactor_runtime.events.{SimpleActorEventBus}
 import cactor_core.supervision.{SupervisionStrategy}
-import cactor_runtime.supervision.{SimpleSupervisionStrategy}
 
 
 
@@ -180,8 +179,8 @@ public class CActorRuntime {
         // 4. 注册到生命周期管理器
         lifecycleManager.registerActor(actorRef)
 
-        // 5. 设置监督策略
-        setupSupervision(actorRef, props, None<ActorRef>)
+        // 监督由 Actor Cell 与用户 Guardian 完成，这里不再向 SupervisionManager 逐个登记
+        // （旧实现登记后从不注销，创建再停止的 Actor 会一直占用内存）
 
         // 6. 启动Actor
         lifecycleManager.startActor(actorRef)
@@ -386,23 +385,6 @@ public class CActorRuntime {
         }
     }
 
-    /**
-     * 设置Actor监督策略
-     */
-    private func setupSupervision(actorRef: ActorRef, props: Props<Actor>, parent: Option<ActorRef>): Unit {
-        // 使用默认监督策略
-        let strategy = createDefaultSupervisionStrategy()
-        supervisionManager.supervise(actorRef, strategy)
-    }
-
-    /**
-     * 创建默认监督策略
-     */
-    private func createDefaultSupervisionStrategy(): SupervisionStrategy {
-        // 简化实现，返回一个基本的监督策略
-        // 这里需要实现一个具体的SupervisionStrategy
-        SimpleSupervisionStrategy(3, 60)
-    }
     /**
      * 注册 CoordinatedShutdown 阶段任务
      */

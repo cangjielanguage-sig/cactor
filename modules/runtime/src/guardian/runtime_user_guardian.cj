@@ -65,7 +65,10 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
             let userActor = doCreateChild(props, name)
             userActors.add(name, userActor)
             childCounter.fetchAdd(1)
-            supervise(userActor, props.getSupervisorStrategy() ?? defaultSupervisionStrategy)
+            // 只登记显式指定的策略；查找时缺省回退到 defaultSupervisionStrategy，避免每个 Actor 多一个映射条目
+            if (let Some(strategy) <- props.getSupervisorStrategy()) {
+                supervise(userActor, strategy)
+            }
             return userActor
         }
     }
@@ -76,12 +79,22 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
      */
     public func removeUserActor(child: ActorRef): Bool {
         let removed = synchronized(guardianLock) {
+            // 先按路径最后一段直接查找（O(1)），找不到再线性扫描
             var found: Option<String> = None
-            for ((name, actorRef) in userActors) {
-                if (actorRef.equals(child)) {
-                    found = Some(name)
-                    break
-                }
+            let path = child.path.getPath()
+            let key = match (path.lastIndexOf("/")) {
+                case Some(i) => path[(i + 1)..]
+                case None => path
+            }
+            match (userActors.get(key)) {
+                case Some(r) where r.equals(child) => found = Some(key)
+                case _ =>
+                    for ((name, actorRef) in userActors) {
+                        if (actorRef.equals(child)) {
+                            found = Some(name)
+                            break
+                        }
+                    }
             }
             match (found) {
                 case Some(name) =>

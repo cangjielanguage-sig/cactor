@@ -34,6 +34,10 @@ if grep -qE '\[ (FAILED|ERROR) \] CASE' "$log" || ! grep -q 'cjpm test success' 
     exit 1
 fi
 
+step "示例自检"
+CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.chat_room
+CACTOR_LOG_LEVEL=error cjHeapSize=4GB ./target/release/bin/cactor_examples.scale_test 50000 child | tail -3
+
 step "库代码中不应新增 println（报告类 print*/display*/show* 函数除外）"
 python3 - <<'EOF'
 import os, re, sys
