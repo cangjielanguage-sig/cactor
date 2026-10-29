@@ -44,11 +44,7 @@ public class FailureDetector {
                     try {
                         checkNodeHealth()
                         sendHeartbeats()
-                        // 简化的等待实现
-                        let startTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
-                        while (DateTime.now().toUnixTimeStamp().toMilliseconds() - startTime < heartbeatInterval.toMilliseconds()) {
-                            // 忙等待，实际应用中应使用更好的等待机制
-                        }
+                        sleep(heartbeatInterval)
                     } catch (e: Exception) {
                         log_failover.error("故障检测异常: ${e.message}")
                     }

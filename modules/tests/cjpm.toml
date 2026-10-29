@@ -15,3 +15,4 @@ cactor_foundation = { path = "../foundation" }
 cactor = { path = "../cactor" }
 cactor_testkit = { path = "../testkit" }
 cactor_macros = { path = "../macros" }
+cactor_cluster = { path = "../cluster" }
