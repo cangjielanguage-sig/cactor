@@ -11,6 +11,9 @@ import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}
 import cactor.api.{CActorSystem}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_shard_region: Logger = Logging.logger("cactor_cluster.shard_region")
 
 /**
  * 分片消息封装
@@ -126,16 +129,16 @@ class DefaultEntityActor <: Actor {
         
         match (message) {
             case envelope: ShardEnvelope =>
-                println("实体 ${entityId.toString()} 处理消息: ${envelope.message.messageType()}")
+                log_shard_region.debug("实体 ${entityId.toString()} 处理消息: ${envelope.message.messageType()}")
                 // 处理实际的业务消息
                 handleBusinessMessage(envelope.message, context)
                 
             case stringMsg: StringMessage =>
-                println("实体 ${entityId.toString()} 处理字符串消息: ${stringMsg.getContent()}")
+                log_shard_region.debug("实体 ${entityId.toString()} 处理字符串消息: ${stringMsg.getContent()}")
                 MessageResult.Handled
                 
             case _ =>
-                println("实体 ${entityId.toString()} 收到未知消息类型: ${message.messageType()}")
+                log_shard_region.debug("实体 ${entityId.toString()} 收到未知消息类型: ${message.messageType()}")
                 MessageResult.Unhandled
         }
     }
@@ -148,7 +151,7 @@ class DefaultEntityActor <: Actor {
                 if (content == "get_count") {
                     match (context.sender()) {
                         case Some(sender) => 
-                            println("实体 ${entityId.toString()} 返回计数: ${messageCount}")
+                            log_shard_region.debug("实体 ${entityId.toString()} 返回计数: ${messageCount}")
                         case None => ()
                     }
                 }
@@ -211,7 +214,7 @@ public class ShardRegion <: Actor {
                         let envelope = ShardEnvelope(entityId, message)
                         routeToEntity(envelope, context)
                     case None =>
-                        println("分片区域 ${regionName} 无法处理消息: ${message.messageType()}")
+                        log_shard_region.debug("分片区域 ${regionName} 无法处理消息: ${message.messageType()}")
                         MessageResult.Unhandled
                 }
         }
@@ -235,7 +238,7 @@ public class ShardRegion <: Actor {
                 actor.tell(envelope.message)
                 MessageResult.Handled
             case None =>
-                println("无法创建实体Actor: ${entityId.toString()}")
+                log_shard_region.debug("无法创建实体Actor: ${entityId.toString()}")
                 MessageResult.Unhandled
         }
     }
@@ -252,7 +255,7 @@ public class ShardRegion <: Actor {
     
     private func forwardToRemoteShard(envelope: ShardEnvelope, shardId: ShardId, context: ActorContext): Unit {
         // 简化实现：打印转发信息
-        println("转发消息到远程分片: ${shardId.toString()}, 实体: ${envelope.entityId.toString()}")
+        log_shard_region.debug("转发消息到远程分片: ${shardId.toString()}, 实体: ${envelope.entityId.toString()}")
         
         // 实际实现中，这里应该通过集群通信将消息发送到正确的节点
         // remoteManager.sendToNode(targetNodeId, envelope)
@@ -275,13 +278,13 @@ public class ShardRegion <: Actor {
             let entityActorRef = actorSystem.actorOf({ => entityActor }, "entity-${entityId.id}")
             localEntities[entityId.id] = entityActorRef
 
-            println("创建实体Actor: ${entityId.toString()}")
+            log_shard_region.debug("创建实体Actor: ${entityId.toString()}")
 
             mutex.unlock()
             return Some(entityActorRef)
 
         } catch (e: Exception) {
-            println("创建实体Actor失败: ${e.message}")
+            log_shard_region.error("创建实体Actor失败: ${e.message}")
             mutex.unlock()
             return None
         }
@@ -320,10 +323,10 @@ public class ShardRegion <: Actor {
                 let shardActor = actorSystem.actorOf({ => ShardActor(shardId) }, "shard-${shardId.id}")
                 localShards[shardId.id] = shardActor
 
-                println("分配本地分片: ${shardId.toString()}")
+                log_shard_region.debug("分配本地分片: ${shardId.toString()}")
 
             } catch (e: Exception) {
-                println("分配分片失败: ${e.message}")
+                log_shard_region.error("分配分片失败: ${e.message}")
             }
         }
         
@@ -337,9 +340,9 @@ public class ShardRegion <: Actor {
             case Some(shardActor) =>
                 localShards.remove(shardId.id)
                 // 简化实现：打印停止信息（实际应该停止Actor）
-                println("释放本地分片: ${shardId.toString()}")
+                log_shard_region.debug("释放本地分片: ${shardId.toString()}")
             case None =>
-                println("尝试释放不存在的分片: ${shardId.toString()}")
+                log_shard_region.debug("尝试释放不存在的分片: ${shardId.toString()}")
         }
         
         mutex.unlock()
@@ -351,11 +354,11 @@ public class ShardRegion <: Actor {
         let entityCount = localEntities.size
         mutex.unlock()
         
-        println("分片区域 ${regionName} 统计: 分片数=${shardCount}, 实体数=${entityCount}")
+        log_shard_region.debug("分片区域 ${regionName} 统计: 分片数=${shardCount}, 实体数=${entityCount}")
         
         match (context.sender()) {
             case Some(sender) =>
-                println("向发送者报告统计信息")
+                log_shard_region.debug("向发送者报告统计信息")
             case None => ()
         }
     }
@@ -422,14 +425,14 @@ class ShardActor <: Actor {
         mutex.lock()
         entities.add(entityId)
         mutex.unlock()
-        println("分片 ${shardId.toString()} 添加实体: ${entityId}")
+        log_shard_region.debug("分片 ${shardId.toString()} 添加实体: ${entityId}")
     }
     
     private func removeEntity(entityId: String): Unit {
         mutex.lock()
         entities.remove(entityId)
         mutex.unlock()
-        println("分片 ${shardId.toString()} 移除实体: ${entityId}")
+        log_shard_region.debug("分片 ${shardId.toString()} 移除实体: ${entityId}")
     }
     
     private func reportEntityCount(context: ActorContext): Unit {
@@ -437,11 +440,11 @@ class ShardActor <: Actor {
         let count = entities.size
         mutex.unlock()
         
-        println("分片 ${shardId.toString()} 实体数量: ${count}")
+        log_shard_region.debug("分片 ${shardId.toString()} 实体数量: ${count}")
         
         match (context.sender()) {
             case Some(sender) =>
-                println("向发送者报告实体数量")
+                log_shard_region.debug("向发送者报告实体数量")
             case None => ()
         }
     }

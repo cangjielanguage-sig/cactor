@@ -8,6 +8,9 @@ package cactor_cluster
 import std.collection.*
 import std.sync.*
 import std.time.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_cluster_sharding: Logger = Logging.logger("cactor_cluster.cluster_sharding")
 
 /**
  * 分片标识
@@ -215,7 +218,7 @@ public class ShardInfo {
         mutex.lock()
         this.state = newState
         mutex.unlock()
-        println("分片 ${shardId.toString()} 状态变更为: ${newState.toString()}")
+        log_cluster_sharding.debug("分片 ${shardId.toString()} 状态变更为: ${newState.toString()}")
     }
     
     public func addEntity(entityId: EntityId): Unit {
@@ -307,10 +310,10 @@ public class ShardCoordinator {
                     case None => ()
                 }
                 
-                println("分片 ${shardId.toString()} 分配到节点 ${nodeId.toString()}")
+                log_cluster_sharding.debug("分片 ${shardId.toString()} 分配到节点 ${nodeId.toString()}")
                 
             case None =>
-                println("警告: 无法为分片 ${shardId.toString()} 找到可用节点")
+                log_cluster_sharding.warn("警告: 无法为分片 ${shardId.toString()} 找到可用节点")
         }
         
         mutex.unlock()
@@ -353,12 +356,12 @@ public class ShardCoordinator {
                     case None => ()
                 }
 
-                println("分片 ${shardId} 重新分配到节点 ${newNodeId}")
+                log_cluster_sharding.debug("分片 ${shardId} 重新分配到节点 ${newNodeId}")
             }
         }
         
         mutex.unlock()
-        println("分片重平衡完成")
+        log_cluster_sharding.debug("分片重平衡完成")
     }
     
     public func getShardInfo(shardId: ShardId): Option<ShardInfo> {

@@ -11,6 +11,9 @@ import std.time.*
 import std.random.*
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.{Message}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_cluster_routing: Logger = Logging.logger("cactor_cluster.cluster_routing")
 
 /**
  * 路由策略枚举
@@ -269,7 +272,7 @@ public class ClusterRouter <: Router {
         mutex.lock()
         routingStats.clear()
         mutex.unlock()
-        println("路由统计信息已重置")
+        log_cluster_routing.debug("路由统计信息已重置")
     }
 }
 
@@ -399,7 +402,7 @@ public class ClusterLoadBalancer {
         }
         
         mutex.unlock()
-        println("更新路由目标，当前可用目标数: ${routingTargets.size}")
+        log_cluster_routing.debug("更新路由目标，当前可用目标数: ${routingTargets.size}")
     }
     
     public func route(message: Message, strategy: RoutingStrategy): RoutingResult {
@@ -454,12 +457,12 @@ class VirtualActorRef <: ActorRef {
     }
 
     public func tell(message: Message): Unit {
-        println("虚拟ActorRef向节点 ${targetNodeId.toString()} 发送消息: ${message.messageType()}")
+        log_cluster_routing.debug("虚拟ActorRef向节点 ${targetNodeId.toString()} 发送消息: ${message.messageType()}")
         // 实际实现中应该通过网络发送消息
     }
 
     public func tell(message: Message, sender: Option<String>): Unit {
-        println("虚拟ActorRef向节点 ${targetNodeId.toString()} 发送消息: ${message.messageType()}")
+        log_cluster_routing.debug("虚拟ActorRef向节点 ${targetNodeId.toString()} 发送消息: ${message.messageType()}")
         // 实际实现中应该通过网络发送消息
     }
 
@@ -506,7 +509,7 @@ public class HealthChecker {
         mutex.lock()
         healthStatus[nodeId.id] = healthy
         mutex.unlock()
-        println("节点 ${nodeId.toString()} 健康状态: ${healthy}")
+        log_cluster_routing.debug("节点 ${nodeId.toString()} 健康状态: ${healthy}")
     }
     
     public func performHealthCheck(nodeId: NodeId): Bool {

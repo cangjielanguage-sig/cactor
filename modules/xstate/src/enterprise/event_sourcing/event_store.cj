@@ -9,6 +9,9 @@ import std.collection.*
 import std.time.*
 import std.sync.*
 import cactor_xstate.core.types.{StateMachineEvent}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_event_store: Logger = Logging.logger("cactor_xstate.enterprise.event_sourcing.event_store")
 
 /**
  * 事件存储条目
@@ -130,13 +133,13 @@ public class InMemoryEventStore <: EventStore {
             // 更新序列计数器
             sequenceCounters.add(entry.stateMachineId, entry.sequenceNumber)
             
-            println("存储事件: ${entry.eventType} for ${entry.stateMachineId}")
+            log_event_store.debug("存储事件: ${entry.eventType} for ${entry.stateMachineId}")
             
             mutex.unlock()
             return true
             
         } catch (e: Exception) {
-            println("存储事件失败: ${e.message}")
+            log_event_store.error("存储事件失败: ${e.message}")
             mutex.unlock()
             return false
         }
@@ -205,13 +208,13 @@ public class InMemoryEventStore <: EventStore {
             let snapshot = StateSnapshot(stateMachineId, state, sequenceNumber, timestamp, metadata)
             snapshots.add(stateMachineId, snapshot)
             
-            println("创建快照: ${stateMachineId} at sequence ${sequenceNumber}")
+            log_event_store.debug("创建快照: ${stateMachineId} at sequence ${sequenceNumber}")
             
             mutex.unlock()
             return true
             
         } catch (e: Exception) {
-            println("创建快照失败: ${e.message}")
+            log_event_store.error("创建快照失败: ${e.message}")
             mutex.unlock()
             return false
         }
@@ -291,7 +294,7 @@ public class EventSourcingManager {
                 callback(event)
             }
             
-            println("重放了 ${events.size} 个事件 for ${stateMachineId}")
+            log_event_store.debug("重放了 ${events.size} 个事件 for ${stateMachineId}")
             return true
         }
         

@@ -3,6 +3,9 @@ package cactor_persistence
 import cactor_core.message.*
 import std.collection.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_persistence_plugin: Logger = Logging.logger("cactor_persistence.persistence_plugin")
 
 // 持久化配置
 public class PersistenceConfig {
@@ -112,7 +115,7 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
             
             // 检查是否需要快照
             if (currentSeq % config.getSnapshotInterval() == 0) {
-                println("${actorName}: 达到快照间隔，序列号=${currentSeq}")
+                log_persistence_plugin.debug("${actorName}: 达到快照间隔，序列号=${currentSeq}")
             }
         } finally {
             mutex.unlock()
@@ -124,12 +127,12 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
             return
         }
         
-        println("${actorName}: 开始恢复...")
+        log_persistence_plugin.debug("${actorName}: 开始恢复...")
         
         // 首先尝试从快照恢复
         match (snapshotStore.getLatestSnapshot(actorName)) {
             case Some(snapshot) => 
-                println("${actorName}: 从快照恢复，序列号=${snapshot.getSequenceNumber()}")
+                log_persistence_plugin.debug("${actorName}: 从快照恢复，序列号=${snapshot.getSequenceNumber()}")
                 onSnapshot(snapshot)
                 
                 // 恢复快照之后的事件
@@ -143,7 +146,7 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
                 mutex.unlock()
                 
             case None => 
-                println("${actorName}: 从头开始恢复")
+                log_persistence_plugin.debug("${actorName}: 从头开始恢复")
                 // 恢复所有事件
                 let events = eventStore.getEvents(actorName)
                 var maxSeq: Int64 = 0
@@ -159,7 +162,7 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
                 mutex.unlock()
         }
         
-        println("${actorName}: 恢复完成")
+        log_persistence_plugin.debug("${actorName}: 恢复完成")
     }
     
     public func takeSnapshot(actorName: String, stateData: String): Unit {
@@ -177,7 +180,7 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
         let snapshot = BasicSnapshot(actorName, currentSeq, stateData)
         snapshotStore.saveSnapshot(snapshot)
         
-        println("${actorName}: 快照已保存，序列号=${currentSeq}")
+        log_persistence_plugin.debug("${actorName}: 快照已保存，序列号=${currentSeq}")
     }
     
     public func deleteData(actorName: String): Unit {
@@ -188,7 +191,7 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
         sequenceNumbers.remove(actorName)
         mutex.unlock()
         
-        println("${actorName}: 持久化数据已清理")
+        log_persistence_plugin.debug("${actorName}: 持久化数据已清理")
     }
     
     public func close(): Unit {

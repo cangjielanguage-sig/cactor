@@ -9,6 +9,9 @@ import std.sync.*
 import std.collection.*
 import std.collection.concurrent.*
 import cactor_core.config.{DispatcherConfig, ExecutorConfig}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_dynamic_dispatcher_config: Logger = Logging.logger("cactor_runtime.dispatcher.dynamic.dynamic_dispatcher_config")
 
 /**
  * 动态调度器配置管理器
@@ -32,7 +35,7 @@ public class DynamicDispatcherConfigManager {
      */
     public func start(): Unit {
         if (isRunning.compareAndSwap(false, true)) {
-            println("[DYNAMIC-CONFIG] 动态调度器配置管理器启动")
+            log_dynamic_dispatcher_config.debug("[DYNAMIC-CONFIG] 动态调度器配置管理器启动")
         }
     }
     
@@ -41,7 +44,7 @@ public class DynamicDispatcherConfigManager {
      */
     public func stop(): Unit {
         if (isRunning.compareAndSwap(true, false)) {
-            println("[DYNAMIC-CONFIG] 动态调度器配置管理器停止")
+            log_dynamic_dispatcher_config.debug("[DYNAMIC-CONFIG] 动态调度器配置管理器停止")
         }
     }
     
@@ -51,7 +54,7 @@ public class DynamicDispatcherConfigManager {
     public func registerConfig(name: String, config: DynamicDispatcherConfig): Unit {
         configs.add(name, config)
         configVersion.fetchAdd(1)
-        println("[DYNAMIC-CONFIG] 注册动态配置: ${name}")
+        log_dynamic_dispatcher_config.debug("[DYNAMIC-CONFIG] 注册动态配置: ${name}")
     }
     
     /**
@@ -68,10 +71,10 @@ public class DynamicDispatcherConfigManager {
                 notifyConfigChange(name, oldConfig, newConfig)
                 configVersion.fetchAdd(1)
                 
-                println("[DYNAMIC-CONFIG] 配置已更新: ${name}")
+                log_dynamic_dispatcher_config.debug("[DYNAMIC-CONFIG] 配置已更新: ${name}")
                 true
             case None =>
-                println("[DYNAMIC-CONFIG] 配置不存在: ${name}")
+                log_dynamic_dispatcher_config.debug("[DYNAMIC-CONFIG] 配置不存在: ${name}")
                 false
         }
     }
@@ -116,7 +119,7 @@ public class DynamicDispatcherConfigManager {
                     try {
                         listener.onConfigChanged(name, oldConfig, newConfig)
                     } catch (e: Exception) {
-                        println("[DYNAMIC-CONFIG] 监听器通知失败: ${e.toString()}")
+                        log_dynamic_dispatcher_config.error("[DYNAMIC-CONFIG] 监听器通知失败: ${e.toString()}")
                     }
                 }
             case None => ()
@@ -289,11 +292,11 @@ public class DefaultConfigChangeListener <: ConfigChangeListener {
     }
     
     public func onConfigChanged(name: String, oldConfig: DispatcherConfig, newConfig: DispatcherConfig): Unit {
-        println("[${this.name}] 配置变更通知:")
-        println("  调度器: ${name}")
-        println("  吞吐量: ${oldConfig.throughput} -> ${newConfig.throughput}")
-        println("  截止时间: ${oldConfig.throughputDeadlineTime.toMilliseconds()}ms -> ${newConfig.throughputDeadlineTime.toMilliseconds()}ms")
-        println("  核心线程数: ${oldConfig.executorConfig.corePoolSize} -> ${newConfig.executorConfig.corePoolSize}")
-        println("  最大线程数: ${oldConfig.executorConfig.maxPoolSize} -> ${newConfig.executorConfig.maxPoolSize}")
+        log_dynamic_dispatcher_config.debug("[${this.name}] 配置变更通知:")
+        log_dynamic_dispatcher_config.debug("  调度器: ${name}")
+        log_dynamic_dispatcher_config.debug("  吞吐量: ${oldConfig.throughput} -> ${newConfig.throughput}")
+        log_dynamic_dispatcher_config.debug("  截止时间: ${oldConfig.throughputDeadlineTime.toMilliseconds()}ms -> ${newConfig.throughputDeadlineTime.toMilliseconds()}ms")
+        log_dynamic_dispatcher_config.debug("  核心线程数: ${oldConfig.executorConfig.corePoolSize} -> ${newConfig.executorConfig.corePoolSize}")
+        log_dynamic_dispatcher_config.debug("  最大线程数: ${oldConfig.executorConfig.maxPoolSize} -> ${newConfig.executorConfig.maxPoolSize}")
     }
 }

@@ -7,6 +7,9 @@ package cactor_foundation.circuit_breaker
 
 import std.sync.*
 import std.time.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_circuit_breaker: Logger = Logging.logger("cactor_foundation.circuit_breaker.circuit_breaker")
 
 /**
  * 断路器状态
@@ -216,7 +219,7 @@ public class BasicCircuitBreaker<T> <: CircuitBreaker<T> {
     private func transitionToOpen(): Unit {
         state = CircuitBreakerState.Open
         lastStateChangeTime.store(DateTime.now().toUnixTimeStamp().toMilliseconds())
-        println("断路器转换到开启状态")
+        log_circuit_breaker.debug("断路器转换到开启状态")
     }
 
     private func transitionToHalfOpen(): Unit {
@@ -226,7 +229,7 @@ public class BasicCircuitBreaker<T> <: CircuitBreaker<T> {
             lastStateChangeTime.store(DateTime.now().toUnixTimeStamp().toMilliseconds())
             // 重置成功计数器
             successCount.store(0)
-            println("断路器转换到半开状态")
+            log_circuit_breaker.debug("断路器转换到半开状态")
         } finally {
             mutex.unlock()
         }
@@ -238,7 +241,7 @@ public class BasicCircuitBreaker<T> <: CircuitBreaker<T> {
         // 重置计数器
         failureCount.store(0)
         successCount.store(0)
-        println("断路器转换到关闭状态")
+        log_circuit_breaker.debug("断路器转换到关闭状态")
     }
 
     public func getState(): CircuitBreakerState {
@@ -273,7 +276,7 @@ public class BasicCircuitBreaker<T> <: CircuitBreaker<T> {
             failureCount.store(0)
             successCount.store(0)
             lastStateChangeTime.store(DateTime.now().toUnixTimeStamp().toMilliseconds())
-            println("断路器手动重置")
+            log_circuit_breaker.debug("断路器手动重置")
         } finally {
             mutex.unlock()
         }
@@ -283,7 +286,7 @@ public class BasicCircuitBreaker<T> <: CircuitBreaker<T> {
         mutex.lock()
         try {
             transitionToOpen()
-            println("断路器手动触发")
+            log_circuit_breaker.debug("断路器手动触发")
         } finally {
             mutex.unlock()
         }

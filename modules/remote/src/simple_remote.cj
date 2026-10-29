@@ -13,6 +13,9 @@ import std.sync.*
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.{Message, NetworkMessage, NetworkMessageSerializer}
 import cactor_foundation.network.{NetworkTransport, NetworkAddress, TransportFactory, TransportProtocol}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_simple_remote: Logger = Logging.logger("cactor_remote.simple_remote")
 
 /**
  * 远程消息发送器
@@ -147,7 +150,7 @@ public class SimpleRemoteReceiver {
             networkMessageSerializer.deserialize(data)
         } catch (e: Exception) {
             decodeFailures.fetchAdd(1)
-            println("反序列化网络消息失败: ${e.message}")
+            log_simple_remote.error("反序列化网络消息失败: ${e.message}")
             return
         }
         receivedCount.fetchAdd(1)
@@ -157,7 +160,7 @@ public class SimpleRemoteReceiver {
                 try {
                     h(networkMessage.message, networkMessage.sender)
                 } catch (e: Exception) {
-                    println("远程消息处理失败(${networkMessage.targetActor}): ${e.message}")
+                    log_simple_remote.error("远程消息处理失败(${networkMessage.targetActor}): ${e.message}")
                 }
             case None =>
                 undeliverableCount.fetchAdd(1)

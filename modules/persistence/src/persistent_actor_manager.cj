@@ -3,6 +3,9 @@ package cactor_persistence
 import cactor_core.actor.*
 import std.collection.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_persistent_actor_manager: Logger = Logging.logger("cactor_persistence.persistent_actor_manager")
 
 // 持久化Actor管理器
 public class PersistentActorManager {
@@ -45,7 +48,7 @@ public class PersistentActorManager {
     
     // 开始恢复过程
     private func startRecovery(actor: Actor): Unit {
-        println("${actor.name}: 开始持久化恢复...")
+        log_persistent_actor_manager.debug("${actor.name}: 开始持久化恢复...")
         
         persistencePlugin.recoverActor(
             actor.name,
@@ -53,17 +56,17 @@ public class PersistentActorManager {
             { snapshot => handleRecoverySnapshot(actor, snapshot) }
         )
         
-        println("${actor.name}: 恢复完成")
+        log_persistent_actor_manager.debug("${actor.name}: 恢复完成")
     }
     
     private func handleRecoveryEvent(actor: Actor, event: Event): Unit {
-        println("${actor.name}: 恢复事件 ${event.getEventType()}: ${event.getEventData()}")
+        log_persistent_actor_manager.debug("${actor.name}: 恢复事件 ${event.getEventType()}: ${event.getEventData()}")
         // 这里可以根据事件类型重放状态变化
         // 简化实现：只打印事件信息
     }
     
     private func handleRecoverySnapshot(actor: Actor, snapshot: Snapshot): Unit {
-        println("${actor.name}: 恢复快照，序列号=${snapshot.getSequenceNumber()}")
+        log_persistent_actor_manager.debug("${actor.name}: 恢复快照，序列号=${snapshot.getSequenceNumber()}")
         // 这里可以恢复Actor状态
         // 简化实现：只打印快照信息
     }

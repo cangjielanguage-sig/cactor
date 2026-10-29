@@ -14,6 +14,9 @@ import cactor_core.context.{ActorContext}
 import cactor_xstate.core.types.{StateMachineEvent}
 import cactor_xstate.core.machine.{StateMachineDefinition}
 import cactor_xstate.core.engine.{PatternTransitionEngine, TransitionExecutionResult}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_state_machine_actor: Logger = Logging.logger("cactor_xstate.core.actor.state_machine_actor")
 
 /**
  * 处理事件消息
@@ -184,23 +187,23 @@ public class StateMachineActor <: Actor {
     public func receive(message: Message, context: ActorContext): MessageResult {
         if (message.messageType() == "ProcessEvent") {
             // 简化实现：直接处理事件，不进行复杂的类型转换
-            println("处理ProcessEvent消息")
+            log_state_machine_actor.debug("处理ProcessEvent消息")
             return MessageResult.Handled
         } else if (message.messageType() == "GetCurrentState") {
             let response = CurrentStateResponse(currentStateId)
             // 简化实现：直接打印响应，不发送消息
-            println("当前状态: ${currentStateId}")
+            log_state_machine_actor.debug("当前状态: ${currentStateId}")
             return MessageResult.Handled
         } else if (message.messageType() == "GetStatistics") {
             let response = StatisticsResponse(statistics)
             // 简化实现：直接打印统计信息，不发送消息
-            println("统计信息: ${statistics.getSummary()}")
+            log_state_machine_actor.debug("统计信息: ${statistics.getSummary()}")
             return MessageResult.Handled
         } else if (message.messageType() == "Reset") {
             handleReset(context)
             return MessageResult.Handled
         } else {
-            println("未知消息类型: ${message.messageType()}")
+            log_state_machine_actor.debug("未知消息类型: ${message.messageType()}")
             return MessageResult.Unhandled
         }
     }
@@ -227,27 +230,27 @@ public class StateMachineActor <: Actor {
                 statistics.recordSuccessfulTransition(result.executionTime)
                 
                 // 记录状态变更
-                println("状态变更通知: ${oldState} -> ${currentStateId} (${result.executionTime}ns)")
+                log_state_machine_actor.debug("状态变更通知: ${oldState} -> ${currentStateId} (${result.executionTime}ns)")
                 
-                println("状态转换成功: ${oldState} -> ${currentStateId} (${result.executionTime}ns)")
+                log_state_machine_actor.debug("状态转换成功: ${oldState} -> ${currentStateId} (${result.executionTime}ns)")
                 
             } else {
                 // 记录失败的转换
                 statistics.recordFailedTransition(result.executionTime)
                 
                 // 记录转换失败
-                println("转换失败通知: ${result.errorMessage}")
+                log_state_machine_actor.error("转换失败通知: ${result.errorMessage}")
                 
-                println("状态转换失败: ${result.errorMessage}")
+                log_state_machine_actor.error("状态转换失败: ${result.errorMessage}")
             }
             
         } catch (e: Exception) {
             let executionTime = DateTime.now().toUnixTimeStamp().toNanoseconds() - startTime
             statistics.recordFailedTransition(executionTime)
             
-            println("转换异常通知: ${e.message}")
+            log_state_machine_actor.error("转换异常通知: ${e.message}")
             
-            println("状态转换异常: ${e.message}")
+            log_state_machine_actor.error("状态转换异常: ${e.message}")
         }
     }
     
@@ -258,24 +261,24 @@ public class StateMachineActor <: Actor {
         currentStateId = machineDefinition.initialStateId
         statistics = StateMachineStatistics()
         
-        println("重置完成通知")
+        log_state_machine_actor.debug("重置完成通知")
         
-        println("状态机已重置到初始状态: ${currentStateId}")
+        log_state_machine_actor.debug("状态机已重置到初始状态: ${currentStateId}")
     }
     
     /**
      * Actor启动时调用
      */
     public func preStart(context: ActorContext): Unit {
-        println("状态机Actor启动: ${machineDefinition.id}, 初始状态: ${currentStateId}")
+        log_state_machine_actor.debug("状态机Actor启动: ${machineDefinition.id}, 初始状态: ${currentStateId}")
     }
     
     /**
      * Actor停止时调用
      */
     public func postStop(context: ActorContext): Unit {
-        println("状态机Actor停止: ${machineDefinition.id}")
-        println("最终统计: ${statistics.getSummary()}")
+        log_state_machine_actor.debug("状态机Actor停止: ${machineDefinition.id}")
+        log_state_machine_actor.debug("最终统计: ${statistics.getSummary()}")
     }
     
     /**

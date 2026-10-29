@@ -17,6 +17,9 @@ import std.collection.*
 import std.time.*
 import cactor.api.{CActorSystem}
 import cactor_streams.core.{Materializer, MaterializerSettings}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_stream_dsl: Logger = Logging.logger("cactor_streams.dsl.stream_dsl")
 
 /**
  * 流处理异常 - 流处理过程中的异常
@@ -309,7 +312,7 @@ public class StreamGraph<T, R> {
      * 运行流图 - 增强版本，支持完整的错误处理和监控
      */
     public func run(): R {
-        println("运行流图: ${graphId}")
+        log_stream_dsl.debug("运行流图: ${graphId}")
 
         // 记录开始时间用于性能监控
         let startTime = DateTime.now()
@@ -320,7 +323,7 @@ public class StreamGraph<T, R> {
 
             // 执行流处理
             let sourceElements = source.getElements()
-            println("源元素数量: ${sourceElements.size}")
+            log_stream_dsl.debug("源元素数量: ${sourceElements.size}")
 
             // 处理元素并记录统计信息
             let result = processWithMonitoring(sourceElements)
@@ -329,16 +332,16 @@ public class StreamGraph<T, R> {
             let endTime = DateTime.now()
             let processingTime = Duration.nanosecond * (endTime.toUnixTimeStamp().toNanoseconds() - startTime.toUnixTimeStamp().toNanoseconds())
 
-            println("流图执行完成，处理时间: ${processingTime.toNanoseconds()} ns")
+            log_stream_dsl.debug("流图执行完成，处理时间: ${processingTime.toNanoseconds()} ns")
             return result
 
         } catch (e: Exception) {
             let endTime = DateTime.now()
             let failureTime = Duration.nanosecond * (endTime.toUnixTimeStamp().toNanoseconds() - startTime.toUnixTimeStamp().toNanoseconds())
 
-            println("❌ 流图执行失败: ${e.message}")
-            println("   失败时间: ${failureTime.toNanoseconds()} ns")
-            println("   流图ID: ${graphId}")
+            log_stream_dsl.error("❌ 流图执行失败: ${e.message}")
+            log_stream_dsl.error("   失败时间: ${failureTime.toNanoseconds()} ns")
+            log_stream_dsl.debug("   流图ID: ${graphId}")
 
             // 记录错误统计
             recordError(e)
@@ -389,7 +392,7 @@ public class StreamGraph<T, R> {
      */
     private func recordSuccessfulProcessing(elementCount: Int64, processingTime: Duration): Unit {
         // 简化实现：在完整版本中，这里会更新监控统计
-        println("✅ 成功处理 ${elementCount} 个元素，耗时 ${processingTime.toNanoseconds()} ns")
+        log_stream_dsl.debug("✅ 成功处理 ${elementCount} 个元素，耗时 ${processingTime.toNanoseconds()} ns")
     }
 
     /**
@@ -397,7 +400,7 @@ public class StreamGraph<T, R> {
      */
     private func recordProcessingFailure(elementCount: Int64, error: Exception): Unit {
         // 简化实现：在完整版本中，这里会更新错误统计
-        println("❌ 处理 ${elementCount} 个元素时失败: ${error.message}")
+        log_stream_dsl.error("❌ 处理 ${elementCount} 个元素时失败: ${error.message}")
     }
 
     /**
@@ -405,14 +408,14 @@ public class StreamGraph<T, R> {
      */
     private func recordError(error: Exception): Unit {
         // 简化实现：在完整版本中，这里会更新全局错误统计
-        println("📊 错误统计: ${error.message}")
+        log_stream_dsl.error("📊 错误统计: ${error.message}")
     }
 
     /**
      * 使用物化器运行流图
      */
     public func runWith(materializer: Materializer): R {
-        println("使用物化器运行流图: ${graphId}")
+        log_stream_dsl.debug("使用物化器运行流图: ${graphId}")
 
         // 简化实现：暂时直接调用run()
         // 在完整实现中，这里会通过物化器创建Actor网络
@@ -945,7 +948,7 @@ public class SimpleMaterializer {
 
     public func shutdown(): Unit {
         if (!isShutdownFlag) {
-            println("关闭SimpleMaterializer")
+            log_stream_dsl.debug("关闭SimpleMaterializer")
             isShutdownFlag = true
         }
     }
@@ -963,7 +966,7 @@ public class SimpleMaterializer {
             throw Exception("物化器已关闭")
         }
 
-        println("物化并运行流图: ${graph.getGraphId()}")
+        log_stream_dsl.debug("物化并运行流图: ${graph.getGraphId()}")
 
         // 在真实实现中，这里会：
         // 1. 分析流图结构

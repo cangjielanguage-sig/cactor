@@ -9,6 +9,9 @@ import std.time.*
 import std.collection.*
 import std.sync.*
 import cactor_core.actor.ActorRef
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_advanced_supervision: Logger = Logging.logger("cactor_core.supervision.advanced_supervision")
 
 /**
  * 高级监督策略工厂
@@ -149,7 +152,7 @@ public class BackoffSupervisionStrategy <: SupervisionStrategy {
         retryCounts.add(actorKey, currentRetries + 1)
         retryDelays.add(actorKey, nextDelay)
         
-        println("[BACKOFF] Actor ${actorKey} 将在 ${currentDelay.toMilliseconds()}ms 后重试")
+        log_advanced_supervision.debug("[BACKOFF] Actor ${actorKey} 将在 ${currentDelay.toMilliseconds()}ms 后重试")
         
         SupervisionDirective.Restart
     }
@@ -216,7 +219,7 @@ public class OldCircuitBreakerSupervisionStrategy <: SupervisionStrategy {
         if (currentFailures >= failureThreshold) {
             // 达到失败阈值，打开电路
             circuitState.add(actorKey, CircuitState.Open)
-            println("[CIRCUIT] 电路熔断器打开: ${actorKey}")
+            log_advanced_supervision.debug("[CIRCUIT] 电路熔断器打开: ${actorKey}")
             return SupervisionDirective.Stop
         }
         
@@ -232,7 +235,7 @@ public class OldCircuitBreakerSupervisionStrategy <: SupervisionStrategy {
         if (now - lastFailure > timeWindow.toMilliseconds()) {
             // 时间窗口过期，进入半开状态
             circuitState.add(actorKey, CircuitState.HalfOpen)
-            println("[CIRCUIT] 电路熔断器进入半开状态: ${actorKey}")
+            log_advanced_supervision.debug("[CIRCUIT] 电路熔断器进入半开状态: ${actorKey}")
             return SupervisionDirective.Restart
         }
         
@@ -244,7 +247,7 @@ public class OldCircuitBreakerSupervisionStrategy <: SupervisionStrategy {
         // 半开状态下的失败，重新打开电路
         circuitState.add(actorKey, CircuitState.Open)
         lastFailureTime.add(actorKey, now)
-        println("[CIRCUIT] 电路熔断器重新打开: ${actorKey}")
+        log_advanced_supervision.debug("[CIRCUIT] 电路熔断器重新打开: ${actorKey}")
         SupervisionDirective.Stop
     }
     
@@ -256,7 +259,7 @@ public class OldCircuitBreakerSupervisionStrategy <: SupervisionStrategy {
         circuitState.add(actorKey, CircuitState.Closed)
         failureCounts.remove(actorKey)
         lastFailureTime.remove(actorKey)
-        println("[CIRCUIT] 电路熔断器已重置: ${actorKey}")
+        log_advanced_supervision.debug("[CIRCUIT] 电路熔断器已重置: ${actorKey}")
     }
 }
 
@@ -315,14 +318,14 @@ public class AdvancedSupervisor <: Supervisor {
     private func executeDirective(directive: SupervisionDirective, failure: ActorFailure): Unit {
         match (directive) {
             case SupervisionDirective.Resume =>
-                println("[SUPERVISION] 恢复Actor: ${failure.actor.path.toString()}")
+                log_advanced_supervision.error("[SUPERVISION] 恢复Actor: ${failure.actor.path.toString()}")
             case SupervisionDirective.Restart =>
-                println("[SUPERVISION] 重启Actor: ${failure.actor.path.toString()}")
+                log_advanced_supervision.error("[SUPERVISION] 重启Actor: ${failure.actor.path.toString()}")
             case SupervisionDirective.Stop =>
-                println("[SUPERVISION] 停止Actor: ${failure.actor.path.toString()}")
+                log_advanced_supervision.error("[SUPERVISION] 停止Actor: ${failure.actor.path.toString()}")
                 removeChild(failure.actor)
             case SupervisionDirective.Escalate =>
-                println("[SUPERVISION] 上报失败: ${failure.actor.path.toString()}")
+                log_advanced_supervision.error("[SUPERVISION] 上报失败: ${failure.actor.path.toString()}")
         }
     }
     

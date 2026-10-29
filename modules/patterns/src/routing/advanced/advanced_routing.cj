@@ -20,6 +20,9 @@ import cactor_patterns.routing.{
     BroadcastRoutingStrategy,
     RouterFactory
 }
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_advanced_routing: Logger = Logging.logger("cactor_patterns.routing.advanced.advanced_routing")
 
 /**
  * 高级路由策略工厂
@@ -500,7 +503,7 @@ public class AdvancedRouter <: Router {
 
         if (healthyRoutees.size == 0) {
             routingMetrics.recordFailedRoute("no_healthy_routees")
-            println("警告: 没有健康的路由目标")
+            log_advanced_routing.warn("警告: 没有健康的路由目标")
             return
         }
 
@@ -525,7 +528,7 @@ public class AdvancedRouter <: Router {
                         }
                     case None =>
                         routingMetrics.recordFailedRoute("no_routee_selected")
-                        println("警告: 没有选中路由目标")
+                        log_advanced_routing.warn("警告: 没有选中路由目标")
                 }
         }
     }

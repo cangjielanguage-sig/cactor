@@ -12,6 +12,9 @@ import cactor_core.actor.{Actor, Props}
 import cactor_core.config.{DispatcherConfig, DispatcherType}
 import cactor_runtime.dispatcher.advanced.{AdvancedMessageDispatcher}
 import cactor_runtime.dispatcher.factory.{DefaultAdvancedDispatcherFactory}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_dispatcher_pool: Logger = Logging.logger("cactor_runtime.dispatcher.dispatcher_pool")
 
 /**
  * 调度器选择策略
@@ -115,7 +118,7 @@ public class DispatcherPool {
                 dispatcher.start()
             }
             let dispatcherCount = countDispatchers()
-            println("🚀 DispatcherPool启动成功，包含${dispatcherCount}个调度器")
+            log_dispatcher_pool.debug("🚀 DispatcherPool启动成功，包含${dispatcherCount}个调度器")
         }
     }
     
@@ -128,7 +131,7 @@ public class DispatcherPool {
             for ((name, dispatcher) in dispatchers) {
                 dispatcher.stop()
             }
-            println("🛑 DispatcherPool已停止")
+            log_dispatcher_pool.debug("🛑 DispatcherPool已停止")
         }
     }
     
@@ -148,7 +151,7 @@ public class DispatcherPool {
             match (dispatchers.get(dispatcherName)) {
                 case Some(dispatcher) => return dispatcher
                 case None =>
-                    println("警告：指定的调度器'${dispatcherName}'不存在，使用默认调度器")
+                    log_dispatcher_pool.warn("警告：指定的调度器'${dispatcherName}'不存在，使用默认调度器")
             }
         }
         
@@ -191,7 +194,7 @@ public class DispatcherPool {
                 dispatcher.stop()
                 dispatchers.remove(name)
             case None =>
-                println("警告：调度器'${name}'不存在")
+                log_dispatcher_pool.warn("警告：调度器'${name}'不存在")
         }
     }
     

@@ -10,6 +10,9 @@ import std.sync.*
 import cactor_core.actor.{ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_persistent_actor_impl: Logger = Logging.logger("cactor_persistence.persistent_actor_impl")
 
 /**
  * 持久化Actor基类
@@ -36,7 +39,7 @@ public class AbstractPersistentActor <: PersistentActor {
     }
 
     public func onRecoveryCompleted(): Unit {
-        println("恢复完成")  // 子类可以重写
+        log_persistent_actor_impl.debug("恢复完成")  // 子类可以重写
     }
 
     public prop name: String {
@@ -62,7 +65,7 @@ public class AbstractPersistentActor <: PersistentActor {
                 // 处理持久化事件消息
                 let payload = SimpleEventPayload(persistMsg.getEventType(), persistMsg.getEventData())
                 persist(payload, { event => 
-                    println("事件已持久化: ${event.getEventType()}")
+                    log_persistent_actor_impl.debug("事件已持久化: ${event.getEventType()}")
                 })
                 MessageResult.Handled
                 
@@ -97,10 +100,10 @@ public class AbstractPersistentActor <: PersistentActor {
             // 调用处理器
             handler(event)
             
-            println("持久化事件: ${persistentEvent.toString()}")
+            log_persistent_actor_impl.debug("持久化事件: ${persistentEvent.toString()}")
             
         } catch (e: Exception) {
-            println("持久化事件失败: ${e.message}")
+            log_persistent_actor_impl.error("持久化事件失败: ${e.message}")
         } finally {
             mutex.unlock()
         }
@@ -109,7 +112,7 @@ public class AbstractPersistentActor <: PersistentActor {
     public func persistAndReply(event: EventPayload, replyTo: ActorRef, reply: Message): Unit {
         persist(event, { persistedEvent =>
             replyTo.tell(reply)
-            println("持久化并回复: ${persistedEvent.getEventType()}")
+            log_persistent_actor_impl.debug("持久化并回复: ${persistedEvent.getEventType()}")
         })
     }
     
@@ -130,10 +133,10 @@ public class AbstractPersistentActor <: PersistentActor {
                 handler(event)
             }
             
-            println("批量持久化 ${events.size} 个事件")
+            log_persistent_actor_impl.debug("批量持久化 ${events.size} 个事件")
             
         } catch (e: Exception) {
-            println("批量持久化失败: ${e.message}")
+            log_persistent_actor_impl.error("批量持久化失败: ${e.message}")
         } finally {
             mutex.unlock()
         }
@@ -145,17 +148,17 @@ public class AbstractPersistentActor <: PersistentActor {
             let basicSnapshot = BasicSnapshot(persistenceId(), lastSequenceNr, snapshotData)
             snapshotStore.saveSnapshot(basicSnapshot)
             
-            println("快照已保存: seq=${lastSequenceNr}")
+            log_persistent_actor_impl.debug("快照已保存: seq=${lastSequenceNr}")
             
         } catch (e: Exception) {
-            println("保存快照失败: ${e.message}")
+            log_persistent_actor_impl.error("保存快照失败: ${e.message}")
         }
     }
     
     public func deleteSnapshot(sequenceNr: Int64): Unit {
         // 简化实现：删除所有快照
         snapshotStore.deleteSnapshots(persistenceId())
-        println("快照已删除: seq=${sequenceNr}")
+        log_persistent_actor_impl.debug("快照已删除: seq=${sequenceNr}")
     }
     
     /**
@@ -164,12 +167,12 @@ public class AbstractPersistentActor <: PersistentActor {
     public func startRecovery(): Unit {
         isRecovering = true
         
-        println("${persistenceId()}: 开始恢复...")
+        log_persistent_actor_impl.debug("${persistenceId()}: 开始恢复...")
         
         // 首先尝试从快照恢复
         match (snapshotStore.getLatestSnapshot(persistenceId())) {
             case Some(snapshot) =>
-                println("${persistenceId()}: 从快照恢复，序列号=${snapshot.getSequenceNumber()}")
+                log_persistent_actor_impl.debug("${persistenceId()}: 从快照恢复，序列号=${snapshot.getSequenceNumber()}")
                 onRecoverySnapshot(snapshot)
                 lastSequenceNr = snapshot.getSequenceNumber()
                 
@@ -177,14 +180,14 @@ public class AbstractPersistentActor <: PersistentActor {
                 recoverEventsAfter(lastSequenceNr)
                 
             case None =>
-                println("${persistenceId()}: 从头开始恢复")
+                log_persistent_actor_impl.debug("${persistenceId()}: 从头开始恢复")
                 recoverEventsAfter(0)
         }
         
         isRecovering = false
         onRecoveryCompleted()
         
-        println("${persistenceId()}: 恢复完成")
+        log_persistent_actor_impl.debug("${persistenceId()}: 恢复完成")
     }
     
     private func recoverEventsAfter(fromSequenceNr: Int64): Unit {
@@ -197,9 +200,9 @@ public class AbstractPersistentActor <: PersistentActor {
                 onRecoveryEvent(event)
                 lastSequenceNr = event.sequenceNr
             }
-            println("${persistenceId()}: 恢复了 ${events.size} 个事件")
+            log_persistent_actor_impl.debug("${persistenceId()}: 恢复了 ${events.size} 个事件")
         } catch (e: Exception) {
-            println("${persistenceId()}: 恢复事件失败: ${e.message}")
+            log_persistent_actor_impl.error("${persistenceId()}: 恢复事件失败: ${e.message}")
         }
     }
     
@@ -207,14 +210,14 @@ public class AbstractPersistentActor <: PersistentActor {
      * 子类可重写以处理恢复的事件
      */
     protected func onRecoveryEvent(event: PersistentEvent): Unit {
-        println("${persistenceId()}: 恢复事件 ${event.payload.getEventType()}")
+        log_persistent_actor_impl.debug("${persistenceId()}: 恢复事件 ${event.payload.getEventType()}")
     }
     
     /**
      * 子类可重写以处理恢复的快照
      */
     protected func onRecoverySnapshot(snapshot: Snapshot): Unit {
-        println("${persistenceId()}: 恢复快照，序列号=${snapshot.getSequenceNumber()}")
+        log_persistent_actor_impl.debug("${persistenceId()}: 恢复快照，序列号=${snapshot.getSequenceNumber()}")
     }
     
     private func handleRecoveryComplete(): Unit {
@@ -256,16 +259,16 @@ public class PersistentCounterActor <: PersistentActor {
     }
     
     public func onRecoveryCompleted(): Unit {
-        println("计数器 ${actorId} 恢复完成，当前计数: ${count}")
+        log_persistent_actor_impl.debug("计数器 ${actorId} 恢复完成，当前计数: ${count}")
     }
 
     public func persist(event: EventPayload, handler: (EventPayload) -> Unit): Unit {
-        println("持久化事件: ${event.getEventType()}")
+        log_persistent_actor_impl.debug("持久化事件: ${event.getEventType()}")
         handler(event)
     }
 
     public func persistAndReply(event: EventPayload, replyTo: ActorRef, reply: Message): Unit {
-        persist(event, { e => println("持久化并回复: ${e.getEventType()}") })
+        persist(event, { e => log_persistent_actor_impl.debug("持久化并回复: ${e.getEventType()}") })
         replyTo.tell(reply)
     }
 
@@ -276,11 +279,11 @@ public class PersistentCounterActor <: PersistentActor {
     }
 
     public func saveSnapshot(snapshot: Any): Unit {
-        println("保存快照: 数据已保存")
+        log_persistent_actor_impl.debug("保存快照: 数据已保存")
     }
 
     public func deleteSnapshot(sequenceNr: Int64): Unit {
-        println("删除快照: seq=${sequenceNr}")
+        log_persistent_actor_impl.debug("删除快照: seq=${sequenceNr}")
     }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
@@ -299,11 +302,11 @@ public class PersistentCounterActor <: PersistentActor {
                         match (e) {
                             case incrementEvent: CounterIncrementedEvent =>
                                 count += incrementEvent.getIncrement()
-                                println("计数器 ${actorId} 增加到: ${count}")
+                                log_persistent_actor_impl.debug("计数器 ${actorId} 增加到: ${count}")
 
                                 match (context.sender()) {
                                     case Some(senderPath) =>
-                                        println("回复给发送者: ${senderPath}")
+                                        log_persistent_actor_impl.debug("回复给发送者: ${senderPath}")
                                     case None => ()
                                 }
                             case _ => ()
@@ -318,11 +321,11 @@ public class PersistentCounterActor <: PersistentActor {
                         match (e) {
                             case decrementEvent: CounterDecrementedEvent =>
                                 count -= decrementEvent.getDecrement()
-                                println("计数器 ${actorId} 减少到: ${count}")
+                                log_persistent_actor_impl.debug("计数器 ${actorId} 减少到: ${count}")
 
                                 match (context.sender()) {
                                     case Some(senderPath) =>
-                                        println("回复给发送者: ${senderPath}")
+                                        log_persistent_actor_impl.debug("回复给发送者: ${senderPath}")
                                     case None => ()
                                 }
                             case _ => ()
@@ -333,9 +336,9 @@ public class PersistentCounterActor <: PersistentActor {
                 } else if (content == "get") {
                     match (context.sender()) {
                         case Some(senderPath) =>
-                            println("当前计数: ${count}, 发送者: ${senderPath}")
+                            log_persistent_actor_impl.debug("当前计数: ${count}, 发送者: ${senderPath}")
                         case None =>
-                            println("当前计数: ${count}")
+                            log_persistent_actor_impl.debug("当前计数: ${count}")
                     }
                     MessageResult.Handled
                     
@@ -356,14 +359,14 @@ public class PersistentCounterActor <: PersistentActor {
         match (event.payload) {
             case incrementEvent: CounterIncrementedEvent =>
                 count += incrementEvent.getIncrement()
-                println("恢复增加事件: ${incrementEvent.getIncrement()}, 当前计数: ${count}")
+                log_persistent_actor_impl.debug("恢复增加事件: ${incrementEvent.getIncrement()}, 当前计数: ${count}")
                 
             case decrementEvent: CounterDecrementedEvent =>
                 count -= decrementEvent.getDecrement()
-                println("恢复减少事件: ${decrementEvent.getDecrement()}, 当前计数: ${count}")
+                log_persistent_actor_impl.debug("恢复减少事件: ${decrementEvent.getDecrement()}, 当前计数: ${count}")
                 
             case _ =>
-                println("未知事件类型: ${event.payload.getEventType()}")
+                log_persistent_actor_impl.debug("未知事件类型: ${event.payload.getEventType()}")
         }
     }
     
@@ -371,9 +374,9 @@ public class PersistentCounterActor <: PersistentActor {
         try {
             // 简化的字符串转换
             count = 42  // 简化实现
-            println("从快照恢复计数: ${count}")
+            log_persistent_actor_impl.debug("从快照恢复计数: ${count}")
         } catch (e: Exception) {
-            println("恢复快照失败: ${e.message}")
+            log_persistent_actor_impl.error("恢复快照失败: ${e.message}")
             count = 0
         }
     }

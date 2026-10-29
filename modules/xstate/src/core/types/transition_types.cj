@@ -6,6 +6,9 @@
 package cactor_xstate.core.types
 
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_transition_types: Logger = Logging.logger("cactor_xstate.core.types.transition_types")
 
 /**
  * 转换结果枚举
@@ -291,7 +294,7 @@ public struct SimpleAction <: TransitionAction {
     }
     
     public func execute(): Unit {
-        println("执行动作: ${description}")
+        log_transition_types.debug("执行动作: ${description}")
     }
     
     public func getDescription(): String {

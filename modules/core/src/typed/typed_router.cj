@@ -8,6 +8,9 @@ package cactor_core.typed
 
 import std.time.*
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_typed_router: Logger = Logging.logger("cactor_core.typed.typed_router")
 
 /**
  * 类型安全的路由策略接口
@@ -200,7 +203,7 @@ public class TypedBasicRouter<T> <: TypedRouter<T> {
                     case Some(routee) =>
                         routee.tell(message)
                     case None =>
-                        println("警告: 没有可用的路由目标")
+                        log_typed_router.warn("警告: 没有可用的路由目标")
                 }
         }
     }

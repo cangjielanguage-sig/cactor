@@ -13,6 +13,9 @@ import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.*
 import cactor_runtime.context.{PooledActorContextPool, PoolStats}
 import cactor_runtime.actor.{HighPerformanceActor, HighPerformanceActorBehavior, ActorStats}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_high_performance_actor_system: Logger = Logging.logger("cactor_runtime.system.high_performance_actor_system")
 
 // 简化时间函数
 func getCurrentTimeNanos(): Int64 {
@@ -163,12 +166,12 @@ public class HighPerformanceActorSystem {
             // 预热对象池
             contextPool.warmup()
 
-            println("🚀 高性能Actor系统启动成功")
-            println("  最大Actor数: ${config.maxActors}")
-            println("  工作线程数: ${config.workerThreads}")
-            println("  上下文池大小: ${config.contextPoolSize}")
+            log_high_performance_actor_system.debug("🚀 高性能Actor系统启动成功")
+            log_high_performance_actor_system.debug("  最大Actor数: ${config.maxActors}")
+            log_high_performance_actor_system.debug("  工作线程数: ${config.workerThreads}")
+            log_high_performance_actor_system.debug("  上下文池大小: ${config.contextPoolSize}")
             let batchStatus = if (config.enableBatchProcessing) { "启用" } else { "禁用" }
-            println("  批处理: ${batchStatus}")
+            log_high_performance_actor_system.debug("  批处理: ${batchStatus}")
         }
     }
 
@@ -183,7 +186,7 @@ public class HighPerformanceActorSystem {
             }
             actors.clear()
 
-            println("🛑 高性能Actor系统已停止")
+            log_high_performance_actor_system.debug("🛑 高性能Actor系统已停止")
         }
     }
     
@@ -196,7 +199,7 @@ public class HighPerformanceActorSystem {
         }
 
         if (actorCount.load() >= config.maxActors) {
-            println("已达到最大Actor数量限制: ${config.maxActors}")
+            log_high_performance_actor_system.debug("已达到最大Actor数量限制: ${config.maxActors}")
             return None
         }
 
@@ -421,13 +424,13 @@ public class SystemPerformanceMonitor {
     public func start(): Unit {
         if (enabled) {
             startTime.store(getCurrentTimeNanos())
-            println("📊 性能监控已启动")
+            log_high_performance_actor_system.debug("📊 性能监控已启动")
         }
     }
 
     public func stop(): Unit {
         if (enabled) {
-            println("📊 性能监控已停止")
+            log_high_performance_actor_system.debug("📊 性能监控已停止")
         }
     }
 

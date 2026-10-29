@@ -10,6 +10,9 @@ import cactor.api.{CActorSystem}
 import cactor_core.actor.{ActorRef}
 import cactor_xstate.core.machine.{StateMachineDefinition, StateMachineBuilder}
 import cactor_xstate.core.actor.{StateMachineActorFactory}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_enterprise_state_machine_factory: Logger = Logging.logger("cactor_xstate.core.factory.enterprise_state_machine_factory")
 
 /**
  * 企业级状态机配置
@@ -96,7 +99,7 @@ public struct EnterpriseStateMachineFactory {
         config: EnterpriseStateMachineConfig,
         name: String
     ): ActorRef {
-        println("🏢 创建企业级状态机: ${name}")
+        log_enterprise_state_machine_factory.debug("🏢 创建企业级状态机: ${name}")
         
         // 应用企业级配置
         applyEnterpriseConfig(config)
@@ -107,7 +110,7 @@ public struct EnterpriseStateMachineFactory {
         // 应用企业级增强
         applyEnterpriseEnhancements(stateMachineActor, config)
         
-        println("✅ 企业级状态机创建完成: ${name}")
+        log_enterprise_state_machine_factory.debug("✅ 企业级状态机创建完成: ${name}")
         return stateMachineActor
     }
     
@@ -121,7 +124,7 @@ public struct EnterpriseStateMachineFactory {
         config: EnterpriseStateMachineConfig,
         name: String
     ): ActorRef {
-        println("🏗️ 创建层次状态机: ${name}")
+        log_enterprise_state_machine_factory.debug("🏗️ 创建层次状态机: ${name}")
         
         // 创建根状态机
         let rootActor = create(system, rootMachineDefinition, config, "${name}-root")
@@ -129,10 +132,10 @@ public struct EnterpriseStateMachineFactory {
         // 创建子状态机
         for ((childName, childDefinition) in childMachineDefinitions) {
             let childActor = create(system, childDefinition, config, "${name}-${childName}")
-            println("   ✅ 子状态机创建: ${childName}")
+            log_enterprise_state_machine_factory.debug("   ✅ 子状态机创建: ${childName}")
         }
         
-        println("✅ 层次状态机创建完成: ${name}")
+        log_enterprise_state_machine_factory.debug("✅ 层次状态机创建完成: ${name}")
         return rootActor
     }
     
@@ -145,7 +148,7 @@ public struct EnterpriseStateMachineFactory {
         config: EnterpriseStateMachineConfig,
         name: String
     ): Array<ActorRef> {
-        println("⚡ 创建并行状态机: ${name}")
+        log_enterprise_state_machine_factory.debug("⚡ 创建并行状态机: ${name}")
         
         let parallelActors = ArrayList<ActorRef>()
         
@@ -153,10 +156,10 @@ public struct EnterpriseStateMachineFactory {
         for ((regionName, regionDefinition) in regionMachineDefinitions) {
             let regionActor = create(system, regionDefinition, config, "${name}-${regionName}")
             parallelActors.add(regionActor)
-            println("   ✅ 并行区域创建: ${regionName}")
+            log_enterprise_state_machine_factory.debug("   ✅ 并行区域创建: ${regionName}")
         }
         
-        println("✅ 并行状态机创建完成: ${name}")
+        log_enterprise_state_machine_factory.debug("✅ 并行状态机创建完成: ${name}")
         return parallelActors.toArray()
     }
     
@@ -169,7 +172,7 @@ public struct EnterpriseStateMachineFactory {
         config: EnterpriseStateMachineConfig,
         clusterName: String
     ): Array<ActorRef> {
-        println("🌐 创建状态机集群: ${clusterName}")
+        log_enterprise_state_machine_factory.debug("🌐 创建状态机集群: ${clusterName}")
         
         let clusterActors = ArrayList<ActorRef>()
         
@@ -179,10 +182,10 @@ public struct EnterpriseStateMachineFactory {
             let nodeName = "${clusterName}-node-${i}"
             let nodeActor = create(system, machineDefinition, config, nodeName)
             clusterActors.add(nodeActor)
-            println("   ✅ 集群节点创建: ${nodeName}")
+            log_enterprise_state_machine_factory.debug("   ✅ 集群节点创建: ${nodeName}")
         }
         
-        println("✅ 状态机集群创建完成: ${clusterName}")
+        log_enterprise_state_machine_factory.debug("✅ 状态机集群创建完成: ${clusterName}")
         return clusterActors.toArray()
     }
     
@@ -191,27 +194,27 @@ public struct EnterpriseStateMachineFactory {
      */
     private static func applyEnterpriseConfig(config: EnterpriseStateMachineConfig): Unit {
         if (config.enableEventSourcing) {
-            println("   🔧 启用事件溯源")
+            log_enterprise_state_machine_factory.debug("   🔧 启用事件溯源")
         }
         
         if (config.enableStateSnapshots) {
-            println("   🔧 启用状态快照")
+            log_enterprise_state_machine_factory.debug("   🔧 启用状态快照")
         }
         
         if (config.enableDistributedSync) {
-            println("   🔧 启用分布式同步")
+            log_enterprise_state_machine_factory.debug("   🔧 启用分布式同步")
         }
         
         if (config.enableRealTimeMonitoring) {
-            println("   🔧 启用实时监控")
+            log_enterprise_state_machine_factory.debug("   🔧 启用实时监控")
         }
         
         if (config.enableFaultRecovery) {
-            println("   🔧 启用故障恢复")
+            log_enterprise_state_machine_factory.debug("   🔧 启用故障恢复")
         }
         
         if (config.performanceOptimizations) {
-            println("   🔧 启用性能优化")
+            log_enterprise_state_machine_factory.debug("   🔧 启用性能优化")
         }
     }
     
@@ -224,32 +227,32 @@ public struct EnterpriseStateMachineFactory {
     ): Unit {
         if (config.enableEventSourcing) {
             // 应用事件溯源增强
-            println("   ✅ 事件溯源增强已应用")
+            log_enterprise_state_machine_factory.debug("   ✅ 事件溯源增强已应用")
         }
         
         if (config.enableStateSnapshots) {
             // 应用状态快照增强
-            println("   ✅ 状态快照增强已应用")
+            log_enterprise_state_machine_factory.debug("   ✅ 状态快照增强已应用")
         }
         
         if (config.enableDistributedSync) {
             // 应用分布式同步增强
-            println("   ✅ 分布式同步增强已应用")
+            log_enterprise_state_machine_factory.debug("   ✅ 分布式同步增强已应用")
         }
         
         if (config.enableRealTimeMonitoring) {
             // 应用实时监控增强
-            println("   ✅ 实时监控增强已应用")
+            log_enterprise_state_machine_factory.debug("   ✅ 实时监控增强已应用")
         }
         
         if (config.enableFaultRecovery) {
             // 应用故障恢复增强
-            println("   ✅ 故障恢复增强已应用")
+            log_enterprise_state_machine_factory.debug("   ✅ 故障恢复增强已应用")
         }
         
         if (config.performanceOptimizations) {
             // 应用性能优化增强
-            println("   ✅ 性能优化增强已应用")
+            log_enterprise_state_machine_factory.debug("   ✅ 性能优化增强已应用")
         }
     }
 }

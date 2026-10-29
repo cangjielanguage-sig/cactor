@@ -2,6 +2,9 @@ package cactor_foundation.simple_config
 
 import std.collection.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_pkg: Logger = Logging.logger("cactor_foundation.simple_config.pkg")
 
 /*
  * Copyright (c) 2024. All rights reserved.
@@ -219,7 +222,7 @@ public class SimpleConfigManager {
         config.clear()
         initializeDefaults()
         mutex.unlock()
-        println("✅ 配置已重新加载")
+        log_pkg.debug("✅ 配置已重新加载")
     }
 
     /**

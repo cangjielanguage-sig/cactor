@@ -8,6 +8,9 @@ package cactor_patterns.ask
 import std.sync.*
 import std.time.*
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_completion: Logger = Logging.logger("cactor_patterns.ask.completion")
 
 /**
  * 只能完成一次的结果单元
@@ -101,7 +104,7 @@ class Completion<R> {
         try {
             cb(v)
         } catch (e: Exception) {
-            println("Ask回调执行失败: ${e.message}")
+            log_completion.error("Ask回调执行失败: ${e.message}")
         }
     }
 }

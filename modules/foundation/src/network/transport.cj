@@ -14,6 +14,9 @@ import std.net.*
 import std.time.*
 import std.convert.*
 import std.collection.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_transport: Logger = Logging.logger("cactor_foundation.network.transport")
 
 /**
  * 网络地址
@@ -281,7 +284,7 @@ public class TcpTransport <: NetworkTransport {
                 }
             } catch (e: Exception) {
                 if (isRunning.load()) {
-                    println("TCP accept 失败: ${e.message}")
+                    log_transport.error("TCP accept 失败: ${e.message}")
                 }
             }
         }
@@ -296,7 +299,7 @@ public class TcpTransport <: NetworkTransport {
                 }
                 let len = decodeLength(header)
                 if (len < 0 || len > MAX_FRAME_SIZE) {
-                    println("TCP 收到非法帧长度 ${len}，关闭连接")
+                    log_transport.debug("TCP 收到非法帧长度 ${len}，关闭连接")
                     break
                 }
                 let payload = Array<UInt8>(len, repeat: 0)
@@ -309,7 +312,7 @@ public class TcpTransport <: NetworkTransport {
                     try {
                         h(payload)
                     } catch (e: Exception) {
-                        println("TCP 数据处理回调失败: ${e.message}")
+                        log_transport.error("TCP 数据处理回调失败: ${e.message}")
                     }
                 }
             }
@@ -449,12 +452,12 @@ public class UdpTransport <: NetworkTransport {
                     try {
                         h(payload)
                     } catch (e: Exception) {
-                        println("UDP 数据处理回调失败: ${e.message}")
+                        log_transport.error("UDP 数据处理回调失败: ${e.message}")
                     }
                 }
             } catch (e: Exception) {
                 if (isRunning.load()) {
-                    println("UDP 接收失败: ${e.message}")
+                    log_transport.error("UDP 接收失败: ${e.message}")
                 }
             }
         }

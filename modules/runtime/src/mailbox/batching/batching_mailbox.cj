@@ -10,6 +10,9 @@ import std.time.*
 import std.collection.*
 import cactor_runtime.mailbox.{Mailbox, BatchDequeueSemantics, MetricsSemantics, MailboxMetrics}
 import cactor_core.message.Envelope
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_batching_mailbox: Logger = Logging.logger("cactor_runtime.mailbox.batching.batching_mailbox")
 
 /**
  * 批量处理邮箱
@@ -357,14 +360,14 @@ public class AdaptiveBatchingMailbox <: Mailbox & BatchDequeueSemantics {
             let newSize = max(minBatchSize, currentSize * 8 / 10)
             if (newSize != currentSize) {
                 currentBatchSize.store(newSize)
-                println("减小批次大小: ${currentSize} -> ${newSize}")
+                log_batching_mailbox.debug("减小批次大小: ${currentSize} -> ${newSize}")
             }
         } else if (currentAvg < targetNanos / 2) {
             // 处理时间很短，增大批次
             let newSize = min(maxBatchSize, currentSize * 12 / 10)
             if (newSize != currentSize) {
                 currentBatchSize.store(newSize)
-                println("增大批次大小: ${currentSize} -> ${newSize}")
+                log_batching_mailbox.debug("增大批次大小: ${currentSize} -> ${newSize}")
             }
         }
     }

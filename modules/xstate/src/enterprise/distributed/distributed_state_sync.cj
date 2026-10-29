@@ -12,6 +12,9 @@ import cactor_core.actor.{Actor}
 import cactor_core.context.{ActorContext}
 import cactor_core.message.{Message, MessageResult}
 import cactor_cluster.{SimpleClusterManager}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_distributed_state_sync: Logger = Logging.logger("cactor_xstate.enterprise.distributed.distributed_state_sync")
 
 /**
  * 分布式状态同步消息
@@ -195,7 +198,7 @@ public class DistributedStateSyncManager <: Actor {
 
                 mutex.unlock()
 
-                println("处理状态同步: ${syncMessage.stateMachineId} -> ${syncMessage.currentState}")
+                log_distributed_state_sync.debug("处理状态同步: ${syncMessage.stateMachineId} -> ${syncMessage.currentState}")
                 MessageResult.Handled
             case _ =>
                 MessageResult.Unhandled
@@ -215,7 +218,7 @@ public class DistributedStateSyncManager <: Actor {
 
                 mutex.unlock()
 
-                println("应用冲突解决: ${resolutionMessage.stateMachineId} -> ${resolutionMessage.resolvedState}")
+                log_distributed_state_sync.debug("应用冲突解决: ${resolutionMessage.stateMachineId} -> ${resolutionMessage.resolvedState}")
                 MessageResult.Handled
             case _ =>
                 MessageResult.Unhandled
@@ -226,7 +229,7 @@ public class DistributedStateSyncManager <: Actor {
      * 处理同步请求
      */
     private func handleSyncRequest(message: Message, context: ActorContext): MessageResult {
-        println("处理同步请求")
+        log_distributed_state_sync.debug("处理同步请求")
         
         mutex.lock()
         
@@ -278,7 +281,7 @@ public class DistributedStateSyncManager <: Actor {
         
         mutex.unlock()
         
-        println("更新本地状态: ${stateMachineId} -> ${currentState} (v${version})")
+        log_distributed_state_sync.debug("更新本地状态: ${stateMachineId} -> ${currentState} (v${version})")
     }
     
     /**
@@ -344,7 +347,7 @@ public class DistributedStateSyncManager <: Actor {
         conflicts: Array<DistributedStateInfo>,
         context: ActorContext
     ): Unit {
-        println("解决状态冲突: ${stateMachineId}, ${conflicts.size} 个冲突")
+        log_distributed_state_sync.debug("解决状态冲突: ${stateMachineId}, ${conflicts.size} 个冲突")
         
         // 根据策略解决冲突
         let resolvedState = match (conflictResolver) {
@@ -473,7 +476,7 @@ public class DistributedStateSyncManager <: Actor {
         )
         
         // 在实际实现中，这里会通过集群广播消息
-        println("广播冲突解决结果: ${stateMachineId} -> ${resolvedState}")
+        log_distributed_state_sync.debug("广播冲突解决结果: ${stateMachineId} -> ${resolvedState}")
     }
     
     /**
@@ -510,7 +513,7 @@ public class DistributedStateSyncManager <: Actor {
             )
             
             // 在实际实现中，这里会通过集群广播消息
-            println("广播本地状态: ${stateMachineId} -> ${stateInfo.currentState}")
+            log_distributed_state_sync.debug("广播本地状态: ${stateMachineId} -> ${stateInfo.currentState}")
         }
     }
     
@@ -518,7 +521,7 @@ public class DistributedStateSyncManager <: Actor {
      * 执行定期同步
      */
     private func performPeriodicSync(context: ActorContext): Unit {
-        println("执行定期状态同步")
+        log_distributed_state_sync.debug("执行定期状态同步")
         broadcastLocalStates(context)
     }
     

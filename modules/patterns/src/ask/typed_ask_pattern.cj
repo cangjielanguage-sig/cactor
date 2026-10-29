@@ -9,6 +9,9 @@ import std.time.*
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.{Message}
 import cactor_core.typed.{TypedActorRef}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_typed_ask_pattern: Logger = Logging.logger("cactor_patterns.ask.typed_ask_pattern")
 // 避免循环依赖，直接使用相对导入
 
 /**
@@ -118,13 +121,13 @@ public class TypedAskPattern {
         let requestId = generateRequestId()
         let typedFuture = TypedAskFuture<T>(requestId, timeout)
 
-        println("[TYPED-ASK] 发送类型安全Ask请求: " + requestId)
-        println("[TYPED-ASK] 目标Actor: " + target.path.toString())
-        println("[TYPED-ASK] 消息类型: " + message.messageType())
+        log_typed_ask_pattern.debug("[TYPED-ASK] 发送类型安全Ask请求: " + requestId)
+        log_typed_ask_pattern.debug("[TYPED-ASK] 目标Actor: " + target.path.toString())
+        log_typed_ask_pattern.debug("[TYPED-ASK] 消息类型: " + message.messageType())
 
         // 简化实现：模拟Ask模式发送请求
         // 实际实现中应该集成真正的AskPattern
-        println("[TYPED-ASK] 模拟发送Ask请求到Actor")
+        log_typed_ask_pattern.debug("[TYPED-ASK] 模拟发送Ask请求到Actor")
 
         // 模拟立即完成（避免复杂的类型转换）
         typedFuture.completeWithTimeout()  // 简化为超时，避免类型转换问题
@@ -143,9 +146,9 @@ public class TypedAskPattern {
         let requestId = generateRequestId()
         let typedFuture = TypedAskFuture<R>(requestId, timeout)
 
-        println("[TYPED-ASK] 发送类型安全Ask请求: " + requestId)
-        println("[TYPED-ASK] 目标TypedActor")
-        println("[TYPED-ASK] 消息发送")
+        log_typed_ask_pattern.debug("[TYPED-ASK] 发送类型安全Ask请求: " + requestId)
+        log_typed_ask_pattern.debug("[TYPED-ASK] 目标TypedActor")
+        log_typed_ask_pattern.debug("[TYPED-ASK] 消息发送")
 
         // 使用TypedActorRef发送消息
         target.tell(message)
@@ -161,8 +164,8 @@ public class TypedAskPattern {
      * 处理类型安全的响应
      */
     public func handleTypedResponse<T>(requestId: String, response: T): Unit {
-        println("[TYPED-ASK] 处理类型安全响应: " + requestId)
-        println("[TYPED-ASK] 响应已处理")
+        log_typed_ask_pattern.debug("[TYPED-ASK] 处理类型安全响应: " + requestId)
+        log_typed_ask_pattern.debug("[TYPED-ASK] 响应已处理")
         // 实际实现中应该查找并完成对应的Future
     }
 
@@ -170,11 +173,11 @@ public class TypedAskPattern {
      * 启动和停止
      */
     public func start(): Unit {
-        println("TypedAskPattern启动")
+        log_typed_ask_pattern.debug("TypedAskPattern启动")
     }
 
     public func stop(): Unit {
-        println("TypedAskPattern停止")
+        log_typed_ask_pattern.debug("TypedAskPattern停止")
         // 实际实现中应该清理待处理的请求
     }
 

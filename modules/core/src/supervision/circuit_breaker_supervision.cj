@@ -8,6 +8,9 @@ package cactor_core.supervision
 import std.collection.concurrent.*
 import cactor_core.actor.{ActorRef}
 import cactor_foundation.circuit_breaker.{BasicCircuitBreaker, CircuitBreakerConfig, CircuitBreakerState}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_circuit_breaker_supervision: Logger = Logging.logger("cactor_core.supervision.circuit_breaker_supervision")
 
 /**
  * 断路器监督策略
@@ -32,7 +35,7 @@ public class CircuitBreakerSupervisionStrategy <: SupervisionStrategy {
         match (circuitBreaker.getState()) {
             case CircuitBreakerState.Open =>
                 // 断路器开启，直接停止Actor
-                println("[CIRCUIT-BREAKER] Actor ${actorKey} 断路器开启，停止Actor")
+                log_circuit_breaker_supervision.debug("[CIRCUIT-BREAKER] Actor ${actorKey} 断路器开启，停止Actor")
                 SupervisionDirective.Stop
                 
             case CircuitBreakerState.HalfOpen =>

@@ -9,6 +9,9 @@ import std.sync.*
 import std.collection.*
 import cactor_core.actor.{Actor, Props}
 import cactor_core.message.{Envelope}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_mailbox_factory: Logger = Logging.logger("cactor_runtime.mailbox.mailbox_factory")
 
 
 
@@ -164,7 +167,7 @@ public class MailboxFactory {
      */
     public func start(): Unit {
         if (isRunning.compareAndSwap(false, true)) {
-            println("🚀 MailboxFactory启动成功")
+            log_mailbox_factory.debug("🚀 MailboxFactory启动成功")
         }
     }
 
@@ -173,7 +176,7 @@ public class MailboxFactory {
      */
     public func shutdown(): Unit {
         if (isRunning.compareAndSwap(true, false)) {
-            println("🛑 MailboxFactory已停止")
+            log_mailbox_factory.debug("🛑 MailboxFactory已停止")
         }
     }
 

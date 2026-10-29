@@ -12,6 +12,9 @@ import cactor_core.system.{ActorSystem, ActorSelection, SimpleFuture}
 import cactor_core.message.{Message, MessageResult, Envelope}
 import cactor_core.context.{ActorContext}
 import cactor_runtime.mailbox.{Mailbox, FoundationMailbox}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_simple_actor_system: Logger = Logging.logger("cactor_runtime.system.simple_actor_system")
 
 /**
  * 简单的已完成Future实现
@@ -110,10 +113,10 @@ public class SimpleActorSystem <: ActorSystem {
 
         // 停止所有Actor
         for ((name, actorRef) in actors) {
-            println("停止Actor: ${name}")
+            log_simple_actor_system.debug("停止Actor: ${name}")
         }
 
-        println("Actor系统 ${systemName} 已终止")
+        log_simple_actor_system.debug("Actor系统 ${systemName} 已终止")
     }
 
     public func isTerminated(): Bool {
@@ -157,7 +160,7 @@ public class SimpleActorRef <: ActorRef {
         let success = mailbox.enqueue(envelope)
 
         if (!success) {
-            println("警告：消息入队失败，mailbox可能已满 - Actor: ${actorName}")
+            log_simple_actor_system.error("警告：消息入队失败，mailbox可能已满 - Actor: ${actorName}")
         } else {
             processMailboxMessages()
         }
@@ -168,7 +171,7 @@ public class SimpleActorRef <: ActorRef {
         let success = mailbox.enqueue(envelope)
 
         if (!success) {
-            println("警告：消息入队失败，mailbox可能已满 - Actor: ${actorName}")
+            log_simple_actor_system.error("警告：消息入队失败，mailbox可能已满 - Actor: ${actorName}")
         } else {
             processMailboxMessages()
         }
@@ -190,12 +193,12 @@ public class SimpleActorRef <: ActorRef {
                         match (result) {
                             case MessageResult.Handled => ()
                             case MessageResult.Unhandled =>
-                                println("警告：消息未被处理 - Actor: ${actorName}")
+                                log_simple_actor_system.warn("警告：消息未被处理 - Actor: ${actorName}")
                             case _ =>
-                                println("消息处理结果: 其他 - Actor: ${actorName}")
+                                log_simple_actor_system.debug("消息处理结果: 其他 - Actor: ${actorName}")
                         }
                     } catch (e: Exception) {
-                        println("错误：Actor消息处理异常 - Actor: ${actorName}, 错误: ${e}")
+                        log_simple_actor_system.error("错误：Actor消息处理异常 - Actor: ${actorName}, 错误: ${e}")
                     }
                 case None => break
             }
@@ -278,7 +281,7 @@ public class SimpleActorSelection <: ActorSelection {
             case Some(actorRef) =>
                 actorRef.tell(message)
             case None =>
-                println("警告：未找到Actor ${path}，消息被丢弃")
+                log_simple_actor_system.warn("警告：未找到Actor ${path}，消息被丢弃")
         }
     }
 

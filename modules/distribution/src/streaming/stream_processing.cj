@@ -10,6 +10,9 @@ import cactor_core.message.*
 import cactor_core.context.ActorContext
 import std.collection.*
 import std.time.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_stream_processing: Logger = Logging.logger("cactor_distribution.streaming.stream_processing")
 // import std.sync.sleep  // 暂时注释掉，使用替代方案
 
 // 流元素接口
@@ -167,7 +170,7 @@ public class StreamSourceActor <: Actor {
             case "STOP" =>
                 isRunning = false
             case _ =>
-                println("未知控制消息类型")
+                log_stream_processing.debug("未知控制消息类型")
         }
     }
     
@@ -190,22 +193,22 @@ public class StreamSourceActor <: Actor {
             case Some(downstreamRef) => 
                 downstreamRef.tell(streamMsg, None)
             case None => 
-                println("${actorName}: 生成元素 ${element.toString()} (无下游)")
+                log_stream_processing.debug("${actorName}: 生成元素 ${element.toString()} (无下游)")
         }
     }
     
     public func setDownstream(downstreamRef: ActorRef): Unit {
         // 在实际实现中，这里应该通过消息来设置
-        println("${actorName}: 设置下游 Actor")
+        log_stream_processing.debug("${actorName}: 设置下游 Actor")
     }
     
     public func preStart(): Unit {
-        println("${actorName} 启动中...")
+        log_stream_processing.debug("${actorName} 启动中...")
     }
     
     public func postStop(): Unit {
         isRunning = false
-        println("${actorName} 已停止，总共生成了 ${elementCount} 个元素")
+        log_stream_processing.debug("${actorName} 已停止，总共生成了 ${elementCount} 个元素")
     }
 }
 
@@ -255,25 +258,25 @@ public class StreamProcessorActor <: Actor {
                         let streamMsg = StreamMessage(processedElement)
                         downstreamRef.tell(streamMsg, None)
                     case None => 
-                        println("${actorName}: 处理元素 ${processedElement.toString()}")
+                        log_stream_processing.debug("${actorName}: 处理元素 ${processedElement.toString()}")
                 }
             case None =>
                 // 元素被过滤或处理失败
-                println("${actorName}: 元素处理失败或被过滤")
+                log_stream_processing.error("${actorName}: 元素处理失败或被过滤")
         }
     }
     
     public func setDownstream(downstreamRef: ActorRef): Unit {
         // 在实际实现中，这里应该通过消息来设置
-        println("${actorName}: 设置下游 Actor")
+        log_stream_processing.debug("${actorName}: 设置下游 Actor")
     }
     
     public func preStart(): Unit {
-        println("${actorName} 启动中...")
+        log_stream_processing.debug("${actorName} 启动中...")
     }
     
     public func postStop(): Unit {
-        println("${actorName} 已停止，总共处理了 ${processedCount} 个元素")
+        log_stream_processing.debug("${actorName} 已停止，总共处理了 ${processedCount} 个元素")
     }
 }
 
@@ -313,17 +316,17 @@ public class StreamSinkActor <: Actor {
     private func collectElement(element: StreamElement): Unit {
         receivedCount += 1
         receivedElements.add(element)
-        println("${actorName}: 收集元素 ${element.toString()}")
+        log_stream_processing.debug("${actorName}: 收集元素 ${element.toString()}")
     }
     
     public func getReceivedCount(): Int64 { receivedCount }
     public func getReceivedElements(): Array<StreamElement> { receivedElements.toArray() }
     
     public func preStart(): Unit {
-        println("${actorName} 启动中...")
+        log_stream_processing.debug("${actorName} 启动中...")
     }
     
     public func postStop(): Unit {
-        println("${actorName} 已停止，总共收集了 ${receivedCount} 个元素")
+        log_stream_processing.debug("${actorName} 已停止，总共收集了 ${receivedCount} 个元素")
     }
 }

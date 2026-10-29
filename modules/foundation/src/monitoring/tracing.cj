@@ -8,6 +8,9 @@ package cactor_foundation.monitoring
 
 import std.collection.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_tracing: Logger = Logging.logger("cactor_foundation.monitoring.tracing")
 
 /**
  * 追踪上下文
@@ -359,7 +362,7 @@ public struct GlobalTracer {
     public static func finishSpan(span: Span): Unit {
         match (getInstance()) {
             case Some(tracer) => tracer.finishSpan(span)
-            case None => println("警告：全局追踪器未初始化")
+            case None => log_tracing.warn("警告：全局追踪器未初始化")
         }
     }
 }

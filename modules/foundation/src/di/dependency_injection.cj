@@ -8,6 +8,9 @@ package cactor_foundation.di
 
 import std.collection.*
 import std.sync.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_dependency_injection: Logger = Logging.logger("cactor_foundation.di.dependency_injection")
 
 /**
  * 服务生命周期枚举
@@ -237,7 +240,7 @@ public class DefaultDIContainer <: DIContainer {
         scopedInstances.clear()
 
         // 单例实例保留，直到容器销毁
-        println("DIContainer已清理作用域服务")
+        log_dependency_injection.debug("DIContainer已清理作用域服务")
 
         mutex.unlock()
     }
@@ -301,7 +304,7 @@ public struct DIContainerProvider {
             case Some(container) =>
                 container.dispose()
             case None =>
-                println("无需处理") // 无需处理
+                log_dependency_injection.debug("无需处理") // 无需处理
         }
         globalContainer = None<DIContainer>
 
