@@ -87,6 +87,12 @@ class Probeable <: Actor {
 
 func handled(): MessageResult { MessageResult.Handled }
 
+/** 可变值盒子（闭包不能捕获可变局部变量后逃逸） */
+class Box<T> {
+    var value: T
+    init(value: T) { this.value = value }
+}
+
 let T = Duration.second * 3
 
 @Test
@@ -467,26 +473,34 @@ public class ActorSemanticsTest {
 
     @TestCase
     public func receiveTimeoutResetByActivity(): Unit {
+        // 不依赖测试线程的调度时机：机器繁忙时发送间隔可能超过超时时间，此时超时是正确行为。
+        // 检查的不变式是：每次 ReceiveTimeout 到达时，距离上一条普通消息都至少过了超时时间；停止发送后最终会超时。
         let kit = ActorTestKit("sem-rt-reset")
         let rec = EventRecorder()
-        let probe = kit.createTestProbe()
-        let pr = probe.ref
-        let a = kit.actorOf({ => Probeable("a", rec, { self, m, ctx =>
-            match (m) {
-                case c: Cmd where c.text == "arm" => ctx.setReceiveTimeout(Duration.millisecond * 200)
-                case _: ReceiveTimeout => pr.tell(Cmd("timeout"))
-                case _ => ()
-            }
-            handled()
-        }) }, "a")
+        let timeout = Duration.millisecond * 200
+        let a = kit.actorOf({ =>
+            let last = Box<MonoTime>(MonoTime.now())
+            Probeable("a", rec, { self, m, ctx =>
+                match (m) {
+                    case c: Cmd where c.text == "arm" =>
+                        last.value = MonoTime.now()
+                        ctx.setReceiveTimeout(timeout)
+                    case _: ReceiveTimeout =>
+                        let idle = MonoTime.now() - last.value
+                        // 定时器精度留 20ms 余量
+                        rec.record(if (idle >= timeout - Duration.millisecond * 20) { "timeout-ok" } else { "timeout-early" })
+                    case _ => last.value = MonoTime.now()
+                }
+                handled()
+            })
+        }, "a")
         a << Cmd("arm")
-        // 每 50ms 一条消息，持续 500ms：不应超时
         for (_ in 0..10) {
             sleep(Duration.millisecond * 50)
             a << Cmd("tick")
         }
-        probe.expectNoMsg(Duration.millisecond * 50)
-        @Expect(probe.expectMsgType<Cmd>().text, "timeout")
+        @Expect(rec.await("timeout-ok", Duration.second * 5), true)
+        @Expect(rec.contains("timeout-early"), false)
         kit.shutdown()
     }
 
