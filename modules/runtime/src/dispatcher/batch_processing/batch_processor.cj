@@ -10,6 +10,9 @@ import std.sync.*
 import std.collection.*
 import cactor_core.message.*
 import cactor_runtime.mailbox.{Mailbox, BatchDequeueSemantics}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_batch_processor: Logger = Logging.logger("cactor_runtime.dispatcher.batch_processing.batch_processor")
 
 /**
  * 批量处理配置
@@ -254,7 +257,7 @@ public class BatchProcessor<T> {
             processorFunc(batch)
             stats.recordBatch(Int64(batch.size), isTimeout)
         } catch (e: Exception) {
-            println("批量处理失败: ${e}")
+            log_batch_processor.error("批量处理失败: ${e}")
         }
     }
     

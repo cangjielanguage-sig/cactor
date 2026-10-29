@@ -11,6 +11,9 @@ import std.time.*
 import cactor_core.message.*
 import cactor_core.context.{ActorContext}
 import cactor_foundation.memory.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_pooled_actor_context: Logger = Logging.logger("cactor_runtime.context.pooled_actor_context")
 
 // 前向声明避免循环依赖 - 使用不同的名称
 public interface ContextActorRef {
@@ -235,7 +238,7 @@ public class PooledActorContextPool <: ObjectPool<PooledActorContext> {
      */
     public func warmup(): Unit {
         // 所有对象在初始化时已创建
-        println("PooledActorContextPool 预热完成，容量: ${capacity}")
+        log_pooled_actor_context.debug("PooledActorContextPool 预热完成，容量: ${capacity}")
     }
 
     /**

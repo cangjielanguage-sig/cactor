@@ -8,6 +8,9 @@ protected package cactor_runtime.monitoring
 import std.sync.*
 import std.collection.*
 import std.time.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_actor_system_metrics: Logger = Logging.logger("cactor_runtime.monitoring.actor_system_metrics")
 
 /**
  * 性能指标数据结构
@@ -200,14 +203,14 @@ public class ActorSystemMetrics {
      * 启动指标收集 - Plan10.md要求
      */
     public func start(): Unit {
-        println("📊 ActorSystemMetrics启动")
+        log_actor_system_metrics.debug("📊 ActorSystemMetrics启动")
     }
 
     /**
      * 停止指标收集 - Plan10.md要求
      */
     public func shutdown(): Unit {
-        println("📊 ActorSystemMetrics停止")
+        log_actor_system_metrics.debug("📊 ActorSystemMetrics停止")
     }
     
     /**

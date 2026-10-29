@@ -12,6 +12,9 @@ import std.collection.*
 import std.collection.concurrent.*
 import cactor_core.message.Envelope
 import cactor_core.actor.ActorRef
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_work_stealing_dispatcher: Logger = Logging.logger("cactor_runtime.dispatcher.work_stealing.work_stealing_dispatcher")
 // import cactor_core.zerocopy.ZeroCopyMessage
 // import cactor_core.memory.NumaAwareMemoryPool
 
@@ -236,7 +239,7 @@ public class WorkerThread {
             task.execute()
         } catch (e: Exception) {
             // 记录错误，但不影响工作线程继续运行
-            println("Worker ${workerId} 执行任务时发生错误: ${e}")
+            log_work_stealing_dispatcher.error("Worker ${workerId} 执行任务时发生错误: ${e}")
         }
     }
 
@@ -296,7 +299,7 @@ public class ActorTask {
                 executeRegularMessage()
             }
         } catch (e: Exception) {
-            println("任务执行失败: ${e}")
+            log_work_stealing_dispatcher.error("任务执行失败: ${e}")
         } finally {
             executionEndTime = getCurrentTimeNanos()
         }
@@ -305,12 +308,12 @@ public class ActorTask {
     private func executeZeroCopyMessage(): Unit {
         // 零拷贝消息的高效处理（暂时简化实现）
         let message = envelope.getMessage()
-        println("执行零拷贝任务: Type=${message.messageType()}")
+        log_work_stealing_dispatcher.debug("执行零拷贝任务: Type=${message.messageType()}")
     }
 
     private func executeRegularMessage(): Unit {
         // 常规消息处理
-        println("执行常规任务: Message=${envelope.getMessage().messageType()}")
+        log_work_stealing_dispatcher.debug("执行常规任务: Message=${envelope.getMessage().messageType()}")
     }
 
     public func getEnvelope(): Envelope { envelope }
@@ -391,7 +394,7 @@ public class WorkStealingDispatcher {
             for (worker in workers) {
                 worker.start()
             }
-            println("工作窃取调度器启动，工作线程数: ${workerCount}")
+            log_work_stealing_dispatcher.debug("工作窃取调度器启动，工作线程数: ${workerCount}")
         }
     }
 
@@ -400,7 +403,7 @@ public class WorkStealingDispatcher {
             for (worker in workers) {
                 worker.stop()
             }
-            println("工作窃取调度器停止")
+            log_work_stealing_dispatcher.debug("工作窃取调度器停止")
         }
     }
 

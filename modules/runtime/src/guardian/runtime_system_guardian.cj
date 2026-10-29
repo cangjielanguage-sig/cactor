@@ -13,6 +13,9 @@ import cactor_core.context.{ActorContext}
 import cactor_core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy}
 import cactor_core.system.{ActorSystem}
 import cactor_core.guardian.{GuardianType}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_runtime_system_guardian: Logger = Logging.logger("cactor_runtime.guardian.runtime_system_guardian")
 
 /**
  * Runtime层的系统Guardian实现
@@ -111,7 +114,7 @@ public class RuntimeSystemGuardian <: BaseGuardianActor {
     
     protected func doStopChild(child: ActorRef): Unit {
         // 执行Actor停止逻辑
-        println("停止系统Actor: ${child.path.toString()}")
+        log_runtime_system_guardian.debug("停止系统Actor: ${child.path.toString()}")
         
         // 从系统Actor列表中移除
         for ((name, actorRef) in systemActors) {
@@ -123,7 +126,7 @@ public class RuntimeSystemGuardian <: BaseGuardianActor {
     }
     
     protected func doRestartChild(child: ActorRef, reason: Exception): Unit {
-        println("重启系统Actor: ${child.path.toString()}, 原因: ${reason}")
+        log_runtime_system_guardian.debug("重启系统Actor: ${child.path.toString()}, 原因: ${reason}")
         
         // 系统Actor重启逻辑
         // 1. 停止当前Actor
@@ -156,7 +159,7 @@ public class RuntimeSystemGuardian <: BaseGuardianActor {
                     createSystemActor(systemMsg.getProps(), systemMsg.getName())
                     MessageResult.Handled
                 } catch (e: Exception) {
-                    println("创建系统Actor失败: ${e}")
+                    log_runtime_system_guardian.error("创建系统Actor失败: ${e}")
                     MessageResult.Unhandled
                 }
             case _ => 

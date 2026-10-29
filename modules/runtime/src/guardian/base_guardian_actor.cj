@@ -14,6 +14,9 @@ import cactor_core.context.{ActorContext}
 import cactor_core.guardian.{GuardianActor, GuardianType, GuardianStats, GuardianHealthStatus}
 import cactor_core.supervision.{SupervisionStrategy, ActorFailure}
 import cactor_core.guardian.{CreateChildMessage, StopChildMessage, RestartChildMessage}
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_base_guardian_actor: Logger = Logging.logger("cactor_runtime.guardian.base_guardian_actor")
 
 /**
  * Guardian Actor基础实现
@@ -132,7 +135,7 @@ public open class BaseGuardianActor <: GuardianActor {
             lastFailureTime = Some(DateTime.now())
 
             // 默认实现：打印失败信息
-            println("Guardian处理Actor失败: ${failure.actor.path.toString()}, 原因: ${failure.cause}")
+            log_base_guardian_actor.error("Guardian处理Actor失败: ${failure.actor.path.toString()}, 原因: ${failure.cause}")
 
             // 可以由子类重写以实现更复杂的失败处理逻辑
             doHandleFailure(failure)
@@ -181,17 +184,17 @@ public open class BaseGuardianActor <: GuardianActor {
 
     protected open func doStopChild(child: ActorRef): Unit {
         // 默认实现：简单打印
-        println("Stopping child actor: ${child.path.toString()}")
+        log_base_guardian_actor.debug("Stopping child actor: ${child.path.toString()}")
     }
 
     protected open func doRestartChild(child: ActorRef, reason: Exception): Unit {
         // 默认实现：简单打印
-        println("Restarting child actor: ${child.path.toString()}, reason: ${reason}")
+        log_base_guardian_actor.debug("Restarting child actor: ${child.path.toString()}, reason: ${reason}")
     }
 
     protected open func doHandleFailure(failure: ActorFailure): Unit {
         // 默认实现：简单打印
-        println("Handling actor failure: ${failure.actor.path.toString()}")
+        log_base_guardian_actor.error("Handling actor failure: ${failure.actor.path.toString()}")
     }
     
     // Actor接口实现
@@ -210,7 +213,7 @@ public open class BaseGuardianActor <: GuardianActor {
                     createChild(createMsg.getProps(), createMsg.getChildName())
                     MessageResult.Handled
                 } catch (e: Exception) {
-                    println("创建子Actor失败: ${e}")
+                    log_base_guardian_actor.error("创建子Actor失败: ${e}")
                     MessageResult.Unhandled
                 }
             case stopMsg: StopChildMessage =>
@@ -218,7 +221,7 @@ public open class BaseGuardianActor <: GuardianActor {
                     stopChild(stopMsg.getChildRef())
                     MessageResult.Handled
                 } catch (e: Exception) {
-                    println("停止子Actor失败: ${e}")
+                    log_base_guardian_actor.error("停止子Actor失败: ${e}")
                     MessageResult.Unhandled
                 }
             case restartMsg: RestartChildMessage =>
@@ -226,7 +229,7 @@ public open class BaseGuardianActor <: GuardianActor {
                     restartChild(restartMsg.getChildRef(), restartMsg.getReason())
                     MessageResult.Handled
                 } catch (e: Exception) {
-                    println("重启子Actor失败: ${e}")
+                    log_base_guardian_actor.error("重启子Actor失败: ${e}")
                     MessageResult.Unhandled
                 }
             case _ => MessageResult.Unhandled

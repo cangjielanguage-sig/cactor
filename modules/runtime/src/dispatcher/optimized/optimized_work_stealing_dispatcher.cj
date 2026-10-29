@@ -13,6 +13,9 @@ import cactor_core.message.*
 import cactor_core.actor.*
 import cactor_runtime.dispatcher.work_stealing.*
 import cactor_runtime.mailbox.lockfree.*
+import cactor_foundation.logging.{Logger, Logging}
+
+let log_optimized_work_stealing_dispatcher: Logger = Logging.logger("cactor_runtime.dispatcher.optimized.optimized_work_stealing_dispatcher")
 
 /**
  * 负载均衡策略枚举
@@ -609,12 +612,12 @@ public class OptimizedWorkStealingDispatcher {
             // 启动性能监控
             performanceMonitor.start()
 
-            println("优化的工作窃取调度器启动")
-            println("  工作线程数: ${config.workerCount}")
-            println("  负载均衡策略: ${config.loadBalancingStrategy.toString()}")
-            println("  窃取策略: ${config.stealingStrategy.toString()}")
-            println("  NUMA感知: ${config.enableNumaAware}")
-            println("  自适应节流: ${config.enableAdaptiveThrottling}")
+            log_optimized_work_stealing_dispatcher.debug("优化的工作窃取调度器启动")
+            log_optimized_work_stealing_dispatcher.debug("  工作线程数: ${config.workerCount}")
+            log_optimized_work_stealing_dispatcher.debug("  负载均衡策略: ${config.loadBalancingStrategy.toString()}")
+            log_optimized_work_stealing_dispatcher.debug("  窃取策略: ${config.stealingStrategy.toString()}")
+            log_optimized_work_stealing_dispatcher.debug("  NUMA感知: ${config.enableNumaAware}")
+            log_optimized_work_stealing_dispatcher.debug("  自适应节流: ${config.enableAdaptiveThrottling}")
         }
     }
 
@@ -626,7 +629,7 @@ public class OptimizedWorkStealingDispatcher {
 
             performanceMonitor.stop()
 
-            println("优化的工作窃取调度器停止")
+            log_optimized_work_stealing_dispatcher.debug("优化的工作窃取调度器停止")
             printPerformanceReport()
         }
     }
