@@ -2,9 +2,11 @@
 
 # CActor
 
-**仓颉语言的 Actor 模型库**
+**仓颉 Actor 模型库 · AI Agent 的底层运行时**
 
-设计参考 Akka / Akka Typed，提供经典 Actor、类型化 Actor、监督容错和 Ask 等常用模式。
+承载 Agent 的状态、并发、失败与位置：私有上下文、串行邮箱、监督树、位置透明。<br/>
+DSL 化：枚举即协议，`@actorReceive` 编译期分派，`100.millis` 与 `<<` 简化超时和发送。<br/>
+Agent 只写“做什么”，调度、隔离与容错交给 CActor。
 
 [![仓颉](https://img.shields.io/badge/仓颉-1.2.0-blue.svg)](https://cangjie-lang.cn/)
 [![版本](https://img.shields.io/badge/版本-1.2.0-orange.svg)](CHANGELOG.md)
@@ -39,14 +41,72 @@
 
 ## 简介
 
-Actor 模型用"彼此隔离、只通过消息通信的 Actor"来组织并发程序：每个 Actor 拥有自己的状态，按顺序处理邮箱里的消息，出错时由上级按监督策略处理。
+CActor 是仓颉语言的 Actor 模型库，定位为 **AI Agent 的底层运行时**。一个 Agent 要有自己的状态，要和许多 Agent 并发协作，要在模型超时、工具出错之后恢复，还要能从单进程扩展到多台机器——这四件事正是 Actor 模型要解决的问题：
 
-CActor 尝试在仓颉语言中提供这套模型，主要包括：
+| Agent 需要承载的 | CActor 提供的 | 具体机制 |
+|---|---|---|
+| **状态**：记忆、会话、工具调用的中间结果 | 私有上下文 | 状态只属于一个 Actor，外部只能发消息，不能直接读写；类型化 Actor 用“返回新行为”保存状态 |
+| **并发**：成百上千个 Agent 同时工作 | 串行邮箱 | 每个 Actor 一次只处理一条消息，内部不需要锁；调度器在固定线程池上并发执行大量 Actor（实测百万个 Actor） |
+| **失败**：模型调用超时、工具抛异常 | 监督树 | 失败交给父 Actor 按策略重启 / 恢复 / 停止 / 上报；`watch` 感知其他 Agent 停止；有界邮箱的背压策略 |
+| **位置**：从单进程扩展到多节点 | 位置透明 | 本地与远程引用用同一套 `tell` / `ask` / `watch`；可靠投递；集群成员、Singleton、分片、发布订阅、CRDT 同步 |
 
-- **两种编程风格**：继承 `Actor` 的经典风格，以及基于 `TypedBehavior` 的类型化风格
-- **容错机制**：监督策略与断路器
-- **常用模式**：Ask 请求-响应、消息路由、背压
-- **模块化结构**：12 个 cjpm 模块，分层清晰，可以按需依赖
+同时，CActor 是 **DSL 化** 的，用仓颉的语言特性让 Agent 代码只描述“做什么”：
+
+- **枚举即协议**：类型化 Actor 的消息协议就是一个 `enum`，`match` 的穷尽检查在编译期发现漏处理的消息
+- **`@actorReceive`**：编译期根据 `onXxx(msg: T, ctx)` 方法生成按消息类型分派的 `receive`；同一类型写了两个处理方法也在编译期报错
+- **`100.millis`、`3.seconds`**：时间字面量；**`ref << a << b`**：连续发送
+- **声明式描述行为与工作流**：`TypedBehaviors`（`setup` / `receive` / `supervise` / `withTimers` / `withStash` / `intercept` …）描述 Actor 行为，Streams 描述数据流水线，XState 风格状态机描述工作流（Streams 与 XState 目前为实验性）
+
+Agent 只写“做什么”，调度、隔离与容错交给 CActor。
+
+一个最小的 Agent（完整可运行）：
+
+```cangjie
+import cactor.api.{CActorSystemFactory}
+import cactor_core.typed.*
+import cactor_core.dsl.*
+
+// 协议：枚举即协议
+enum AgentCmd {
+    | Ask(String, TypedActorRef<String>)   // 问题与回复地址
+    | Remember(String)
+    | Reflect                               // 定时整理记忆
+}
+
+// 行为：私有上下文（记忆）通过“返回新行为”保存，不需要锁
+func agent(memory: Array<String>): TypedBehavior<AgentCmd> {
+    TypedBehaviors.receive<AgentCmd>({ ctx, cmd =>
+        match (cmd) {
+            case AgentCmd.Ask(question, replyTo) =>
+                replyTo << "已收到：${question}（记忆 ${memory.size} 条）"
+                TypedBehaviors.same<AgentCmd>()
+            case AgentCmd.Remember(fact) => agent(memory.concat([fact]))
+            case AgentCmd.Reflect =>
+                ctx.log().info("整理记忆：${memory.size} 条")
+                TypedBehaviors.same<AgentCmd>()
+        }
+    })
+}
+
+main() {
+    let system = CActorSystemFactory.create("agents")
+    // 定时器 + 监督：失败时重启，1 分钟内最多 3 次
+    let behavior = TypedBehaviors.withTimers<AgentCmd>({ timers =>
+        timers.startTimerAtFixedRate("reflect", AgentCmd.Reflect, 30.seconds)
+        agent([])
+    })
+    let assistant = system.typedActorOf<AgentCmd>(
+        TypedBehaviors.supervise(behavior).onFailure(TypedSupervisorStrategy.restart().withLimit(3, 1.minutes)),
+        "assistant")
+    assistant << AgentCmd.Remember("用户偏好中文") << AgentCmd.Remember("时区 UTC+8")
+    let answer = TypedAsk.ask<AgentCmd, String>(assistant, { r => AgentCmd.Ask("今天的计划？", r) }, 3.seconds)
+        .get(3.seconds)
+    println(answer)   // 已收到：今天的计划？（记忆 2 条）
+    system.terminate()
+}
+```
+
+更完整的设计理念与 Actor / Agent 对应关系见 [项目介绍](docs/zh/INTRODUCTION.md)。
 
 ---
 
@@ -54,15 +114,18 @@ CActor 尝试在仓颉语言中提供这套模型，主要包括：
 
 | 方向 | 内容 | 状态 |
 |------|------|------|
-| Actor 基础 | Actor / ActorRef / ActorSystem、生命周期回调、`tell` | 可用 |
-| 类型化 Actor | `TypedBehaviors`、`TypedActorRef`，参考 Akka Typed | 可用 |
-| 容错 | 监督策略（OneForOne / OneForAll / Escalate / Backoff）、断路器 | 可用 |
-| 通用模式 | Ask、消息路由、背压控制 | 可用 |
-| 运行时组件 | 多种 mailbox 与 dispatcher 实现 | 可用，见 [当前限制](#当前限制) |
+| Actor 基础 | Actor / ActorRef / ActorSystem、生命周期回调、子 Actor、`watch`、`become`、定时器、Stash、接收超时、按路径查找、死信 | 可用 |
+| 类型化 Actor | `TypedBehaviors`、`TypedActorRef`、Actor 内 ask、`messageAdapter`、`pipeToSelf`、Receptionist、行为拦截器，参考 Akka Typed | 可用 |
+| 容错 | 监督树（OneForOne / OneForAll / Escalate / Backoff）、DeathPact、断路器 | 可用 |
+| 通用模式 | Ask、消息路由、有界邮箱背压（丢弃 / 失败 / 阻塞） | 可用 |
+| DSL | 枚举协议、`@actorReceive`、时间字面量、`<<` | 可用 |
+| 测试 | `TestProbe`、`BehaviorTestKit`、虚拟时钟 `ManualTime` | 可用 |
+| 可观测性 | 分级与结构化日志、MDC、JSON Lines、Prometheus 指标 | 可用 |
+| 远程 | TCP 传输、远程 ask / watch、跨节点回复、可靠投递 | 可用，暂无 TLS |
+| 集群 | gossip 成员协议、Cluster Singleton、分布式发布订阅、集群分片、CRDT 与 Replicator | 可用，有多节点与多进程验证；暂无脑裂处理 |
+| 持久化 | 文件事件日志、快照、事件溯源 Actor | 可用，暂无插件接口 |
 | 流处理 | Streams DSL | 实验性 |
 | 状态机 | XState 风格的状态机 | 实验性 |
-| 分布式 | 集群分片、远程通信、事件溯源 / 持久化 | 原型，尚无真实网络与存储 |
-| 宏 | Actor DSL 宏 | 原型 |
 
 ---
 
@@ -444,6 +507,7 @@ python3 tools/check_module_deps.py  # 检查模块分层约束
 
 | 文档 | 说明 |
 |------|------|
+| [项目介绍](docs/zh/INTRODUCTION.md) | 设计理念、模块分层，以及 Actor 与 AI Agent 的对应关系 |
 | [快速开始](docs/zh/QUICK_START.md) | 安装与第一个程序 |
 | [入门指南](docs/zh/getting-started.md) | 基础概念与常见用法 |
 | [架构设计](docs/zh/architecture.md) | 分层设计与关键组件 |

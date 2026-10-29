@@ -52,6 +52,7 @@ CActor采用6层模块化架构，确保清晰的职责分离和高度的可扩�
 
 ## 入门
 
+- [项目介绍：Actor 模型与 AI Agent](INTRODUCTION.md)
 - [快速开始](QUICK_START.md)
 - [入门指南](getting-started.md)
 - [功能说明](FEATURES.md)

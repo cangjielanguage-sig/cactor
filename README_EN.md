@@ -2,9 +2,11 @@
 
 # CActor
 
-**An actor model library for the Cangjie programming language**
+**An actor model library for Cangjie · the runtime layer for AI agents**
 
-Inspired by Akka / Akka Typed, with classic actors, typed actors, supervision and common patterns such as Ask.
+It carries an agent's state, concurrency, failures and location: private context, serial mailboxes, supervision trees, location transparency.<br/>
+It is DSL-first: enums are protocols, `@actorReceive` generates dispatch at compile time, `100.millis` and `<<` shorten timeouts and sends.<br/>
+Agents describe *what* to do; CActor handles scheduling, isolation and fault tolerance.
 
 [![Cangjie](https://img.shields.io/badge/Cangjie-1.2.0-blue.svg)](https://cangjie-lang.cn/)
 [![Version](https://img.shields.io/badge/version-1.2.0-orange.svg)](CHANGELOG.md)
@@ -39,14 +41,70 @@ English | [中文](README.md)
 
 ## Overview
 
-The actor model structures concurrent programs as isolated actors that communicate only through messages. Each actor owns its state, processes the messages in its mailbox one at a time, and is handled by its supervisor according to a supervision strategy when it fails.
+CActor is an actor model library for Cangjie, positioned as **the runtime layer for AI agents**. An agent needs its own state, has to work alongside many other agents, must recover when a model call times out or a tool fails, and should scale from one process to many machines. These are exactly the four problems the actor model addresses:
 
-CActor aims to bring this model to Cangjie. It provides:
+| What an agent needs | What CActor provides | How |
+|---|---|---|
+| **State**: memory, conversations, intermediate tool results | Private context | State belongs to one actor; others can only send it messages. Typed actors keep state by returning a new behavior |
+| **Concurrency**: hundreds or thousands of agents at once | Serial mailboxes | Each actor handles one message at a time, so no locks inside; the dispatcher runs many actors on a fixed thread pool (measured with one million actors) |
+| **Failure**: model timeouts, tool exceptions | Supervision trees | Failures go to the parent, which restarts / resumes / stops / escalates; `watch` reports other agents stopping; backpressure strategies for bounded mailboxes |
+| **Location**: from one process to many nodes | Location transparency | Local and remote refs share `tell` / `ask` / `watch`; reliable delivery; cluster membership, singleton, sharding, pub/sub, CRDT replication |
 
-- **Two programming styles**: classic actors that extend `Actor`, and typed actors built from `TypedBehavior`
-- **Fault tolerance**: supervision strategies and a circuit breaker
-- **Common patterns**: Ask (request-response), routing, backpressure
-- **A modular layout**: 12 cjpm modules with clear layering, so you depend only on what you use
+CActor is also **DSL-first**, using Cangjie language features so agent code only describes *what* to do:
+
+- **Enums are protocols**: a typed actor's protocol is an `enum`, and exhaustive `match` catches unhandled messages at compile time
+- **`@actorReceive`**: generates a type-dispatching `receive` from `onXxx(msg: T, ctx)` methods at compile time, and rejects two handlers for the same type
+- **`100.millis`, `3.seconds`** duration literals; **`ref << a << b`** chained sends
+- **Declarative behaviors and workflows**: `TypedBehaviors` (`setup` / `receive` / `supervise` / `withTimers` / `withStash` / `intercept` ...) for actor behavior, Streams for data pipelines, XState-style state machines for workflows (Streams and XState are experimental)
+
+Agents describe *what* to do; scheduling, isolation and fault tolerance are left to CActor.
+
+A minimal agent (complete and runnable):
+
+```cangjie
+import cactor.api.{CActorSystemFactory}
+import cactor_core.typed.*
+import cactor_core.dsl.*
+
+// Protocol: the enum is the protocol
+enum AgentCmd {
+    | Ask(String, TypedActorRef<String>)   // question and reply address
+    | Remember(String)
+    | Reflect                               // periodic memory review
+}
+
+// Behavior: private context (memory) is kept by returning a new behavior, no locks
+func agent(memory: Array<String>): TypedBehavior<AgentCmd> {
+    TypedBehaviors.receive<AgentCmd>({ ctx, cmd =>
+        match (cmd) {
+            case AgentCmd.Ask(question, replyTo) =>
+                replyTo << "got: ${question} (${memory.size} memories)"
+                TypedBehaviors.same<AgentCmd>()
+            case AgentCmd.Remember(fact) => agent(memory.concat([fact]))
+            case AgentCmd.Reflect =>
+                ctx.log().info("reviewing ${memory.size} memories")
+                TypedBehaviors.same<AgentCmd>()
+        }
+    })
+}
+
+main() {
+    let system = CActorSystemFactory.create("agents")
+    // Timers + supervision: restart on failure, at most 3 times per minute
+    let behavior = TypedBehaviors.withTimers<AgentCmd>({ timers =>
+        timers.startTimerAtFixedRate("reflect", AgentCmd.Reflect, 30.seconds)
+        agent([])
+    })
+    let assistant = system.typedActorOf<AgentCmd>(
+        TypedBehaviors.supervise(behavior).onFailure(TypedSupervisorStrategy.restart().withLimit(3, 1.minutes)),
+        "assistant")
+    assistant << AgentCmd.Remember("prefers English") << AgentCmd.Remember("timezone UTC+8")
+    let answer = TypedAsk.ask<AgentCmd, String>(assistant, { r => AgentCmd.Ask("today's plan?", r) }, 3.seconds)
+        .get(3.seconds)
+    println(answer)   // got: today's plan? (2 memories)
+    system.terminate()
+}
+```
 
 ---
 
@@ -54,15 +112,18 @@ CActor aims to bring this model to Cangjie. It provides:
 
 | Area | What it covers | Status |
 |------|----------------|--------|
-| Actor basics | Actor / ActorRef / ActorSystem, lifecycle hooks, `tell` | Usable |
-| Typed actors | `TypedBehaviors`, `TypedActorRef`, modeled after Akka Typed | Usable |
-| Fault tolerance | Supervision (OneForOne / OneForAll / Escalate / Backoff), circuit breaker | Usable |
-| Patterns | Ask, routing, backpressure | Usable |
-| Runtime components | Several mailbox and dispatcher implementations | Usable, see [limitations](#current-limitations) |
-| Streams | Stream processing DSL | Experimental |
+| Actor basics | Actor / ActorRef / ActorSystem, lifecycle hooks, children, `watch`, `become`, timers, stash, receive timeout, lookup by path, dead letters | Usable |
+| Typed actors | `TypedBehaviors`, `TypedActorRef`, ask from actors, `messageAdapter`, `pipeToSelf`, Receptionist, behavior interceptors, modeled after Akka Typed | Usable |
+| Fault tolerance | Supervision trees (OneForOne / OneForAll / Escalate / Backoff), DeathPact, circuit breaker | Usable |
+| Patterns | Ask, routing, bounded-mailbox backpressure (drop / fail / block) | Usable |
+| DSL | Enum protocols, `@actorReceive`, duration literals, `<<` | Usable |
+| Testing | `TestProbe`, `BehaviorTestKit`, virtual clock `ManualTime` | Usable |
+| Observability | Leveled and structured logging, MDC, JSON Lines, Prometheus metrics | Usable |
+| Remoting | TCP transport, remote ask / watch, cross-node replies, reliable delivery | Usable, no TLS yet |
+| Clustering | Gossip membership, Cluster Singleton, distributed pub/sub, cluster sharding, CRDTs and Replicator | Usable, verified with multi-node and multi-process tests; no split-brain resolver yet |
+| Persistence | File event journal, snapshots, event-sourced actors | Usable, no plugin interface yet |
+| Streams | Streams DSL | Experimental |
 | State machines | XState-style state machines | Experimental |
-| Distribution | Cluster sharding, remoting, event sourcing / persistence | Prototype; no real network or storage yet |
-| Macros | Actor DSL macros | Prototype |
 
 ---
 
