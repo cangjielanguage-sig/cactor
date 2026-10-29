@@ -5,6 +5,8 @@
  * - 级别：TRACE < DEBUG < INFO < WARN < ERROR < OFF，默认 WARN，可用环境变量 CACTOR_LOG_LEVEL 设置
  * - 输出：默认写 stderr，可用 Logging.setSink 替换（例如接入 stdx.log，或测试中收集日志）
  * - 热路径：先用 isEnabled 判断，或使用接受闭包的重载，避免级别关闭时仍做字符串拼接
+ * - 结构化字段：Logger.withField 附加固定字段；Mdc 附加当前线程（协程）的上下文字段；
+ *   JsonLinesSink 以每行一个 JSON 对象输出，便于日志平台采集
  */
 package cactor_foundation.logging
 
@@ -73,16 +75,148 @@ public struct LogRecord {
     public let source: String
     public let message: String
     public let timestampMillis: Int64
+    /** 结构化字段（Logger 的固定字段在前，MDC 字段在后） */
+    public let fields: Array<(String, String)>
 
     public init(level: LogLevel, source: String, message: String, timestampMillis: Int64) {
+        this(level, source, message, timestampMillis, Array<(String, String)>())
+    }
+
+    public init(level: LogLevel, source: String, message: String, timestampMillis: Int64, fields: Array<(String, String)>) {
         this.level = level
         this.source = source
         this.message = message
         this.timestampMillis = timestampMillis
+        this.fields = fields
+    }
+
+    /** 字段值（同名取最后一个） */
+    public func field(key: String): Option<String> {
+        var result = None<String>
+        for ((k, v) in fields) {
+            if (k == key) {
+                result = Some(v)
+            }
+        }
+        result
     }
 
     public func format(): String {
-        "${timestampMillis} ${level.label()} [${source}] ${message}"
+        if (fields.isEmpty()) {
+            return "${timestampMillis} ${level.label()} [${source}] ${message}"
+        }
+        let sb = StringBuilder("${timestampMillis} ${level.label()} [${source}] ${message}")
+        for ((k, v) in fields) {
+            sb.append(" ")
+            sb.append(k)
+            sb.append("=")
+            sb.append(v)
+        }
+        sb.toString()
+    }
+
+    /** 一个 JSON 对象（单行）：ts、level、source、message 以及全部字段 */
+    public func toJson(): String {
+        let sb = StringBuilder()
+        sb.append("{\"ts\":${timestampMillis},\"level\":")
+        appendJsonString(sb, level.label())
+        sb.append(",\"source\":")
+        appendJsonString(sb, source)
+        sb.append(",\"message\":")
+        appendJsonString(sb, message)
+        for ((k, v) in fields) {
+            sb.append(",")
+            appendJsonString(sb, k)
+            sb.append(":")
+            appendJsonString(sb, v)
+        }
+        sb.append("}")
+        sb.toString()
+    }
+}
+
+func appendJsonString(sb: StringBuilder, s: String): Unit {
+    sb.append("\"")
+    for (r in s.runes()) {
+        match (r) {
+            case '"' => sb.append("\\\"")
+            case '\\' => sb.append("\\\\")
+            case '\n' => sb.append("\\n")
+            case '\r' => sb.append("\\r")
+            case '\t' => sb.append("\\t")
+            case _ =>
+                let c = UInt32(r)
+                if (c < 0x20) {
+                    sb.append("\\u00")
+                    let hex = "0123456789abcdef"
+                    sb.append(Rune(UInt32(hex[Int64(c >> 4)])))
+                    sb.append(Rune(UInt32(hex[Int64(c & 0xF)])))
+                } else {
+                    sb.append(r)
+                }
+        }
+    }
+    sb.append("\"")
+}
+
+/**
+ * MDC（Mapped Diagnostic Context）：当前线程（仓颉协程）上附加到每条日志的字段，
+ * 例如请求 ID、租户。Actor 在共享线程上执行，因此在 Actor 中请用 Mdc.scoped，
+ * 它在代码块结束（包括抛出异常）时恢复之前的字段，不会泄漏给同一线程上的下一个 Actor。
+ */
+public class Mdc {
+    private static let current: ThreadLocal<Array<(String, String)>> = ThreadLocal<Array<(String, String)>>()
+
+    public static func get(): Array<(String, String)> {
+        current.get() ?? Array<(String, String)>()
+    }
+
+    public static func get(key: String): Option<String> {
+        var result = None<String>
+        for ((k, v) in get()) {
+            if (k == key) {
+                result = Some(v)
+            }
+        }
+        result
+    }
+
+    public static func put(key: String, value: String): Unit {
+        let next = ArrayList<(String, String)>()
+        for ((k, v) in get()) {
+            if (k != key) {
+                next.add((k, v))
+            }
+        }
+        next.add((key, value))
+        current.set(next.toArray())
+    }
+
+    public static func remove(key: String): Unit {
+        let next = ArrayList<(String, String)>()
+        for ((k, v) in get()) {
+            if (k != key) {
+                next.add((k, v))
+            }
+        }
+        current.set(next.toArray())
+    }
+
+    public static func clear(): Unit {
+        current.set(None<Array<(String, String)>>)
+    }
+
+    /** 在 block 执行期间附加 fields，结束后恢复原来的 MDC */
+    public static func scoped<T>(fields: Array<(String, String)>, block: () -> T): T {
+        let saved = current.get()
+        for ((k, v) in fields) {
+            put(k, v)
+        }
+        try {
+            block()
+        } finally {
+            current.set(saved)
+        }
     }
 }
 
@@ -103,6 +237,34 @@ public class StderrSink <: LogSink {
             let err = getStdErr()
             err.write(line)
             err.flush()
+        }
+    }
+}
+
+/** 每行一个 JSON 对象（JSON Lines），写到 stderr 或自定义的行输出函数 */
+public class JsonLinesSink <: LogSink {
+    private let lock = Mutex()
+    private let out: Option<(String) -> Unit>
+
+    public init() {
+        this.out = None<(String) -> Unit>
+    }
+
+    /** 自定义输出（例如写文件、发送到采集端）；out 在锁内调用，保证行不交错 */
+    public init(out: (String) -> Unit) {
+        this.out = Some(out)
+    }
+
+    public func write(record: LogRecord): Unit {
+        let line = record.toJson()
+        synchronized(lock) {
+            match (out) {
+                case Some(f) => f(line)
+                case None =>
+                    let err = getStdErr()
+                    err.write(line + "\n")
+                    err.flush()
+            }
         }
     }
 }
@@ -181,8 +343,16 @@ public class Logging {
         Logger(source)
     }
 
-    static func emit(level: LogLevel, source: String, message: String): Unit {
-        let record = LogRecord(level, source, message, DateTime.now().toUnixTimeStamp().toMilliseconds())
+    static func emit(level: LogLevel, source: String, message: String, fields: Array<(String, String)>): Unit {
+        let mdc = Mdc.get()
+        let all = if (mdc.isEmpty()) {
+            fields
+        } else if (fields.isEmpty()) {
+            mdc
+        } else {
+            fields.concat(mdc)
+        }
+        let record = LogRecord(level, source, message, DateTime.now().toUnixTimeStamp().toMilliseconds(), all)
         let target = synchronized(sinkLock) { sink }
         try {
             target.write(record)
@@ -192,12 +362,28 @@ public class Logging {
     }
 }
 
-/** 带来源标签的日志记录器（无状态，可随意创建） */
+/** 带来源标签的日志记录器（不可变，可随意创建和共享） */
 public class Logger {
     public let source: String
+    /** 附加到这个记录器每条日志上的字段 */
+    public let fields: Array<(String, String)>
 
     public init(source: String) {
+        this(source, Array<(String, String)>())
+    }
+
+    public init(source: String, fields: Array<(String, String)>) {
         this.source = source
+        this.fields = fields
+    }
+
+    /** 返回附加了一个字段的新记录器（原记录器不变） */
+    public func withField(key: String, value: String): Logger {
+        Logger(source, fields.concat([(key, value)]))
+    }
+
+    public func withFields(more: Array<(String, String)>): Logger {
+        Logger(source, fields.concat(more))
     }
 
     public func isEnabled(level: LogLevel): Bool {
@@ -206,14 +392,14 @@ public class Logger {
 
     public func log(level: LogLevel, message: String): Unit {
         if (Logging.isEnabled(level)) {
-            Logging.emit(level, source, message)
+            Logging.emit(level, source, message, fields)
         }
     }
 
     /** 惰性版本：级别关闭时不会执行 message 闭包 */
     public func log(level: LogLevel, message: () -> String): Unit {
         if (Logging.isEnabled(level)) {
-            Logging.emit(level, source, message())
+            Logging.emit(level, source, message(), fields)
         }
     }
 
