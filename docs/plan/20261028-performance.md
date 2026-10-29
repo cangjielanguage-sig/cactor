@@ -154,20 +154,19 @@
 
 ## 5. 复现
 
+基准程序已经纳入仓库，说明见 [bench/README.md](../../bench/README.md)：
+
 ```bash
-# CActor
 source ~/.cangjie/1.2.0/cangjie/envsetup.sh
 cjpm build
-./target/release/bin/cactor_examples.real_benchmark
-# 可调参数
+./target/release/bin/cactor_examples.real_benchmark     # CActor 端到端（§2）
+./target/release/bin/cactor_examples.micro_benchmark    # 仓颉原语（§3、§4.3 中的 ns 数据）
+bench/akka/run.sh 3                                      # Akka 2.6.21（JDK 17+，依赖自动下载并做 SHA-1 校验）
+bench/compare.sh                                         # 两边依次运行，结果保存到 bench/results/
+
+# 调度参数
 CACTOR_DISPATCHER_THREADS=8 CACTOR_DISPATCHER_SPIN_US=50 cjProcessorNum=32 ./target/release/bin/cactor_examples.real_benchmark
-
-# Akka（依赖：akka-actor/akka-remote/akka-stream/akka-protobuf-v3 2.6.21、scala-library 2.13.12、
-#   scala-java8-compat 1.0.2、config 1.4.2、reactive-streams 1.0.4、ssl-config-core 0.6.1、agrona 1.15.1）
-java -cp "jars/*" AkkaBench.java 3     # 3 轮，取最后一轮
 ```
-
-本次使用的 Akka 基准程序和仓颉原语微基准都放在 `/tmp`（`/tmp/akka-bench/AkkaBench.java`、`/tmp/cjperf*/src/main.cj`），没有纳入仓库。如需长期跟踪，可以把它们移到 `modules/examples` 或单独的 `cactor_bench` 模块。
 
 ## 6. 下一步
 
@@ -178,4 +177,4 @@ java -cp "jars/*" AkkaBench.java 3     # 3 轮，取最后一轮
 | 中 | 在亲和调度之上增加工作窃取（空闲线程从邻居窃取） | 负载不均时的吞吐 |
 | 中 | 评估 `--lto=thin` 和 PGO | 跨包内联带来的提升 |
 | 中 | 独立的阻塞调度器（供阻塞 I/O 和 FFI 使用） | 避免阻塞操作拖慢普通 Actor |
-| 低 | 把 Akka 对比基准和微基准纳入仓库，接入 CI 做性能回归检测 | 防止性能退化 |
+| 低 | 基准接入 CI 做性能回归检测（基准程序已纳入仓库，见 `bench/`） | 防止性能退化 |

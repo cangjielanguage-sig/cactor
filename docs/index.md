@@ -35,8 +35,8 @@ CActor 是用仓颉（Cangjie）语言实现的 Actor 模型库，由 12 个 cjp
 
 | 文档 | 描述 |
 |------|------|
-| [性能指南](zh/performance.md) | 性能调优最佳实践 |
-| [调度器选择](zh/performance.md#调度器配置) | 选择合适的调度器 |
+| [性能调优指南](zh/performance.md) | 编译优化、运行时参数、编写 Actor 的性能规则 |
+| [运行时参数](zh/performance.md#3-运行时参数) | 调度线程数、空闲自旋等参数 |
 
 ### 🌐 分布式
 
@@ -155,7 +155,7 @@ CActor 是用仓颉（Cangjie）语言实现的 Actor 模型库，由 12 个 cjp
 
 ### 生产部署
 
-1. [调度器选择](zh/performance.md#调度器配置) - 选择合适的调度器
+1. [运行时参数](zh/performance.md#3-运行时参数) - 调度线程数与空闲自旋
 2. [分布式](zh/architecture.md#distribution-layer-分布式层) - 集群部署
 3. [路线图](zh/roadmap.md) - 未来规划
 

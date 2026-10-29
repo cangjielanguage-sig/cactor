@@ -451,7 +451,7 @@ python3 tools/check_module_deps.py  # 检查模块分层约束
 | [架构设计](docs/zh/architecture.md) | 分层设计与关键组件 |
 | [包与模块结构](docs/zh/package-structure.md) | 模块划分与依赖关系 |
 | [API 参考](docs/zh/api-reference.md) | 主要类型与接口 |
-| [性能指南](docs/zh/performance.md) | 调度器、邮箱等调优选项 |
+| [性能调优指南](docs/zh/performance.md) | 编译优化、运行时参数、编写 Actor 的性能规则、如何测量 |
 | [文档索引](docs/zh/README.md) | 全部中文文档 |
 | [更新日志](CHANGELOG.md) | 版本变更记录 |
 

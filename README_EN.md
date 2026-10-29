@@ -452,7 +452,7 @@ In priority order; see the [development plan](docs/plan/20261028.md) (in Chinese
 | [Architecture](docs/en/architecture.md) | Layered design and key components |
 | [Package and Module Structure](docs/en/package-structure.md) | Modules and their dependencies |
 | [API Reference](docs/en/api-reference.md) | Main types and interfaces |
-| [Performance Guide](docs/en/performance.md) | Dispatcher, mailbox and other tuning options |
+| [Performance Tuning Guide](docs/en/performance.md) | Compiler flags, runtime parameters, performance rules for actors, how to measure |
 | [Documentation index](docs/en/README.md) | All English documents |
 | [Changelog](CHANGELOG.md) | Release history |
 

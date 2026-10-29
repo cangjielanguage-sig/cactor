@@ -66,7 +66,7 @@ See [Package and Module Structure](package-structure.md) for module dependencies
 
 - [Best Practices](BEST_PRACTICES.md)
 - [Code Style](CODE_STYLE_GUIDE.md)
-- [Performance Guide](performance.md)
+- [Performance Tuning Guide](performance.md)
 - [Monitoring and Logging](MONITORING.md)
 - [Deployment](DEPLOYMENT.md)
 - [Security](SECURITY.md)

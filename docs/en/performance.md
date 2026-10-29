@@ -1,652 +1,286 @@
-# CActor Performance Optimization Guide
+# CActor Performance Tuning Guide
 
-This guide covers every aspect of tuning CActor for maximum throughput, minimal latency, and efficient resource utilization. It is intended for engineers who need to extract the full performance potential of the CActor framework in production environments.
+This guide covers two things: how to make programs built on CActor run faster, and how to optimize CActor itself.
 
----
+All numbers come from the benchmark programs in this repository (see §6). They were measured on a 32-core Intel Xeon with Cangjie 1.2.0, so expect different results on other hardware.
 
-## Table of Contents
+The full same-machine comparison with Akka, and how each bottleneck was found, are in the [performance analysis](../plan/20261028-performance.md) (in Chinese).
 
-1. [Performance Overview](#performance-overview)
-2. [Dispatcher Types and Selection](#dispatcher-types-and-selection)
-3. [Mailbox Types and Selection](#mailbox-types-and-selection)
-4. [Foundation Layer High-Performance Components](#foundation-layer-high-performance-components)
-5. [Configuration Presets](#configuration-presets)
-6. [Optimization Techniques](#optimization-techniques)
-7. [Comparison with Akka](#comparison-with-akka)
-8. [Performance Tuning Checklist](#performance-tuning-checklist)
-9. [Monitoring and Profiling](#monitoring-and-profiling)
+## Contents
 
----
-
-## Performance Overview
-
-This guide describes the performance-related design of CActor and the tuning options it provides. The repository does not yet include reproducible message-passing benchmarks, so treat any figures in this guide as design targets rather than measured results.
-
-### Core Metrics
-
-| Metric                 | Value               | Notes                          |
-|------------------------|---------------------|--------------------------------|
-| Message Throughput     | 20,000,000 msg/s    | 4,000x improvement over baseline |
-| Tail Latency           | P99 < 1ms           | Measured under sustained load  |
-| Concurrent Actors      | 1,000,000+          | Per JVM instance               |
-| Memory per Actor       | < 1KB               | Including mailbox overhead     |
-
-### Benchmark Environment
-
-- **Hardware**: 16-core CPU, 32GB RAM
-- **OS**: Linux 5.4+
-- **Cangjie Version**: 1.2.0
-- **Test Tool**: CActor built-in benchmark framework
-
-### Benchmark Results by Workload
-
-| Workload    | Messages   | Actors | Config             | Throughput        |
-|-------------|------------|--------|--------------------|-------------------|
-| Light       | 10,000     | 5      | Standard           | 10,000,000 msg/s  |
-| Default     | 100,000    | 10     | High-performance   | 20,000,000 msg/s  |
-| Intensive   | 1,000,000  | 100    | Extreme            | 17,857,142 msg/s  |
-
-### Latency Distribution
-
-| Percentile | Latency |
-|------------|---------|
-| P50        | 0.1ms   |
-| P90        | 0.5ms   |
-| P99        | 0.8ms   |
-| P99.9      | 1.2ms   |
+1. [Current performance](#1-current-performance)
+2. [Step one: make sure compiler optimization is on](#2-step-one-make-sure-compiler-optimization-is-on)
+3. [Runtime parameters](#3-runtime-parameters)
+4. [Performance rules for writing actors](#4-performance-rules-for-writing-actors)
+5. [Settings that currently have no effect](#5-settings-that-currently-have-no-effect)
+6. [How to measure](#6-how-to-measure)
+7. [Optimizing CActor itself](#7-optimizing-cactor-itself)
 
 ---
 
-## Dispatcher Types and Selection
+## 1. Current performance
 
-The dispatcher governs how messages are scheduled onto threads. Choosing the correct dispatcher is the single most impactful configuration decision.
+| Scenario | CActor | Akka 2.6.21 (same machine, warmed up) |
+|---|---|---|
+| Single-actor throughput | 5.6–7.2 M msg/s | 2.7–3.4 M msg/s |
+| Fan-out (8 senders × 100 actors) | 2.5–4.5 M msg/s | 9.1–11.9 M msg/s |
+| Ping-pong round trip P50 / P99 | 1.9–4.0 / 2.7–11 µs | 3.0 / 5.9–6.7 µs |
+| Ask round trip P50 / P99 | 5.0–6.0 / 11–13 µs | 8.8 / 10–16 µs |
+| Remote TCP (loopback) | 146–194 k msg/s | about 308 k msg/s |
 
-### 1. ThreadPool Dispatcher
+What the table shows:
 
-The default general-purpose dispatcher. Suitable for most workloads that do not have extreme latency or throughput requirements.
+- **Point-to-point** work matches or beats Akka. That covers one sender to one actor, and request/reply.
+- **Fan-out**, from many senders to many actors, is still clearly slower. So is **remoting**. The causes are in §3.4 and §3.5 of the analysis.
 
-```cangjie
-let config = CActorRuntimeConfig.createDefault()
-    .withDispatcher(DispatcherConfig.createThreadPool(8))
+If your workload is mostly fan-out or remoting, expect this gap.
+
+## 2. Step one: make sure compiler optimization is on
+
+This is the biggest win, and the easiest one to miss. **cjpm passes no `-O` flag by default, and cjc defaults to `-O0`.** That holds even though the output goes to `target/release`.
+
+The CActor workspace already sets this in `cjpm.toml`:
+
+```toml
+compile-option = "-O2 -Woff unused -Woff parser --diagnostic-format=noColor"
 ```
 
-**When to use**: General-purpose services, mixed I/O and CPU workloads, prototyping.
+**Your own project needs it too.** An application that depends on CActor still compiles its own code at `-O0` unless told otherwise:
 
-### 2. WorkStealing Dispatcher
-
-High-performance dispatcher that uses work-stealing to balance load across CPU cores. Idle threads steal tasks from busy neighbors, which maximizes CPU utilization and minimizes queue contention.
-
-```cangjie
-let config = CActorRuntimeConfig.createDefault()
-    .withDispatcher(DispatcherConfig.createWorkStealing(8))
+```toml
+[package]          # or [workspace]
+compile-option = "-O2"
 ```
 
-An optimized variant is available for latency-sensitive deployments:
+To check that it took effect:
 
-```cangjie
-// Optimized work-stealing dispatcher
-let config = CActorRuntimeConfig.createDefault()
-    .withDispatcher(DispatcherConfig.createOptimizedWorkStealing(8))
+```bash
+cjpm build -V 2>&1 | grep -o "cjc .*" | head -3   # every cjc command should contain -O2
 ```
 
-**When to use**: High-throughput pipelines, CPU-bound actor processing, production deployments that demand maximum throughput.
+Measured effect (same code, only the compiler flag changed):
 
-### 3. Adaptive Dispatcher
+| | -O0 | -O2 |
+|---|---|---|
+| Remote TCP throughput | 47 k/s | 175 k/s (3.6×) |
+| Fan-out throughput | 0.55 M/s | 0.72 M/s |
+| Interface call | 11 ns | 0.2 ns (devirtualized and inlined) |
+| Non-escaping object allocation | 9.8 ns | eliminated |
 
-Automatically adjusts thread pool size and scheduling strategy based on runtime load characteristics. Useful when workload patterns are unpredictable.
+## 3. Runtime parameters
 
-```cangjie
-let config = CActorRuntimeConfig.createDefault()
-    .withDispatcher(DispatcherConfig.createAdaptive())
+All parameters are environment variables, read once when the process starts.
+
+| Variable | Default | Effect |
+|---|---|---|
+| `CACTOR_DISPATCHER_THREADS` | 1/4 of the CPU cores (4–64) | Number of worker threads that run actors |
+| `CACTOR_DISPATCHER_SPIN_US` | `50` | Microseconds an idle worker spins before sleeping |
+| `cjProcessorNum` | number of CPU cores | Maximum number of Cangjie threads running at once (at most 2× the cores) |
+| `cjHeapSize` | 256MB (64MB if physical memory is under 1GB) | Upper limit of the Cangjie heap |
+| `cjStackSize` | 128KB | Stack size of each Cangjie thread |
+
+Example:
+
+```bash
+CACTOR_DISPATCHER_THREADS=8 CACTOR_DISPATCHER_SPIN_US=50 ./your_app
 ```
 
-**When to use**: Variable-load services, auto-scaling environments, workloads with bursty traffic.
+### 3.1 Worker threads: more is not better
 
-### 4. Dynamic Dispatcher
+Each actor is pinned to one worker when it is created, in creation order (affinity scheduling). With more workers, each worker holds fewer actors. Workers then go idle, sleep and wake more often, and fan-out gets slower.
 
-A dynamic thread pool that grows and shrinks in response to current demand. Threads that remain idle beyond a configured timeout are reclaimed.
+Measured on 32 cores with 50µs idle spin. Runs per setting: 4 and 8 ran 4 times each, 16 twice, 32 once.
 
-```cangjie
-let config = CActorRuntimeConfig.createDefault()
-    .withDispatcher(DispatcherConfig.createDynamic()
-        .withCoreThreads(4)
-        .withMaxThreads(32)
-        .withIdleTimeoutSeconds(60))
-```
+| `CACTOR_DISPATCHER_THREADS` | Single actor | Fan-out | Ping-pong P99 |
+|---|---|---|---|
+| 4 | 4.6–7.2 M/s | 2.3–7.7 M/s (very noisy) | 2.2–2.7 µs |
+| 8 (default) | 5.3–6.1 M/s | 2.7–4.8 M/s | 3.2–11 µs |
+| 16 | 4.7–4.8 M/s | 1.3–1.6 M/s | 2.7–10 µs |
+| 32 | 8.1 M/s | 1.4 M/s | 2.6 µs |
 
-**When to use**: Bursty traffic patterns, cost-sensitive deployments, environments where resource headroom must be minimized.
+What the numbers show:
 
-### 5. BatchProcessing Dispatcher
+- With 16 or 32 threads, fan-out consistently drops to 1.3–1.6 M/s.
+- Between 4 and 8 there is no consistent winner; the run-to-run variation is larger than the difference.
+- Single-actor throughput and ping-pong latency barely depend on the thread count.
 
-Processes messages in batches before yielding the thread. This amortizes scheduling overhead across many messages and is ideal for actors that handle high-volume, uniform message streams.
+Recommendations:
 
-```cangjie
-let config = CActorRuntimeConfig.createDefault()
-    .withDispatcher(DispatcherConfig.createBatchProcessing()
-        .withBatchSize(1000))
-```
+- Start with the default.
+- Don't raise the thread count just because the machine has more cores. Change it only when your own load test shows a gain.
+- If the same process runs other CPU-heavy Cangjie threads, such as senders or I/O, be even more conservative.
 
-**When to use**: High-volume event ingestion, metric aggregation, log processing pipelines.
+### 3.2 Idle spinning: CPU in exchange for latency
 
-### 6. FoundationBased Dispatcher
+When a worker runs out of work, it spins for `CACTOR_DISPATCHER_SPIN_US` microseconds before it sleeps. Waking from sleep costs about 1.4–2.6 µs, and it makes tail latency noticeably worse.
 
-Built directly on the foundation layer primitives for maximum control and minimal abstraction overhead.
+Measured on 32 cores with 8 workers. The 50µs setting ran twice; the others ran once.
 
-```cangjie
-let config = CActorRuntimeConfig.createDefault()
-    .withDispatcher(DispatcherConfig.createFoundationBased())
-```
+| `CACTOR_DISPATCHER_SPIN_US` | Ping-pong P50 / P99 / P99.9 | Ask P50 | Cost |
+|---|---|---|---|
+| 0 | 20.9 / 140 / 8418 µs | 27.8 µs | almost no CPU when idle |
+| 20 | 2.1 / 2.7 / 12.9 µs | 5.0 µs | up to 20 µs of spinning between messages |
+| 50 (default) | 2.0–4.0 / 3.2–11 / 17–27 µs | 5.2–5.3 µs | up to 50 µs |
+| 200 | 4.0 / 10.4 / 18.4 µs | 5.4 µs | up to 200 µs |
 
-**When to use**: When you need to integrate custom scheduling logic, or when profiling shows dispatcher abstraction overhead is a bottleneck.
+What the numbers show:
 
-### Dispatcher Selection Matrix
+- With spinning off (0), latency gets about 10× worse and P99.9 reaches milliseconds.
+- Any spin of 20µs or more gives about the same latency; the differences between 20, 50 and 200 are smaller than the run-to-run noise.
+- Throughput barely depends on this setting.
 
-| Dispatcher         | Throughput | Latency  | Flexibility | Complexity |
-|--------------------|------------|----------|-------------|------------|
-| ThreadPool         | Good       | Good     | High        | Low        |
-| WorkStealing       | Excellent  | Excellent| Medium      | Medium     |
-| Adaptive           | Good       | Good     | High        | Low        |
-| Dynamic            | Good       | Good     | High        | Medium     |
-| BatchProcessing    | Excellent  | Fair     | Low         | Low        |
-| FoundationBased    | Excellent  | Excellent| Low         | High       |
+Recommendations:
 
----
+- **Latency-sensitive services** (trading, games, RPC): keep the default. Raising it to 200 gave no measurable gain.
+- **Tight CPU or shared machines** (background jobs, batch work, hosts shared with other services): you can go down to 20. `0` saves more idle CPU, but request/reply latency gets about 10× worse.
+- Whatever the setting, a sleeping worker still wakes every 10 ms to check for work. An idle process never uses exactly zero CPU.
 
-## Mailbox Types and Selection
+### 3.3 Cangjie runtime parameters
 
-The mailbox is the per-actor message queue. It determines how messages are buffered, ordered, and delivered to the actor.
+- **`cjProcessorNum`:** usually leave it at the default. Setting it below the worker count limits the parallelism of the whole process.
+- **`cjHeapSize`:** going from 256MB to 2GB made no measurable difference to the benchmarks above. If large messages or a lot of actor state make GC frequent, raise it. First use `MRT_REPORT=<path>` to write a GC log and confirm that GC is the problem.
+- **Other parameters:** see [Cangjie runtime environment variables](https://docs.cangjie-lang.cn/en/docs/1.0.0/user_manual/source_en/Appendix/runtime_env.html).
 
-### 1. FoundationMailbox
+## 4. Performance rules for writing actors
 
-The basic mailbox implementation. Straightforward, reliable, and sufficient for low-to-moderate throughput scenarios.
+### 4.1 Never block inside `receive`
 
-```cangjie
-let mailbox = MailboxConfig.createFoundation()
-    .withCapacity(10000)
-```
+`receive` runs on a worker thread that is shared by many actors. Blocking holds that thread, and **every actor on the same worker stops**.
 
-**When to use**: Default choice, low-traffic actors, prototyping.
+All of the following block:
 
-### 2. LockFreeMailbox
+- `sleep`.
+- Synchronous file or network I/O.
+- Waiting on `Future.get()`.
+- Waiting for a lock or a condition.
+- `AskFuture.get()` and `await()`.
+- `RemoteActorRef.tell`, which writes to the socket synchronously and blocks when the network is slow.
 
-A lock-free mailbox that eliminates mutex contention between producers and the consumer actor. This is the highest-performance mailbox for most production workloads.
+**A blocking ask to another actor from inside `receive` can stall until the timeout.** If the target happens to be on the same worker, it can't run until the current `receive` returns, and the current `receive` is waiting for it. Measured:
 
-```cangjie
-let mailbox = MailboxConfig.createLockFree()
-    .withCapacity(10000)
-```
+| Case | Result |
+|---|---|
+| The two actors are on different workers | reply after 68 µs |
+| The two actors are on the same worker | waits the full 2 seconds, then fails with a timeout |
 
-**When to use**: High-throughput actors, multi-producer scenarios, latency-sensitive paths.
+Which worker an actor lands on depends on creation order, so you can't count on them being apart. There are two correct patterns.
 
-### 3. BatchingMailbox
-
-Buffers incoming messages and delivers them to the actor in batches. The actor can process an entire batch in a single scheduling cycle, which dramatically reduces per-message overhead.
-
-```cangjie
-let mailbox = MailboxConfig.createBatching()
-    .withCapacity(50000)
-    .withBatchSize(1000)
-```
-
-**When to use**: Actors that can process messages in bulk (aggregators, flush-to-DB actors, metric collectors).
-
-### 4. PriorityMailbox
-
-Orders messages by priority before delivery. Lower-priority messages are not starved, but higher-priority messages are always processed first.
+The first is to register a callback instead of waiting:
 
 ```cangjie
-let mailbox = MailboxConfig.createPriority { msg1, msg2 =>
-    msg1.priority().compareTo(msg2.priority())
-}
+askManager.ask(target, request).onComplete({ r =>
+    // Don't modify actor state here; the callback may run on another thread.
+    // Send the result back to yourself as a message instead.
+    selfRef.tell(ResultMessage(r))
+})
 ```
 
-**When to use**: Systems where certain messages (heartbeats, shutdown signals, alerts) must take precedence.
+The second is tell plus a reply message. Put your own reference in the request, and have the other actor `tell` a reply back when it's done. This is the natural actor style, and also the cheapest.
 
-### 5. FoundationBasedMailbox
+If you really need blocking I/O, run it on a separate Cangjie thread with `spawn`, and `tell` the result back when it finishes.
 
-Built on the foundation layer primitives. Provides the lowest-level control over mailbox behavior.
+### 4.2 Ask costs much more than tell
 
-```cangjie
-let mailbox = MailboxConfig.createFoundationBased()
-    .withCapacity(10000)
-    .withLockFree(true)
-    .withBatchDequeue(true)
+| Operation | Cost |
+|---|---|
+| `tell` | about 0.15 µs per message on the sender side (single-actor case: 1M messages in about 150 ms) |
+| Ask round trip | P50 about 5 µs; each call also creates a request ID, a temporary reply reference and a future |
+
+Use ask only at system boundaries, for example when an HTTP request comes in and must wait for a result. Between actors, use tell.
+
+### 4.3 No logging on hot paths
+
+One string interpolation such as `"actor-${id} ..."` costs about 60–90 ns, more than delivering a message, and `println` adds I/O on top. Don't call `println` or build debug strings in high-frequency message handling.
+
+### 4.4 Message design
+
+- **Prefer immutable messages.** They can be reused: the benchmark sends the same `StringMessage` instance one million times.
+- **Allocation is cheap, but data copies aren't.** An allocation costs about 7.5 ns, so object pools aren't worth it for messages. Still, don't put large copied data in every message, such as a copy of a whole array.
+- **Cross-node messages must be serializable.** Register a codec for custom messages with `MessageCodecRegistry`. Keep the encoding compact, because remoting is currently limited by one `write` per message.
+
+### 4.5 Split hot actors
+
+A single actor processes messages serially. With an empty handler it tops out at about 6–7 M msg/s, and the heavier the handler, the lower the limit. If every request goes to one actor, that actor is the bottleneck:
+
+- Split the state across several actors by key, for example by user ID modulo N.
+- For read-mostly data, copy it to several read-only actors.
+
+Splitting turns the workload into fan-out, which is currently slower than in Akka (§1), so load-test to confirm the gain.
+
+### 4.6 Don't create an actor per request
+
+Creating an actor is much heavier than sending a message. It takes several locks, checks for a duplicate name, registers the actor and runs `preStart`. Use long-lived actors for long-lived entities, and plain messages or `spawn` for short tasks.
+
+## 5. Settings that currently have no effect
+
+The following APIs and settings exist in the code, but **they currently don't change how messages are processed**. Don't use them for tuning:
+
+| API / setting | What actually happens |
+|---|---|
+| `actorOfWithMailbox`, `Props.withMailbox(...)` | Only the name is recorded; every actor uses the same mailbox (a lock-free MPSC queue) |
+| `actorOfWithDispatcher`, `Props.withDispatcher(...)` | Only the name is recorded; every actor runs on the same affinity dispatcher |
+| The dispatcher and mailbox implementations under `runtime.dispatcher.*` and `runtime.mailbox.*` (WorkStealing, Batching, RingBuffer, etc.) | Not on the main message path |
+| Configuration presets such as `HighPerformanceActorSystemConfig` | No effect on the main message path |
+| Maximum messages an actor processes per scheduling turn (64) | Hard-coded as `SimpleUserActorRef.THROUGHPUT`; not configurable |
+
+These duplicate implementations will be merged or removed in the deduplication phase (M3 in the [development plan](../plan/20261028.md), in Chinese).
+
+## 6. How to measure
+
+```bash
+source ~/.cangjie/1.2.0/cangjie/envsetup.sh
+cjpm build
+./target/release/bin/cactor_examples.real_benchmark     # CActor end to end
+./target/release/bin/cactor_examples.micro_benchmark    # cost of individual Cangjie primitives
+bench/akka/run.sh 3                                      # Akka comparison (needs JDK 17+)
+bench/compare.sh                                         # runs both and saves results to bench/results/
 ```
 
-**When to use**: When you need custom mailbox semantics or direct access to the underlying queue.
-
-### 6. RingBufferMailbox
-
-A ring buffer-based mailbox with fixed capacity. Pre-allocates all storage at creation time, avoiding runtime allocation and GC pressure. Ideal for predictable, high-throughput message flows.
-
-```cangjie
-let mailbox = MailboxConfig.createRingBuffer()
-    .withCapacity(8192)  // Must be power of 2
-```
-
-**When to use**: Latency-critical paths, zero-GC-pause requirements, predictable message rates.
-
-### Mailbox Selection Matrix
-
-| Mailbox             | Throughput | Latency  | Ordering   | Memory Overhead |
-|---------------------|------------|----------|------------|-----------------|
-| FoundationMailbox   | Good       | Good     | FIFO       | Moderate        |
-| LockFreeMailbox     | Excellent  | Excellent| FIFO       | Low             |
-| BatchingMailbox     | Excellent  | Fair     | FIFO       | Moderate        |
-| PriorityMailbox     | Good       | Good     | Priority   | Moderate        |
-| FoundationBasedMailbox | Excellent| Excellent| FIFO       | Low             |
-| RingBufferMailbox   | Excellent  | Excellent| FIFO       | Very Low        |
-
----
-
-## Foundation Layer High-Performance Components
-
-The foundation layer provides the low-level primitives that power CActor's performance. Understanding these components is essential for advanced tuning.
-
-### LockFreeQueue
-
-The core concurrent queue implementation. It is based on a ring buffer and automatically selects the optimal concurrency mode based on usage patterns.
-
-**Supported Modes**:
-
-| Mode   | Producers | Consumers | Use Case                              |
-|--------|-----------|-----------|---------------------------------------|
-| SPSC   | 1         | 1         | Pipeline stages, single-owner handoff |
-| MPSC   | Multiple  | 1         | Actor mailbox (multi-producer)        |
-| SPMC   | 1         | Multiple  | Broadcast, fan-out                    |
-| MPMC   | Multiple  | Multiple  | General-purpose shared queue          |
-
-**Adaptive Mode Detection**: The queue monitors access patterns at runtime and automatically switches to the most efficient mode. No manual configuration is required.
-
-```cangjie
-// The queue auto-detects the optimal mode
-let queue = LockFreeQueue<Int64>(capacity: 1024)
-// If only one thread enqueues and one dequeues -> SPSC (fastest path)
-// If multiple threads enqueue -> MPSC
-// Automatic, zero-configuration
-```
-
-### Cache Line Padding
-
-False sharing occurs when independent variables that are frequently written by different threads happen to reside on the same CPU cache line. The foundation layer pads critical fields to ensure each occupies its own cache line.
-
-```cangjie
-// Internal padding example (conceptual)
-class PaddedAtomicCounter {
-    // 7 padding longs before the value
-    let pad1: Int64 = 0
-    let pad2: Int64 = 0
-    let pad3: Int64 = 0
-    let pad4: Int64 = 0
-    let pad5: Int64 = 0
-    let pad6: Int64 = 0
-    let pad7: Int64 = 0
-    let value: AtomicInt64 = AtomicInt64(0)
-    // 7 padding longs after the value
-    let pad8: Int64 = 0
-    // ...
-}
-```
-
-This ensures that writes to the counter do not invalidate cache lines used by adjacent data, eliminating a major source of latency under high contention.
-
-### Batch Operation Optimization
-
-The foundation layer supports batch enqueue and dequeue operations that amortize the cost of CAS operations and memory barriers across many elements.
-
-```cangjie
-// Batch enqueue
-let items = Array<Envelope>(100)
-for (i in 0..100) {
-    items[i] = createEnvelope(i)
-}
-let enqueued = queue.enqueueBatch(items)
-
-// Batch dequeue
-let buffer = Array<Envelope>(100)
-let dequeued = queue.dequeueBatch(buffer)
-```
-
-Batch operations reduce per-element overhead by:
-- Performing a single CAS to claim a range of slots
-- Issuing a single memory barrier for the entire batch
-- Improving cache locality through sequential access
-
----
-
-## Configuration Presets
-
-CActor provides two layers of configuration presets: runtime-level presets for the overall system, and actor-level presets for individual actors.
-
-### Runtime-Level Presets
-
-#### createDefault()
-
-General-purpose configuration. Unbounded mailbox with a thread pool dispatcher.
-
-```cangjie
-let system = CActor.system("default", CActorRuntimeConfig.createDefault())
-```
-
-Use for: Development, testing, services without strict performance requirements.
-
-#### createProduction()
-
-Production-hardened configuration. Bounded mailbox (capacity 10,000) with a work-stealing dispatcher to prevent unbounded memory growth under load.
-
-```cangjie
-let system = CActor.system("prod", CActorRuntimeConfig.createProduction())
-```
-
-Use for: All production deployments as a starting point.
-
-#### createExtreme()
-
-Targets maximum message rate. Use this preset when throughput is the primary objective and you have verified that your hardware can sustain the load.
-
-```cangjie
-let system = CActor.system("extreme", CActorRuntimeConfig.createExtreme())
-```
-
-Target: 1,000,000+ msg/s sustained throughput.
-
-Use for: High-frequency event processing, real-time analytics, financial data pipelines.
-
-#### createMemoryOptimized()
-
-Minimizes per-actor memory footprint. Trades some throughput for significantly lower memory consumption per actor.
-
-```cangjie
-let system = CActor.system("memopt", CActorRuntimeConfig.createMemoryOptimized())
-```
-
-Target: < 1KB per actor.
-
-Use for: Internet-of-Things (IoT) gateways, per-connection actors, systems that need to support millions of actors.
-
-#### createLowLatency()
-
-Optimizes for tail latency. Uses a pinned dispatcher to eliminate thread migration and context-switch overhead.
-
-```cangjie
-let system = CActor.system("lowlat", CActorRuntimeConfig.createLowLatency())
-```
-
-Target: P99 < 100 microseconds.
-
-Use for: Trading systems, real-time control loops, interactive user-facing services where response time directly impacts user experience.
-
-#### createHighThroughput()
-
-Maximum throughput configuration. Work-stealing dispatcher tuned for bulk message processing.
-
-```cangjie
-let system = CActor.system("highthroughput", CActorRuntimeConfig.createHighThroughput())
-```
-
-Target: 50,000,000 msg/s.
-
-Use for: Batch processing, log aggregation, event streaming backends.
-
-### Runtime Preset Comparison
-
-| Preset                | Throughput Target  | Latency Target  | Memory/Actor | Mailbox     | Dispatcher     |
-|-----------------------|--------------------|-----------------|--------------|-------------|----------------|
-| createDefault         | Standard           | Standard        | Standard     | Unbounded   | ThreadPool     |
-| createProduction      | High               | Low             | Standard     | Bounded 10K | WorkStealing   |
-| createExtreme         | 1M+ msg/s          | Low             | Standard     | Optimized   | Optimized      |
-| createMemoryOptimized | Standard           | Standard        | < 1KB        | Compact     | Compact        |
-| createLowLatency      | Standard           | P99 < 100us     | Standard     | Optimized   | Pinned         |
-| createHighThroughput  | 50M msg/s          | Standard        | Standard     | Optimized   | WorkStealing   |
-
-### API-Level Actor Configuration Presets
-
-These presets configure individual actors rather than the entire system.
-
-#### ActorConfig.default()
-
-Default actor configuration. Suitable for actors that do not have specific performance requirements.
-
-```cangjie
-let props = Props.create(() => MyActor()).withConfig(ActorConfig.default())
-```
-
-#### ActorConfig.highPerformance()
-
-Bounded mailbox (10,000 capacity) with an 8-thread work-stealing dispatcher.
-
-```cangjie
-let props = Props.create(() => MyActor()).withConfig(ActorConfig.highPerformance())
-```
-
-Use for: Actors on the critical processing path in production.
-
-#### ActorConfig.lowLatency()
-
-Unbounded mailbox with a 4-thread work-stealing dispatcher. Optimized for minimal message delivery latency.
-
-```cangjie
-let props = Props.create(() => MyActor()).withConfig(ActorConfig.lowLatency())
-```
-
-Use for: Actors that must respond within tight time budgets (request-response patterns, RPC actors).
-
-#### ActorConfig.batching()
-
-Bounded mailbox (50,000 capacity) with a 16-thread pool dispatcher. Optimized for actors that benefit from batch processing.
-
-```cangjie
-let props = Props.create(() => MyActor()).withConfig(ActorConfig.batching())
-```
-
-Use for: Bulk data processors, batch writers, aggregation actors.
-
----
-
-## Optimization Techniques
-
-### 1. Lock-Free Data Structures
-
-CActor uses lock-free algorithms based on Compare-And-Swap (CAS) operations throughout the critical path. This eliminates lock contention, which is the primary bottleneck in high-concurrency actor systems.
-
-**Where lock-free structures are used**:
-- Mailbox message queues (LockFreeQueue)
-- Dispatcher work queues
-- Actor reference counting
-- Metrics counters
-
-**Impact**: 100x improvement in concurrent enqueue/dequeue throughput. Lock contention is completely eliminated.
-
-### 2. Cache Line Padding
-
-Modern CPUs load memory in 64-byte cache lines. When two threads write to different variables that share a cache line, each write invalidates the other thread's cache line (false sharing). CActor pads all hot-path atomic variables to occupy a full cache line.
-
-**Impact**: Eliminates false sharing on the scheduling fast path. Measurable latency reduction under high contention.
-
-### 3. Batch Message Processing
-
-Instead of dequeuing and processing one message at a time, CActor can dequeue a batch of messages and process them in a single scheduling cycle.
-
-```cangjie
-public class BatchMessageProcessor {
-    private let batchSize: Int32 = 1000
-
-    public func processBatch(mailbox: Mailbox): Unit {
-        let batch = Array<Envelope>(batchSize)
-        let count = mailbox.dequeueBatch(batch)
-
-        for (i in 0..count) {
-            processMessage(batch[i])
-        }
-    }
-}
-```
-
-**Impact**:
-- Throughput: 10-50x improvement over single-message processing
-- CPU utilization: 30% improvement
-- Latency cost: Microsecond-level increase per batch, negligible in practice
-
-### 4. Object Pooling
-
-Frequent allocation and garbage collection of short-lived message objects creates GC pressure. CActor provides object pools that reuse message and envelope objects across processing cycles.
-
-```cangjie
-public class ObjectPool<T> {
-    private let pool: LockFreeQueue<T>
-    private let factory: () -> T
-    private let maxSize: Int32
-
-    public func acquire(): T {
-        match (pool.dequeue()) {
-            case Some(obj) =>
-                resetObject(obj)
-                obj
-            case None => factory()
-        }
-    }
-
-    public func release(obj: T): Unit {
-        if (pool.size() < maxSize) {
-            pool.enqueue(obj)
-        }
-    }
-}
-```
-
-**Impact**: Reduces GC pauses and allocation overhead. Most significant in high-throughput scenarios where millions of messages are processed per second.
-
-### 5. Zero-Copy Message Passing
-
-CActor passes messages by reference between actors when possible, avoiding data copies. For actors that exchange large payloads (arrays, buffers, structured data), this eliminates a major source of CPU overhead.
-
-```cangjie
-// Avoid copying large data
-class DataReferenceMessage <: Message {
-    let dataRef: DataReference  // Reference only, no copy
-}
-
-// Avoid this pattern
-class CopyMessage <: Message {
-    let data: Array<UInt8> = Array<UInt8>(1024 * 1024)  // 1MB copy
-}
-```
-
-**Impact**: Eliminates memory copies for large messages. Reduces memory bandwidth consumption and GC pressure.
-
----
-
-## Comparison with Akka
-
-CActor provides performance that is competitive with Akka, the most widely deployed actor framework on the JVM.
-
-| Metric              | Akka              | CActor            |
-|---------------------|-------------------|-------------------|
-| Throughput          | 10-50M msg/s      | 20M msg/s         |
-| Latency (P99)       | < 1ms             | < 1ms             |
-| Memory per Actor    | ~500 Bytes        | < 1KB             |
-| Concurrent Actors   | 1,000,000+        | 1,000,000+        |
-
-Key observations:
-
-- **Throughput**: CActor achieves 20M msg/s on standard hardware, which falls within Akka's reported range of 10-50M msg/s depending on configuration and hardware.
-- **Latency**: Both frameworks achieve P99 latency under 1ms. CActor's low-latency preset targets P99 < 100us.
-- **Memory**: CActor uses slightly more memory per actor (< 1KB vs ~500B) due to its foundation layer and adaptive queue structures, but remains well within practical limits for million-actor deployments.
-- **Concurrency**: Both frameworks support over 1 million concurrent actors.
-
----
-
-## Performance Tuning Checklist
-
-Use this checklist when deploying CActor to production or diagnosing performance issues.
-
-### Dispatcher
-
-- [ ] Select the appropriate dispatcher type for your workload (see [Dispatcher Selection Matrix](#dispatcher-selection-matrix))
-- [ ] Set parallelism to match available CPU cores (typically `Runtime.availableProcessors()`)
-- [ ] Enable NUMA awareness on multi-socket systems
-- [ ] Verify that dispatcher threads are not blocked by I/O or external calls
-
-### Mailbox
-
-- [ ] Use bounded mailboxes in production to prevent out-of-memory conditions
-- [ ] Select LockFreeMailbox or RingBufferMailbox for high-throughput actors
-- [ ] Use BatchingMailbox for actors that process uniform message streams
-- [ ] Use PriorityMailbox only when message ordering by priority is a hard requirement
-- [ ] Size the mailbox capacity to accommodate burst traffic (monitor for mailbox-full events)
-
-### Actor Design
-
-- [ ] Keep actors stateless or minimize mutable state
-- [ ] Use atomic operations for shared counters instead of locks
-- [ ] Pass data by reference, not by copy, for large payloads
-- [ ] Avoid blocking operations inside `receive()`. Offload I/O to dedicated I/O actors or external executors
-- [ ] Use message object pooling for high-volume message types
-
-### System Configuration
-
-- [ ] Use `createProduction()` or `createExtreme()` as the starting point for production configs
-- [ ] Enable batch processing for high-volume actors
-- [ ] Enable object pooling for message and envelope types
-- [ ] Monitor GC behavior and tune heap sizing if pause times exceed SLA targets
-- [ ] Set appropriate file descriptor limits on the OS (`ulimit -n`)
-- [ ] Pin dispatcher threads to CPU cores when latency predictability is critical
-
----
-
-## Monitoring and Profiling
-
-### Real-Time Metrics
-
-CActor exposes runtime metrics for monitoring throughput, latency, and resource usage.
-
-```cangjie
-let metrics = system.metrics()
-println("Throughput: ${metrics.throughput()} msg/s")
-println("P99 Latency: ${metrics.p99Latency()}")
-println("Actor Count: ${metrics.actorCount()}")
-println("Memory Usage: ${metrics.memoryUsage()}")
-```
-
-### Performance Profiling
-
-Enable the built-in profiler to capture CPU and memory profiles during load tests.
-
-```cangjie
-let profiler = system.startProfiler()
-profiler.enableCPUProfiling()
-profiler.enableMemoryProfiling()
-
-// Run workload
-runPerformanceTest()
-
-// Generate report
-let report = profiler.generateReport()
-report.saveToFile("performance-report.html")
-```
-
-### Key Metrics to Monitor
-
-| Metric                  | Target                     | Alert Threshold             |
-|-------------------------|----------------------------|-----------------------------|
-| Message throughput      | Varies by workload         | > 20% below baseline        |
-| P99 latency             | < 1ms (standard)           | > 2ms                       |
-| Mailbox depth           | Below capacity             | > 80% of capacity           |
-| Dispatcher queue length | Balanced across workers    | Single worker > 2x average  |
-| Memory per actor        | < 1KB                      | > 2KB                       |
-| GC pause time           | < 10ms                     | > 50ms                      |
-
-### Interpreting Results
-
-- **Throughput below expected**: Check for blocking operations in actors, undersized dispatcher pools, or mailbox capacity exhaustion.
-- **High tail latency**: Check for false sharing (rare with default configuration), thread migration (use pinned dispatcher), or GC pauses.
-- **Growing mailbox depth**: The actor cannot keep up with the incoming message rate. Consider increasing dispatcher parallelism, enabling batch processing, or partitioning the actor into multiple instances.
-- **Memory growth**: Check for message object leaks (objects not returned to pools), unbounded mailbox usage, or accumulated actor state.
-
----
-
-## Summary
-
-CActor aims for good performance through a combination of lock-free data structures, cache-line-aware memory layout, batch processing, object pooling, and zero-copy message passing. The framework provides configuration presets that cover the most common deployment scenarios, from low-latency trading systems to high-throughput event pipelines, while offering fine-grained control when custom tuning is required.
-
-Start with `createProduction()`, measure, and then iterate using the dispatcher and mailbox selection guidance in this document.
+Things to watch:
+
+- **The machine must be idle.** Other load, such as a compile, cuts both sides' numbers sharply. One run at a load average of about 32 dropped remote throughput from about 150k to 56k.
+- **Run at least 3 times.** M:N scheduling causes noticeable run-to-run variation; fan-out, for example, ranges from 2.5 to 4.5 M/s. Look at the range, not a single run.
+- **Warm up Akka.** Use the last round; the first round is several times slower.
+- **Measure your own workload.** The benchmark actors do almost nothing. In real applications the handler is usually heavier than message delivery, so the bottleneck is often in your own code.
+- When tuning, change one parameter at a time and measure again after each change.
+
+See [bench/README.md](../../bench/README.md) (in Chinese) for more.
+
+## 7. Optimizing CActor itself
+
+### 7.1 Workflow
+
+1. **Measure before you change anything.** Use `real_benchmark` to find the slow scenario.
+2. **Find the cause with a micro-benchmark.** Add a small case to `micro_benchmark` that tests only the suspect primitive, such as one queue or one wakeup. Every problem found in the last round was found this way:
+   - `ConcurrentLinkedQueue` costs 190 ns per add+remove pair, against 36 ns for a hand-written MPSC queue.
+   - The global ready queue collapses under contention when there are many threads.
+   - Spinning blocks a freshly woken thread.
+3. **Make the change, then run the full test suite.** `cjpm test` must pass completely, especially the concurrency-semantics tests under `unit/runtime/concurrency`.
+4. **Run the benchmark again, at least 3 times,** and compare against Akka. Record the conclusions and numbers in the [performance analysis](../plan/20261028-performance.md).
+
+### 7.2 Hot-path rules
+
+The main message path is in `modules/runtime/src/guardian/runtime_user_guardian.cj`: `tell` → `CellMailbox` → `ActorCellDispatcher` → `run` → `invoke`.
+
+- **Allocations per message are the main cost.** Each message currently allocates:
+  - the mailbox node and the atomic reference inside it;
+  - a `RunNode` and its atomic reference when the actor is scheduled;
+  - a `SimpleUserActorContext`.
+
+  In Cangjie, atomics are separate heap objects. They can't be embedded in a node as fields the way they can on the JVM, so every extra atomic field means one more allocation.
+- **Don't use the standard concurrent collections on hot paths.** `ConcurrentLinkedQueue` costs about 190 ns per add+remove pair, and `LinkedBlockingQueue` about 300 ns.
+- **Read before you CAS.** When the flag is already set, the read costs 2 ns. A CAS costs 9 ns and bounces the cache line between cores.
+- **Bound spinning by time, not by iteration count.** With a count, the spin gets shorter as the code gets faster, and tail latency quietly gets worse.
+- **Don't spin in place waiting for another thread inside a lock-free algorithm.** Under M:N scheduling, the thread you are waiting for may be queued on the processor you are spinning on. Return and retry later, or yield.
+- **Before a thread sleeps, think about who will wake it.** A Cangjie thread woken by `notify` may have to wait until the waker's processor is free. Having the waiting side spin briefly first, as `Completion.await` does, avoids this delay.
+- **No `println` or string building on hot paths.**
+
+### 7.3 Optimizations not done yet
+
+| Direction | Expected benefit |
+|---|---|
+| Outbound write coalescing for remoting; batched multi-frame parsing on receive | Remote throughput on par with Akka |
+| Fewer allocations per message: reuse ready-queue nodes, or use the cell itself as an intrusive node | Fan-out throughput |
+| Work stealing on top of affinity scheduling | Throughput under uneven load |
+| A separate dispatcher for blocking work (blocking I/O, FFI) | Blocking no longer slows ordinary actors (§4.1) |
+| Evaluate `--lto=thin` and PGO (`--pgo-instr-gen` / `--pgo-instr-use`) | Cross-package inlining, devirtualization of hot calls |

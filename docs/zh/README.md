@@ -66,7 +66,7 @@ CActor采用6层模块化架构，确保清晰的职责分离和高度的可扩�
 
 - [最佳实践](BEST_PRACTICES.md)
 - [代码风格](CODE_STYLE_GUIDE.md)
-- [性能指南](performance.md)
+- [性能调优指南](performance.md)
 - [监控与日志](MONITORING.md)
 - [部署指南](DEPLOYMENT.md)
 - [安全指南](SECURITY.md)
