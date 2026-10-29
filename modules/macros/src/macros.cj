@@ -665,3 +665,84 @@ public macro typed_actor(input: Tokens): Tokens {
         }
     )
 }
+
+/**
+ * @actorReceive：根据 onXxx 处理方法生成类型分派的 receive（编译期生成，零运行时开销）
+ *
+ * 规则：类中每个形如 `func onXxx(msg: T, ctx: ActorContext): MessageResult` 的方法
+ * （名字以 on 开头、恰好两个参数）成为一个分支 `case m: T => this.onXxx(m, context)`，
+ * 按声明顺序匹配；都不匹配时返回 MessageResult.Unhandled。
+ * 若类没有声明 name / description 属性，会以类名生成。
+ * 使用处需要导入 Message、ActorContext、MessageResult。
+ *
+ *   @actorReceive
+ *   class Greeter <: Actor {
+ *       func onGreet(msg: Greet, ctx: ActorContext): MessageResult { ...; MessageResult.Handled }
+ *       func onStop(msg: StopMessage, ctx: ActorContext): MessageResult { MessageResult.Stop }
+ *   }
+ */
+public macro actorReceive(input: Tokens): Tokens {
+    let decl = parseDecl(input)
+    let cls = match (decl) {
+        case c: ClassDecl => c
+        case _ => throw ASTException("@actorReceive 只能用于 class")
+    }
+    var arms = quote()
+    var handlerCount = 0
+    var hasName = false
+    var hasDescription = false
+    for (d in cls.body.decls) {
+        match (d) {
+            case f: FuncDecl =>
+                let fname = f.identifier.value
+                if (fname == "receive") {
+                    throw ASTException("@actorReceive: ${cls.identifier.value} 已经定义了 receive")
+                }
+                if (fname.startsWith("on") && fname.size > 2 && f.funcParams.size == 2) {
+                    let t = f.funcParams[0].paramType
+                    let id = f.identifier
+                    arms = quote($arms
+                        case m: $t => this.$id(m, context)
+                    )
+                    handlerCount++
+                }
+            case p: PropDecl =>
+                if (p.identifier.value == "name") {
+                    hasName = true
+                }
+                if (p.identifier.value == "description") {
+                    hasDescription = true
+                }
+            case _ => ()
+        }
+    }
+    if (handlerCount == 0) {
+        throw ASTException("@actorReceive: ${cls.identifier.value} 中没有 onXxx(msg, ctx) 处理方法")
+    }
+    let ds = cls.body.decls
+    ds.add(parseDecl(quote(
+        public func receive(message: Message, context: ActorContext): MessageResult {
+            match (message) {
+                $arms
+                case _ => MessageResult.Unhandled
+            }
+        }
+    )))
+    let className = cls.identifier.value
+    if (!hasName) {
+        ds.add(parseDecl(quote(
+            public prop name: String {
+                get() { $(className) }
+            }
+        )))
+    }
+    if (!hasDescription) {
+        ds.add(parseDecl(quote(
+            public prop description: String {
+                get() { $(className) }
+            }
+        )))
+    }
+    cls.body.decls = ds
+    cls.toTokens()
+}

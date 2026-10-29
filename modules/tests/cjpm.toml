@@ -14,3 +14,4 @@ cactor_persistence = { path = "../persistence" }
 cactor_foundation = { path = "../foundation" }
 cactor = { path = "../cactor" }
 cactor_testkit = { path = "../testkit" }
+cactor_macros = { path = "../macros" }
