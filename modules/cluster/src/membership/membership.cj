@@ -624,28 +624,33 @@ class ClusterDaemon <: Actor {
         addr == selfAddress || !unreachableSince.contains(addr)
     }
 
+    /**
+     * Leader：可达成员中地址最小者，按候选集合的优先级依次选择：
+     * Up / Leaving → Exiting（集群中剩下的成员都在离开时，由它们自己完成移除）→ Joining（集群刚启动）
+     */
     private func computeLeader(g: Gossip): Option<String> {
         var best: Option<String> = None
+        var bestExiting: Option<String> = None
         var bestJoining: Option<String> = None
         for ((addr, m) in g.members) {
             if (!isReachable(addr)) {
                 continue
             }
             if (m.status == MemberStatus.Up || m.status == MemberStatus.Leaving) {
-                match (best) {
-                    case Some(b) where b <= addr => ()
-                    case _ => best = Some(addr)
-                }
+                best = minOf(best, addr)
+            } else if (m.status == MemberStatus.Exiting) {
+                bestExiting = minOf(bestExiting, addr)
             } else if (m.status == MemberStatus.Joining) {
-                match (bestJoining) {
-                    case Some(b) where b <= addr => ()
-                    case _ => bestJoining = Some(addr)
-                }
+                bestJoining = minOf(bestJoining, addr)
             }
         }
-        match (best) {
-            case Some(_) => best
-            case None => bestJoining
+        best ?? (bestExiting ?? bestJoining)
+    }
+
+    private static func minOf(cur: Option<String>, addr: String): Option<String> {
+        match (cur) {
+            case Some(b) where b <= addr => cur
+            case _ => Some(addr)
         }
     }
 

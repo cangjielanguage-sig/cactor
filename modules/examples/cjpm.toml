@@ -144,3 +144,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.scale_test"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.cluster_node"]
+output-type = "executable"

@@ -166,6 +166,21 @@ public class MembershipTest {
     }
 
     @TestCase
+    public func testWholeClusterLeavesOneByOneThenTogether(): Unit {
+        let nodes = startCluster(3, "cm-allleave", FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 3) }), true)
+        // 种子（也是最老的成员）先离开
+        nodes[0].cluster.leave()
+        @Expect(awaitCondition(CLUSTER_WAIT, { => nodes[0].cluster.isTerminated() }), true)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => nodes[1].cluster.state().member(nodes[0].address()).isNone() }), true)
+        // 剩下的两个同时离开（包括当前 Leader 自己）
+        nodes[1].cluster.leave()
+        nodes[2].cluster.leave()
+        @Expect(awaitCondition(CLUSTER_WAIT, { => nodes[1].cluster.isTerminated() && nodes[2].cluster.isTerminated() }), true)
+        closeAll(nodes)
+    }
+
+    @TestCase
     public func testCrashIsDetectedAndManualDownRemovesIt(): Unit {
         let nodes = startCluster(3, "cm-crash", FAST)
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 3) }), true)
