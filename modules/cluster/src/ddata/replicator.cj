@@ -25,57 +25,63 @@ import cactor_remote.{SimpleRemoteManager}
 
 // ======================= 文本编码 =======================
 
-/** 带长度前缀的字段编码："<字节数>:<内容>"，内容可以包含任意字符 */
-class FieldWriter {
+/** 带长度前缀的字段编码："<字节数>:<内容>"，内容可以包含任意字符（ddata 与集群成员协议共用） */
+public class FieldWriter {
     let sb = StringBuilder()
 
-    func put(s: String): FieldWriter {
+    public init() {}
+
+    public func put(s: String): FieldWriter {
         sb.append(s.size)
         sb.append(":")
         sb.append(s)
         this
     }
 
-    func put(n: Int64): FieldWriter {
+    public func put(n: Int64): FieldWriter {
         put(n.toString())
     }
 
-    func done(): String {
+    public func done(): String {
         sb.toString()
     }
 }
 
-class FieldReader {
+/** FieldWriter 的读取端；格式错误时抛出 IllegalArgumentException */
+public class FieldReader {
     let s: String
     var pos: Int64 = 0
 
-    init(s: String) {
+    public init(s: String) {
         this.s = s
     }
 
-    func hasMore(): Bool {
+    public func hasMore(): Bool {
         pos < s.size
     }
 
-    func next(): String {
+    public func next(): String {
         var i = pos
         while (i < s.size && s[i] != UInt8(UInt32(r':'))) {
             i++
         }
         if (i >= s.size) {
-            throw IllegalArgumentException("ddata 编码损坏：缺少长度分隔符")
+            throw IllegalArgumentException("编码损坏：缺少长度分隔符")
         }
-        let len = Int64.parse(s[pos..i])
+        let len = Int64.tryParse(s[pos..i]) ?? -1
         let start = i + 1
         if (len < 0 || start + len > s.size) {
-            throw IllegalArgumentException("ddata 编码损坏：长度越界")
+            throw IllegalArgumentException("编码损坏：长度越界")
         }
         pos = start + len
         s[start..pos]
     }
 
-    func nextInt(): Int64 {
-        Int64.parse(next())
+    public func nextInt(): Int64 {
+        match (Int64.tryParse(next())) {
+            case Some(n) => n
+            case None => throw IllegalArgumentException("编码损坏：不是整数")
+        }
     }
 }
 
@@ -590,11 +596,11 @@ public class Replicator {
         match (get(key)) {
             case Some(ORSetValue(s)) =>
                 let es = s.elements()
-                es.sort()
+                sort(es)
                 es
             case Some(GSetValue(s)) =>
                 let es = s.toArray()
-                es.sort()
+                sort(es)
                 es
             case _ => Array<String>()
         }
