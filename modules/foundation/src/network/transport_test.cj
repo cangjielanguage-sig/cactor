@@ -6,6 +6,7 @@ package cactor_foundation.network
 import std.sync.*
 import std.time.*
 import std.collection.*
+import std.convert.*
 import std.unittest.*
 import std.unittest.testmacro.*
 
@@ -106,6 +107,52 @@ public class TransportTest {
         @Expect(bytes.load(), 200_000)
         client.stop()
         server.stop()
+    }
+
+    @TestCase
+    func tcpCoalescesWritesAndKeepsPerSenderOrder(): Unit {
+        let a = TcpTransport(NetworkAddress("127.0.0.1", 0))
+        let b = TcpTransport(NetworkAddress("127.0.0.1", 0))
+        let lock = Mutex()
+        let got = ArrayList<String>()
+        b.setDataHandler({ data =>
+            let text = String.fromUtf8(data)
+            synchronized(lock) { got.add(text) }
+        })
+        a.start()
+        b.start()
+        let senders = 4
+        let perSender = 20000
+        let futures = ArrayList<Future<Unit>>()
+        for (t in 0..senders) {
+            futures.add(spawn {
+                for (i in 0..perSender) {
+                    a.send(b.getLocalAddress(), bytesOf("${t}:${i}"))
+                }
+            })
+        }
+        for (f in futures) {
+            f.get()
+        }
+        let total = senders * perSender
+        @Expect(waitUntil(Duration.second * 20, { => synchronized(lock) { got.size } == total }), true)
+        // 每个发送方的帧按发送顺序到达
+        let next = Array<Int64>(senders, repeat: 0)
+        var ordered = true
+        for (text in synchronized(lock) { got.toArray() }) {
+            let parts = text.split(":")
+            let t = Int64.parse(parts[0])
+            let i = Int64.parse(parts[1])
+            if (i != next[t]) {
+                ordered = false
+            }
+            next[t] = i + 1
+        }
+        @Expect(ordered, true)
+        // 合并写：系统调用次数明显少于帧数
+        @Expect(a.getSocketWrites() < a.getFramesSent(), true)
+        a.stop()
+        b.stop()
     }
 
     @TestCase
