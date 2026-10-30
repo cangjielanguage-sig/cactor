@@ -18,6 +18,8 @@ class Gated <: Actor {
     let gate: AtomicBool
     let delay: Duration
     let count: AtomicInt64
+    // 已取出、正在 gate 处等待或已处理的消息数
+    let entered = AtomicInt64(0)
     init(gate: AtomicBool, delay: Duration, count: AtomicInt64) {
         this.gate = gate
         this.delay = delay
@@ -26,6 +28,7 @@ class Gated <: Actor {
     public prop name: String { get() { "gated" } }
     public prop description: String { get() { "gated" } }
     public func receive(message: Message, context: ActorContext): MessageResult {
+        entered.fetchAdd(1)
         while (!gate.load()) {
             sleep(Duration.millisecond)
         }
@@ -100,11 +103,15 @@ public class BackpressureTest {
         let kit = ActorTestKit("bp-block-timeout")
         let gate = AtomicBool(false)
         let count = AtomicInt64(0)
-        let r = kit.actorOf(gatedProps(gate, Duration.Zero, count, MailboxOverflow.Block(Duration.millisecond * 50)), "bt")
-        for (i in 0..5) {
+        let g = Gated(gate, Duration.Zero, count)
+        let r = kit.actorOf(PropsFactory.create<Actor>({ => g }).withBoundedMailbox(4, MailboxOverflow.Block(Duration.millisecond * 50))
+            .withDispatcher("blocking"), "bt")
+        // 先让 Actor 取出第一条并卡在 gate，再填满容量 4 的邮箱（不依赖 Actor 启动的快慢）
+        r << StringMessage("0")
+        @Expect(awaitCondition(Duration.second * 5, { => g.entered.load() == 1 }), true)
+        for (i in 1..5) {
             r << StringMessage("${i}")
         }
-        sleep(Duration.millisecond * 50)
         let before = kit.system.deadLetterCount()
         let start = MonoTime.now()
         r << StringMessage("overflow-1")

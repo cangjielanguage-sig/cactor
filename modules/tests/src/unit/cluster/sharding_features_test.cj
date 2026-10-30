@@ -81,6 +81,28 @@ class RememberedEntity <: Actor {
     }
 }
 
+/** 每条消息处理 30ms 的实体：Region 投递完一批后，邮箱里仍积压着消息 */
+class SlowEntity <: Actor {
+    let id: String
+    let ledger: Ledgers
+    var total: Int64 = 0
+
+    init(id: String, ledger: Ledgers) {
+        this.id = id
+        this.ledger = ledger
+    }
+
+    public prop name: String { get() { "slow" } }
+    public prop description: String { get() { "slow" } }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        sleep(Duration.millisecond * 30)
+        total++
+        ledger.record(id, "", total, "")
+        MessageResult.Handled
+    }
+}
+
 /** 事件溯源计数器：每条消息持久化一个事件，计数在任何节点上重建都从日志恢复 */
 class PersistentCounter <: EventSourcedActor {
     let id: String
@@ -173,17 +195,19 @@ public class ShardingPassivationTest {
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 1) }), true)
         let ledger = Ledgers()
         let addr = nodes[0].address()
-        let idle = Duration.millisecond * 100
-        let region = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "busy", 8,
-            { id => CountingEntity(id, addr, ledger) }, ShardingSettings.passivating(idle))
-        // 每 30ms 一条：一直不空闲，不应被钝化
+        // 持续活跃的实体（每 30ms 一条，阈值 1s）不应被钝化
+        let steady = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "steady", 8,
+            { id => CountingEntity(id, addr, ledger) }, ShardingSettings.passivating(Duration.second))
         for (k in 0..20) {
-            region.tell("busy", StringMessage("${k}"))
+            steady.tell("busy", StringMessage("${k}"))
             sleep(Duration.millisecond * 30)
         }
         @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == 20 }), true)
         @Expect(ledger.latestOf("busy"), 20)
-        @Expect(region.passivatedCount(), 0)
+        @Expect(steady.passivatedCount(), 0)
+        steady.stop()
+        let region = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "busy", 8,
+            { id => CountingEntity(id, addr, ledger) }, ShardingSettings.passivating(Duration.millisecond * 100))
         // 间隔在钝化阈值附近随机抖动：不少消息会在实体停止过程中到达，要求一条不丢
         let rnd = Random(7)
         var sent: Int64 = 0
@@ -198,6 +222,25 @@ public class ShardingPassivationTest {
         @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == expected }), true)
         @Expect(region.passivatedCount() > 0, true)
         @Expect(region.stats()[3], 0)
+        region.stop()
+        closeAll(nodes)
+    }
+
+    @TestCase
+    public func testPassivationLetsQueuedMessagesFinish(): Unit {
+        let nodes = startCluster(1, "shp-slow", FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 1) }), true)
+        let ledger = Ledgers()
+        // 阈值 100ms，而 10 条消息需要 300ms 才能处理完：钝化发生时邮箱中仍有积压
+        let region = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "slow", 8,
+            { id => SlowEntity(id, ledger) }, ShardingSettings.passivating(Duration.millisecond * 100))
+        for (k in 0..10) {
+            region.tell("s", StringMessage("${k}"))
+        }
+        @Expect(awaitCondition(CLUSTER_WAIT, { => region.passivatedCount() == 1 && region.localEntityCount() == 0 }), true)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == 10 }), true)
+        // 同一个实例处理完全部积压消息后才停止
+        @Expect(ledger.latestOf("s"), 10)
         region.stop()
         closeAll(nodes)
     }

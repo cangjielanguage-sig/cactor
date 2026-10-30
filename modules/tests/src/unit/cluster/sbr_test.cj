@@ -324,3 +324,41 @@ public class SplitBrainResolverTest {
         closeAll(nodes)
     }
 }
+
+/**
+ * 回归：加入应答迟到时，非种子节点不能自己组成集群。
+ * 旧实现中，节点在第一个 gossip 周期就把只含自己的成员表“收敛”并把自己推进到 Up（upNumber 1），
+ * 高负载下几个节点各自 Up 后再合并，出现重复的 upNumber、Singleton 位置错误、allUp 长时间不满足。
+ */
+@Test
+public class DelayedJoinTest {
+    @TestCase
+    public func testJoinerWaitsForSeedInsteadOfFormingItsOwnCluster(): Unit {
+        let p = Partition()
+        let seed = CNode("dj-0", PartitionTransport(p))
+        let a = CNode("dj-1", PartitionTransport(p))
+        let b = CNode("dj-2", PartitionTransport(p))
+        // 种子与两个加入者之间先不通：加入请求和应答都丢失
+        p.split([[seed.address()], [a.address(), b.address()]])
+        let settings = sbrSettings(DowningStrategy.NoDowning)
+        seed.join([seed.addr()], settings)
+        a.join([seed.addr()], settings)
+        b.join([seed.addr()], settings)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => seed.cluster.isUp() }), true)
+        // 等待 20 个 gossip 周期：加入者保持 Joining，也不能互相接纳
+        sleep(Duration.second)
+        @Expect(a.cluster.isUp() || b.cluster.isUp(), false)
+        @Expect(a.cluster.state().members.size, 1)
+        @Expect(b.cluster.state().members.size, 1)
+        p.heal()
+        let nodes = [seed, a, b]
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 3) }), true)
+        let ups = HashSet<Int64>()
+        for (m in seed.cluster.state().members) {
+            ups.add(m.upNumber)
+        }
+        @Expect(ups.size, 3)
+        @Expect(seed.cluster.oldest().getOrThrow().address, seed.address())
+        closeAll(nodes)
+    }
+}

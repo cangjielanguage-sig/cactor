@@ -465,6 +465,11 @@ class ClusterDaemon <: Actor {
         }
     }
 
+    /** 不是第一个种子节点，且还没收到任何集群的成员表 */
+    private func notYetJoined(): Bool {
+        selfStatus() == MemberStatus.Joining && gossip.members.size == 1 && seeds.size > 0 && seeds[0] != selfAddress
+    }
+
     private func sendJoin(): Unit {
         if (selfStatus() != MemberStatus.Joining || gossip.members.size > 1) {
             return
@@ -506,7 +511,7 @@ class ClusterDaemon <: Actor {
                 return
             case Some(_) => ()
             case None =>
-                if (selfStatus() == MemberStatus.Joining && gossip.members.size == 1 && seeds.size > 0 && seeds[0] != selfAddress) {
+                if (notYetJoined()) {
                     // 自己还没有加入任何集群，不能接纳别人
                     return
                 }
@@ -745,6 +750,11 @@ class ClusterDaemon <: Actor {
     }
 
     private func leaderActions(): Unit {
+        if (notYetJoined()) {
+            // 还没加入任何集群的非首个种子节点：成员表里只有自己，不能自己组成集群
+            //（否则加入应答较慢时会各自 Up、各自分配 upNumber，随后合并出重复的 upNumber）
+            return
+        }
         if (computeLeader(gossip) != Some(selfAddress)) {
             return
         }

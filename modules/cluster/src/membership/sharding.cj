@@ -22,7 +22,7 @@ import std.sync.*
 import std.time.*
 import std.collection.*
 import cactor.api.{CActorSystem}
-import cactor_core.actor.{Actor, ActorContext, ActorRef, Terminated}
+import cactor_core.actor.{Actor, ActorContext, ActorRef, Terminated, PoisonPill}
 import cactor_core.message.{Message, MessageResult, MessageSerializer, MessageCodec, MessageCodecRegistry}
 import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.logging.{Logging}
@@ -332,12 +332,15 @@ class ShardRegionActor <: Actor {
         }
     }
 
-    /** Region 主动停止实体：期间到达的消息缓冲到 Terminated 之后 */
+    /**
+     * Region 主动停止实体（钝化、移交）：经邮箱发送 PoisonPill，已投递的消息先处理完再停止
+     * （系统级 stop 会丢弃邮箱中尚未处理的消息）；期间新到达的消息缓冲到 Terminated 之后
+     */
     private func stopEntity(id: String, context: ActorContext): Unit {
         if (let Some(ref) <- entities.remove(id)) {
             stopping[id] = ArrayList<ShardingEnvelope>(0)
             lastActive.remove(id)
-            context.stop(ref)
+            ref.tell(PoisonPill())
             synchronized(shared.lock) {
                 shared.entityIds.remove(id)
             }
