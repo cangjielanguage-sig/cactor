@@ -41,6 +41,10 @@ public class RetryInfo {
     }
 
     public func shouldRetry(maxRetries: Int32, withinTimeRange: Duration): Bool {
+        // 负数表示不限次数（与 Akka 的 maxNrOfRetries = -1 相同）
+        if (maxRetries < 0) {
+            return true
+        }
         let now = DateTime.now().toUnixTimeStamp().toMilliseconds()
         let firstFailure = firstFailureTime.load()
 
@@ -376,7 +380,15 @@ public struct DefaultSupervisionStrategy {
     }
 
     /**
-     * 创建默认的一对一策略
+     * 未指定监督策略时使用的策略：任何异常都重启，不限次数（与 Akka 经典 API 的默认策略相同）。
+     * 需要“短时间内失败过多就停止”时，显式使用 oneForOne() 或自定义 OneForOneStrategy。
+     */
+    public static func restartAlways(): OneForOneStrategy {
+        OneForOneStrategy(-1, Duration.minute, defaultDecider)
+    }
+
+    /**
+     * 创建一对一策略：一分钟内最多重启 3 次，超过后停止
      */
     public static func oneForOne(): OneForOneStrategy {
         OneForOneStrategy(

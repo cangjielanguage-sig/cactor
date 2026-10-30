@@ -3,6 +3,7 @@
 #
 #   tools/ci.sh            # build + 分层检查 + 全部测试
 #   tools/ci.sh --bench    # 另外运行基准（需要空闲机器，数字才有意义）
+#   tools/ci.sh --soak [秒] # 另外运行长时间稳定性测试（默认 600 秒）
 #
 # 注意：必须在 workspace 根目录执行 cjpm build；`cjpm build -m <模块>` 不继承 workspace 的 -O2，
 # 用它构建出的基准程序会慢 2–3 倍。
@@ -38,6 +39,9 @@ step "示例自检"
 CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.chat_room
 CACTOR_LOG_LEVEL=error cjHeapSize=4GB ./target/release/bin/cactor_examples.scale_test 50000 child | tail -3
 tools/cluster_demo.sh | tail -2
+tools/cluster_crash_demo.sh | tail -4
+# 20 秒稳定性自检：收发零丢失、故障全部重启、子 Actor 全部停止、静止存活堆不增长
+CACTOR_LOG_LEVEL=off ./target/release/bin/cactor_examples.soak_test 20 | tail -5
 
 step "库代码中不应新增 println（报告类 print*/display*/show* 函数除外）"
 python3 - <<'EOF'
@@ -62,6 +66,11 @@ if bad:
     print('发现 println：'); print('\n'.join(bad[:50])); sys.exit(1)
 print('通过')
 EOF
+
+if [[ "${1:-}" == "--soak" ]]; then
+    step "长时间稳定性测试"
+    CACTOR_LOG_LEVEL=off ./target/release/bin/cactor_examples.soak_test "${2:-600}"
+fi
 
 if [[ "${1:-}" == "--bench" ]]; then
     step "基准"

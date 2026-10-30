@@ -4,10 +4,11 @@
  * 整个集群中只运行一个实例，位于最老的 Up 成员上（upNumber 最小）。
  * - 选择最老成员时不排除不可达成员：网络分区不会让另一侧再启动一个实例；
  *   只有原节点离开（Leaving）、被 down 或被移除后，实例才会在下一个最老的成员上启动。
- *   因此宕机节点需要手动 down 或配置 autoDownUnreachableAfter。
+ *   因此宕机节点需要手动 down 或配置 downing 策略（推荐 KeepMajority 等脑裂处理策略，见 sbr.cj）。
  * - 每个节点都可以通过 proxy 发送消息：本节点就是最老成员时直接投递给本地实例，
  *   否则通过远程发给最老成员；还不知道实例在哪里时先缓冲（默认最多 1000 条，超出丢弃最早的）。
- * - 实例迁移期间发出的消息可能丢失（至多一次），需要可靠性时由业务层确认重发。
+ * - 实例所在成员不可达、或发送失败（连接被拒绝等）时，消息留在缓冲区按顺序重试，成员被 down 后发往新位置。
+ * - 投递仍是至多一次：已写入连接、但对方在处理前宕机的消息会丢失，需要可靠性时由业务层确认重发。
  */
 package cactor_cluster.membership
 
@@ -172,15 +173,25 @@ class SingletonManager <: Actor {
                 }
                 buffer.clear()
             case (Some(t), _) where t != cluster.selfAddress =>
+                // 实例所在成员已不可达（多半已宕机，等待被 down）：继续缓冲，down 后发往新位置
+                for (u in cluster.state().unreachable) {
+                    if (u == t) {
+                        return
+                    }
+                }
                 let remoteRef = remote.remoteActorOf(NetworkAddress.parse(t), "singleton-${singletonName}")
+                var sent: Int64 = 0
                 for (m in buffer) {
                     try {
                         remoteRef.tell(m)
+                        sent++
                     } catch (e: Exception) {
-                        log.warn("发送给 Singleton ${singletonName}@${t} 失败: ${e}")
+                        // 发送失败（例如连接被拒绝）：这一条及之后的消息留在缓冲区，下一轮按顺序重试
+                        log.warn("发送给 Singleton ${singletonName}@${t} 失败，稍后重试: ${e}")
+                        break
                     }
                 }
-                buffer.clear()
+                buffer.remove(0..sent)
             case _ => () // 位置未知或本地实例尚未启动：继续缓冲
         }
     }

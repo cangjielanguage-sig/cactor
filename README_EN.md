@@ -120,7 +120,7 @@ main() {
 | Testing | `TestProbe`, `BehaviorTestKit`, virtual clock `ManualTime` | Usable |
 | Observability | Leveled and structured logging, MDC, JSON Lines, Prometheus metrics | Usable |
 | Remoting | TCP transport, remote ask / watch, cross-node replies, reliable delivery | Usable, no TLS yet |
-| Clustering | Gossip membership, Cluster Singleton, distributed pub/sub, cluster sharding, CRDTs and Replicator | Usable, verified with multi-node and multi-process tests; no split-brain resolver yet |
+| Clustering | Gossip membership, split-brain resolver, Cluster Singleton, distributed pub/sub, cluster sharding (passivation, remember-entities), CRDTs and Replicator | Usable, verified with multi-node, network-partition and multi-process crash tests |
 | Persistence | File event journal, snapshots, event-sourced actors | Usable, no plugin interface yet |
 | Streams | Streams DSL | Experimental |
 | State machines | XState-style state machines | Experimental |
@@ -470,7 +470,7 @@ cjpm test                           # run all tests
 python3 tools/check_module_deps.py  # check module layering
 ```
 
-There are currently 163 test cases, all passing on Cangjie 1.2.0. Besides supervision strategies, typed actors (behavior transforms, stash, timers) and mailboxes, they cover concurrency semantics (serial processing, concurrent create/stop, supervised restart), queue stress, TCP/UDP transport, remote end-to-end messaging, and file-based event journal and event-sourcing recovery.
+The workspace currently has 341 test cases (`tools/ci.sh`), all passing on Cangjie 1.2.0. CI also runs the chat room, a 50,000-child scale test, a 20-second soak test, and two 3-process cluster checks (normal traffic and a `kill -9` crash). Besides supervision strategies, typed actors (behavior transforms, stash, timers) and mailboxes, they cover concurrency semantics (serial processing, concurrent create/stop, supervised restart), queue stress, TCP/UDP transport, remote end-to-end messaging, and file-based event journal and event-sourcing recovery.
 
 Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measured on a 32-core machine: 5.6–7.2 M msg/s for a single actor, ping-pong round-trip P50 about 2 µs, about 150–190 k msg/s for remote TCP over loopback. A same-machine comparison with Akka 2.6.21 is in the [performance analysis](docs/plan/20261028-performance.md) (in Chinese): point-to-point scenarios match or beat Akka, while fan-out is still about 3× slower and remoting about 1.6× slower.
 
@@ -481,9 +481,9 @@ Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measur
 The following issues are known and are being addressed according to the [development plan](docs/plan/20261028.md) (in Chinese):
 
 - **Scheduling**: affinity scheduling without work stealing yet; fan-out throughput is still well below Akka; blocking inside `receive` occupies a worker thread and slows other actors pinned to it.
-- **Remoting**: TCP transport on `std.net`. Plain `tell` is at-most-once; `tellReliable` adds sequence numbers, acks, resends and de-duplication. Remote ask, cross-node replies and remote watch are supported. No TLS yet.
-- **Clustering**: `cactor_cluster.membership` provides gossip membership, Cluster Singleton, distributed pub/sub and cluster sharding; `cactor_cluster.ddata` provides CRDTs and a Replicator. All are covered by multi-node tests and a multi-process check (`tools/cluster_demo.sh`). Sharded entity state is not kept across handoff (combine with event sourcing if needed), and there is no split-brain resolver yet (only manual down and timed auto-down). The old classes in the `cactor_cluster` root package (`SimpleClusterManager`, `ShardRegion`, ...) are early prototypes and will be removed in 1.3.0.
-- **Macros**: `@actorReceive` works; most other DSL macros do not yet perform real expansion.
+- **Remoting**: TCP transport on `std.net`. Plain `tell` is at-most-once; `tellReliable` adds sequence numbers, acks, resends and de-duplication. Remote ask, cross-node replies and remote watch are supported. Message codecs are versioned for rolling upgrades (new code reads older versions; old nodes reject newer versions explicitly). No TLS yet.
+- **Clustering**: `cactor_cluster.membership` provides gossip membership, a split-brain resolver (KeepMajority / KeepOldest / StaticQuorum), Cluster Singleton, distributed pub/sub and cluster sharding (idle passivation, remember-entities, and state recovery after handoff or a crash when combined with event sourcing); `cactor_cluster.ddata` provides CRDTs and a Replicator. All are covered by multi-node tests and multi-process checks (`tools/cluster_demo.sh`, `tools/cluster_crash_demo.sh`). The split-brain resolver decides on each node's own reachability view, so asymmetric partitions can be misjudged; the Replicator ships full state each round; there are no virtual actors yet. The old classes in the `cactor_cluster` root package (`SimpleClusterManager`, `ShardRegion`, ...) are early prototypes and will be removed in 1.3.0.
+- **Macros**: `@actorReceive` and `@Message` (generates the message type name and a codec) work; most other DSL macros do not yet perform real expansion.
 - **Logging**: library logging goes through a leveled logger (default WARN, written to stderr, adjustable with the `CACTOR_LOG_LEVEL` environment variable), but the repository still has three logging implementations; they are to be merged in 1.3.0.
 - **Old benchmark programs**: apart from `real_benchmark`, the benchmark programs in the repository measure synchronous function-call overhead, not message passing.
 

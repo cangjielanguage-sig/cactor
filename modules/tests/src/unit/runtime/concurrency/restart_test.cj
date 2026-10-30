@@ -11,7 +11,8 @@ import std.collection.*
 import std.unittest.*
 import std.unittest.testmacro.*
 import cactor.api.{CActorSystemFactory}
-import cactor_core.actor.{Actor}
+import cactor_core.actor.{Actor, PropsFactory}
+import cactor_core.supervision.{DefaultSupervisionStrategy}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}
 
@@ -99,11 +100,13 @@ public class SupervisionRestartTest {
         let runtime = system.getRuntime()
         let created = AtomicInt64(0)
         let lastCount = AtomicInt64(0)
-        let ref = system.actorOf({ =>
+        // 显式使用有上限的 OneForOne 策略：1 分钟内最多重启 3 次，第 4 次失败后停止
+        //（未指定策略时与 Akka 经典 API 相同，不限次数重启，见 DefaultSupervisionTest）
+        let props = PropsFactory.create<Actor>({ =>
             created.fetchAdd(1)
             FlakyActor(lastCount, ArrayList<String>(), Mutex())
-        }, "flaky-limit")
-        // 默认 OneForOne 策略：1 分钟内最多重启 3 次，第 4 次失败后停止
+        }).withSupervisorStrategy(DefaultSupervisionStrategy.oneForOne())
+        let ref = system.actorOf(props, "flaky-limit")
         for (_ in 0..4) {
             ref.tell(StringMessage("boom"))
         }

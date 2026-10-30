@@ -46,7 +46,8 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         super(GuardianType.User, None<ActorRef>)  // 用户Guardian通常没有父Guardian
         this.actorSystem = system
         this.userActors = HashMap<String, ActorRef>()
-        this.defaultSupervisionStrategy = DefaultSupervisionStrategy.oneForOne()
+        // 与 Akka 经典 API 相同：默认不限次数重启（旧默认值一分钟 3 次后停止，长期运行的 Actor 会因偶发故障被永久停止）
+        this.defaultSupervisionStrategy = DefaultSupervisionStrategy.restartAlways()
         this.actorPathPrefix = "/user"
         this.backoffSupervisors = HashMap<String, BackoffSupervisor>()
     }

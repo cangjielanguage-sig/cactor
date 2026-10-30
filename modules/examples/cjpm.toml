@@ -147,3 +147,9 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.cluster_node"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.soak_test"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.cluster_crash_node"]
+output-type = "executable"

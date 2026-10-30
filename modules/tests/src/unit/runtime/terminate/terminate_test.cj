@@ -254,3 +254,48 @@ class StubContext <: ActorContext {
         None<String>
     }
 }
+
+/** 收到 "boom" 抛异常；重启后继续处理 */
+class Flaky <: Actor {
+    let rec: EventRecorder
+
+    init(rec: EventRecorder) {
+        this.rec = rec
+    }
+
+    public prop name: String { get() { "flaky" } }
+    public prop description: String { get() { "flaky" } }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        if (let Some(s) <- (message as StringMessage)) {
+            if (s.getContent() == "boom") {
+                throw Exception("故障注入")
+            }
+            rec.record(s.getContent())
+        }
+        MessageResult.Handled
+    }
+
+    public func postRestart(reason: Exception): Unit {
+        rec.record("restarted")
+    }
+}
+
+@Test
+public class DefaultSupervisionTest {
+    @TestCase
+    public func testDefaultStrategyRestartsWithoutLimit(): Unit {
+        // 与 Akka 经典 API 相同：未指定策略时不限次数重启（旧默认值一分钟内第 4 次失败就永久停止 Actor）
+        let system = CActorSystemFactory.create("default-supervision")
+        let rec = EventRecorder()
+        let r = system.actorOf({ => Flaky(rec) }, "flaky")
+        for (i in 0..10) {
+            r << StringMessage("boom")
+            r << StringMessage("ok-${i}")
+        }
+        @Expect(awaitCondition(Duration.second * 5, { => rec.count("ok-9") == 1 }), true)
+        @Expect(rec.count("restarted"), 10)
+        @Expect(system.lookup("/user/flaky").isSome(), true)
+        system.terminate()
+    }
+}
