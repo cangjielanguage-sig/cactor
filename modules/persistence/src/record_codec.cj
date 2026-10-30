@@ -138,3 +138,37 @@ public class PersistenceCorruptionException <: Exception {
         super(message)
     }
 }
+
+/** safeFileName 的逆变换；不是合法的十六进制名称时返回 None */
+func unhexName(name: String): Option<String> {
+    if (name == "_empty") {
+        return Some("")
+    }
+    if (name.size % 2 != 0) {
+        return None
+    }
+    let bytes = Array<UInt8>(name.size / 2, repeat: 0)
+    for (i in 0..bytes.size) {
+        let hi = hexValue(name[2 * i])
+        let lo = hexValue(name[2 * i + 1])
+        if (hi < 0 || lo < 0) {
+            return None
+        }
+        bytes[i] = UInt8(hi * 16 + lo)
+    }
+    try {
+        Some(String.fromUtf8(bytes))
+    } catch (_: Exception) {
+        None
+    }
+}
+
+func hexValue(b: UInt8): Int64 {
+    if (b >= 48 && b <= 57) {
+        Int64(b) - 48
+    } else if (b >= 97 && b <= 102) {
+        Int64(b) - 87
+    } else {
+        -1
+    }
+}

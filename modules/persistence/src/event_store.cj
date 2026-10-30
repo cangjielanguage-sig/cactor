@@ -54,6 +54,11 @@ public interface EventStore {
     func getEventsAfter(actorId: String, timestamp: Int64): Array<Event>
     func deleteEvents(actorId: String): Unit
     func close(): Unit
+
+    /** 有事件的全部持久化标识（供 Persistence Query 使用；默认不支持，返回空） */
+    func persistenceIds(): Array<String> {
+        Array<String>()
+    }
 }
 
 // 内存事件存储
@@ -130,6 +135,18 @@ public class MemoryEventStore <: EventStore {
         }
     }
     
+    public func persistenceIds(): Array<String> {
+        synchronized(mutex) {
+            let ids = ArrayList<String>()
+            for ((id, list) in events) {
+                if (!list.isEmpty()) {
+                    ids.add(id)
+                }
+            }
+            ids.toArray()
+        }
+    }
+
     public func close(): Unit {
         // 内存存储无需关闭操作
     }
@@ -201,6 +218,21 @@ public class FileEventStore <: EventStore {
     /** 事件条数 */
     public func countEvents(actorId: String): Int64 {
         getEvents(actorId).size
+    }
+
+    public func persistenceIds(): Array<String> {
+        synchronized(mutex) {
+            let ids = ArrayList<String>()
+            for (info in Directory.readFrom(basePath)) {
+                let name = info.name
+                if (name.endsWith(".journal")) {
+                    if (let Some(id) <- unhexName(name[0..(name.size - ".journal".size)])) {
+                        ids.add(id)
+                    }
+                }
+            }
+            ids.toArray()
+        }
     }
 
     public func deleteEvents(actorId: String): Unit {
