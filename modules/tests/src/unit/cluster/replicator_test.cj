@@ -264,3 +264,75 @@ public class ReplicatorTest {
         @Expect(ReplicatedValue.decode(ReplicatedValue.ORSetValue(s).encode()).sameValue(ReplicatedValue.ORSetValue(s)), true)
     }
 }
+
+@Test
+public class ReplicatorDigestTest {
+    @TestCase
+    public func testDigestIsIndependentOfInsertionOrder(): Unit {
+        var a = ORSet()
+        var b = ORSet()
+        for (i in 0..50) {
+            a = a.add("n1", "e${i}")
+        }
+        for (i in 0..50) {
+            b = b.add("n1", "e${49 - i}")
+        }
+        // 同一节点的点（dot）序号不同，内容不同：先比较合并后的结果
+        let ma = a.merge(b)
+        let mb = b.merge(a)
+        @Expect(ReplicatedValue.ORSetValue(ma).digest(), ReplicatedValue.ORSetValue(mb).digest())
+        var c1 = GCounter()
+        var c2 = GCounter()
+        for (i in 0..20) {
+            c1 = c1.increment("node-${i}", i)
+            c2 = c2.increment("node-${19 - i}", 19 - i)
+        }
+        @Expect(ReplicatedValue.Counter(c1).digest(), ReplicatedValue.Counter(c2).digest())
+        @Expect(ReplicatedValue.Counter(c1.increment("node-0", 1)).digest() != ReplicatedValue.Counter(c1).digest(), true)
+        // 编码往返后摘要不变
+        let v = ReplicatedValue.ORSetValue(ma)
+        @Expect(ReplicatedValue.decode(v.encode()).digest(), v.digest())
+    }
+
+    /** 状态一致后，反熵每轮只传摘要：空闲 1 秒的流量远小于一轮全量状态 */
+    @TestCase
+    public func testIdleAntiEntropyOnlySendsDigests(): Unit {
+        let nodes = cluster(3, "rep-digest")
+        for (k in 0..100) {
+            for (e in 0..20) {
+                nodes[k % 3].rep.addToSet("set-${k}", "element-${e}-with-some-payload")
+            }
+        }
+        let converged = { =>
+            var ok = true
+            for (n in nodes) {
+                for (k in 0..100) {
+                    ok = ok && n.rep.setElements("set-${k}").size == 20
+                }
+            }
+            ok
+        }
+        @Expect(awaitCondition(CONVERGE, converged), true)
+        // 全量状态的大小（旧实现每个节点每轮向每个对等节点发送一次）
+        var fullState: Int64 = 0
+        for (k in 0..100) {
+            fullState += nodes[0].rep.get("set-${k}").getOrThrow().encode().size
+        }
+        sleep(Duration.millisecond * 300)
+        let before = nodes[0].rep.bytesSent()
+        sleep(Duration.second)
+        let idle = nodes[0].rep.bytesSent() - before
+        // 1 秒约 20 轮；旧实现约 20 × 2 × fullState
+        @Expect(idle > 0, true)
+        @Expect(idle * 10 < 20 * fullState, true)
+        // 一个节点的值被修改且推送丢失时，反熵仍能补上：直接停止推送不可行，改为新加入的节点验证请求路径
+        let late = Node("rep-digest-late", None<NetworkTransport>)
+        for (n in nodes) {
+            late.rep.join(n.addr())
+            n.rep.join(late.addr())
+        }
+        @Expect(awaitCondition(CONVERGE, { => late.rep.keys().size == 100 && late.rep.setElements("set-99").size == 20 }), true)
+        late.shutdown()
+        shutdownAll(nodes)
+    }
+}

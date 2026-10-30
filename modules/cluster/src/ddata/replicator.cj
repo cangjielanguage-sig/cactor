@@ -17,6 +17,7 @@ import std.time.*
 import std.collection.*
 import std.convert.*
 import std.sort.*
+import std.random.*
 import cactor.api.{CActorSystem}
 import cactor_core.actor.{Actor, ActorContext, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
@@ -139,23 +140,29 @@ public enum ReplicatedValue {
                 encodeCounter(w, c.decrements)
             case GSetValue(g) =>
                 let es = g.toArray()
+                sort(es)
                 w.put(es.size)
                 for (e in es) {
                     w.put(e)
                 }
             case ORSetValue(o) =>
-                w.put(o.entries.size)
-                for ((e, dots) in o.entries) {
+                // 按键排序：相同内容在任何节点上编码相同，摘要才能比较
+                let es = sortedKeys(o.entries)
+                w.put(es.size)
+                for (e in es) {
+                    let dots = o.entries[e].toArray()
+                    sort(dots)
                     w.put(e)
                     w.put(dots.size)
                     for (d in dots) {
                         w.put(d)
                     }
                 }
-                w.put(o.vv.size)
-                for ((n, seq) in o.vv) {
+                let ns = sortedKeys(o.vv)
+                w.put(ns.size)
+                for (n in ns) {
                     w.put(n)
-                    w.put(seq)
+                    w.put(o.vv[n])
                 }
             case Register(r) =>
                 w.put(r.value)
@@ -166,11 +173,27 @@ public enum ReplicatedValue {
     }
 
     private static func encodeCounter(w: FieldWriter, c: GCounter): Unit {
-        w.put(c.state.size)
-        for ((n, v) in c.state) {
+        let ns = sortedKeys(c.state)
+        w.put(ns.size)
+        for (n in ns) {
             w.put(n)
-            w.put(v)
+            w.put(c.state[n])
         }
+    }
+
+    private static func sortedKeys<V>(m: HashMap<String, V>): Array<String> {
+        let ks = ArrayList<String>()
+        for ((k, _) in m) {
+            ks.add(k)
+        }
+        let arr = ks.toArray()
+        sort(arr)
+        arr
+    }
+
+    /** 内容摘要：规范编码的 64 位 FNV-1a，相同内容在任何节点上相同 */
+    public func digest(): String {
+        fnv64(encode()).toString()
     }
 
     public static func decode(text: String): ReplicatedValue {
@@ -228,6 +251,16 @@ public enum ReplicatedValue {
         }
         GCounter(m)
     }
+}
+
+@OverflowWrapping
+func fnv64(s: String): UInt64 {
+    var h: UInt64 = 0xcbf29ce484222325
+    for (b in s) {
+        h = h ^ UInt64(b)
+        h = h * 0x100000001b3
+    }
+    h
 }
 
 // ======================= Replicator Actor =======================
@@ -303,12 +336,18 @@ class ReplicaStore {
     var gossipsSent: Int64 = 0
     var mergesReceived: Int64 = 0
     var decodeErrors: Int64 = 0
+    var bytesSent: Int64 = 0
+    var digestRounds: Int64 = 0
+    // 缓存每个键的摘要（值变化时清除）
+    let digests = HashMap<String, String>()
 }
 
 class ReplicatorActor <: Actor {
     let store: ReplicaStore
     let manager: SimpleRemoteManager
     let gossipInterval: Duration
+    let rnd = Random()
+    var round: Int64 = 0
 
     init(store: ReplicaStore, manager: SimpleRemoteManager, gossipInterval: Duration) {
         this.store = store
@@ -358,9 +397,96 @@ class ReplicatorActor <: Actor {
     private func onGossip(text: String): Unit {
         try {
             let r = FieldReader(text)
-            if (r.next() != "S") {
-                return
+            match (r.next()) {
+                case "S" => onState(r)
+                case "D" => onDigest(r)
+                case "Q" => onRequest(r)
+                case _ => ()
             }
+        } catch (_: Exception) {
+            synchronized(store.lock) {
+                store.decodeErrors++
+            }
+        }
+    }
+
+    /** 对方的摘要：把对方缺少或不同的键的值发给它，并请求本节点缺少或不同的键 */
+    private func onDigest(r: FieldReader): Unit {
+        let from = NetworkAddress.parse(r.next())
+        let n = r.nextInt()
+        let theirs = HashMap<String, String>()
+        for (_ in 0..n) {
+            let k = r.next()
+            theirs[k] = r.next()
+        }
+        let mine = digestsNow()
+        let send = ArrayList<(String, ReplicatedValue)>()
+        let want = ArrayList<String>()
+        for ((k, d) in mine) {
+            match (theirs.get(k)) {
+                case Some(td) where td == d => ()
+                case _ =>
+                    if (let Some(v) <- synchronized(store.lock) { store.values.get(k) }) {
+                        send.add((k, v))
+                    }
+            }
+        }
+        for ((k, td) in theirs) {
+            match (mine.get(k)) {
+                case Some(d) where d == td => ()
+                case _ => want.add(k)
+            }
+        }
+        if (!send.isEmpty()) {
+            sendTo(from, encodeState(send.toArray()))
+        }
+        if (!want.isEmpty()) {
+            let w = FieldWriter()
+            w.put("Q")
+            w.put(manager.getLocalAddress().toString())
+            w.put(want.size)
+            for (k in want) {
+                w.put(k)
+            }
+            sendTo(from, w.done())
+        }
+    }
+
+    /** 对方请求的键：回送当前值 */
+    private func onRequest(r: FieldReader): Unit {
+        let from = NetworkAddress.parse(r.next())
+        let n = r.nextInt()
+        let out = ArrayList<(String, ReplicatedValue)>()
+        for (_ in 0..n) {
+            let k = r.next()
+            if (let Some(v) <- synchronized(store.lock) { store.values.get(k) }) {
+                out.add((k, v))
+            }
+        }
+        if (!out.isEmpty()) {
+            sendTo(from, encodeState(out.toArray()))
+        }
+    }
+
+    private func digestsNow(): HashMap<String, String> {
+        synchronized(store.lock) {
+            let out = HashMap<String, String>()
+            for ((k, v) in store.values) {
+                let d = match (store.digests.get(k)) {
+                    case Some(c) => c
+                    case None =>
+                        let c = v.digest()
+                        store.digests[k] = c
+                        c
+                }
+                out[k] = d
+            }
+            out
+        }
+    }
+
+    private func onState(r: FieldReader): Unit {
+        try {
             let n = r.nextInt()
             for (_ in 0..n) {
                 let key = r.next()
@@ -386,6 +512,7 @@ class ReplicatorActor <: Actor {
         let (changed, subs) = synchronized(store.lock) {
             let before = store.values.get(key)
             store.values[key] = next
+            store.digests.remove(key)
             let changed = match (before) {
                 case Some(b) => !b.sameValue(next)
                 case None => true
@@ -420,14 +547,19 @@ class ReplicatorActor <: Actor {
     private func sendToPeers(text: String): Unit {
         let peers = synchronized(store.lock) { store.peers.toArray() }
         for (p in peers) {
-            try {
-                manager.remoteActorOf(p, "replicator").tell(StringMessage(text))
-                synchronized(store.lock) {
-                    store.gossipsSent++
-                }
-            } catch (_: Exception) {
-                // 对等节点暂不可达：下一轮反熵重试
+            sendTo(p, text)
+        }
+    }
+
+    private func sendTo(p: NetworkAddress, text: String): Unit {
+        try {
+            manager.remoteActorOf(p, "replicator").tell(StringMessage(text))
+            synchronized(store.lock) {
+                store.gossipsSent++
+                store.bytesSent += text.size
             }
+        } catch (_: Exception) {
+            // 对等节点暂不可达：下一轮反熵重试
         }
     }
 
@@ -435,17 +567,34 @@ class ReplicatorActor <: Actor {
         sendToPeers(encodeState([(key, value)]))
     }
 
+    /**
+     * 反熵：每轮向一个随机对等节点发送全部键的摘要（键 + 64 位内容摘要），
+     * 对方只回送不同或缺少的键的值，并请求本节点不同或缺少的键。状态一致时每轮只有摘要在网络上传输。
+     * 更新本身仍立即推送给全部对等节点（只含变化的键），反熵只负责补上丢失的推送。
+     */
     private func gossipAll(): Unit {
-        let entries = synchronized(store.lock) {
-            let l = ArrayList<(String, ReplicatedValue)>()
-            for ((k, v) in store.values) {
-                l.add((k, v))
-            }
-            l.toArray()
+        let peers = synchronized(store.lock) { store.peers.toArray() }
+        if (peers.isEmpty()) {
+            return
         }
-        if (!entries.isEmpty()) {
-            sendToPeers(encodeState(entries))
+        let mine = digestsNow()
+        if (mine.isEmpty()) {
+            return
         }
+        round++
+        let target = peers[Int64(rnd.nextUInt64() % UInt64(peers.size))]
+        let w = FieldWriter()
+        w.put("D")
+        w.put(manager.getLocalAddress().toString())
+        w.put(mine.size)
+        for ((k, d) in mine) {
+            w.put(k)
+            w.put(d)
+        }
+        synchronized(store.lock) {
+            store.digestRounds++
+        }
+        sendTo(target, w.done())
     }
 }
 
@@ -542,6 +691,13 @@ public class Replicator {
     }
 
     /** (已发送的状态消息数, 已合并的远程状态数, 解码失败数) */
+    /** 发出的字节数（推送、摘要与差异回送合计） */
+    public func bytesSent(): Int64 {
+        synchronized(store.lock) {
+            store.bytesSent
+        }
+    }
+
     public func stats(): (Int64, Int64, Int64) {
         synchronized(store.lock) {
             (store.gossipsSent, store.mergesReceived, store.decodeErrors)
