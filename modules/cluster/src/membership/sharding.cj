@@ -215,7 +215,20 @@ class ShardRegionActor <: Actor {
 
     private func refreshOwners(context: ActorContext): Unit {
         let s = cluster.state()
-        if (!s.converged || !cluster.isUp() || cluster.isTerminated()) {
+        if (cluster.isTerminated()) {
+            // 本节点已离开、被 down 或被脑裂处理停止：其他节点会接管这些分片，本地实例必须停止
+            owners = None
+            for ((_, ref) in entities) {
+                context.unwatch(ref)
+                context.stop(ref)
+            }
+            entities.clear()
+            synchronized(shared.lock) {
+                shared.entityIds.clear()
+            }
+            return
+        }
+        if (!s.converged || !cluster.isUp()) {
             owners = None
             return
         }

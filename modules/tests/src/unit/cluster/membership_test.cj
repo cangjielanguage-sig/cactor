@@ -12,7 +12,7 @@ import std.unittest.*
 import std.unittest.testmacro.*
 import cactor_core.actor.{Actor, ActorContext}
 import cactor_core.message.{Message, MessageResult, StringMessage}
-import cactor_foundation.network.{NetworkAddress, TransportProtocol}
+import cactor_foundation.network.{NetworkAddress, NetworkTransport, TransportProtocol}
 import cactor_remote.*
 import cactor_cluster.membership.*
 import cactor_testkit.*
@@ -32,6 +32,13 @@ class CNode {
     init(name: String) {
         kit = ActorTestKit(name)
         remote = SimpleRemoteManager(NetworkAddress("127.0.0.1", 0), TransportProtocol.TCP)
+        remote.start()
+    }
+
+    /** 使用自定义传输（例如注入网络分区） */
+    init(name: String, transport: NetworkTransport) {
+        kit = ActorTestKit(name)
+        remote = SimpleRemoteManager(transport)
         remote.start()
     }
 

@@ -10,7 +10,7 @@
  *   只有 Leader 推进状态，并且只在收敛时推进：Joining → Up（分配 upNumber）、Leaving → Exiting、
  *   Exiting → Removed、Down → Removed。因此所有节点看到的成员变化顺序一致。
  * - 可达性：节点之间定期心跳，用 Phi Accrual 故障检测器判定；不可达成员会阻止收敛，
- *   需要手动 down，或配置 autoDownUnreachableAfter 由 Leader 自动 down。
+ *   需要手动 down，或配置 downing 策略（见 sbr.cj：KeepMajority / KeepOldest / StaticQuorum，或不安全的 AutoDownAfter）。
  *
  * 传输复用 cactor_remote：每个节点把成员守护 Actor 以名称 "cluster" 暴露出去。
  */
@@ -260,21 +260,36 @@ public struct ClusterSettings {
     public let heartbeatInterval: Duration
     public let phiThreshold: Float64
     public let acceptableHeartbeatPause: Duration
-    /** 不可达超过该时长后由 Leader 自动 down；None 表示只能手动 down */
-    public let autoDownUnreachableAfter: Option<Duration>
+    /** 不可达成员的处理方式（脑裂处理），见 sbr.cj */
+    public let downing: DowningStrategy
 
+    /** 兼容旧接口：Some(d) 等价于 DowningStrategy.AutoDownAfter(d)，None 等价于 NoDowning */
     public init(gossipInterval: Duration, heartbeatInterval: Duration, phiThreshold: Float64,
         acceptableHeartbeatPause: Duration, autoDownUnreachableAfter: Option<Duration>) {
+        this(gossipInterval, heartbeatInterval, phiThreshold, acceptableHeartbeatPause,
+            match (autoDownUnreachableAfter) {
+                case Some(d) => DowningStrategy.AutoDownAfter(d)
+                case None => DowningStrategy.NoDowning
+            })
+    }
+
+    public init(gossipInterval: Duration, heartbeatInterval: Duration, phiThreshold: Float64,
+        acceptableHeartbeatPause: Duration, downing: DowningStrategy) {
         this.gossipInterval = gossipInterval
         this.heartbeatInterval = heartbeatInterval
         this.phiThreshold = phiThreshold
         this.acceptableHeartbeatPause = acceptableHeartbeatPause
-        this.autoDownUnreachableAfter = autoDownUnreachableAfter
+        this.downing = downing
     }
 
     /** gossip 1s、心跳 1s、phi 8、可接受停顿 3s、不自动 down（与 Akka 默认值相同） */
     public static func defaults(): ClusterSettings {
-        ClusterSettings(Duration.second, Duration.second, 8.0, Duration.second * 3, None<Duration>)
+        ClusterSettings(Duration.second, Duration.second, 8.0, Duration.second * 3, DowningStrategy.NoDowning)
+    }
+
+    /** 默认值 + KeepMajority 脑裂处理（可达性视图稳定 stableAfter 后判定） */
+    public static func withKeepMajority(stableAfter: Duration): ClusterSettings {
+        ClusterSettings(Duration.second, Duration.second, 8.0, Duration.second * 3, DowningStrategy.KeepMajority(stableAfter))
     }
 }
 
@@ -355,6 +370,8 @@ class ClusterShared {
     var snapshot: ClusterSnapshot = ClusterSnapshot([], [], None<String>, false)
     let subscribers = ArrayList<(ClusterEvent) -> Unit>()
     var terminated = false
+    // 本节点因脑裂处理判定为不存活而停止
+    var downedBySbr = false
     var gossipsSent: Int64 = 0
 }
 
@@ -371,6 +388,8 @@ class ClusterDaemon <: Actor {
     var leaderValue: Option<String> = None
     let rnd = Random()
     var stopped = false
+    // 不可达集合最近一次变化的时间（毫秒），SBR 据此判断视图是否稳定
+    var reachabilityChangedAt: Int64 = 0
     let log = Logging.logger("cactor.cluster")
 
     init(selfAddress: String, seeds: Array<String>, remote: SimpleRemoteManager, settings: ClusterSettings, shared: ClusterShared) {
@@ -581,7 +600,63 @@ class ClusterDaemon <: Actor {
                 unreachableSince.remove(addr)
             }
         }
+        let after = currentUnreachable()
+        if (!sameSet(before, after)) {
+            reachabilityChangedAt = now
+        }
         publish(gossip, gossip, leaderValue, before)
+        selfDowningCheck(now)
+    }
+
+    private static func sameSet(a: HashSet<String>, b: HashSet<String>): Bool {
+        if (a.size != b.size) {
+            return false
+        }
+        for (x in a) {
+            if (!b.contains(x)) {
+                return false
+            }
+        }
+        true
+    }
+
+    /**
+     * 可达性视图已稳定足够久时的 SBR 判定；None 表示不使用 SBR 或尚未稳定
+     *
+     * margin：额外等待的毫秒数。存活一侧的 Leader 比不存活一侧的自我停止多等 acceptableHeartbeatPause，
+     * 覆盖两侧检测到分区的时间差，保证对侧的 Singleton / 分片实体先停止，本侧再接管。
+     */
+    private func sbrDecision(now: Int64, margin: Int64): Option<SbrDecision> {
+        match (settings.downing.stableAfter()) {
+            case Some(stable) =>
+                if (unreachableSince.isEmpty() || now - reachabilityChangedAt < stable.toMilliseconds() + margin) {
+                    return None
+                }
+                let live = ArrayList<Member>()
+                for ((_, m) in gossip.members) {
+                    if (m.status != MemberStatus.Removed && m.status != MemberStatus.Down) {
+                        live.add(m)
+                    }
+                }
+                Some(sbrDecide(settings.downing, live.toArray(), currentUnreachable()))
+            case None => None
+        }
+    }
+
+    /** SBR 判定本侧不存活时，每个节点各自停止参与集群（不依赖 Leader，也不需要与对侧通信） */
+    private func selfDowningCheck(now: Int64): Unit {
+        if (stopped) {
+            return
+        }
+        if (let Some(SbrDecision.DownSelf) <- sbrDecision(now, 0)) {
+            log.warn("脑裂处理：${selfAddress} 所在的一侧不满足存活条件（不可达 ${unreachableSince.size} 个），停止参与集群")
+            stopped = true
+            synchronized(shared.lock) {
+                shared.terminated = true
+                shared.downedBySbr = true
+            }
+            publish(gossip, gossip, leaderValue, currentUnreachable())
+        }
     }
 
     private func currentUnreachable(): HashSet<String> {
@@ -676,18 +751,27 @@ class ClusterDaemon <: Actor {
         let next = HashMap<String, Member>(gossip.members)
         var changed = false
         let removedNow = ArrayList<String>()
-        // 自动 down：不需要收敛
-        if (let Some(after) <- settings.autoDownUnreachableAfter) {
-            let now = monotonicMillis()
-            for ((addr, since) in unreachableSince) {
-                if (now - since >= after.toMilliseconds()) {
-                    if (let Some(m) <- next.get(addr)) {
-                        if (m.status.rank() < MemberStatus.Down.rank()) {
-                            log.info("自动 down 不可达成员 ${addr}")
-                            next[addr] = m.withStatus(MemberStatus.Down)
-                            changed = true
-                        }
+        // down 不可达成员：不需要收敛（不可达成员本身就阻止收敛）
+        let now = monotonicMillis()
+        let toDown = ArrayList<String>()
+        match (settings.downing) {
+            case AutoDownAfter(after) =>
+                for ((addr, since) in unreachableSince) {
+                    if (now - since >= after.toMilliseconds()) {
+                        toDown.add(addr)
                     }
+                }
+            case _ =>
+                if (let Some(SbrDecision.DownUnreachable(list)) <- sbrDecision(now, settings.acceptableHeartbeatPause.toMilliseconds())) {
+                    toDown.add(all: list)
+                }
+        }
+        for (addr in toDown) {
+            if (let Some(m) <- next.get(addr)) {
+                if (m.status.rank() < MemberStatus.Down.rank()) {
+                    log.info("down 不可达成员 ${addr}")
+                    next[addr] = m.withStatus(MemberStatus.Down)
+                    changed = true
                 }
             }
         }
@@ -891,6 +975,13 @@ public class Cluster {
     public func isTerminated(): Bool {
         synchronized(shared.lock) {
             shared.terminated
+        }
+    }
+
+    /** 本节点是否因脑裂处理（本侧不满足存活条件）而停止参与集群 */
+    public func isDownedBySbr(): Bool {
+        synchronized(shared.lock) {
+            shared.downedBySbr
         }
     }
 
