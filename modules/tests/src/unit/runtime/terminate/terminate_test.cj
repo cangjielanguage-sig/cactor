@@ -162,3 +162,95 @@ public class ChildNameReleaseTest {
         system.terminate()
     }
 }
+
+/** 通过 context.system() 使用系统能力 */
+class SystemUser <: Actor {
+    let rec: EventRecorder
+
+    init(rec: EventRecorder) {
+        this.rec = rec
+    }
+
+    public prop name: String { get() { "system-user" } }
+    public prop description: String { get() { "system-user" } }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        let sys = context.system()
+        if (let Some(s) <- (message as StringMessage)) {
+            match (s.getContent()) {
+                case "info" => rec.record("name:${sys.name}")
+                case "spawn" =>
+                    // 创建顶层 Actor（不是子 Actor）
+                    let r = sys.actorOf({ => Tree(0, rec, AtomicInt64(0)) }, "spawned-top")
+                    rec.record("spawned:${r.path.getPath()}")
+                case "lookup" =>
+                    let found = sys.lookup("/user/spawned-top")
+                    rec.record("lookup:${found.isSome()}")
+                    let missing = sys.lookup("/user/nobody")
+                    rec.record("missing:${missing.isNone()}")
+                case "stop-top" =>
+                    if (let Some(r) <- sys.lookup("/user/spawned-top")) {
+                        sys.stop(r)
+                    }
+                case "dead" =>
+                    rec.record("dead:${sys.deadLetterCount()}")
+                case "terminate" =>
+                    sys.terminate()
+                    rec.record("terminated:${sys.isTerminated()}")
+                case _ => ()
+            }
+        }
+        MessageResult.Handled
+    }
+}
+
+@Test
+public class ContextSystemTest {
+    @TestCase
+    public func testContextSystemCapabilities(): Unit {
+        let system = CActorSystemFactory.create("ctx-system")
+        let rec = EventRecorder()
+        let u = system.actorOf({ => SystemUser(rec) }, "user")
+        u << StringMessage("info")
+        @Expect(rec.await("name:ctx-system", Duration.second * 3), true)
+        u << StringMessage("spawn")
+        @Expect(rec.awaitSize(2, Duration.second * 3), true)
+        @Expect(rec.snapshot()[1], "spawned:/user/spawned-top")
+        // 外部也能看到这个顶层 Actor
+        @Expect(system.lookup("/user/spawned-top").isSome(), true)
+        u << StringMessage("lookup")
+        @Expect(rec.await("lookup:true", Duration.second * 3), true)
+        @Expect(rec.await("missing:true", Duration.second * 3), true)
+        u << StringMessage("stop-top")
+        @Expect(rec.await("stop:0", Duration.second * 3), true)
+        @Expect(awaitCondition(Duration.second * 3, { => system.lookup("/user/spawned-top").isNone() }), true)
+        u << StringMessage("dead")
+        @Expect(rec.awaitSize(6, Duration.second * 3), true)
+        @Expect(rec.snapshot()[5].startsWith("dead:"), true)
+        // 在 Actor 中终止系统：不卡住，系统随后进入终止状态
+        let start = MonoTime.now()
+        u << StringMessage("terminate")
+        @Expect(rec.await("terminated:true", Duration.second * 3), true)
+        @Expect(MonoTime.now() - start < Duration.second * 2, true)
+        @Expect(system.isTerminated(), true)
+    }
+
+    @TestCase
+    public func testStubContextReportsUnsupported(): Unit {
+        // 只实现 sender() 的测试桩上下文：system() 明确报不支持，而不是返回空值
+        let ctx = StubContext()
+        var unsupported = false
+        try {
+            ctx.system()
+        } catch (e: UnsupportedContextException) {
+            unsupported = e.message.contains("system")
+        }
+        @Expect(unsupported, true)
+    }
+}
+
+class StubContext <: ActorContext {
+    public func sender(): Option<String> {
+        None<String>
+    }
+}

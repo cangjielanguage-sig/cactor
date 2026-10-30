@@ -154,7 +154,7 @@ public class TestActorContext <: ActorContext {
         }
     }
     
-    public func system(): CActorSystem {
+    public func underlyingSystem(): CActorSystem {
         // 返回测试系统的底层系统
         testSystem.getUnderlyingSystem()
     }

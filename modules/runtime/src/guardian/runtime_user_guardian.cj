@@ -10,7 +10,7 @@ import std.sync.*
 import std.collection.*
 import std.collection.concurrent.*
 import std.time.*
-import cactor_core.actor.{Actor, ActorRef, Props, ActorPath}
+import cactor_core.actor.{Actor, ActorRef, Props, ActorPath, ActorSystemView}
 import cactor_foundation.logging.{Logging}
 import cactor_core.message.{Message, MessageResult, AutoReceivedMessage}
 import cactor_core.context.{ActorContext}
@@ -39,6 +39,8 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     // 顶层 Actor 自行停止（PoisonPill、MessageResult.Stop、监督 Stop 等）时通知运行时清理注册信息
     private var topLevelTerminatedHook: Option<(ActorRef) -> Unit> = None<(ActorRef) -> Unit>
     private let log = Logging.logger("cactor.guardian")
+    // Actor 中 context.system() 返回的视图，由运行时在启动时设置
+    private var systemViewValue: Option<ActorSystemView> = None<ActorSystemView>
 
     public init(system: ActorSystem) {
         super(GuardianType.User, None<ActorRef>)  // 用户Guardian通常没有父Guardian
@@ -379,6 +381,14 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     }
 
     /** 运行时注册：顶层 Actor 自行停止时回调，用于清理注册表和计数 */
+    public func setSystemView(view: ActorSystemView): Unit {
+        systemViewValue = Some(view)
+    }
+
+    public func systemView(): Option<ActorSystemView> {
+        systemViewValue
+    }
+
     public func setTopLevelTerminatedHook(hook: (ActorRef) -> Unit): Unit {
         topLevelTerminatedHook = Some(hook)
     }

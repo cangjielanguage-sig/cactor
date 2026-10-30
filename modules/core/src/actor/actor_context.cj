@@ -154,6 +154,11 @@ public interface ActorContext {
 
     // ---------- 日志 ----------
 
+    /** 所在的 Actor 系统（创建顶层 Actor、按路径查找、终止系统等） */
+    func system(): ActorSystemView {
+        throw UnsupportedContextException("system")
+    }
+
     /** 以 Actor 路径为来源标签的日志记录器 */
     func log(): Logger {
         let source = try {

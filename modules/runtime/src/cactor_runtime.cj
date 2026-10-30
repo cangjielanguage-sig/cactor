@@ -8,7 +8,7 @@ package cactor_runtime
 import std.sync.*
 import std.time.*
 import cactor_foundation.logging.{Logging}
-import cactor_core.actor.{Actor, ActorRef, Props}
+import cactor_core.actor.{Actor, ActorRef, Props, ActorSystemView}
 import cactor_core.message.{Message}
 import cactor_core.system.{ActorSystem}
 import cactor_runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian}
@@ -114,6 +114,7 @@ public class CActorRuntime {
         if (isRunning.compareAndSwap(false, true)) {
             // 顶层 Actor 自行停止时（PoisonPill、MessageResult.Stop、监督 Stop 等）清理登记信息
             userGuardian.setTopLevelTerminatedHook({ ref => this.onTopLevelTerminated(ref) })
+            userGuardian.setSystemView(RuntimeSystemView(this))
             startTime.store(getCurrentTimeNanos())
 
             // 启动高性能系统
@@ -627,5 +628,42 @@ public struct CActorRuntimeStats {
 
     public func getUptimeInSeconds(): Float64 {
         Float64(uptime) / 1000000000.0
+    }
+}
+
+/** Actor 中 context.system() 的运行时实现 */
+class RuntimeSystemView <: ActorSystemView {
+    private let runtime: CActorRuntime
+
+    init(runtime: CActorRuntime) {
+        this.runtime = runtime
+    }
+
+    public prop name: String {
+        get() { runtime.getSystemName() }
+    }
+
+    public func lookup(path: String): Option<ActorRef> {
+        runtime.lookup(path)
+    }
+
+    public func actorOf(props: Props<Actor>, name: String): ActorRef {
+        runtime.actorOf(props, name)
+    }
+
+    public func stop(ref: ActorRef): Unit {
+        runtime.stop(ref)
+    }
+
+    public func deadLetterCount(): Int64 {
+        runtime.deadLetterCount()
+    }
+
+    public func terminate(): Unit {
+        runtime.shutdown()
+    }
+
+    public func isTerminated(): Bool {
+        !runtime.getRuntimeStats().isRunning
     }
 }

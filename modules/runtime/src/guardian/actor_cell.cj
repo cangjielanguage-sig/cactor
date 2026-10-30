@@ -1307,6 +1307,13 @@ public class CellContext <: ActorContext {
         cell.unstashAllInternal()
     }
 
+    public func system(): ActorSystemView {
+        match (cell.guardian.systemView()) {
+            case Some(v) => v
+            case None => throw UnsupportedContextException("system")
+        }
+    }
+
     public func log(): Logger {
         match (loggerValue) {
             case Some(l) => l
