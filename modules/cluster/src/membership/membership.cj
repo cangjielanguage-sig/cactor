@@ -26,6 +26,7 @@ import cactor_core.actor.{Actor, ActorContext, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.detector.{PhiAccrualFailureDetector, monotonicMillis}
+import cactor_foundation.config.{LayeredConfig, ConfigException}
 import cactor_foundation.logging.{Logging}
 import cactor_remote.{SimpleRemoteManager}
 import cactor_cluster.ddata.{FieldWriter, FieldReader}
@@ -364,6 +365,30 @@ public struct ClusterSettings {
     /** gossip 1s、心跳 1s、phi 8、可接受停顿 3s、不自动 down（与 Akka 默认值相同） */
     public static func defaults(): ClusterSettings {
         ClusterSettings(Duration.second, Duration.second, 8.0, Duration.second * 3, DowningStrategy.NoDowning)
+    }
+
+    /**
+     * 从分层配置读取（键均在 cluster. 下，缺少的项取默认值）：
+     *   gossip-interval、heartbeat-interval、phi-threshold、acceptable-heartbeat-pause（时长，例如 1s）
+     *   downing = none | auto-down | keep-majority | keep-oldest | static-quorum
+     *   stable-after（时长，SBR 策略使用）、auto-down-after（时长）、quorum-size（整数）
+     */
+    public static func fromConfig(cfg: LayeredConfig): ClusterSettings {
+        let d = defaults()
+        let stable = cfg.getDuration("cluster.stable-after", Duration.second * 7)
+        let downing = match (cfg.getString("cluster.downing", "none")) {
+            case "none" => DowningStrategy.NoDowning
+            case "auto-down" => DowningStrategy.AutoDownAfter(cfg.getDuration("cluster.auto-down-after", Duration.second * 10))
+            case "keep-majority" => DowningStrategy.KeepMajority(stable)
+            case "keep-oldest" => DowningStrategy.KeepOldest(stable)
+            case "static-quorum" => DowningStrategy.StaticQuorum(cfg.getInt("cluster.quorum-size"), stable)
+            case other => throw ConfigException(
+                "配置 cluster.downing = \"${other}\"（来自 ${cfg.origin("cluster.downing") ?? "?"}）不是 none / auto-down / keep-majority / keep-oldest / static-quorum")
+        }
+        ClusterSettings(cfg.getDuration("cluster.gossip-interval", d.gossipInterval),
+            cfg.getDuration("cluster.heartbeat-interval", d.heartbeatInterval),
+            cfg.getFloat("cluster.phi-threshold", d.phiThreshold),
+            cfg.getDuration("cluster.acceptable-heartbeat-pause", d.acceptableHeartbeatPause), downing)
     }
 
     /** 默认值 + KeepMajority 脑裂处理（可达性视图稳定 stableAfter 后判定） */

@@ -7,6 +7,7 @@
 package cactor_foundation.config
 
 import std.collection.*
+import std.env.*
 import std.sync.*
 import cactor_foundation.logging.{Logger, Logging}
 
@@ -648,10 +649,18 @@ public class EnvironmentConfigSource <: ConfigSource {
     private let priority: Int32
     private let prefix: String
 
+    private let keys: Array<String>
+
     public init(name: String, priority: Int32, prefix: String) {
+        this(name, priority, prefix, ["system.name", "log.level", "performance.enabled", "thread.pool.size"])
+    }
+
+    /** keys：要从环境变量读取的配置键 */
+    public init(name: String, priority: Int32, prefix: String, keys: Array<String>) {
         this.name = name
         this.priority = priority
         this.prefix = prefix
+        this.keys = keys
     }
 
     public func getName(): String {
@@ -664,15 +673,12 @@ public class EnvironmentConfigSource <: ConfigSource {
 
     public func loadConfig(): HashMap<String, ConfigValue> {
         let config = HashMap<String, ConfigValue>()
-
-        // 简化实现：添加一些模拟的环境变量
-        if (prefix == "CACTOR_") {
-            config["system.name"] = ConfigValue.createString("CActor-System")
-            config["log.level"] = ConfigValue.createString("INFO")
-            config["performance.enabled"] = ConfigValue.createBool(true)
-            config["thread.pool.size"] = ConfigValue.createInt(10)
+        // 读取真实的环境变量（旧实现返回写死的模拟值）：键 "a.b-c" 对应 <前缀>A_B_C，只收录已设置的变量
+        for (key in keys) {
+            if (let Some(v) <- getVariable(LayeredConfig.envName(prefix, key))) {
+                config[key] = ConfigValue.createString(v)
+            }
         }
-
         return config
     }
 
