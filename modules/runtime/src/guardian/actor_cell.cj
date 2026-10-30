@@ -861,6 +861,9 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     private func onDeathNotification(dead: SimpleUserActorRef): Unit {
+        // 自己的子 Actor：先释放名称再投递 Terminated（与 Akka 相同），
+        // 这样 Terminated 处理中可以立即用同一名称重建子 Actor（例如分片实体钝化后重建）
+        onChildTerminated(dead)
         // 已取消监视（或从未监视）的不投递
         match (watching.get(dead.pathString)) {
             case Some(w) where refEq(w, dead) => watching.remove(dead.pathString)

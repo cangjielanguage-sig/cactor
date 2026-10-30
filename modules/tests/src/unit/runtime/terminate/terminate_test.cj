@@ -108,3 +108,57 @@ public class TerminateTest {
         @Expect(awaitCondition(Duration.second * 3, { => rec.size() == 3 }), true)
     }
 }
+
+/** 监视同名子 Actor：每次收到 Terminated 立即用同一名称重建，直到重建 rounds 次 */
+class Reviver <: Actor {
+    let rec: EventRecorder
+    let rounds: Int64
+    var revived: Int64 = 0
+
+    init(rec: EventRecorder, rounds: Int64) {
+        this.rec = rec
+        this.rounds = rounds
+    }
+
+    public prop name: String { get() { "reviver" } }
+    public prop description: String { get() { "reviver" } }
+
+    public func onStarted(context: ActorContext): Unit {
+        spawnAndStop(context)
+    }
+
+    private func spawnAndStop(context: ActorContext): Unit {
+        let child = context.actorOf({ => Tree(0, rec, AtomicInt64(0)) }, "same-name")
+        context.watch(child)
+        context.stop(child)
+    }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case _: Terminated =>
+                revived++
+                rec.record("revived")
+                if (revived < rounds) {
+                    // 名称在 Terminated 投递前已释放，这里不能抛 “名称已存在”
+                    spawnAndStop(context)
+                }
+                MessageResult.Handled
+            case _ => MessageResult.Unhandled
+        }
+    }
+}
+
+@Test
+public class ChildNameReleaseTest {
+    @TestCase
+    public func testChildNameIsFreeWhenTerminatedArrives(): Unit {
+        let system = CActorSystemFactory.create("name-release")
+        let rec = EventRecorder()
+        let r = system.actorOf({ => Reviver(rec, 200) }, "reviver")
+        @Expect(awaitCondition(Duration.second * 10, { => rec.count("revived") == 200 }), true)
+        // 每轮的子 Actor 都正常停止（postStop 记录 stop:0），父 Actor 没有因名称冲突重启
+        @Expect(rec.count("stop:0"), 200)
+        system.stop(r)
+        system.terminate()
+    }
+}
