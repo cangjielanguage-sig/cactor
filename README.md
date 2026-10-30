@@ -122,8 +122,8 @@ main() {
 | 测试 | `TestProbe`、`BehaviorTestKit`、虚拟时钟 `ManualTime` | 可用 |
 | 可观测性 | 分级与结构化日志、MDC、JSON Lines、Prometheus 指标 | 可用 |
 | 远程 | TCP 传输、远程 ask / watch、跨节点回复、可靠投递 | 可用，暂无 TLS |
-| 集群 | gossip 成员协议、脑裂处理、Cluster Singleton、分布式发布订阅、集群分片（钝化、remember-entities）、CRDT 与 Replicator | 可用，有多节点、网络分区与多进程宕机验证 |
-| 持久化 | 文件事件日志、快照、事件溯源 Actor | 可用，暂无插件接口 |
+| 集群 | gossip 成员协议、脑裂处理、Cluster Singleton、分布式发布订阅、集群分片（钝化、remember-entities）、虚拟 Actor（Grains）、CRDT 与 Replicator | 可用，有多节点、网络分区与多进程宕机验证 |
+| 持久化 | 文件事件日志、快照、事件溯源 Actor、持久化状态（乐观并发）、持久化查询、按 URI 选择存储的插件注册表 | 可用 |
 | 流处理 | Streams DSL | 实验性 |
 | 状态机 | XState 风格的状态机 | 实验性 |
 
@@ -471,7 +471,7 @@ cjpm test                           # 运行全部测试
 python3 tools/check_module_deps.py  # 检查模块分层约束
 ```
 
-workspace 目前共有 341 个测试用例（`tools/ci.sh`），在仓颉 1.2.0 下全部通过；CI 另外运行聊天室、5 万子 Actor 规模测试、20 秒稳定性测试，以及两个 3 进程集群验证（正常收发与 `kill -9` 宕机）。除监督策略、类型化 Actor（行为变换、Stash、定时器）、mailbox 外，还覆盖并发语义（串行处理、并发创建/停止、监督重启）、队列压力、TCP/UDP 传输、远程端到端、文件事件日志与事件溯源恢复。
+workspace 目前共有 366 个测试用例（`tools/ci.sh`），在仓颉 1.2.0 下全部通过；CI 另外运行聊天室、5 万子 Actor 规模测试、20 秒稳定性测试，以及两个 3 进程集群验证（正常收发与 `kill -9` 宕机）。除监督策略、类型化 Actor（行为变换、Stash、定时器）、mailbox 外，还覆盖并发语义（串行处理、并发创建/停止、监督重启）、队列压力、TCP/UDP 传输、远程端到端、文件事件日志与事件溯源恢复。
 
 基准程序：`./target/release/bin/cactor_examples.real_benchmark`。在 32 核机器上实测：单 Actor 5.6–7.2 M msg/s，ping-pong 往返 P50 约 2 µs，本机回环远程 TCP 约 150–190 k msg/s。同机与 Akka 2.6.21 的对比见 [性能分析](docs/plan/20261028-performance.md)：点对点场景已追平或超过 Akka，扇出仍慢约 3 倍，远程慢约 1.6 倍。
 
@@ -483,7 +483,7 @@ workspace 目前共有 341 个测试用例（`tools/ci.sh`），在仓颉 1.2.0 
 
 - **调度**：亲和调度，还没有工作窃取；扇出吞吐仍明显低于 Akka；在 `receive` 中阻塞会占住工作线程，同一线程上的其他 Actor 也会被拖慢。
 - **远程通信**：基于 `std.net` 的 TCP 传输。普通 `tell` 是至多一次；需要可靠性时用 `tellReliable`（序号、确认、重发、去重）。支持远程 ask、跨节点回复和远程 watch。消息编解码器带版本号，可以滚动升级（新字段由新代码按旧版本解析，旧节点明确拒绝更新的版本）。暂不支持 TLS。
-- **集群**：`cactor_cluster.membership` 提供 gossip 成员协议、脑裂处理（KeepMajority / KeepOldest / StaticQuorum）、Cluster Singleton、分布式发布订阅和集群分片（空闲钝化、remember-entities，可与事件溯源结合在移交和宕机后恢复状态），`cactor_cluster.ddata` 提供 CRDT 与 Replicator，均有多节点测试与多进程验证（`tools/cluster_demo.sh`、`tools/cluster_crash_demo.sh`）。脑裂处理基于本节点的可达性视图，非对称网络分区时可能误判；Replicator 每轮同步全量状态；还没有虚拟 Actor。`cactor_cluster` 根包中的旧类（`SimpleClusterManager`、`ShardRegion` 等）是早期原型，将在 1.3.0 删除。
+- **集群**：`cactor_cluster.membership` 提供 gossip 成员协议、脑裂处理（KeepMajority / KeepOldest / StaticQuorum）、Cluster Singleton、分布式发布订阅和集群分片（空闲钝化、remember-entities，可与事件溯源结合在移交和宕机后恢复状态），`cactor_cluster.ddata` 提供 CRDT 与 Replicator，均有多节点测试与多进程验证（`tools/cluster_demo.sh`、`tools/cluster_crash_demo.sh`）。脑裂处理使用随 gossip 传播的可达性表，非对称分区中的间接连接成员会被 down；虚拟 Actor（`Grains`，对标 Orleans）支持按需激活、单一激活、空闲停用与宕机后重新激活；Replicator 用摘要式反熵，只传不同的键。`cactor_cluster` 根包中的旧类（`SimpleClusterManager`、`ShardRegion` 等）是早期原型，将在 1.3.0 删除。
 - **宏**：`@actorReceive` 与 `@Message`（生成消息类型名与编解码器）已可用；其余 DSL 宏大多还没有实际展开逻辑。
 - **日志**：库内日志走分级日志（默认 WARN，输出到 stderr，用环境变量 `CACTOR_LOG_LEVEL` 调整），但仓库中还有三套日志实现，计划在 1.3.0 合并。
 - **旧基准程序**：除 `real_benchmark` 外，仓库里其他 benchmark 程序测到的是同步函数调用的开销，不代表消息传递性能。

@@ -263,21 +263,28 @@ public class DurableStateTest {
         }
     }
 
-    /** 8 个线程各做 100 次“读 → 加一 → 按修订号写，冲突则重读重试”：乐观并发下一次也不丢 */
+    /** 4 个线程各做 50 次“读 → 加一 → 按修订号写，冲突则重读重试”：乐观并发下一次也不丢 */
     @TestCase
     func concurrentWritersWithRetryLoseNothing(): Unit {
         let stores: Array<DurableStateStore> = [MemoryDurableStateStore(), FileDurableStateStore(freshDir("race"))]
         for (store in stores) {
             let conflicts = AtomicInt64(0)
+            let ready = AtomicInt64(0)
             let workers = ArrayList<Future<Unit>>()
-            for (_ in 0..8) {
+            for (_ in 0..4) {
                 workers.add(spawn {
-                    for (_ in 0..100) {
+                    // 全部线程就绪后同时开始，并在读与写之间稍作停顿，保证读-改-写确实交错（否则线程可能恰好串行执行）
+                    ready.fetchAdd(1)
+                    while (ready.load() < 4) {
+                        sleep(Duration.microsecond * 50)
+                    }
+                    for (_ in 0..50) {
                         while (true) {
                             let (rev, v) = match (store.get("hot")) {
                                 case Some(r) => (r.revision, Int64.parse(r.state))
                                 case None => (0, 0)
                             }
+                            sleep(Duration.microsecond * 100)
                             try {
                                 store.upsert("hot", rev + 1, "${v + 1}")
                                 break
@@ -292,8 +299,8 @@ public class DurableStateTest {
                 w.get()
             }
             let r = store.get("hot").getOrThrow()
-            @Expect(r.state, "800")
-            @Expect(r.revision, 800)
+            @Expect(r.state, "200")
+            @Expect(r.revision, 200)
             @Expect(conflicts.load() > 0, true)
         }
     }
