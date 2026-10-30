@@ -9,6 +9,9 @@ import std.collection.*
 import std.sync.*
 import cactor_foundation.serialization.{Serializer, SerializationManager}
 
+/** 版本帧标记：写在负载长度的位置（合法长度不会为负） */
+const VERSIONED_FRAME: Int32 = -1
+
 /**
  * 消息序列化器
  * 基于Foundation层的通用序列化框架实现消息序列化
@@ -84,6 +87,15 @@ public class MessageSerializer <: Serializer<Message> {
                 match (MessageCodecRegistry.get(messageType)) {
                     case Some(codec) =>
                         let payload = codec.encode(message)
+                        let version = codec.version()
+                        if (version < 1 || version > Int64(Int32.Max)) {
+                            throw SerializationException("${messageType} 的编解码器版本无效: ${version}")
+                        }
+                        if (version > 1) {
+                            // 版本帧：长度位置写 -1，随后是版本号与真实长度。版本 1 保持旧格式，旧节点仍可读取
+                            writeInt32(result, VERSIONED_FRAME)
+                            writeInt32(result, Int32(version))
+                        }
                         writeInt32(result, Int32(payload.size))
                         for (byte in payload) {
                             result.add(byte)
@@ -182,12 +194,28 @@ public class MessageSerializer <: Serializer<Message> {
                         if (data.size < offset + 4) {
                             throw DeserializationException("${messageType} 负载长度数据不完整")
                         }
-                        let payloadLength = Int64(readInt32(data, offset))
+                        var payloadLength = Int64(readInt32(data, offset))
                         offset += 4
+                        var version: Int64 = 1
+                        if (payloadLength == Int64(VERSIONED_FRAME)) {
+                            if (data.size < offset + 8) {
+                                throw DeserializationException("${messageType} 版本头不完整")
+                            }
+                            version = Int64(readInt32(data, offset))
+                            payloadLength = Int64(readInt32(data, offset + 4))
+                            offset += 8
+                            if (version < 1) {
+                                throw DeserializationException("${messageType} 版本号无效: ${version}")
+                            }
+                            if (version > codec.version()) {
+                                throw DeserializationException(
+                                    "${messageType} 的版本 ${version} 高于本节点支持的版本 ${codec.version()}，请先升级接收方")
+                            }
+                        }
                         if (payloadLength < 0 || data.size < offset + payloadLength) {
                             throw DeserializationException("${messageType} 负载数据不完整")
                         }
-                        codec.decode(data.slice(Int64(offset), payloadLength))
+                        codec.decode(data.slice(Int64(offset), payloadLength), version)
                     case None =>
                         throw DeserializationException("不支持的消息类型: ${messageType}")
                 }
@@ -257,10 +285,26 @@ public class MessageSerializer <: Serializer<Message> {
 /**
  * 自定义消息编解码器
  * 用于让用户定义的消息类型可以经由 MessageSerializer（以及远程传输）序列化
+ *
+ * schema 演进：
+ * - version() 返回当前写出的格式版本（默认 1）。版本 1 的帧与旧格式完全相同，旧节点可以读取；
+ *   版本 > 1 的帧带版本头，旧节点（或版本更低的编解码器）读取时明确拒绝，远程层计入解码失败。
+ * - decode(payload, version) 收到旧版本数据时按旧格式解析（例如新增字段取默认值），默认转交 decode(payload)。
+ * - 推荐的滚动升级顺序：先让全部节点能读新版本（decode 支持 v2，version() 仍返回 1），再切换写出版本。
  */
 public interface MessageCodec {
     func encode(message: Message): Array<UInt8>
     func decode(payload: Array<UInt8>): Message
+
+    /** 当前写出的格式版本，>= 1 */
+    func version(): Int64 {
+        1
+    }
+
+    /** 解析给定版本（<= version()）的数据 */
+    func decode(payload: Array<UInt8>, version: Int64): Message {
+        decode(payload)
+    }
 }
 
 /**
