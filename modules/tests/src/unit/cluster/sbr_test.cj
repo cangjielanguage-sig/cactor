@@ -19,7 +19,16 @@ import cactor_testkit.*
 class Partition {
     private let lock = Mutex()
     private let groups = HashMap<String, Int64>()
+    // 单独断开的链路（双向），用于非对称分区：两端都还能和其他节点通信
+    private let cutLinks = HashSet<String>()
     let dropped = AtomicInt64(0)
+
+    func cutLink(a: String, b: String): Unit {
+        synchronized(lock) {
+            cutLinks.add("${a}|${b}")
+            cutLinks.add("${b}|${a}")
+        }
+    }
 
     func split(sides: Array<Array<String>>): Unit {
         synchronized(lock) {
@@ -35,11 +44,15 @@ class Partition {
     func heal(): Unit {
         synchronized(lock) {
             groups.clear()
+            cutLinks.clear()
         }
     }
 
     func connected(from: String, to: String): Bool {
         synchronized(lock) {
+            if (cutLinks.contains("${from}|${to}")) {
+                return false
+            }
             match ((groups.get(from), groups.get(to))) {
                 case (Some(a), Some(b)) => a == b
                 case _ => true
@@ -191,6 +204,73 @@ public class SbrDecideTest {
         @Expect(DowningStrategy.NoDowning.stableAfter().isNone(), true)
         @Expect(ad.stableAfter().isNone(), true)
         @Expect(sq.stableAfter().isSome(), true)
+    }
+}
+
+func describe4(d: SbrDecision): String {
+    describe(d)
+}
+
+@Test
+public class IndirectConnectionTest {
+    @TestCase
+    public func testIndirectMembersDoNotVoteAndAreDowned(): Unit {
+        let km = DowningStrategy.KeepMajority(Duration.second)
+        let five = ups(["a", "b", "c", "d", "e"])
+        // c 能连上 a、b，但有其他成员报告 a、b 之间断开：a、b 不计票，剩下 3 个全部可达 -> 存活并 down a、b
+        @Expect(describe4(sbrDecide(km, five, setOf([]), setOf(["a", "b"]))), "down:a,b")
+        // 不可达与间接连接同时存在：c、d、e 中 e 不可达、a 间接连接，计票成员 b、c、d、e 中可达 3 个 -> 存活
+        @Expect(describe4(sbrDecide(km, five, setOf(["e"]), setOf(["a"]))), "down:a,e")
+        // 计票成员 b、c、d、e 中 d、e 不可达：正好一半，包含最小地址 b 的一侧存活
+        @Expect(describe4(sbrDecide(km, five, setOf(["d", "e"]), setOf(["a"]))), "down:a,d,e")
+        // 计票成员中只有 b 可达 -> 不存活
+        @Expect(describe4(sbrDecide(km, five, setOf(["c", "d", "e"]), setOf(["a"]))), "self")
+    }
+
+    /**
+     * 只断开两个成员之间的链路（都不是地址最小的成员）。只看本地视图时，Leader 看不到任何问题，
+     * 两个断开的成员永远认为对方不可达，集群一直不能收敛。可达性表随 gossip 传播后，
+     * Leader 发现它们是间接连接的成员并把两个都 down，其余 3 个成员重新收敛。
+     */
+    @TestCase
+    public func testCutLinkBetweenTwoMembersIsResolved(): Unit {
+        let p = Partition()
+        let nodes = startPartitionable(5, "sbr-ind", sbrSettings(DowningStrategy.KeepMajority(STABLE)), p)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 5) }), true)
+        let addrs = addressesOf(nodes)
+        sort(addrs)
+        let byAddr = HashMap<String, CNode>()
+        for (n in nodes) {
+            byAddr[n.address()] = n
+        }
+        let x = byAddr[addrs[3]]
+        let y = byAddr[addrs[4]]
+        p.cutLink(x.address(), y.address())
+        let rest = [byAddr[addrs[0]], byAddr[addrs[1]], byAddr[addrs[2]]]
+        @Expect(awaitCondition(CLUSTER_WAIT, { => sideSurvived(rest) }), true)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => x.cluster.isTerminated() && y.cluster.isTerminated() }), true)
+        closeAll(nodes)
+    }
+
+    /** 断开的一端是 Leader（地址最小）：Leader 自己看到另一端不可达，只 down 另一端，其余 4 个成员保留 */
+    @TestCase
+    public func testCutLinkFromLeaderDownsOnlyTheOtherEnd(): Unit {
+        let p = Partition()
+        let nodes = startPartitionable(5, "sbr-ind2", sbrSettings(DowningStrategy.KeepMajority(STABLE)), p)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 5) }), true)
+        let addrs = addressesOf(nodes)
+        sort(addrs)
+        let byAddr = HashMap<String, CNode>()
+        for (n in nodes) {
+            byAddr[n.address()] = n
+        }
+        let leader = byAddr[addrs[0]]
+        let other = byAddr[addrs[4]]
+        p.cutLink(leader.address(), other.address())
+        let rest = [leader, byAddr[addrs[1]], byAddr[addrs[2]], byAddr[addrs[3]]]
+        @Expect(awaitCondition(CLUSTER_WAIT, { => sideSurvived(rest) }), true)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => other.cluster.isTerminated() }), true)
+        closeAll(nodes)
     }
 }
 

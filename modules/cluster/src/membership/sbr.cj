@@ -58,15 +58,27 @@ public enum SbrDecision {
  * members：未被移除、未 down 的成员；参与计票的是 Up / Leaving / Exiting 成员（Joining 不计票，与 Akka 相同）
  */
 public func sbrDecide(strategy: DowningStrategy, members: Array<Member>, unreachable: HashSet<String>): SbrDecision {
+    sbrDecide(strategy, members, unreachable, HashSet<String>())
+}
+
+/**
+ * indirect：间接连接的成员（本节点能连上，但其他可达成员报告连不上）。它们不参与计票，
+ * 本侧存活时与不可达成员一起被 down；集群因此可以重新收敛，而不是一直卡在不收敛状态。
+ */
+public func sbrDecide(strategy: DowningStrategy, members: Array<Member>, unreachable: HashSet<String>,
+    indirect: HashSet<String>): SbrDecision {
     let voters = ArrayList<Member>()
     for (m in members) {
+        if (indirect.contains(m.address)) {
+            continue
+        }
         if (m.status == MemberStatus.Up || m.status == MemberStatus.Leaving || m.status == MemberStatus.Exiting) {
             voters.add(m)
         }
     }
     let downList = ArrayList<String>()
     for (m in members) {
-        if (unreachable.contains(m.address)) {
+        if (unreachable.contains(m.address) || indirect.contains(m.address)) {
             downList.add(m.address)
         }
     }

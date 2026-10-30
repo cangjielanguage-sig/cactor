@@ -128,13 +128,61 @@ public class Member <: ToString {
 // ======================= Gossip =======================
 
 /** 一份成员视图（不可变） */
+/** 某个观察者看到的不可达成员（只有观察者自己修改，版本号递增） */
+class ReachRow {
+    let version: Int64
+    let subjects: HashSet<String>
+
+    init(version: Int64, subjects: HashSet<String>) {
+        this.version = version
+        this.subjects = subjects
+    }
+}
+
 class Gossip {
     let members: HashMap<String, Member>
     let seen: HashSet<String>
+    // 可达性表：观察者 -> 它看到的不可达成员（随 gossip 传播，合并时每个观察者取版本更高的一行）
+    let rows: HashMap<String, ReachRow>
 
     init(members: HashMap<String, Member>, seen: HashSet<String>) {
+        this(members, seen, HashMap<String, ReachRow>())
+    }
+
+    init(members: HashMap<String, Member>, seen: HashSet<String>, rows: HashMap<String, ReachRow>) {
         this.members = members
         this.seen = seen
+        this.rows = rows
+    }
+
+    static func mergeRows(a: HashMap<String, ReachRow>, b: HashMap<String, ReachRow>): HashMap<String, ReachRow> {
+        let r = HashMap<String, ReachRow>(a)
+        for ((obs, row) in b) {
+            match (r.get(obs)) {
+                case Some(cur) where cur.version >= row.version => ()
+                case _ => r[obs] = row
+            }
+        }
+        r
+    }
+
+    static func sameRows(x: HashMap<String, ReachRow>, y: HashMap<String, ReachRow>): Bool {
+        if (x.size != y.size) {
+            return false
+        }
+        for ((k, v) in x) {
+            match (y.get(k)) {
+                case Some(w) where w.version == v.version => ()
+                case _ => return false
+            }
+        }
+        true
+    }
+
+    func withRow(observer: String, row: ReachRow): Gossip {
+        let r = HashMap<String, ReachRow>(rows)
+        r[observer] = row
+        Gossip(members, seen, r)
     }
 
     static func merge(a: Gossip, b: Gossip): Gossip {
@@ -163,7 +211,7 @@ class Gossip {
         if (sameB) {
             seen.add(all: b.seen)
         }
-        Gossip(m, seen)
+        Gossip(m, seen, mergeRows(a.rows, b.rows))
     }
 
     static func sameMembers(x: HashMap<String, Member>, y: HashMap<String, Member>): Bool {
@@ -182,7 +230,7 @@ class Gossip {
     func withMembers(m: HashMap<String, Member>, self: String): Gossip {
         let seen = HashSet<String>()
         seen.add(self)
-        Gossip(m, seen)
+        Gossip(m, seen, rows)
     }
 
     func seenBy(addr: String): Gossip {
@@ -191,7 +239,7 @@ class Gossip {
         }
         let s = HashSet<String>(seen)
         s.add(addr)
-        Gossip(members, s)
+        Gossip(members, s, rows)
     }
 
     func encode(): String {
@@ -205,6 +253,23 @@ class Gossip {
         w.put(seen.size)
         for (s in seen) {
             w.put(s)
+        }
+        // 可达性表追加在末尾：旧版本节点读到这里就停止，新版本读旧数据时为空
+        // 已离开成员表的观察者不再传播
+        let live = ArrayList<(String, ReachRow)>()
+        for ((obs, row) in rows) {
+            if (members.contains(obs)) {
+                live.add((obs, row))
+            }
+        }
+        w.put(live.size)
+        for ((obs, row) in live) {
+            w.put(obs)
+            w.put(row.version)
+            w.put(row.subjects.size)
+            for (x in row.subjects) {
+                w.put(x)
+            }
         }
         w.done()
     }
@@ -222,7 +287,21 @@ class Gossip {
         for (_ in 0..k) {
             seen.add(r.next())
         }
-        Gossip(m, seen)
+        let rows = HashMap<String, ReachRow>()
+        if (r.hasMore()) {
+            let nr = r.nextInt()
+            for (_ in 0..nr) {
+                let obs = r.next()
+                let version = r.nextInt()
+                let ns = r.nextInt()
+                let subjects = HashSet<String>()
+                for (_ in 0..ns) {
+                    subjects.add(r.next())
+                }
+                rows[obs] = ReachRow(version, subjects)
+            }
+        }
+        Gossip(m, seen, rows)
     }
 }
 
@@ -390,6 +469,9 @@ class ClusterDaemon <: Actor {
     var stopped = false
     // 不可达集合最近一次变化的时间（毫秒），SBR 据此判断视图是否稳定
     var reachabilityChangedAt: Int64 = 0
+    // 本节点可达性记录的版本，以及最近一次计算的间接连接成员
+    var ownRowVersion: Int64 = 0
+    var lastIndirect = HashSet<String>()
     let log = Logging.logger("cactor.cluster")
 
     init(selfAddress: String, seeds: Array<String>, remote: SimpleRemoteManager, settings: ClusterSettings, shared: ClusterShared) {
@@ -531,7 +613,8 @@ class ClusterDaemon <: Actor {
             return
         }
         let merged = Gossip.merge(gossip, incoming).seenBy(selfAddress)
-        let changedForSender = !Gossip.sameMembers(merged.members, incoming.members) || !incoming.seen.contains(selfAddress)
+        let changedForSender = !Gossip.sameMembers(merged.members, incoming.members) || !incoming.seen.contains(selfAddress) ||
+            !Gossip.sameRows(merged.rows, incoming.rows)
         update(merged)
         if (changedForSender && !stopped) {
             // push-pull：对方的版本比合并结果旧，回送一份
@@ -606,11 +689,51 @@ class ClusterDaemon <: Actor {
             }
         }
         let after = currentUnreachable()
-        if (!sameSet(before, after)) {
+        // 本节点的一行：本地不可达集合变化时版本加一，随 gossip 传播
+        let ownRow = gossip.rows.get(selfAddress)
+        let ownSame = match (ownRow) {
+            case Some(row) => sameSet(row.subjects, after)
+            case None => after.isEmpty()
+        }
+        if (!ownSame) {
+            ownRowVersion++
+            gossip = gossip.withRow(selfAddress, ReachRow(ownRowVersion, after))
+        }
+        // 可达性视图（本地不可达 + 间接连接）变化时重新计时
+        let indirect = indirectlyConnected()
+        if (!sameSet(before, after) || !sameSet(lastIndirect, indirect)) {
             reachabilityChangedAt = now
         }
+        lastIndirect = indirect
         publish(gossip, gossip, leaderValue, before)
         selfDowningCheck(now)
+    }
+
+    /**
+     * 间接连接的成员：本节点能连上，但某个本节点能连上的观察者报告连不上它（非对称分区，例如只有 A 与 B 之间断开）。
+     * 只采用本节点可达的观察者的报告：已宕机或在对侧的观察者留下的旧记录不会误伤。
+     * 这类成员无法让集群收敛，SBR 会把它们与不可达成员一起 down（与 Akka 的处理相同）。
+     */
+    private func indirectlyConnected(): HashSet<String> {
+        let result = HashSet<String>()
+        for ((obs, row) in gossip.rows) {
+            if (obs == selfAddress || !isReachable(obs) || !isLive(obs)) {
+                continue
+            }
+            for (x in row.subjects) {
+                if (x != selfAddress && x != obs && isReachable(x) && isLive(x)) {
+                    result.add(x)
+                }
+            }
+        }
+        result
+    }
+
+    private func isLive(addr: String): Bool {
+        match (gossip.members.get(addr)) {
+            case Some(m) => m.status != MemberStatus.Removed && m.status != MemberStatus.Down
+            case None => false
+        }
     }
 
     private static func sameSet(a: HashSet<String>, b: HashSet<String>): Bool {
@@ -634,7 +757,8 @@ class ClusterDaemon <: Actor {
     private func sbrDecision(now: Int64, margin: Int64): Option<SbrDecision> {
         match (settings.downing.stableAfter()) {
             case Some(stable) =>
-                if (unreachableSince.isEmpty() || now - reachabilityChangedAt < stable.toMilliseconds() + margin) {
+                if ((unreachableSince.isEmpty() && lastIndirect.isEmpty()) ||
+                    now - reachabilityChangedAt < stable.toMilliseconds() + margin) {
                     return None
                 }
                 let live = ArrayList<Member>()
@@ -643,7 +767,7 @@ class ClusterDaemon <: Actor {
                         live.add(m)
                     }
                 }
-                Some(sbrDecide(settings.downing, live.toArray(), currentUnreachable()))
+                Some(sbrDecide(settings.downing, live.toArray(), currentUnreachable(), lastIndirect))
             case None => None
         }
     }
