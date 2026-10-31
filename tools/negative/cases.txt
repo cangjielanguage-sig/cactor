@@ -12,3 +12,4 @@ state_machine_missing_state non-exhaustive patterns fail
 state_machine_unknown_state is not a member of enum fail
 state_machine_bad_transition 不在 states 清单里 fail
 state_machine_duplicate_state 重复列出 fail
+state_machine_unknown_guard 守卫方法 gateOpen fail

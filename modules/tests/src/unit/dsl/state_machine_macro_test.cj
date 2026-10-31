@@ -87,6 +87,60 @@ class GuardedMachineDsl {
 class BranchyMachine {
 }
 
+/** 子状态机的状态枚举 */
+enum MachinePhase {
+    | Idle
+    | Running
+}
+
+/** 子状态机：委托给复合状态的子机 */
+@StateMachine[
+    stateType = MachinePhase,
+    states = [Idle, Running],
+    initial = Idle,
+    transitions = [(Idle, Running), (Running, Idle)]
+]
+class ChildMachine {
+    var steps: Int64 = 0
+
+    func step(): Unit {
+        steps += 1
+    }
+}
+
+/** 组合状态机的状态枚举 */
+enum WorkflowState {
+    | Idle
+    | Working
+    | Done
+}
+
+/** 命名守卫（守卫表达式）+ 子状态机（§13.5 深度整合） */
+@StateMachine[
+    stateType = WorkflowState,
+    states = [Idle, Working, Done],
+    initial = Idle,
+    transitions = [(Idle, Working, gateOpen), (Working, Done), (Done, Idle)],
+    submachines = [(Working, ChildMachine)]
+]
+class CompositeMachine {
+    let rec: EventRecorder
+    var gate: Bool = true
+
+    init(rec: EventRecorder) {
+        this.rec = rec
+    }
+
+    // 命名守卫：迁移前调用，false 则迁移被拒
+    public func gateOpen(): Bool {
+        gate
+    }
+
+    public func onTransitionIdleWorking(): Unit {
+        rec.record("enter-working")
+    }
+}
+
 @Test
 public class StateMachineMacroTest {
     @TestCase
@@ -162,6 +216,42 @@ public class StateMachineMacroTest {
         m.inner.allowStop = true
         @Expect(m.transitionTo(OrderState.Stopped), true)
         @Expect(OrderMachine.stateName(m.currentState()), "Stopped")
+    }
+
+    @TestCase
+    public func testNamedGuardExpression(): Unit {
+        let rec = EventRecorder()
+        let m = CompositeMachine(rec)
+        // 命名守卫放行：Idle -> Working 成功，动作被调用
+        @Expect(m.transitionTo(WorkflowState.Working), true)
+        @Expect(CompositeMachine.stateName(m.currentState()), "Working")
+        @Expect(rec.contains("enter-working"), true)
+        // 守卫拒绝：Done -> Idle
+        m.gate = false
+        @Expect(m.transitionTo(WorkflowState.Idle), false)
+        @Expect(CompositeMachine.stateName(m.currentState()), "Working")
+    }
+
+    @TestCase
+    public func testSubmachineResetsOnEntry(): Unit {
+        let rec = EventRecorder()
+        let m = CompositeMachine(rec)
+        // 复合状态 Working 委托给 ChildMachine：进入时子机在初始状态 Idle
+        @Expect(m.transitionTo(WorkflowState.Working), true)
+        @Expect(ChildMachine.stateName(m.subWorking().currentState()), "Idle")
+        // 子机自己迁移：Idle -> Running
+        @Expect(m.subWorking().transitionTo(MachinePhase.Running), true)
+        @Expect(ChildMachine.stateName(m.subWorking().currentState()), "Running")
+        // 离开复合状态：Working -> Done -> Idle，再经守卫重进 Working
+        @Expect(m.transitionTo(WorkflowState.Done), true)
+        @Expect(m.transitionTo(WorkflowState.Idle), true)
+        m.gate = true
+        @Expect(m.transitionTo(WorkflowState.Working), true)
+        // 重进复合状态：子机被复位到初始状态 Idle
+        @Expect(ChildMachine.stateName(m.subWorking().currentState()), "Idle")
+        // 复位方法本身可用
+        m.subWorking().reset()
+        @Expect(ChildMachine.stateName(m.subWorking().currentState()), "Idle")
     }
 
     @TestCase

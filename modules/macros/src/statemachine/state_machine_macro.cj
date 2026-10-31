@@ -51,6 +51,15 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
     let className = cls.identifier.value
     let spec = parseStateMachineAttr(attr, className)
 
+    // 类体已有方法名：命名守卫校验、骨架同名跳过都需要它
+    let existingMethods = ArrayList<String>()
+    for (d in cls.body.decls) {
+        match (d) {
+            case f: FuncDecl => existingMethods.add(f.identifier.value)
+            case _ => ()
+        }
+    }
+
     // 转换表里的状态必须出现在清单中
     for (t in spec.transitions) {
         if (!spec.states.contains(t.source)) {
@@ -61,6 +70,30 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
             throw ASTException(
                 "@StateMachine: ${className} 的转换 ${t.source} -> ${t.target} 中，${t.target} 不在 states 清单里")
         }
+        // 命名守卫（守卫表达式）：方法必须在类体里定义，否则生成调用会编译不过且难读
+        if (t.guardMethod != "" && !existingMethods.contains(t.guardMethod)) {
+            throw ASTException(
+                "@StateMachine: ${className} 的转换 ${t.source} -> ${t.target} 指定守卫方法 ${t.guardMethod}()，但类体里没有定义它")
+        }
+    }
+    // 子状态机：复合状态必须在清单里，且不能重复声明
+    for (m in spec.submachines) {
+        if (!spec.states.contains(m.state)) {
+            throw ASTException(
+                "@StateMachine: ${className} 的子状态机 ${m.typeName} 委托给状态 ${m.state}，但它不在 states 清单里")
+        }
+    }
+    var smIdx: Int64 = 0
+    for (m in spec.submachines) {
+        var other = smIdx + 1
+        while (other < spec.submachines.size) {
+            if (spec.submachines[other].state == m.state) {
+                throw ASTException(
+                    "@StateMachine: ${className} 的状态 ${m.state} 声明了多个子状态机")
+            }
+            other++
+        }
+        smIdx++
     }
     // 转换不得重复
     var idx: Int64 = 0
@@ -147,18 +180,6 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
     let initialCtor = ctorTokens(spec.stateType, spec.initial)
     let ds = cls.body.decls
 
-    // guard/action 骨架（§9 P4.1）：为每个转换生成
-    //   guard<From><To>()     —— 守卫，默认允许（返回 true）
-    //   onTransition<From><To>() —— 动作，默认空
-    // 类体里已写了同名方法就跳过生成（与 name/description 的处理一致），用户覆写即生效。
-    let existingMethods = ArrayList<String>()
-    for (d in cls.body.decls) {
-        match (d) {
-            case f: FuncDecl => existingMethods.add(f.identifier.value)
-            case _ => ()
-        }
-    }
-
     ds.add(parseDecl(quote(
         public static let stateNames: Array<String> = $stateArray
     )))
@@ -213,20 +234,37 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
             __currentState
         }
     )))
-    // 迁移入口：先查转换表，再过守卫，更新状态后执行动作。
-    // 每个转换展开成 (from, to) 上的一个 match 分支：不在表里的组合落到 case _ 被拒绝。
+    // 迁移入口：先查转换表，再过守卫（命名守卫优先，否则用骨架），更新状态、
+    // 复位子状态机后执行动作。每个转换展开成 (from, to) 上的一个 match 分支：
+    // 不在表里的组合落到 case _ 被拒绝。
     var transitionArms = quote()
     for (t in spec.transitions) {
         let fromCtor = ctorTokens(spec.stateType, t.source)
         let toCtor = ctorTokens(spec.stateType, t.target)
-        let guardName = Token(TokenKind.IDENTIFIER, "guard${t.source}${t.target}")
+        // 命名守卫优先；未指定时用骨架方法
+        let guardToken = if (t.guardMethod != "") {
+            Token(TokenKind.IDENTIFIER, t.guardMethod)
+        } else {
+            Token(TokenKind.IDENTIFIER, "guard${t.source}${t.target}")
+        }
         let actionName = Token(TokenKind.IDENTIFIER, "onTransition${t.source}${t.target}")
+        // 进入复合状态时把子状态机复位到它的初始状态
+        var subResets = quote()
+        for (m in spec.submachines) {
+            if (m.state == t.target) {
+                let field = Token(TokenKind.IDENTIFIER, "__sub_${m.state}")
+                subResets = quote($subResets
+                    this.$field.reset()
+                )
+            }
+        }
         transitionArms = quote($transitionArms
             case ($fromCtor, $toCtor) =>
-                if (!this.$guardName()) {
+                if (!this.$guardToken()) {
                     return false
                 }
                 __currentState = to
+                $subResets
                 this.$actionName()
                 true
         )
@@ -239,11 +277,11 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
             }
         }
     )))
-    // 为每个转换补默认 guard / onTransition（用户已写的跳过）
+    // 为每个转换补默认 guard / onTransition（用户已写的跳过；指定了命名守卫的不再生成守卫骨架）
     for (t in spec.transitions) {
         let guardName = "guard${t.source}${t.target}"
         let actionName = "onTransition${t.source}${t.target}"
-        if (!existingMethods.contains(guardName)) {
+        if (t.guardMethod == "" && !existingMethods.contains(guardName)) {
             ds.add(parseDecl(quote(
                 public func $(Token(TokenKind.IDENTIFIER, guardName))(): Bool {
                     true
@@ -258,18 +296,54 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
             )))
         }
     }
+    // 复位到初始状态（子状态机进入复合状态时由父状态机调用）
+    if (!existingMethods.contains("reset")) {
+        ds.add(parseDecl(quote(
+            public func reset(): Unit {
+                __currentState = $initialCtor
+            }
+        )))
+    }
+    // 子状态机：复合状态委托给子状态机实例（进入复合状态时自动复位）
+    for (m in spec.submachines) {
+        let subTypeTok = Token(TokenKind.IDENTIFIER, m.typeName)
+        let field = Token(TokenKind.IDENTIFIER, "__sub_${m.state}")
+        let accessor = Token(TokenKind.IDENTIFIER, "sub${m.state}")
+        ds.add(parseDecl(quote(
+            private let $field: $subTypeTok = $subTypeTok()
+        )))
+        if (!existingMethods.contains("sub${m.state}")) {
+            ds.add(parseDecl(quote(
+                public func $accessor(): $subTypeTok {
+                    $field
+                }
+            )))
+        }
+    }
     cls.body.decls = ds
     cls.toTokens()
 }
 
-/** 转换表的一行 */
+/** 转换表的一行（guardMethod 可选：命名守卫，留空则用 guard<From><To> 骨架） */
 class StateTransition {
     let source: String
     let target: String
+    var guardMethod: String = ""
 
     init(source: String, target: String) {
         this.source = source
         this.target = target
+    }
+}
+
+/** 子状态机的一行：复合状态 -> 委托的子状态机类型 */
+class SubMachineEntry {
+    let state: String
+    let typeName: String
+
+    init(state: String, typeName: String) {
+        this.state = state
+        this.typeName = typeName
     }
 }
 
@@ -279,6 +353,7 @@ class StateMachineSpec {
     var states: ArrayList<String> = ArrayList<String>()
     var initial: String = ""
     let transitions: ArrayList<StateTransition> = ArrayList<StateTransition>()
+    let submachines: ArrayList<SubMachineEntry> = ArrayList<SubMachineEntry>()
 }
 
 /**
@@ -336,9 +411,11 @@ func parseStateMachineAttr(attr: Tokens, className: String): StateMachineSpec {
                 i = parseNameList(tokens, i, spec.states, className, "states")
             case "transitions" =>
                 i = parseTransitionList(tokens, i, spec.transitions, className)
+            case "submachines" =>
+                i = parseSubMachineList(tokens, i, spec.submachines, className)
             case _ =>
                 throw ASTException(
-                    "@StateMachine: ${className} 不认识属性 ${keyName}（可用：stateType、states、initial、transitions）")
+                    "@StateMachine: ${className} 不认识属性 ${keyName}（可用：stateType、states、initial、transitions、submachines）")
         }
     }
     if (!hasStateType) {
@@ -394,7 +471,7 @@ func parseNameList(tokens: Tokens, start: Int64, out: ArrayList<String>, classNa
     i + 1
 }
 
-/** 解析 [(A, B), (C, D)] 形式的转换表 */
+/** 解析 [(A, B), (C, D, guardMethod)] 形式的转换表（守卫名可选） */
 func parseTransitionList(tokens: Tokens, start: Int64, out: ArrayList<StateTransition>, className: String): Int64 {
     var i = start
     if (tokens[i].kind != TokenKind.LSQUARE) {
@@ -403,7 +480,7 @@ func parseTransitionList(tokens: Tokens, start: Int64, out: ArrayList<StateTrans
     i++
     while (i < tokens.size && tokens[i].kind != TokenKind.RSQUARE) {
         if (tokens[i].kind != TokenKind.LPAREN) {
-            throw ASTException("@StateMachine: ${className} 的 transitions 每一项写成 (源状态, 目标状态)")
+            throw ASTException("@StateMachine: ${className} 的 transitions 每一项写成 (源状态, 目标状态) 或 (源状态, 目标状态, 守卫方法名)")
         }
         i++
         if (i >= tokens.size || tokens[i].kind != TokenKind.IDENTIFIER) {
@@ -420,17 +497,65 @@ func parseTransitionList(tokens: Tokens, start: Int64, out: ArrayList<StateTrans
         }
         let target = tokens[i].value
         i++
+        let t = StateTransition(source, target)
+        // 可选第三项：命名守卫（守卫表达式）——迁移前调用类体里的这个方法
+        if (i < tokens.size && tokens[i].kind == TokenKind.COMMA) {
+            i++
+            if (i >= tokens.size || tokens[i].kind != TokenKind.IDENTIFIER) {
+                throw ASTException("@StateMachine: ${className} 的 transitions 第三项需要写守卫方法名")
+            }
+            t.guardMethod = tokens[i].value
+            i++
+        }
         if (i >= tokens.size || tokens[i].kind != TokenKind.RPAREN) {
             throw ASTException("@StateMachine: ${className} 的 transitions 每一项需要用括号包起来")
         }
         i++
-        out.add(StateTransition(source, target))
+        out.add(t)
         if (i < tokens.size && tokens[i].kind == TokenKind.COMMA) {
             i++
         }
     }
     if (i >= tokens.size) {
         throw ASTException("@StateMachine: ${className} 的 transitions 缺少右括号 ']'")
+    }
+    i + 1
+}
+
+/** 解析 [(State, SubMachineType), ...] 形式的子状态机清单 */
+func parseSubMachineList(tokens: Tokens, start: Int64, out: ArrayList<SubMachineEntry>, className: String): Int64 {
+    var i = start
+    if (tokens[i].kind != TokenKind.LSQUARE) {
+        throw ASTException("@StateMachine: ${className} 的 submachines 需要写成 [(状态, 子状态机类型), ...]")
+    }
+    i++
+    while (i < tokens.size && tokens[i].kind != TokenKind.RSQUARE) {
+        if (tokens[i].kind != TokenKind.LPAREN) {
+            throw ASTException("@StateMachine: ${className} 的 submachines 每一项写成 (复合状态, 子状态机类型)")
+        }
+        i++
+        if (i >= tokens.size || tokens[i].kind != TokenKind.IDENTIFIER) {
+            throw ASTException("@StateMachine: ${className} 的 submachines 缺少状态名")
+        }
+        let state = tokens[i].value
+        i++
+        if (i >= tokens.size || tokens[i].kind != TokenKind.COMMA) {
+            throw ASTException("@StateMachine: ${className} 的 submachines 每一项需要逗号分隔状态与类型")
+        }
+        i++
+        let (typeName, next) = parseTypePath(tokens, i, className, "submachines")
+        i = next
+        if (i >= tokens.size || tokens[i].kind != TokenKind.RPAREN) {
+            throw ASTException("@StateMachine: ${className} 的 submachines 每一项需要用括号包起来")
+        }
+        i++
+        out.add(SubMachineEntry(state, typeName))
+        if (i < tokens.size && tokens[i].kind == TokenKind.COMMA) {
+            i++
+        }
+    }
+    if (i >= tokens.size) {
+        throw ASTException("@StateMachine: ${className} 的 submachines 缺少右括号 ']'")
     }
     i + 1
 }
