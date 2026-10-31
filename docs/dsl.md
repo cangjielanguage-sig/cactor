@@ -219,6 +219,39 @@ let counter = Behaviors.receive<CounterMsg> { ctx, msg =>
 
 ---
 
+## 6.1 ask：请求-应答的三条主路径
+
+| 场景 | 写法 | 说明 |
+|---|---|---|
+| 类型化，进程外 | `TypedAsk.ask<Req, Res>(ref, { r => Req(r) }, timeout).get(timeout)` | `cactor_core.typed` |
+| 类型化，Actor 内 | `ctx.ask(target, { r => Req(r) }, timeout) { outcome => ... }` | 响应经 `mapResponse` 回到自己的消息流 |
+| 经典 `@actor` | `let inbox = askInbox()` + `m.replyTo << 答复` + `inbox.get(timeout)` | `cactor_core.dsl`，零侵入 |
+
+经典路径示例（目标 Actor 只需按 DSL 标准写法回 `replyTo`，无需解包任何包装消息）：
+
+```cangjie
+import cactor_core.dsl.*
+
+@actor[cases = [Query]]
+class ServiceActor <: Actor {
+    func onQuery(m: Query, ctx: ActorContext): MessageResult {
+        m.replyTo << Answer("答复：${m.text}")
+        MessageResult.Handled
+    }
+}
+
+// 请求方（任意线程 / 任意 Actor 处理方法内）
+let inbox = askInbox()
+service << Query("今天天气如何", inbox)
+let answer = (inbox.get(3.seconds) as Answer).getOrThrow()
+```
+
+* `askInbox()` 是一个进程内的临时"收件箱"（实现了 `ActorRef`，只收不发）；
+* 超时抛 `AskTimeoutException`；不想抛异常用 `tryGet(timeout)`（返回 `Option<Message>`）；
+* `patterns` 里的 `Ask.ask`（包装 `AskMessage`、需要目标配合解包）保留兼容，新代码建议用 `askInbox()`。
+
+---
+
 ## 7. 状态机 DSL：`@StateMachine`
 
 ```cangjie
@@ -249,6 +282,39 @@ class JobMachine {
 | `allowedTargetNames(from: String): Array<String>` | 同上，字符串索引版（给外部状态机工具用） |
 | `canTransition(from: JobState, to: JobState): Bool` | 是否允许迁移 |
 | `currentState(): JobState` / `transitionTo(to: JobState): Bool` | 实例状态与迁移（非法迁移返回 `false`） |
+
+### guard / action 骨架
+
+宏为**每个转换**生成一对可覆写方法（同名覆写即生效，类体里已写同名方法时宏跳过生成）：
+
+| 生成的骨架 | 默认行为 | 覆写后语义 |
+|---|---|---|
+| `guard<From><To>(): Bool` | 返回 `true`（放行） | 返回 `false` 时迁移被拒，状态不变 |
+| `onTransition<From><To>(): Unit` | 空操作 | 迁移成功后执行（先更新状态、后执行动作） |
+
+```cangjie
+@StateMachine[
+    stateType = JobState,
+    states = [Idle, Running, Stopped],
+    initial = Idle,
+    transitions = [(Idle, Running), (Running, Stopped), (Stopped, Idle)]
+]
+class JobMachine {
+    var acceptingJobs: Bool = true
+
+    // 守卫：Idle -> Running 由业务条件决定
+    public func guardIdleRunning(): Bool {
+        acceptingJobs
+    }
+
+    // 动作：迁移成功后执行
+    public func onTransitionRunningStopped(): Unit {
+        println("任务收尾")
+    }
+}
+```
+
+方法名规则：状态名按枚举构造器原样拼接（`guard` + 源状态 + 目标状态，如 `guardIdleRunning`）。
 
 **编译期检查**（计划 §12 假设 D 的验证点）：
 
@@ -407,3 +473,4 @@ tools/negative_tests.sh
 | `@within` / `@retry` 不是宏 | 属性宏参数为表达式时解析有歧义（§12 假设 B 证伪），改为运行时组合子 |
 | `@Message` 不支持 `ActorRef` 等引用类型 | 引用类型不可序列化；本地 replyTo 消息不要加 `@Message` |
 | 枚举协议一个处理方法 | 枚举的所有 case 同类型，无法按 case 分派到不同方法（内部 `match` 即可） |
+| guard/action 按转换生成方法名 | 名称由状态名拼接（`guardIdleRunning`），重命名状态需同步改覆写方法名 |

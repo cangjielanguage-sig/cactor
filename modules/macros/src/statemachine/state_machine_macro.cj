@@ -124,6 +124,21 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
 
     let initialCtor = ctorTokens(spec.stateType, spec.initial)
     let ds = cls.body.decls
+
+    // guard/action 骨架（§9 P4.1）：为每个转换生成
+    //   guard<From><To>()     —— 守卫，默认允许（返回 true）
+    //   onTransition<From><To>() —— 动作，默认空
+    // 类体里已写了同名方法就跳过生成（与 name/description 的处理一致），用户覆写即生效。
+    var existingMethods = ArrayList<String>()
+    for (d in cls.body.decls) {
+        if (d is FuncDecl) {
+            match (d as FuncDecl) {
+                case Some(f) => existingMethods.add(f.identifier.value)
+                case None => ()
+            }
+        }
+    }
+
     ds.add(parseDecl(quote(
         public static let stateNames: Array<String> = $stateArray
     )))
@@ -167,16 +182,60 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
             __currentState
         }
     )))
+    // 迁移入口：先查转换表，再过守卫，更新状态后执行动作。
+    // 守卫/动作按 (from, to) 逐转换静态展开（宏生成 = 手写等价，无运行时反射）。
+    var guardChecks = quote()
+    var actionCalls = quote()
+    for (t in spec.transitions) {
+        let guardName = Token(TokenKind.IDENTIFIER, "guard${t.source}${t.target}")
+        let actionName = Token(TokenKind.IDENTIFIER, "onTransition${t.source}${t.target}")
+        guardChecks = quote($guardChecks
+            if (fromName == $(t.source) && toName == $(t.target)) {
+                if (!this.$guardName()) {
+                    return false
+                }
+            }
+        )
+        actionCalls = quote($actionCalls
+            if (fromName == $(t.source) && toName == $(t.target)) {
+                this.$actionName()
+            }
+        )
+    }
     ds.add(parseDecl(quote(
         public func transitionTo(to: $typeTok): Bool {
             if (!$classId.canTransition(__currentState, to)) {
                 return false
             }
+            let fromName = $classId.stateName(__currentState)
+            let toName = $classId.stateName(to)
+            $guardChecks
             __currentState = to
+            $actionCalls
             true
         }
     )))
     cls.body.decls = ds
+
+    // 为每个转换补默认 guard / onTransition（用户已写的跳过）
+    for (t in spec.transitions) {
+        let guardName = "guard${t.source}${t.target}"
+        let actionName = "onTransition${t.source}${t.target}"
+        if (!existingMethods.contains(guardName)) {
+            ds.add(parseDecl(quote(
+                public func $(Token(TokenKind.IDENTIFIER, guardName))(): Bool {
+                    true
+                }
+            )))
+        }
+        if (!existingMethods.contains(actionName)) {
+            ds.add(parseDecl(quote(
+                public func $(Token(TokenKind.IDENTIFIER, actionName))(): Unit {
+                    ()
+                }
+            )))
+        }
+    }
     cls.toTokens()
 }
 

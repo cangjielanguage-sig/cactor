@@ -49,7 +49,12 @@ enum JobState {
     | Stopped
 }
 
-/** 状态机骨架：状态清单 + 转换表（编译期核对） */
+/**
+ * 状态机骨架：状态清单 + 转换表（编译期核对）+ guard/action 覆写（P4.1）
+ *
+ * 宏为每个转换生成 guard<From><To>()（默认放行）与 onTransition<From><To>()（默认空），
+ * 在类体里写同名方法即可覆写（宏检测到已存在就跳过生成）。
+ */
 @StateMachine[
     stateType = JobState,
     states = [Idle, Running, Stopped],
@@ -58,10 +63,21 @@ enum JobState {
 ]
 class JobMachine {
     var processed: Int64 = 0
+    var acceptingJobs: Bool = true
 
     func onEvent(name: String): Unit {
         processed += 1
         println("[状态机] 处理事件 ${name}，累计 ${processed} 次")
+    }
+
+    // 守卫：Idle -> Running 由业务条件决定（false 则迁移被拒，状态不变）
+    public func guardIdleRunning(): Bool {
+        acceptingJobs
+    }
+
+    // 动作：迁移成功后执行
+    public func onTransitionRunningStopped(): Unit {
+        println("[状态机] 任务收尾")
     }
 }
 
@@ -88,7 +104,7 @@ class JobActor <: Actor {
 
     func onStartJob(m: StartJob, ctx: ActorContext): MessageResult {
         if (!machine.transitionTo(JobState.Running)) {
-            println("[Actor] 非法迁移：当前状态 ${JobMachine.stateName(machine.currentState())} 不能开始任务")
+            println("[Actor] 迁移被拒：当前状态 ${JobMachine.stateName(machine.currentState())} 不能开始任务")
             return MessageResult.Unhandled
         }
         machine.onEvent("StartJob(${m.jobId})")
@@ -109,10 +125,10 @@ main(): Int64 {
     let system = CActor.system("dsl-state-machine")
     let actor = system.actorOf({ => JobActor() }, "job")
 
-    // 合法迁移：Idle -> Running -> Stopped
+    // 合法迁移：Idle -> Running -> Stopped（守卫默认放行）
     actor.tell(StartJob("job-1"))
     actor.tell(FinishJob("job-1"))
-    // 非法迁移：Stopped -> Running（转换表里没有 Stopped -> Running）
+    // 守卫拒绝：Stopped -> Running 不在转换表里（非法迁移）
     actor.tell(StartJob("job-2"))
     sleep(Duration.millisecond * 300)
 

@@ -12,7 +12,10 @@
   漏处理、协议漂移、重复处理器；签名支持 `onXxx(m)` / `onXxx(m, ctx)` / 返回 `Unit` 或 `MessageResult`
 - **`@Message` 增强**：支持 `Option<T>`、`HashMap<String, T>` 字段；字段级错误用 `diagReport` 定位（带行列）
 - **`@StateMachine` 宏**：状态枚举 + 转换表生成状态机骨架；漏状态（穷尽 match）、写错状态名、
-  非法转换均在编译期报错；宏生成的转换表可直接对接 xstate `StateMachineBuilder`
+  非法转换均在编译期报错；宏生成的转换表可直接对接 xstate `StateMachineBuilder`；
+  每个转换生成 `guard<From><To>` / `onTransition<From><To>` 骨架，同名覆写即生效
+- **经典路径 ask**：`askInbox()` 零侵入临时收件箱（`cactor_core.dsl`）——请求消息自带 `replyTo`，
+  目标 Actor 无需解包包装消息；超时抛 `AskTimeoutException`，`tryGet` 返回 `Option`
 - **行为层门面**：`cactor_core.dsl.Behaviors`（receive/setup/supervise/withTimers/withStash/intercept/…）
   与 `messageResultToBehavior` 打通宏路径与 lambda 路径语义
 - **流管道 API**：`source |> via(flow) |> to(sink)`（`cactor_streams.dsl`，与链式写法语义等价）
