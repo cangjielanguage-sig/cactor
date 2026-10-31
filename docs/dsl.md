@@ -328,6 +328,56 @@ class JobMachine {
 
 方法名规则：状态名按枚举构造器原样拼接（`guard` + 源状态 + 目标状态，如 `guardIdleRunning`）。
 
+### 命名守卫（守卫表达式）
+
+转换表的每一项可以带第三个元素——**守卫方法名**，迁移前调用，返回 `false` 则迁移被拒：
+
+```cangjie
+@StateMachine[
+    stateType = JobState,
+    states = [Idle, Running, Stopped],
+    initial = Idle,
+    transitions = [(Idle, Running, gateOpen), (Running, Stopped)]
+                   //            ^^^^^^^^ 类体里必须定义 func gateOpen(): Bool
+]
+class JobMachine {
+    var acceptingJobs: Bool = true
+
+    public func gateOpen(): Bool {
+        acceptingJobs
+    }
+}
+```
+
+* 指定了命名守卫的转换不再生成 `guard<From><To>` 骨架；
+* 守卫方法在类体里不存在时**编译期报错**（负例 `state_machine_unknown_guard`）。
+
+### 子状态机（复合状态）
+
+某个状态委托给另一台状态机：进入复合状态时子机自动**复位到初始状态**：
+
+```cangjie
+@StateMachine[
+    stateType = WorkflowState,
+    states = [Idle, Working, Done],
+    initial = Idle,
+    transitions = [(Idle, Working), (Working, Done), (Done, Idle)],
+    submachines = [(Working, JobMachine)]
+                   //  ^^^^^^^  进入 Working 时 JobMachine 复位
+]
+class WorkflowMachine {
+    // 访问子状态机：sub<状态名>()，子机的迁移/守卫/动作照常用
+    public func checkSub(): Bool {
+        subWorking().currentState() == JobMachine.initialState
+    }
+}
+```
+
+* 子状态机类型本身也要是 `@StateMachine` 类（需要无参构造）；
+* 每台机器自动获得 `reset()`（复位到初始状态）；委托的状态必须在 `states` 清单里（编译期核对），
+  同一状态只能委托一台子机；
+* 宏为每个子机生成私有字段 `__sub_<状态>` 与访问器 `sub<状态名>()`（类体已有同名访问器则跳过）。
+
 **编译期检查**（计划 §12 假设 D 的验证点）：
 
 | 错误 | 报错 |

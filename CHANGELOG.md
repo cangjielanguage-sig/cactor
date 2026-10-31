@@ -15,6 +15,8 @@
 - **`@StateMachine` 宏**：状态枚举 + 转换表生成状态机骨架；漏状态（穷尽 match）、写错状态名、
   非法转换均在编译期报错；宏生成的转换表可直接对接 xstate `StateMachineBuilder`；
   每个转换生成 `guard<From><To>` / `onTransition<From><To>` 骨架，同名覆写即生效；
+  支持命名守卫（`transitions = [(A, B, 守卫方法名)]`，方法缺失编译期报错）与
+  子状态机（`submachines = [(状态, 子机类型)]`，进入复合状态自动复位子机）；
   `canTransition` / `transitionTo` 展开为 `(from, to)` 枚举 match（无分配、无字符串比较）
 - **经典路径 ask**：`askInbox()` 零侵入临时收件箱（`cactor_core.dsl`）——请求消息自带 `replyTo`，
   目标 Actor 无需解包包装消息；超时抛 `TypedAskTimeoutException`（与 typed ask 共用），`tryGet` 返回 `Option`
