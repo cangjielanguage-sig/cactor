@@ -3,9 +3,11 @@
  * CActor - 宏包入口
  *
  * 按功能拆分（对照 docs/plan/dsl20261030.md §6.1 / P0）：
- *   actor/actor_macro.cj      @actor —— 类内 onXxx(msg, ctx) → 生成类型分派 receive
- *   message/message_macro.cj  @Message —— 生成 messageType、二进制编解码器、registerCodec
- *   common/diagnostics.cj     共享工具
+ *   actormacro/actor_macro.cj      @actor —— 类内 onXxx(msg, ctx) → 生成类型分派 receive
+ *   message/message_macro.cj       @Message —— 生成 messageType、二进制编解码器、registerCodec
+ *   statemachine/state_machine_macro.cj
+ *                                  @StateMachine —— 状态枚举 + 转换表 → 生成状态机骨架与编译期检查
+ *   common/                       共享工具
  *
  *   注：原计划的 @within / @retry 修饰宏经 P0 实验证伪 —— cjc 1.2.0 属性宏的
  *   attr 为表达式（如 3.seconds、3000、"..."）时在成员声明位置有解析歧义
@@ -23,5 +25,6 @@ macro package cactor_macros
 
 public import cactor_macros.message.*
 public import cactor_macros.actormacro.*
+public import cactor_macros.statemachine.*
 // 注意：宏包内不能再有与宏同名的子包/顶层声明（如名为 actor 的子包会与宏 @actor 冲突：
 // "top-level declaration 'actor' is conflicted with possible sub-package"），故子包命名为 actormacro。

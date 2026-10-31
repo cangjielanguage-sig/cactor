@@ -159,3 +159,15 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.best10_agent_workflow"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.dsl_showcase"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.dsl_state_machine"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.dsl_pipeline"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.dsl_bench"]
+output-type = "executable"

@@ -29,7 +29,7 @@ class Shutdown <: Message {
     public func messageType(): String { "Shutdown" }
 }
 
-@actorReceive
+@actorReceive[]
 class Greeter <: Actor {
     let rec: EventRecorder
     var total: Int64 = 0

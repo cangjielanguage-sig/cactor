@@ -2,6 +2,12 @@
  * Copyright (c) 2024. All rights reserved.
  * CActor - 改进的Ask模式API
  * Plan20阶段1：Ask模式完善 - 提供类型安全、高性能的Ask API
+ *
+ * P2 ask 收敛（dsl20261030.md §9 P2.3）后的入口定位：
+ *   - 类型化路径（推荐）：cactor_core.typed.TypedAsk.ask（进程外）
+ *     与 TypedActorContext.ask（Actor 内，响应回到自己的消息流）；
+ *   - 经典 ActorRef 路径（本文件）：Ask / AskPatternManager，功能完整，行为不变；
+ *   - 早期模拟实现（cactor_patterns.ask.TypedAsk / TypedAskPattern）已标记 @Deprecated。
  */
 package cactor_patterns.ask
 
@@ -64,6 +70,7 @@ public struct Ask {
      * @param timeout 超时时间
      * @return 普通的Future对象，用户需要自行进行类型检查
      */
+    @Deprecated["askTyped 与 ask 等价，请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public static func askTyped(target: ActorRef, message: Message, timeout: Duration): AskFuture<Message> {
         // 简化实现：返回普通的Ask Future
         // 用户可以在获取响应后自行进行类型检查

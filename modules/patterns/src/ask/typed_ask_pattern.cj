@@ -1,7 +1,15 @@
 /*
  * Copyright (c) 2024. All rights reserved.
- * CActor - 类型安全Ask模式
- * 基于plan3.md优先级2：完善Ask模式，实现类型安全的请求-响应
+ * CActor - 类型安全Ask模式（早期模拟实现，已废弃）
+ *
+ * P2 ask 收敛（dsl20261030.md §9 P2.3）：本文件里的 TypedAskPattern / TypedAsk 是
+ * 早期"模拟发送"的实现（请求并不真正等待回复，一律以超时结束），与真正可用的
+ * typed ask 语义不一致。为避免三套 ask 并存造成困惑：
+ *   - 本文件的 TypedAskPattern / TypedAsk 标记为 @Deprecated；
+ *   - 唯一推荐入口：cactor_core.typed.TypedAsk.ask（进程外）
+ *     与 TypedActorContext.ask（Actor 内，响应回到自己的消息流）；
+ *   - 经典 ActorRef 路径保留 cactor_patterns.ask.Ask / AskPatternManager。
+ * 旧 API 行为保持不变（仅加标注），一个版本周期后再考虑移除。
  */
 package cactor_patterns.ask
 
@@ -97,8 +105,9 @@ public class TypedAskFuture<T> {
 
 /**
  * 类型安全的Ask模式管理器
- * 简化实现，提供类型安全的API
+ * 简化实现（模拟发送），已被 cactor_core.typed.TypedAsk 取代
  */
+@Deprecated["TypedAskPattern 是模拟实现，请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
 public class TypedAskPattern {
     private let defaultTimeout: Duration
 
@@ -113,11 +122,18 @@ public class TypedAskPattern {
     /**
      * 类型安全的Ask方法
      */
+    @Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public func ask<T>(target: ActorRef, message: Message): TypedAskFuture<T> {
-        ask<T>(target, message, defaultTimeout)
+        askInternal<T>(target, message, defaultTimeout)
     }
 
+    @Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public func ask<T>(target: ActorRef, message: Message, timeout: Duration): TypedAskFuture<T> {
+        askInternal<T>(target, message, timeout)
+    }
+
+    /** 实际实现（不对外暴露，避免内部调用触发废弃告警） */
+    func askInternal<T>(target: ActorRef, message: Message, timeout: Duration): TypedAskFuture<T> {
         let requestId = generateRequestId()
         let typedFuture = TypedAskFuture<T>(requestId, timeout)
 
@@ -132,17 +148,24 @@ public class TypedAskPattern {
         // 模拟立即完成（避免复杂的类型转换）
         typedFuture.completeWithTimeout()  // 简化为超时，避免类型转换问题
 
-        return typedFuture
+        typedFuture
     }
 
     /**
      * 类型安全的TypedActorRef Ask方法
      */
+    @Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public func askTyped<T, R>(target: TypedActorRef<T>, message: T): TypedAskFuture<R> {
-        askTyped<T, R>(target, message, defaultTimeout)
+        askTypedInternal<T, R>(target, message, defaultTimeout)
     }
 
+    @Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public func askTyped<T, R>(target: TypedActorRef<T>, message: T, timeout: Duration): TypedAskFuture<R> {
+        askTypedInternal<T, R>(target, message, timeout)
+    }
+
+    /** 实际实现（不对外暴露） */
+    func askTypedInternal<T, R>(target: TypedActorRef<T>, message: T, timeout: Duration): TypedAskFuture<R> {
         let requestId = generateRequestId()
         let typedFuture = TypedAskFuture<R>(requestId, timeout)
 
@@ -157,7 +180,7 @@ public class TypedAskPattern {
         // 实际实现中应该通过TypedActorSystem处理响应
         typedFuture.completeWithTimeout()  // 简化为超时，避免类型转换问题
 
-        return typedFuture
+        typedFuture
     }
 
     /**
@@ -188,30 +211,35 @@ public class TypedAskPattern {
 }
 
 /**
- * 类型安全Ask的静态工具方法
+ * 类型安全Ask的静态工具方法（早期模拟实现，已废弃）
  */
+@Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
 public struct TypedAsk {
     private static let instance: TypedAskPattern = TypedAskPattern()
 
     /**
      * 静态Ask方法
      */
+    @Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public static func ask<T>(target: ActorRef, message: Message): TypedAskFuture<T> {
-        instance.ask<T>(target, message)
+        instance.askInternal<T>(target, message, Duration.second * 5)
     }
 
+    @Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public static func ask<T>(target: ActorRef, message: Message, timeout: Duration): TypedAskFuture<T> {
-        instance.ask<T>(target, message, timeout)
+        instance.askInternal<T>(target, message, timeout)
     }
 
     /**
      * 类型安全的TypedActor Ask
      */
+    @Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public static func askTyped<T, R>(target: TypedActorRef<T>, message: T): TypedAskFuture<R> {
-        instance.askTyped<T, R>(target, message)
+        instance.askTypedInternal<T, R>(target, message, Duration.second * 5)
     }
 
+    @Deprecated["请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
     public static func askTyped<T, R>(target: TypedActorRef<T>, message: T, timeout: Duration): TypedAskFuture<R> {
-        instance.askTyped<T, R>(target, message, timeout)
+        instance.askTypedInternal<T, R>(target, message, timeout)
     }
 }

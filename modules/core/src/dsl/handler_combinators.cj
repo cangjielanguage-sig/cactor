@@ -24,6 +24,9 @@ package cactor_core.dsl
 
 import std.time.*
 import cactor_core.message.MessageResult
+import cactor_foundation.logging.{Logger, Logging}
+
+private let logWithin: Logger = Logging.logger("cactor_core.dsl.handler_combinators")
 
 /**
  * 超时监控组合子：执行 body 并计时，超过 limit 打印警告日志。
@@ -35,7 +38,7 @@ public func within(limit: Duration, name: String, body: () -> MessageResult): Me
     let r = body()
     let cost = DateTime.now() - start
     if (cost > limit) {
-        println("[within] ${name} 耗时 ${cost / Duration.millisecond}ms 超过 ${limit / Duration.millisecond}ms")
+        logWithin.warn("${name} 耗时 ${cost / Duration.millisecond}ms 超过 ${limit / Duration.millisecond}ms")
     }
     r
 }

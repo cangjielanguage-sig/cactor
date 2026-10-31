@@ -3,7 +3,9 @@
  * Core Layer - 消息字段的二进制读写（@Message 宏生成的编解码器使用，也可手写编解码器使用）
  *
  * 格式（大端）：Int64 8 字节；Float64 按 IEEE 754 位模式 8 字节；Bool 1 字节；
- * String 为 4 字节长度 + UTF-8；数组为 4 字节元素数 + 逐个元素。读越界时抛 DeserializationException。
+ * String 为 4 字节长度 + UTF-8；数组为 4 字节元素数 + 逐个元素；
+ * Option<T> 为 1 字节标记（0=None，1=Some）+ 值；HashMap<String,T> 为 4 字节条目数 + 逐条（键 + 值）。
+ * 读越界时抛 DeserializationException。
  */
 package cactor_core.message
 
@@ -71,6 +73,90 @@ public class MessageFieldWriter {
         writeLength(v.size)
         for (x in v) {
             writeString(x)
+        }
+        this
+    }
+
+    // ---------- Option<T>：1 字节标记（0=None，1=Some）+ 值 ----------
+
+    public func writeOptionString(v: Option<String>): MessageFieldWriter {
+        match (v) {
+            case Some(x) =>
+                out.add(1)
+                writeString(x)
+            case None =>
+                out.add(0)
+        }
+        this
+    }
+
+    public func writeOptionInt64(v: Option<Int64>): MessageFieldWriter {
+        match (v) {
+            case Some(x) =>
+                out.add(1)
+                writeInt64(x)
+            case None =>
+                out.add(0)
+        }
+        this
+    }
+
+    public func writeOptionFloat64(v: Option<Float64>): MessageFieldWriter {
+        match (v) {
+            case Some(x) =>
+                out.add(1)
+                writeFloat64(x)
+            case None =>
+                out.add(0)
+        }
+        this
+    }
+
+    public func writeOptionBool(v: Option<Bool>): MessageFieldWriter {
+        match (v) {
+            case Some(x) =>
+                out.add(1)
+                writeBool(x)
+            case None =>
+                out.add(0)
+        }
+        this
+    }
+
+    // ---------- HashMap<String, T>：4 字节条目数 + 逐条（键 + 值） ----------
+
+    public func writeStringMap(v: HashMap<String, String>): MessageFieldWriter {
+        writeLength(v.size)
+        for ((k, val) in v) {
+            writeString(k)
+            writeString(val)
+        }
+        this
+    }
+
+    public func writeInt64Map(v: HashMap<String, Int64>): MessageFieldWriter {
+        writeLength(v.size)
+        for ((k, val) in v) {
+            writeString(k)
+            writeInt64(val)
+        }
+        this
+    }
+
+    public func writeFloat64Map(v: HashMap<String, Float64>): MessageFieldWriter {
+        writeLength(v.size)
+        for ((k, val) in v) {
+            writeString(k)
+            writeFloat64(val)
+        }
+        this
+    }
+
+    public func writeBoolMap(v: HashMap<String, Bool>): MessageFieldWriter {
+        writeLength(v.size)
+        for ((k, val) in v) {
+            writeString(k)
+            writeBool(val)
         }
         this
     }
@@ -161,6 +247,89 @@ public class MessageFieldReader {
         // 每个字符串至少 4 字节长度
         need(n * 4)
         Array<String>(n, { _ => readString() })
+    }
+
+    // ---------- Option<T>：1 字节标记（0=None，1=Some）+ 值 ----------
+
+    public func readOptionString(): Option<String> {
+        if (readTag()) {
+            Some(readString())
+        } else {
+            None
+        }
+    }
+
+    public func readOptionInt64(): Option<Int64> {
+        if (readTag()) {
+            Some(readInt64())
+        } else {
+            None
+        }
+    }
+
+    public func readOptionFloat64(): Option<Float64> {
+        if (readTag()) {
+            Some(readFloat64())
+        } else {
+            None
+        }
+    }
+
+    public func readOptionBool(): Option<Bool> {
+        if (readTag()) {
+            Some(readBool())
+        } else {
+            None
+        }
+    }
+
+    private func readTag(): Bool {
+        need(1)
+        let b = data[pos]
+        pos++
+        b != 0
+    }
+
+    // ---------- HashMap<String, T>：4 字节条目数 + 逐条（键 + 值） ----------
+
+    public func readStringMap(): HashMap<String, String> {
+        let n = readLength()
+        let m = HashMap<String, String>()
+        for (_ in 0..n) {
+            let k = readString()
+            m[k] = readString()
+        }
+        m
+    }
+
+    public func readInt64Map(): HashMap<String, Int64> {
+        let n = readLength()
+        let m = HashMap<String, Int64>()
+        for (_ in 0..n) {
+            let k = readString()
+            m[k] = readInt64()
+        }
+        m
+    }
+
+    public func readFloat64Map(): HashMap<String, Float64> {
+        let n = readLength()
+        let m = HashMap<String, Float64>()
+        for (_ in 0..n) {
+            let k = readString()
+            m[k] = readFloat64()
+        }
+        m
+    }
+
+    public func readBoolMap(): HashMap<String, Bool> {
+        let n = readLength()
+        let m = HashMap<String, Bool>()
+        for (_ in 0..n) {
+            let k = readString()
+            m[k] = readBool()
+        }
+        m
     }
 
     /** 是否已读完全部数据（解码完成后用于检查多余字节） */

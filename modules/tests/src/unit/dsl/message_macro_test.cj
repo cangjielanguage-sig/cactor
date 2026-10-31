@@ -3,6 +3,7 @@
  */
 package cactor_tests.unit.dsl
 
+import std.collection.*
 import std.sync.*
 import std.time.*
 import std.unittest.*
@@ -49,6 +50,44 @@ class Empty <: Message {
     init() {}
 }
 
+// P2 增强：Option<T> 与 HashMap<String, T> 字段
+@Message
+public class RichOrder <: Message {
+    let orderId: String
+    let note: Option<String>
+    let discount: Option<Int64>
+    let ratio: Option<Float64>
+    let expedited: Option<Bool>
+    let extras: HashMap<String, String>
+    let weights: HashMap<String, Float64>
+    let flags: HashMap<String, Bool>
+
+    public init(
+        orderId: String,
+        note: Option<String>,
+        discount: Option<Int64>,
+        ratio: Option<Float64>,
+        expedited: Option<Bool>,
+        extras: HashMap<String, String>,
+        weights: HashMap<String, Float64>,
+        flags: HashMap<String, Bool>
+    ) {
+        this.orderId = orderId
+        this.note = note
+        this.discount = discount
+        this.ratio = ratio
+        this.expedited = expedited
+        this.extras = extras
+        this.weights = weights
+        this.flags = flags
+    }
+
+    public func summary(): String {
+        "${orderId}|${note ?? "-"}|${discount ?? -1}|${ratio ?? -1.0}|${expedited ?? false}|" +
+        "${extras.size}|${weights.size}|${flags.size}"
+    }
+}
+
 func sampleOrder(): PlaceOrder {
     let o = PlaceOrder("订单-1/α", -42, 3.25, true, ["a", "", "中文"], [Int64.Min, 0, Int64.Max],
         [-0.5, 1.0e300, 0.0], [true, false])
@@ -70,6 +109,26 @@ public class MessageMacroTest {
         @Expect(back.summary(), o.summary())
         let e = ser.deserialize(ser.serialize(Empty()))
         @Expect(e.messageType(), "Empty")
+    }
+
+    @TestCase
+    public func testOptionAndMapFieldsRoundTrip(): Unit {
+        RichOrder.registerCodec()
+        let extras = HashMap<String, String>()
+        extras["gift"] = "包装"
+        let weights = HashMap<String, Float64>()
+        weights["kg"] = 1.5
+        let flags = HashMap<String, Bool>()
+        flags["fragile"] = true
+        let o = RichOrder("O-1", Some("加急"), None, Some(0.25), None, extras, weights, flags)
+        let ser = MessageSerializer()
+        let back = (ser.deserialize(ser.serialize(o)) as RichOrder).getOrThrow()
+        @Expect(back.summary(), o.summary())
+        @Expect(back.note ?? "-", "加急")
+        @Expect(back.discount ?? -1, -1)
+        @Expect(back.extras.get("gift") ?? "", "包装")
+        @Expect(back.weights.get("kg") ?? 0.0, 1.5)
+        @Expect(back.flags.get("fragile") ?? false, true)
     }
 
     @TestCase

@@ -1,0 +1,10 @@
+[package]
+name = "neg_actor_ok"
+version = "1.0.0"
+cjc-version = "1.2.0"
+output-type = "static"
+target-dir = "../../../target/negative"
+
+[dependencies]
+cactor_core = { path = "../../../modules/core" }
+cactor_macros = { path = "../../../modules/macros" }

@@ -1,0 +1,13 @@
+# 宏负例编译测试清单（tools/negative_tests.sh）
+# 格式：<目录> <期望错误片段> <期望结果>
+# 期望结果：fail = 必须编译失败且报错包含片段；pass = 必须编译通过
+actor_missing_case 未处理 Query fail
+actor_extra_handler 未在协议清单中声明的类型 Query fail
+actor_duplicate 多个处理 Inc fail
+actor_unknown_attr 不认识属性 protocolx fail
+actor_ok  编译通过 pass
+message_unsupported_field 的类型 Int32 不支持 fail
+ask_deprecated deprecated warn
+state_machine_missing_state non-exhaustive patterns fail
+state_machine_unknown_state is not a member of enum fail
+state_machine_bad_transition 不在 states 清单里 fail

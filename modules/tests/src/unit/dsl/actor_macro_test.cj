@@ -16,6 +16,7 @@ import std.unittest.testmacro.*
 import cactor_core.actor.{Actor, ActorRef, ActorContext}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.dsl.*
+import cactor_core.typed.*
 import cactor_macros.*
 import cactor_testkit.*
 
@@ -82,7 +83,7 @@ class CounterManual <: Actor {
 
 // ---------- @actor 版（形态 A：混合签名增强） ----------
 
-@actor
+@actor[]
 class CounterDsl <: Actor {
     let rec: EventRecorder
     var total: Int64 = 0
@@ -115,7 +116,7 @@ class CounterDsl <: Actor {
 
 // ---------- @within / @retry 运行时组合子（§8.2 降级方案） ----------
 
-@actor
+@actor[]
 class GuardedActor <: Actor {
     let rec: EventRecorder
     var boomCount: Int64 = 0
@@ -150,6 +151,91 @@ class GuardedActor <: Actor {
 
     public func postStop(): Unit {
         rec.record("stopped")
+    }
+}
+
+// ---------- 协议清单（cases）/ 单一协议（protocol）：编译期穷尽性检查 ----------
+
+@actor[cases = [Inc, Query, Done]]
+class CounterWithCases <: Actor {
+    let rec: EventRecorder
+    var total: Int64 = 0
+
+    init(rec: EventRecorder) { this.rec = rec }
+
+    func onInc(m: Inc, ctx: ActorContext) {
+        total += m.n
+        rec.record("total ${total}")
+    }
+
+    func onQuery(m: Query, ctx: ActorContext) {
+        m.replyTo << Reply("total=${total}")
+        rec.record("replied")
+    }
+
+    func onDone(m: Done, ctx: ActorContext): MessageResult {
+        rec.record("done")
+        MessageResult.Stop
+    }
+
+    public func postStop(): Unit {
+        rec.record("stopped")
+    }
+}
+
+// 枚举协议：一个处理方法覆盖整个枚举，枚举内部的穷尽性由仓颉 match 保证
+enum CounterCmd <: Message {
+    | Add(Int64)
+    | Reset
+
+    public func messageType(): String { "CounterCmd" }
+}
+
+@actor[protocol = CounterCmd]
+class CmdActor <: Actor {
+    let rec: EventRecorder
+    var total: Int64 = 0
+
+    init(rec: EventRecorder) { this.rec = rec }
+
+    func onCounterCmd(m: CounterCmd, ctx: ActorContext): MessageResult {
+        match (m) {
+            case CounterCmd.Add(n) =>
+                total += n
+                rec.record("cmd total ${total}")
+                MessageResult.Handled
+            case CounterCmd.Reset =>
+                total = 0
+                rec.record("cmd reset")
+                MessageResult.Handled
+        }
+    }
+}
+
+// ---------- 形态 A（宏）vs 形态 B（lambda）行为语义等价 ----------
+
+/** 形态 B：类型化 Actor（Behaviors 组合子 + 尾随 lambda），与形态 A 语义等价 */
+func typedCounter(rec: EventRecorder): TypedBehavior<Inc> {
+    Behaviors.setup<Inc>({ ctx =>
+        let box = CounterBox()
+        Behaviors.receive<Inc>({ _, m =>
+            box.add(m.n)
+            rec.record("total ${box.value()}")
+            Behaviors.same<Inc>()
+        })
+    })
+}
+
+/** 可变状态盒子（仓颉闭包不能捕获可变局部变量后逃逸） */
+class CounterBox {
+    private var v: Int64 = 0
+
+    func add(n: Int64): Unit {
+        v += n
+    }
+
+    func value(): Int64 {
+        v
     }
 }
 
@@ -250,6 +336,55 @@ public class ActorMacroEquivTest {
             case _ => @Fail("expected Escalate")
         }
         @Expect(rec.snapshot().size, 2)
+    }
+
+    @TestCase
+    public func testCasesProtocolDispatchesAllTypes(): Unit {
+        let kit = ActorTestKit("cases")
+        let rec = EventRecorder()
+        let a = kit.actorOf({ => CounterWithCases(rec) }, "cases")
+        a << Inc(2) << Query(a) << Done()
+        @Expect(rec.await("stopped", 3.seconds), true)
+        @Expect(rec.contains("total 2"), true)
+        @Expect(rec.contains("replied"), true)
+        kit.shutdown()
+    }
+
+    @TestCase
+    public func testEnumProtocolHandler(): Unit {
+        let kit = ActorTestKit("enum-protocol")
+        let rec = EventRecorder()
+        let a = kit.actorOf({ => CmdActor(rec) }, "cmd")
+        a << CounterCmd.Add(5) << CounterCmd.Reset
+        @Expect(rec.await("cmd reset", 3.seconds), true)
+        @Expect(rec.contains("cmd total 5"), true)
+        kit.shutdown()
+    }
+
+    @TestCase
+    public func testMacroPathEqualsLambdaPath(): Unit {
+        // 形态 A：@actor 宏（经典 Actor）
+        let kitA = ActorTestKit("macro-path")
+        let recA = EventRecorder()
+        let a = kitA.actorOf({ => CounterDsl(recA) }, "dsl")
+        a << Inc(2) << Inc(3)
+        sleep(200.millis)
+        @Expect(recA.snapshot().size, 2)
+        @Expect(recA.contains("total 2"), true)
+        @Expect(recA.contains("total 5"), true)
+        kitA.shutdown()
+
+        // 形态 B：Behaviors + lambda（类型化 Actor）
+        let kitB = ActorTestKit("lambda-path")
+        let recB = EventRecorder()
+        let sys = kitB.system.typed()
+        let b = sys.actorOf(typedCounter(recB), "typed")
+        b << Inc(2) << Inc(3)
+        sleep(200.millis)
+        @Expect(recB.snapshot().size, 2)
+        @Expect(recB.contains("total 2"), true)
+        @Expect(recB.contains("total 5"), true)
+        kitB.shutdown()
     }
 
     @TestCase
