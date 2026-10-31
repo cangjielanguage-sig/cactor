@@ -36,6 +36,23 @@
   `dsl_state_machine`（@Message + @StateMachine + @actor + xstate 对接）、`dsl_pipeline`（流管道）、
   `dsl_bench`（宏 vs 手写零开销基准，最好成绩比值 97.5%）
 
+### ⚡ 性能
+- **`@Message` 编码**：`MessageFieldWriter` 由 `ArrayList<UInt8>` 逐字节追加改为数组缓冲 + 下标写入，
+  编码一条 283 字节的消息快约 1.5 倍；线上字节格式不变（`testWireFormatIsStable` 逐字节锁定）
+- **`HashMap` 字段解码**：先按每条最小字节数核对剩余数据，再按条目数预分配容量（快 1.4–3 倍）
+- **`@StateMachine`**：`canTransition` / `transitionTo` 改为 `(from, to)` 枚举 match，比查数组 + 字符串比较快 1.8–2.0 倍
+
+### 🐛 修复
+- **`askInbox().get` 在 Actor 处理方法内阻塞会死锁**：默认亲和调度没有工作窃取，被等的 Actor 与调用方
+  分在同一工作线程时互相卡住（`dsl_agent` 示例用 `CACTOR_DISPATCHER_THREADS=1` 可稳定复现）。
+  现在亲和工作线程上带超时的 `get` / `tryGet` 立即抛 `IllegalStateException`；`blocking` 调度器不受限制。
+  运行时新增 `cactor_core.actor.isAffinityWorkerThread()` 标记
+- **`dsl_agent` 示例**改为非阻塞写法：工具结果回到 Agent 邮箱（`replyTo = ctx.self`），按 `requestId` 续上对话；
+  自检并发 16 轮对话，单工作线程也能通过
+- **消息解码更严格**：`Option` 标记只接受 0 / 1；`HashMap` 字段的条目数先校验再分配，重复键视为数据损坏
+- **`within`** 改用单调时钟计时（墙钟调整时不再误报或漏报慢处理）
+- **`dsl_bench`** 新增不经调度器的直接分派基准作为 A3 判定依据（端到端 ping-pong 噪声过大，仅作参考）
+
 ### 计划中
 - HTTP集成和Web服务器
 - 序列化优化和多格式支持

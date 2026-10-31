@@ -16,6 +16,11 @@
  *   - 类型化 Actor 内：ctx.ask(target, factory, timeout) { outcome => ... }
  *   - 经典路径：askInbox()（本文件，零侵入）；patterns 的 Ask 保留兼容
  *
+ * 只能在 Actor 之外（main、测试线程、"blocking" 调度器上的 Actor）阻塞等待：
+ *   默认调度器是亲和调度且没有工作窃取，处理方法里 get(timeout) 会占住工作线程，
+ *   被等的 Actor 若分在同一线程上就是死锁。因此在亲和工作线程上带超时的 get / tryGet
+ *   直接抛 IllegalStateException；Actor 内部请把 replyTo 设为 ctx.self，在处理方法里接收回复。
+ *
  * 超时统一抛 cactor_core.typed.TypedAskTimeoutException：三条路径共用一个超时异常，
  * 不再新增同名的 AskTimeoutException（cactor_patterns.ask 已有一个，经 cactor.* 门面
  * 一起导入时会产生名字歧义）。
@@ -25,8 +30,7 @@ package cactor_core.dsl
 import std.sync.*
 import std.collection.*
 import std.time.*
-import cactor_core.actor.ActorPath
-import cactor_core.actor.ActorRef
+import cactor_core.actor.{ActorPath, ActorRef, isAffinityWorkerThread}
 import cactor_core.message.Message
 import cactor_core.typed.TypedAskTimeoutException
 
@@ -34,7 +38,9 @@ import cactor_core.typed.TypedAskTimeoutException
 class InboxQueue {
     private let lock = Mutex()
     private let cond: Condition
-    private let items = ArrayList<Message>()
+    // 双端队列：流式回复会在收件箱里堆积多条，ArrayList.remove(at: 0) 每取一条都要整体前移，
+    // 积压 n 条时取完是 O(n²)（实测 2 万条 298ms，ArrayDeque 2.6ms）
+    private let items = ArrayDeque<Message>()
 
     init() {
         this.cond = synchronized(lock) { lock.condition() }
@@ -42,8 +48,9 @@ class InboxQueue {
 
     func put(message: Message): Unit {
         synchronized(lock) {
-            items.add(message)
-            cond.notifyAll()
+            items.addLast(message)
+            // 每次只放入一条，唤醒一个等待者就够了，避免多个等待者同时醒来争抢
+            cond.notify()
         }
     }
 
@@ -59,7 +66,7 @@ class InboxQueue {
                 }
                 cond.wait(timeout: remaining)
             }
-            return Some(items.remove(at: 0))
+            return items.removeFirst()
         }
     }
 
@@ -119,6 +126,7 @@ public class AskInbox <: ActorRef {
 
     /** 阻塞等待第一条回复；超时抛 TypedAskTimeoutException */
     public func get(timeout: Duration): Message {
+        checkMayBlock(timeout)
         match (queue.take(timeout)) {
             case Some(m) => m
             case None => throw TypedAskTimeoutException("ask 收件箱 ${actorPath.getPath()} 在 ${timeout} 内没有收到回复")
@@ -127,7 +135,17 @@ public class AskInbox <: ActorRef {
 
     /** 阻塞等待第一条回复；超时返回 None */
     public func tryGet(timeout: Duration): Option<Message> {
+        checkMayBlock(timeout)
         queue.take(timeout)
+    }
+
+    // 零超时只是查看一下，不会阻塞，任何线程都可以调用
+    private func checkMayBlock(timeout: Duration): Unit {
+        if (timeout > Duration.Zero && isAffinityWorkerThread()) {
+            throw IllegalStateException(
+                "不能在 Actor 处理方法内阻塞等待 ask 收件箱：会占住亲和调度线程，被等的 Actor 若在同一线程上就是死锁。" +
+                "请把 replyTo 设为 ctx.self 并在处理方法里接收回复，或让该 Actor 使用 blocking 调度器")
+        }
     }
 }
 

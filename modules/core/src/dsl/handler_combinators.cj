@@ -34,9 +34,10 @@ private let logWithin: Logger = Logging.logger("cactor_core.dsl.handler_combinat
  * 抢占式取消需要信封层支持，属 20261029 P 系列范围）。
  */
 public func within(limit: Duration, name: String, body: () -> MessageResult): MessageResult {
-    let start = DateTime.now()
+    // 单调时钟：墙钟被 NTP 调整时，耗时可能算成负数或几小时，告警会漏报或误报
+    let start = MonoTime.now()
     let r = body()
-    let cost = DateTime.now() - start
+    let cost = MonoTime.now() - start
     if (cost > limit) {
         logWithin.warn("${name} 耗时 ${cost / Duration.millisecond}ms 超过 ${limit / Duration.millisecond}ms")
     }
@@ -48,7 +49,6 @@ public func within(limit: Duration, name: String, body: () -> MessageResult): Me
  * 全部失败时：若曾抛异常返回 Escalate，否则返回最后一次的 Unhandled。
  */
 public func retry(attempts: Int64, body: () -> MessageResult): MessageResult {
-    var lastException: ?Exception = None
     var attempt: Int64 = 0
     var lastResult = MessageResult.Unhandled
     var escalated = false
@@ -61,8 +61,7 @@ public func retry(attempts: Int64, body: () -> MessageResult): MessageResult {
                 case MessageResult.Unhandled => ()
                 case _ => return r
             }
-        } catch (e: Exception) {
-            lastException = Some(e)
+        } catch (_: Exception) {
             escalated = true
         }
     }

@@ -1649,6 +1649,7 @@ public class ActorCellDispatcher <: CellExecutor {
             for (w in ws) {
                 spawn {
                     markActorThread()
+                    markAffinityWorkerThread()
                     w.loop(spin)
                 }
             }

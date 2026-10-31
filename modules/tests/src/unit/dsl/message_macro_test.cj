@@ -132,6 +132,86 @@ public class MessageMacroTest {
     }
 
     @TestCase
+    public func testWireFormatIsStable(): Unit {
+        // 线上格式锁定：写入器换实现（ArrayList → 数组缓冲）后字节必须与原格式逐字节一致，
+        // 否则新旧节点之间无法互通
+        let m = HashMap<String, Bool>()
+        m["k"] = true
+        let bytes = MessageFieldWriter()
+            .writeInt64(-2)
+            .writeString("ab")
+            .writeBool(true)
+            .writeOptionInt64(None)
+            .writeOptionString(Some("é"))
+            .writeBoolMap(m)
+            .toArray()
+        let expected: Array<UInt8> = [
+            0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
+            0, 0, 0, 2, 97, 98,
+            1,
+            0,
+            1, 0, 0, 0, 2, 0xC3, 0xA9,
+            0, 0, 0, 1, 0, 0, 0, 1, 107, 1
+        ]
+        @Expect(bytes, expected)
+    }
+
+    @TestCase
+    public func testWriterGrowsBeyondInitialBuffer(): Unit {
+        // 远大于初始 64 字节缓冲的消息：多次扩容后仍能完整往返
+        let big = String(Array<Rune>(10000, repeat: r'字'))
+        let w = MessageFieldWriter()
+        for (i in 0..100) {
+            w.writeInt64(i)
+        }
+        w.writeString(big)
+        let r = MessageFieldReader(w.toArray())
+        var sum: Int64 = 0
+        for (_ in 0..100) {
+            sum += r.readInt64()
+        }
+        @Expect(sum, 4950)
+        @Expect(r.readString(), big)
+        @Expect(r.isAtEnd(), true)
+    }
+
+    @TestCase
+    public func testCorruptOptionAndMapAreRejected(): Unit {
+        // Option 标记只能是 0 / 1
+        var badTag = false
+        try {
+            MessageFieldReader([2, 0, 0, 0, 0, 0, 0, 0, 1]).readOptionInt64()
+        } catch (e: DeserializationException) {
+            badTag = true
+        }
+        @Expect(badTag, true)
+        // 伪造的超大条目数：在预分配之前就被拒绝
+        var hugeCount = false
+        try {
+            MessageFieldReader([0x7F, 0xFF, 0xFF, 0xFF, 0, 0, 0, 1, 107, 1]).readBoolMap()
+        } catch (e: DeserializationException) {
+            hugeCount = true
+        }
+        @Expect(hugeCount, true)
+        // 重复键：合法编码不会出现
+        var duplicate = false
+        try {
+            MessageFieldReader([0, 0, 0, 2, 0, 0, 0, 1, 107, 1, 0, 0, 0, 1, 107, 0]).readBoolMap()
+        } catch (e: DeserializationException) {
+            duplicate = true
+        }
+        @Expect(duplicate, true)
+        // 非法 UTF-8：同样按数据损坏报 DeserializationException
+        var badUtf8 = false
+        try {
+            MessageFieldReader([0, 0, 0, 2, 0xC3, 0x28]).readString()
+        } catch (e: DeserializationException) {
+            badUtf8 = true
+        }
+        @Expect(badUtf8, true)
+    }
+
+    @TestCase
     public func testCorruptPayloadIsRejected(): Unit {
         PlaceOrder.registerCodec()
         let ser = MessageSerializer()

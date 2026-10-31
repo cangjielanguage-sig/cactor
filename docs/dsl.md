@@ -246,13 +246,18 @@ class ServiceActor <: Actor {
     }
 }
 
-// 请求方（任意线程 / 任意 Actor 处理方法内）
+// 请求方（Actor 之外：main、测试线程、blocking 调度器上的 Actor）
 let inbox = askInbox()
 service << Query("今天天气如何", inbox)
 let answer = (inbox.get(3.seconds) as Answer).getOrThrow()
 ```
 
 * `askInbox()` 是一个进程内的临时"收件箱"（实现了 `ActorRef`，只收不发）；
+* **不要在 Actor 处理方法里阻塞等待**：默认调度器是亲和调度且没有工作窃取，`get(timeout)` 会占住工作线程，
+  被等的 Actor 若分在同一线程上就是死锁。在亲和工作线程上带超时的 `get` / `tryGet` 会直接抛
+  `IllegalStateException`（零超时的 `tryGet(Duration.Zero)` 只是查看，不受限制）。
+  Actor 内部的请求-应答请把 `replyTo` 设为 `ctx.self`，在对应的 `onXxx` 里接收回复（见 `dsl_agent` 示例），
+  类型化 Actor 用 `ctx.ask`；确实要阻塞的 Actor 用 `Props.withDispatcher("blocking")`；
 * 超时抛 `cactor_core.typed.TypedAskTimeoutException`（与 `TypedAsk.ask` / `ctx.ask` 共用同一个超时异常）；
   不想抛异常用 `tryGet(timeout)`（返回 `Option<Message>`）；
 * `patterns` 里的 `Ask.ask`（包装 `AskMessage`、需要目标配合解包）保留兼容，新代码建议用 `askInbox()`。
@@ -396,7 +401,9 @@ let result = source |> via(even) |> via(toText) |> to(sum)
 
 综合应用示例：`modules/examples/src/dsl_agent`——AI Agent 消息协议（用户输入 / 工具调用 / 工具结果 / 流式增量）
 用同一套 DSL 一屏写完：可远程载荷消息用 `@Message`，带本地 `replyTo` 的请求消息用普通类，
-Agent 与工具 Actor 用 `@actor`，经典 ask 用 `askInbox()`。
+Agent 与工具 Actor 用 `@actor`。Agent 调工具时把 `replyTo` 设为 `ctx.self`、按 `requestId` 找回对话，
+处理方法从不阻塞；`askInbox()` 只在 main 线程收集回复。自检并发 16 轮对话（4 个 Agent 共用 1 个工具），
+用 `CACTOR_DISPATCHER_THREADS=1` 单工作线程运行也能通过。
 
 ---
 
@@ -468,16 +475,29 @@ tools/negative_tests.sh
 ./target/release/bin/cactor_examples.dsl_bench
 ```
 
-2026-10-30 实测（每轮 200000 次 ping-pong，双方各用全新 Actor 系统，取 5 轮最好成绩）：
+基准分两部分：
+
+1. **直接分派（判定 A3 用）**：不经调度器，在循环里直接调用 `receive(msg, ctx)`，4 种消息轮流出现，
+   手写 `match` 与 `@actor` 生成的 `receive` 各跑 7 轮、奇偶轮交换先后、取最好成绩。
+   宏的开销只可能出现在分派这一层，纯 CPU 循环把调度、唤醒、跨线程投递的噪声都排除在外。
+2. **端到端 ping-pong（参考值）**：经过真实邮箱与调度器，确认两条路径端到端行为一致。
+
+2026-10-31 实测（32 核共享开发机，workspace -O2 构建）：
 
 | 指标 | 手写路径 | 宏路径 | 比值 |
 |---|---|---|---|
-| 第 1 次实测：最好成绩 | 311.5 ms | 303.8 ms | **97.5%** |
-| 第 2 次实测：最好成绩 | 75.8 ms | 69.1 ms | **91.1%** |
-| 第 2 次实测：平均成绩 | — | — | **98.3%** |
+| 直接分派，7 轮取最好（负载约 45） | 17.56 ns/次 | 17.48 ns/次 | **99.5%** |
+| 端到端 ping-pong，单轮（参考） | — | — | 47%–168% |
 
-宏展开 = 普通 `match`，**无反射、无装箱**；两次独立实测的最好成绩与平均成绩差距都在 2% 以内
-（单轮比值受调度噪声影响在 62%–176% 间波动，因此以"多轮取最好 + 均值"为准）。
+宏展开 = 普通 `match`，**无反射、无装箱**，与手写代码生成的分派逻辑相同；直接分派单次运行的比值
+（另做的 4 次运行：99.4% / 132% / 89% / 97.9%）以 100% 为中心随机波动，没有系统性开销。
+
+早先只用端到端 ping-pong 判定：两次实测分别为 311.5 ms / 303.8 ms（97.5%）与 75.8 ms / 69.1 ms（91.1%），
+两次之间相差 4 倍、单轮比值在 62%–176% 间波动，噪声远大于要测的差距，不能据此得出"≤2%"。
+数字只在空闲机器上、用 workspace 根目录 `cjpm build`（-O2）构建后才有意义（`cjpm build -m` 不带 -O2）。
+
+`@StateMachine` 的迁移在同一组实测中：8 状态 / 16 转换的 `transitionTo`，按 `(from, to)` 枚举 `match` 展开
+比早期"查数组 + 字符串比较"的生成代码快 1.8–2.0 倍（4 次运行一致）。
 
 ---
 

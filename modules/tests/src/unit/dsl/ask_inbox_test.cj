@@ -12,7 +12,7 @@ package cactor_tests.unit.dsl
 import std.time.*
 import std.unittest.*
 import std.unittest.testmacro.*
-import cactor_core.actor.{Actor, ActorContext, ActorRef}
+import cactor_core.actor.{Actor, ActorContext, ActorRef, PropsFactory}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.dsl.*
 import cactor_core.typed.TypedAskTimeoutException
@@ -55,6 +55,38 @@ class InboxService <: Actor {
     }
 }
 
+/** 在处理方法里阻塞等待收件箱：必须立即报错，而不是占住亲和调度线程直到超时 */
+class BlockingAsker <: Message {
+    let rec: EventRecorder
+    let timeout: Duration
+
+    init(rec: EventRecorder, timeout: Duration) {
+        this.rec = rec
+        this.timeout = timeout
+    }
+
+    public func messageType(): String {
+        "BlockingAsker"
+    }
+}
+
+@actor[cases = [BlockingAsker]]
+class InboxMisuseActor <: Actor {
+    func onBlockingAsker(m: BlockingAsker) {
+        let inbox = askInbox()
+        // 零超时只是查看，不会阻塞，Actor 内也允许
+        m.rec.record("peek ${inbox.tryGet(Duration.Zero).isNone()}")
+        try {
+            inbox.get(m.timeout)
+            m.rec.record("replied")
+        } catch (e: IllegalStateException) {
+            m.rec.record("rejected")
+        } catch (e: TypedAskTimeoutException) {
+            m.rec.record("timed-out")
+        }
+    }
+}
+
 @Test
 public class AskInboxTest {
     @TestCase
@@ -83,6 +115,25 @@ public class AskInboxTest {
     }
 
     @TestCase
+    public func testInboxKeepsOrderUnderBacklog(): Unit {
+        // 流式回复会在收件箱里积压：按到达顺序逐条取出
+        let inbox = askInbox()
+        for (i in 0..1000) {
+            inbox << InboxAnswer("chunk-${i}")
+        }
+        @Expect(inbox.received(), 1000)
+        var inOrder = true
+        for (i in 0..1000) {
+            let m = (inbox.get(Duration.Zero) as InboxAnswer).getOrThrow()
+            if (m.text != "chunk-${i}") {
+                inOrder = false
+            }
+        }
+        @Expect(inOrder, true)
+        @Expect(inbox.received(), 0)
+    }
+
+    @TestCase
     public func testInboxPathsAreUnique(): Unit {
         // 同一时钟刻度内连续创建：按时间戳取路径时这里会撞路径而判等
         let a = askInbox()
@@ -90,6 +141,32 @@ public class AskInboxTest {
         @Expect(a.path.getPath() != b.path.getPath(), true)
         @Expect(a.equals(b), false)
         @Expect(a.equals(a), true)
+    }
+
+    @TestCase
+    public func testBlockingGetInsideActorIsRejected(): Unit {
+        let kit = ActorTestKit("ask-inbox-misuse")
+        let rec = EventRecorder()
+        let a = kit.actorOf({ => InboxMisuseActor() }, "misuse")
+        a << BlockingAsker(rec, 1.seconds)
+        // 立即被拒（远早于 1 秒的超时），而不是阻塞后超时
+        @Expect(rec.await("rejected", 900.millis), true)
+        @Expect(rec.contains("peek true"), true)
+        @Expect(rec.contains("timed-out"), false)
+        kit.shutdown()
+    }
+
+    @TestCase
+    public func testBlockingDispatcherMayWait(): Unit {
+        // blocking 调度器本来就允许阻塞：不拒绝，按正常超时结束
+        let kit = ActorTestKit("ask-inbox-blocking")
+        let rec = EventRecorder()
+        let props = PropsFactory.create<Actor>({ => InboxMisuseActor() }).withDispatcher("blocking")
+        let a = kit.actorOf(props, "blocking-asker")
+        a << BlockingAsker(rec, 50.millis)
+        @Expect(rec.await("timed-out", 3.seconds), true)
+        @Expect(rec.contains("rejected"), false)
+        kit.shutdown()
     }
 
     @TestCase
