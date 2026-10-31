@@ -22,8 +22,15 @@ CASES=tools/negative/cases.txt
 failed=0
 total=0
 
-while read -r dir expect result; do
-    [[ -z "${dir:-}" || "${dir:0:1}" == "#" ]] && continue
+while read -r line; do
+    [[ -z "${line// /}" || "${line:0:1}" == "#" ]] && continue
+    # 期望片段本身可能含空格（如「未处理 Query」），所以不能用 read 的默认分词：
+    # 首字段 = 目录，末字段 = 期望结果，中间整段 = 期望片段
+    dir=${line%% *}
+    result=${line##* }
+    expect=${line#"$dir"}
+    expect=${expect%"$result"}
+    expect=$(sed 's/^ *//; s/ *$//' <<<"$expect")
     total=$((total + 1))
     log=$(mktemp)
     (cd "tools/negative/${dir}" && cjpm build) >"$log" 2>&1
@@ -38,15 +45,14 @@ while read -r dir expect result; do
             failed=$((failed + 1))
         fi
     elif [[ "${result}" == "warn" ]]; then
-        if [[ $code -eq 0 ]] && grep -qi "${expect}" <<<"$clean"; then
+        if [[ $code -eq 0 ]] && grep -qiF "${expect}" <<<"$clean"; then
             printf '  [ OK ] %s（编译通过且给出「%s」告警）\n' "${dir}" "${expect}"
         else
             printf '  [FAIL] %s（期望编译通过且给出「%s」告警）\n' "${dir}" "${expect}"
             echo "$clean" | grep -iE "warning|error" | head -5
             failed=$((failed + 1))
         fi
-    else
-        clean=$(sed 's/\x1b\[[0-9;]*m//g' "$log")
+    elif [[ "${result}" == "fail" ]]; then
         if [[ $code -ne 0 ]] && grep -qF "${expect}" <<<"$clean"; then
             printf '  [ OK ] %s（编译期报错且信息可读）\n' "${dir}"
         else
@@ -54,6 +60,10 @@ while read -r dir expect result; do
             echo "$clean" | grep -E "error|Error" | head -5
             failed=$((failed + 1))
         fi
+    else
+        # 清单写错（如 fial）时不能静默落到某个分支里"碰巧通过"
+        printf '  [FAIL] %s（cases.txt 期望结果「%s」无效，只能是 pass / fail / warn）\n' "${dir}" "${result}"
+        failed=$((failed + 1))
     fi
     rm -f "$log"
 done <"$CASES"

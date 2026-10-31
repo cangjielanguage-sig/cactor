@@ -4,9 +4,12 @@
  *
  * 调用形态（属性宏，参数必须用方括号）：
  *
- *   @actor[]                                          // 无协议声明
+ *   @actor / @actor[]                                 // 无协议声明
  *   @actor[cases = [PlaceOrder, GetOrder, Cancel]]    // 显式协议清单 → 编译期穷尽性检查
  *   @actor[protocol = OrderMsg]                       // 单一协议类型（枚举协议写法）
+ *
+ * 不带方括号的形态由同名非属性宏承接（仓颉允许属性宏与非属性宏同名重载），
+ * 保证升级为属性宏之前写的 @actor / @actorReceive 代码无需修改即可编译。
  *
  * 规则：
  * - 只能用于 class；不能手写 receive；同一消息类型只能有一个 onXxx。
@@ -23,11 +26,19 @@ import std.ast.*
 import std.collection.*
 import cactor_macros.common.*
 
+public macro actor(input: Tokens): Tokens {
+    transformActor(quote(), input, "@actor")
+}
+
 public macro actor(attr: Tokens, input: Tokens): Tokens {
     transformActor(attr, input, "@actor")
 }
 
 // 兼容别名：@actorReceive 等价于 @actor（保留一个版本周期后删除）
+public macro actorReceive(input: Tokens): Tokens {
+    transformActor(quote(), input, "@actorReceive")
+}
+
 public macro actorReceive(attr: Tokens, input: Tokens): Tokens {
     transformActor(attr, input, "@actorReceive")
 }
@@ -36,14 +47,10 @@ public macro actorReceive(attr: Tokens, input: Tokens): Tokens {
 class HandlerInfo {
     let methodName: String
     let typeName: String
-    let rawType: String
-    let arity: Int64
 
-    init(methodName: String, typeName: String, rawType: String, arity: Int64) {
+    init(methodName: String, typeName: String) {
         this.methodName = methodName
         this.typeName = typeName
-        this.rawType = rawType
-        this.arity = arity
     }
 }
 
@@ -71,15 +78,14 @@ func transformActor(attr: Tokens, input: Tokens, macroName: String): Tokens {
                 if (fname.startsWith("on") && fname.size > 2 && f.funcParams.size >= 1) {
                     checkHandlerSignature(f, className, macroName)
                     let t = f.funcParams[0].paramType
-                    let rawType = t.toTokens().toString().replace(" ", "")
-                    let typeName = normalizeTypeName(rawType)
+                    let typeName = normalizeTypeName(t.toTokens().toString())
                     for (seen in seenTypes) {
                         if (seen == typeName) {
                             throw ASTException("${macroName}: ${className} 中有多个处理 ${typeName} 的方法（${fname}），后一个永远不会被调用")
                         }
                     }
                     seenTypes.add(typeName)
-                    handlers.add(HandlerInfo(fname, typeName, rawType, f.funcParams.size))
+                    handlers.add(HandlerInfo(fname, typeName))
                     let id = f.identifier
                     // 按返回类型区分：MessageResult 返回 → 原样；Unit 返回 → 补 Handled。
                     // 返回类型在 FuncDecl 上：无显式返回类型（Unit）时 returnType 抛异常或为空。

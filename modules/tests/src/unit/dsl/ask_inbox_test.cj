@@ -3,8 +3,9 @@
  *
  * 验证：
  * 1. 收件箱作为普通 ActorRef 参与 `replyTo << 回复`，get 阻塞拿到回复；
- * 2. 超时抛 AskTimeoutException；
- * 3. 真实 Actor 调度路径：@actor 服务收到 Query(replyTo=inbox) 回 Answer，收件箱取到。
+ * 2. 超时抛 TypedAskTimeoutException（与 TypedAsk / ctx.ask 共用同一个超时异常）；
+ * 3. 真实 Actor 调度路径：@actor 服务收到 Query(replyTo=inbox) 回 Answer，收件箱取到；
+ * 4. 每个收件箱路径唯一（equals 按路径判等，连续创建的收件箱不能互相"相等"）。
  */
 package cactor_tests.unit.dsl
 
@@ -14,6 +15,7 @@ import std.unittest.testmacro.*
 import cactor_core.actor.{Actor, ActorContext, ActorRef}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.dsl.*
+import cactor_core.typed.TypedAskTimeoutException
 import cactor_macros.*
 import cactor_testkit.*
 
@@ -72,12 +74,22 @@ public class AskInboxTest {
         var timeout = false
         try {
             inbox.get(50.millis)
-        } catch (e: AskTimeoutException) {
+        } catch (e: TypedAskTimeoutException) {
             timeout = true
         }
         @Expect(timeout, true)
         // tryGet 不抛异常
         @Expect(inbox.tryGet(10.millis).isNone(), true)
+    }
+
+    @TestCase
+    public func testInboxPathsAreUnique(): Unit {
+        // 同一时钟刻度内连续创建：按时间戳取路径时这里会撞路径而判等
+        let a = askInbox()
+        let b = askInbox()
+        @Expect(a.path.getPath() != b.path.getPath(), true)
+        @Expect(a.equals(b), false)
+        @Expect(a.equals(a), true)
     }
 
     @TestCase

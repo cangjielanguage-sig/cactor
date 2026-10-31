@@ -9,16 +9,19 @@
 
 ### ✨ 新增（Actor DSL：docs/plan/dsl20261030.md P1–P5 全部落地）
 - **`@actor` 属性宏 + 协议清单**：`@actor[cases = [A, B]]` / `@actor[protocol = E]` 在编译期核对
-  漏处理、协议漂移、重复处理器；签名支持 `onXxx(m)` / `onXxx(m, ctx)` / 返回 `Unit` 或 `MessageResult`
+  漏处理、协议漂移、重复处理器；签名支持 `onXxx(m)` / `onXxx(m, ctx)` / 返回 `Unit` 或 `MessageResult`；
+  不带方括号的 `@actor` / `@actorReceive` 旧写法由同名非属性宏承接，继续可用
 - **`@Message` 增强**：支持 `Option<T>`、`HashMap<String, T>` 字段；字段级错误用 `diagReport` 定位（带行列）
 - **`@StateMachine` 宏**：状态枚举 + 转换表生成状态机骨架；漏状态（穷尽 match）、写错状态名、
   非法转换均在编译期报错；宏生成的转换表可直接对接 xstate `StateMachineBuilder`；
-  每个转换生成 `guard<From><To>` / `onTransition<From><To>` 骨架，同名覆写即生效
+  每个转换生成 `guard<From><To>` / `onTransition<From><To>` 骨架，同名覆写即生效；
+  `canTransition` / `transitionTo` 展开为 `(from, to)` 枚举 match（无分配、无字符串比较）
 - **经典路径 ask**：`askInbox()` 零侵入临时收件箱（`cactor_core.dsl`）——请求消息自带 `replyTo`，
-  目标 Actor 无需解包包装消息；超时抛 `AskTimeoutException`，`tryGet` 返回 `Option`
+  目标 Actor 无需解包包装消息；超时抛 `TypedAskTimeoutException`（与 typed ask 共用），`tryGet` 返回 `Option`
 - **行为层门面**：`cactor_core.dsl.Behaviors`（receive/setup/supervise/withTimers/withStash/intercept/…）
-  与 `messageResultToBehavior` 打通宏路径与 lambda 路径语义
-- **流管道 API**：`source |> via(flow) |> to(sink)`（`cactor_streams.dsl`，与链式写法语义等价）
+  与 `messageResultToBehavior` 打通宏路径与 lambda 路径语义（`Restart` / `Escalate` 抛
+  `SupervisionRequestedException` 交给监督者，与经典运行时一致）
+- **流管道 API**：`source |> via(flow) |> to(sink)`（`cactor_streams.dsl`，`to(sink)` 走 `runWith`，与链式写法语义等价）
 - **用户文档**：`docs/dsl.md`（三档写法选型、"一句英语"自检表、经典/DSL 对照）
 
 ### 🔧 变更
@@ -26,9 +29,10 @@
   唯一推荐入口为 `cactor_core.typed.TypedAsk.ask`（进程外）与 `TypedActorContext.ask`（Actor 内）
 - **公开面**：`cactor` 门面 re-export `cactor_core.dsl.*`；宏包公开宏收敛为 4 个
   （`@actor`、`@actorReceive`（兼容别名）、`@Message`、`@StateMachine`），无占位宏
-- **CI 增强**：`tools/ci.sh` 新增宏负例编译测试（`tools/negative_tests.sh`，10 用例）、
+- **CI 增强**：`tools/ci.sh` 新增宏负例编译测试（`tools/negative_tests.sh`，11 用例）、
   宏公开面检查（`tools/check_macro_surface.sh`）、DSL 行数对照（`tools/dsl_line_count.sh`，代码行降幅 43%）
 - **示例**：`hello_world_demo` 改用 `@actor`；新增 `dsl_showcase`（经典/DSL 三组对照）、
+  `dsl_agent`（AI Agent 协议一屏 DSL，G5）、
   `dsl_state_machine`（@Message + @StateMachine + @actor + xstate 对接）、`dsl_pipeline`（流管道）、
   `dsl_bench`（宏 vs 手写零开销基准，最好成绩比值 97.5%）
 

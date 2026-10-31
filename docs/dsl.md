@@ -146,13 +146,17 @@ public func receive(message: Message, context: ActorContext): MessageResult {
 
 ### 3.4 属性形式说明
 
-`@actor` 是仓颉的**属性宏**，参数必须写在方括号里：
+`@actor` 同时提供属性宏与非属性宏两种形态（仓颉允许同名重载），带参数时写在方括号里：
 
 ```cangjie
+@actor                                     // 无协议声明（旧写法，继续可用）
 @actor[]                                   // 无协议声明
-@actor[cases = [A, B]]                     // 显式清单
+@actor[cases = [A, B]]                     // 显式清单（可写限定名 pkg.A）
 @actor[protocol = E]                      // 单一协议类型
 ```
+
+同一个属性键（`cases` / `protocol`）写两遍会在编译期报错，不会静默合并或覆盖。
+`@actorReceive` 兼容别名同样支持带/不带方括号两种写法。
 
 ---
 
@@ -203,9 +207,11 @@ let counter = Behaviors.receive<CounterMsg> { ctx, msg =>
 | `MessageResult.Handled` | `Behaviors.same()` |
 | `MessageResult.Unhandled` | `Behaviors.unhandled()` |
 | `MessageResult.Stop` | `Behaviors.stopped()` |
-| `MessageResult.Restart` / `Escalate` | 交给监督者（`Behaviors.supervise(...)`） |
+| `MessageResult.Restart` / `Escalate` | 抛 `SupervisionRequestedException`，交给监督者（`Behaviors.supervise(...)`） |
 
 代码里可以直接用 `messageResultToBehavior<T>(result)` 做转换（`cactor_core.dsl`）。
+经典运行时把 `Restart` / `Escalate` 当作失败交给监督者；类型化路径没有"请求重启"的返回值，
+因此映射为抛异常，由 `supervise(...).onFailure(...)` 的策略决定重启、恢复还是停止。
 
 ---
 
@@ -247,7 +253,8 @@ let answer = (inbox.get(3.seconds) as Answer).getOrThrow()
 ```
 
 * `askInbox()` 是一个进程内的临时"收件箱"（实现了 `ActorRef`，只收不发）；
-* 超时抛 `AskTimeoutException`；不想抛异常用 `tryGet(timeout)`（返回 `Option<Message>`）；
+* 超时抛 `cactor_core.typed.TypedAskTimeoutException`（与 `TypedAsk.ask` / `ctx.ask` 共用同一个超时异常）；
+  不想抛异常用 `tryGet(timeout)`（返回 `Option<Message>`）；
 * `patterns` 里的 `Ask.ask`（包装 `AskMessage`、需要目标配合解包）保留兼容，新代码建议用 `askInbox()`。
 
 ---
@@ -325,6 +332,10 @@ class JobMachine {
 | 转换表引用了不在 `states` 里的状态 | 宏：`转换 Idle -> Running 中，Running 不在 states 清单里` |
 | 转换重复声明 | 宏：`转换 Idle -> Running 重复声明` |
 | `initial` 不在 `states` 里 | 宏：`初始状态 X 不在 states 清单里` |
+| `states` 里同一状态写两遍 / 属性键写两遍 | 宏：`states 里 X 重复列出` / `属性 states 重复出现` |
+| 两条转换拼出同名方法（如 `(AB, C)` 与 `(A, BC)`） | 宏：`生成的方法名相同（guardABC）` |
+
+`canTransition` / `transitionTo` 展开为对 `(from, to)` 的一次枚举 `match`：不分配数组、不做字符串比较。
 
 完整示例见 `modules/examples/src/dsl_state_machine`（事件用 `@Message`，状态机用 `@StateMachine`，
 Actor 用 `@actor`，转换表直接喂给 xstate 的 `StateMachineBuilder`）。
@@ -354,7 +365,8 @@ let result = source |> via(even) |> via(toText) |> to(sum)
 
 * `|>` 是仓颉内建管道运算符（右侧必须是函数值、不可重载），因此用 `via(flow)` / `to(sink)` 把
   Flow / Sink 包装成管道中的一段；
-* 语义与链式写法 `source.via(flow).to(sink).run()` **完全等价**（有测试保证）；
+* 语义与链式写法 `source.via(flow).to(sink).run()` **完全等价**：`to(sink)` 内部就是 `runWith(sink)`，
+  空源校验、异常包装（`StreamProcessingException`）与链式写法一致（有测试保证）；
 * 辅助函数：`via`（接 Flow）、`to`（接 Sink）、`keep`（只做过滤的 Flow）。
 
 完整示例见 `modules/examples/src/dsl_pipeline`。
@@ -381,6 +393,10 @@ let result = source |> via(even) |> via(toText) |> to(sum)
 | 请求-应答 | `modules/examples/src/dsl_showcase/classic/ask.cj` | `modules/examples/src/dsl_showcase/dsl/ask.cj` |
 
 运行：`./target/release/bin/cactor_examples.dsl_showcase`（两种写法输出逐行一致）。
+
+综合应用示例：`modules/examples/src/dsl_agent`——AI Agent 消息协议（用户输入 / 工具调用 / 工具结果 / 流式增量）
+用同一套 DSL 一屏写完：可远程载荷消息用 `@Message`，带本地 `replyTo` 的请求消息用普通类，
+Agent 与工具 Actor 用 `@actor`，经典 ask 用 `askInbox()`。
 
 ---
 
@@ -441,6 +457,7 @@ tools/negative_tests.sh
 | `state_machine_missing_state` | `non-exhaustive patterns` |
 | `state_machine_unknown_state` | `is not a member of enum` |
 | `state_machine_bad_transition` | `不在 states 清单里` |
+| `state_machine_duplicate_state` | `重复列出` |
 | `ask_deprecated`（编译通过但要有告警） | `deprecated` |
 
 ---
@@ -469,7 +486,6 @@ tools/negative_tests.sh
 | 限制 | 说明 |
 |---|---|
 | 协议清单要显式写 | 宏无法跨包解析枚举（计划 §12 假设 A 证伪）；枚举协议的穷尽性靠语言保证 |
-| `@actor` 必须写 `[]` | 仓颉属性宏的调用形式要求方括号 |
 | `@within` / `@retry` 不是宏 | 属性宏参数为表达式时解析有歧义（§12 假设 B 证伪），改为运行时组合子 |
 | `@Message` 不支持 `ActorRef` 等引用类型 | 引用类型不可序列化；本地 replyTo 消息不要加 `@Message` |
 | 枚举协议一个处理方法 | 枚举的所有 case 同类型，无法按 case 分派到不同方法（内部 `match` 即可） |

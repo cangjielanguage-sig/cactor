@@ -6,8 +6,9 @@
  * 宏展开后的 receive 与手写 receive 语义相同、性能相同（差距 ≤2%）。
  *
  * 方法：同一个进程里分别跑"手写 receive"和"@actor 宏"两个自 ping-pong Actor，
- * 同样轮数、交替执行，取每侧 3 轮中的最好成绩（最小耗时，抗噪声），
- * 输出两条路径的耗时比值。
+ * 同样轮数，每轮交换先后顺序（消除"总是先跑"带来的系统性偏差），
+ * 取每侧多轮中的最好成绩（最小耗时，抗噪声），输出两条路径的耗时比值。
+ * 计时用单调时钟；任何一轮没在时限内跑完都判为基准无效（不把超时当成耗时算进去）。
  *
  * 运行：cjpm build && ./target/release/bin/cactor_examples.dsl_bench
  */
@@ -108,8 +109,8 @@ class DslPingPong <: Actor {
 
 /** 等待计数达到目标 */
 func waitFor(counter: AtomicInt64, target: Int64, timeout: Duration): Bool {
-    let deadline = DateTime.now() + timeout
-    while (DateTime.now() < deadline) {
+    let deadline = MonoTime.now() + timeout
+    while (MonoTime.now() < deadline) {
         if (counter.load() >= target) {
             return true
         }
@@ -123,11 +124,14 @@ func runManual(target: Int64, name: String): Duration {
     let system = CActor.system("bench-${name}")
     let counter = AtomicInt64(0)
     let actor = system.actorOf({ => ManualPingPong(counter, target) }, name)
-    let start = DateTime.now()
+    let start = MonoTime.now()
     actor.tell(Ping(actor))
-    waitFor(counter, target, Duration.second * 60)
-    let cost = DateTime.now() - start
+    let finished = waitFor(counter, target, Duration.second * 60)
+    let cost = MonoTime.now() - start
     system.terminate()
+    if (!finished) {
+        throw Exception("${name} 在 60s 内只完成了 ${counter.load()}/${target} 次，基准无效")
+    }
     cost
 }
 
@@ -136,18 +140,21 @@ func runDsl(target: Int64, name: String): Duration {
     let system = CActor.system("bench-${name}")
     let counter = AtomicInt64(0)
     let actor = system.actorOf({ => DslPingPong(counter, target) }, name)
-    let start = DateTime.now()
+    let start = MonoTime.now()
     actor.tell(Ping(actor))
-    waitFor(counter, target, Duration.second * 60)
-    let cost = DateTime.now() - start
+    let finished = waitFor(counter, target, Duration.second * 60)
+    let cost = MonoTime.now() - start
     system.terminate()
+    if (!finished) {
+        throw Exception("${name} 在 60s 内只完成了 ${counter.load()}/${target} 次，基准无效")
+    }
     cost
 }
 
 main(): Int64 {
     let rounds: Int64 = 200000
     let repeat: Int64 = 5
-    // 预热：让 JIT / 线程池进入稳定状态，避免第一轮偏慢
+    // 预热：让线程池、邮箱与内存分配器进入稳定状态，避免第一轮偏慢（仓颉是 AOT 编译，没有 JIT）
     runManual(20000, "warmup-manual")
     runDsl(20000, "warmup-dsl")
     var manualBest = Duration.second * 3600
@@ -155,9 +162,16 @@ main(): Int64 {
     var manualSum = 0.0
     var dslSum = 0.0
     for (i in 0..repeat) {
-        // 每次都用全新系统，避免上一轮的 Actor / 邮箱 / 调度线程干扰
-        let manual = runManual(rounds, "manual-${i}")
-        let dsl = runDsl(rounds, "dsl-${i}")
+        // 每次都用全新系统，避免上一轮的 Actor / 邮箱 / 调度线程干扰；奇偶轮交换先后顺序
+        var manual = Duration.Zero
+        var dsl = Duration.Zero
+        if (i % 2 == 0) {
+            manual = runManual(rounds, "manual-${i}")
+            dsl = runDsl(rounds, "dsl-${i}")
+        } else {
+            dsl = runDsl(rounds, "dsl-${i}")
+            manual = runManual(rounds, "manual-${i}")
+        }
         manualSum += Float64(manual.toNanoseconds())
         dslSum += Float64(dsl.toNanoseconds())
         if (manual < manualBest) {

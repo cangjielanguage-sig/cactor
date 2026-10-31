@@ -15,6 +15,10 @@
  *   - 类型化进程外：TypedAsk.ask<Req, Res>(ref, factory, timeout)
  *   - 类型化 Actor 内：ctx.ask(target, factory, timeout) { outcome => ... }
  *   - 经典路径：askInbox()（本文件，零侵入）；patterns 的 Ask 保留兼容
+ *
+ * 超时统一抛 cactor_core.typed.TypedAskTimeoutException：三条路径共用一个超时异常，
+ * 不再新增同名的 AskTimeoutException（cactor_patterns.ask 已有一个，经 cactor.* 门面
+ * 一起导入时会产生名字歧义）。
  */
 package cactor_core.dsl
 
@@ -24,13 +28,7 @@ import std.time.*
 import cactor_core.actor.ActorPath
 import cactor_core.actor.ActorRef
 import cactor_core.message.Message
-
-/** ask 超时异常 */
-public class AskTimeoutException <: Exception {
-    public init(timeout: Duration) {
-        super("ask 收件箱在 ${timeout} 内没有收到回复")
-    }
-}
+import cactor_core.typed.TypedAskTimeoutException
 
 /** 收件箱的阻塞队列（Mutex + Condition，避免引入额外依赖） */
 class InboxQueue {
@@ -51,10 +49,11 @@ class InboxQueue {
 
     /** 阻塞取一条；超时返回 None */
     func take(timeout: Duration): Option<Message> {
-        let deadline = DateTime.now() + timeout
+        // 单调时钟：墙钟被 NTP 回拨/跳变时不会提前超时或多等
+        let deadline = MonoTime.now() + timeout
         synchronized(lock) {
             while (items.isEmpty()) {
-                let remaining = deadline - DateTime.now()
+                let remaining = deadline - MonoTime.now()
                 if (remaining <= Duration.Zero) {
                     return None<Message>
                 }
@@ -74,15 +73,16 @@ class InboxQueue {
  * 把它填进请求消息的 replyTo 字段，然后 get(timeout) 等第一条回信。
  */
 public class AskInbox <: ActorRef {
+    // 进程内递增序号：equals/hashCode 按路径判等，路径必须唯一。
+    // 不用时间戳——同一时钟刻度内创建的两个收件箱会撞路径，被当成同一个 ActorRef。
+    private static let seq: AtomicInt64 = AtomicInt64(0)
+
     private let queue: InboxQueue
     private let actorPath: ActorPath
-    private let counter: AtomicInt64
 
     public init() {
         this.queue = InboxQueue()
-        // 每个收件箱一个稳定且不与真实 Actor 冲突的路径前缀
-        this.counter = AtomicInt64(DateTime.now().toUnixTimeStamp().toNanoseconds())
-        this.actorPath = ActorPath("ask-inbox", "/temp/inbox-${counter.load()}")
+        this.actorPath = ActorPath("ask-inbox", "/temp/inbox-${seq.fetchAdd(1) + 1}")
     }
 
     public prop path: ActorPath {
@@ -117,11 +117,11 @@ public class AskInbox <: ActorRef {
         queue.size()
     }
 
-    /** 阻塞等待第一条回复；超时抛 AskTimeoutException */
+    /** 阻塞等待第一条回复；超时抛 TypedAskTimeoutException */
     public func get(timeout: Duration): Message {
         match (queue.take(timeout)) {
             case Some(m) => m
-            case None => throw AskTimeoutException(timeout)
+            case None => throw TypedAskTimeoutException("ask 收件箱 ${actorPath.getPath()} 在 ${timeout} 内没有收到回复")
         }
     }
 

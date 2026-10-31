@@ -83,7 +83,8 @@ class CounterManual <: Actor {
 
 // ---------- @actor 版（形态 A：混合签名增强） ----------
 
-@actor[]
+// 不带方括号的旧写法必须继续可用（非属性宏重载），这里刻意保留
+@actor
 class CounterDsl <: Actor {
     let rec: EventRecorder
     var total: Int64 = 0
@@ -368,10 +369,9 @@ public class ActorMacroEquivTest {
         let recA = EventRecorder()
         let a = kitA.actorOf({ => CounterDsl(recA) }, "dsl")
         a << Inc(2) << Inc(3)
-        sleep(200.millis)
+        @Expect(recA.await("total 5", 3.seconds), true)
         @Expect(recA.snapshot().size, 2)
         @Expect(recA.contains("total 2"), true)
-        @Expect(recA.contains("total 5"), true)
         kitA.shutdown()
 
         // 形态 B：Behaviors + lambda（类型化 Actor）
@@ -380,10 +380,9 @@ public class ActorMacroEquivTest {
         let sys = kitB.system.typed()
         let b = sys.actorOf(typedCounter(recB), "typed")
         b << Inc(2) << Inc(3)
-        sleep(200.millis)
+        @Expect(recB.await("total 5", 3.seconds), true)
         @Expect(recB.snapshot().size, 2)
         @Expect(recB.contains("total 2"), true)
-        @Expect(recB.contains("total 5"), true)
         kitB.shutdown()
     }
 

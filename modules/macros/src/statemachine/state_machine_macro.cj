@@ -29,7 +29,12 @@
  *   2. states 必须穷尽该枚举 —— 生成的 match 不写 `case _`，漏状态时编译器报错；
  *   3. transitions 里的状态必须出现在 states 中 —— 宏直接报错；
  *   4. transitions 不得重复 —— 宏直接报错；
- *   5. initial 必须出现在 states 中 —— 宏直接报错。
+ *   5. initial 必须出现在 states 中 —— 宏直接报错；
+ *   6. states 不得重复、属性键不得重复 —— 宏直接报错；
+ *   7. 不同转换拼出的 guard/onTransition 方法名不得相同（如 (AB, C) 与 (A, BC)）—— 宏直接报错。
+ *
+ * 运行时开销：canTransition / transitionTo 展开为对 (from, to) 的一次枚举 match，
+ * 不分配数组、不做字符串比较，与手写的 match 等价。
  */
 macro package cactor_macros.statemachine
 
@@ -73,6 +78,23 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
     // 初始状态必须在清单里
     if (!spec.states.contains(spec.initial)) {
         throw ASTException("@StateMachine: ${className} 的初始状态 ${spec.initial} 不在 states 清单里")
+    }
+    // 方法名由状态名直接拼接，不同转换可能拼出同名方法（(AB, C) 与 (A, BC) 都是 guardABC），
+    // 放任不管会得到编译器的"重复定义"报错，看不出是哪两条转换撞了
+    var ti: Int64 = 0
+    while (ti < spec.transitions.size) {
+        let t = spec.transitions[ti]
+        var tj = ti + 1
+        while (tj < spec.transitions.size) {
+            let o = spec.transitions[tj]
+            if (t.source + t.target == o.source + o.target) {
+                throw ASTException(
+                    "@StateMachine: ${className} 的转换 ${t.source} -> ${t.target} 与 ${o.source} -> ${o.target} " +
+                    "生成的方法名相同（guard${t.source}${t.target}），请调整状态名")
+            }
+            tj++
+        }
+        ti++
     }
 
     // 类型与构造器都用 token 插值：字符串插值会变成字符串字面量，类型位置不能用
@@ -129,13 +151,11 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
     //   guard<From><To>()     —— 守卫，默认允许（返回 true）
     //   onTransition<From><To>() —— 动作，默认空
     // 类体里已写了同名方法就跳过生成（与 name/description 的处理一致），用户覆写即生效。
-    var existingMethods = ArrayList<String>()
+    let existingMethods = ArrayList<String>()
     for (d in cls.body.decls) {
-        if (d is FuncDecl) {
-            match (d as FuncDecl) {
-                case Some(f) => existingMethods.add(f.identifier.value)
-                case None => ()
-            }
+        match (d) {
+            case f: FuncDecl => existingMethods.add(f.identifier.value)
+            case _ => ()
         }
     }
 
@@ -153,9 +173,20 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
             }
         }
     )))
+    var canArms = quote()
+    for (t in spec.transitions) {
+        let fromCtor = ctorTokens(spec.stateType, t.source)
+        let toCtor = ctorTokens(spec.stateType, t.target)
+        canArms = quote($canArms
+            case ($fromCtor, $toCtor) => true
+        )
+    }
     ds.add(parseDecl(quote(
         public static func canTransition(from: $typeTok, to: $typeTok): Bool {
-            allowedTargets(from).contains(stateName(to))
+            match ((from, to)) {
+                $canArms
+                case _ => false
+            }
         }
     )))
     // 字符串索引版本：便于与外部状态机工具（如 xstate 的 StateMachineBuilder）对接
@@ -183,40 +214,31 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
         }
     )))
     // 迁移入口：先查转换表，再过守卫，更新状态后执行动作。
-    // 守卫/动作按 (from, to) 逐转换静态展开（宏生成 = 手写等价，无运行时反射）。
-    var guardChecks = quote()
-    var actionCalls = quote()
+    // 每个转换展开成 (from, to) 上的一个 match 分支：不在表里的组合落到 case _ 被拒绝。
+    var transitionArms = quote()
     for (t in spec.transitions) {
+        let fromCtor = ctorTokens(spec.stateType, t.source)
+        let toCtor = ctorTokens(spec.stateType, t.target)
         let guardName = Token(TokenKind.IDENTIFIER, "guard${t.source}${t.target}")
         let actionName = Token(TokenKind.IDENTIFIER, "onTransition${t.source}${t.target}")
-        guardChecks = quote($guardChecks
-            if (fromName == $(t.source) && toName == $(t.target)) {
+        transitionArms = quote($transitionArms
+            case ($fromCtor, $toCtor) =>
                 if (!this.$guardName()) {
                     return false
                 }
-            }
-        )
-        actionCalls = quote($actionCalls
-            if (fromName == $(t.source) && toName == $(t.target)) {
+                __currentState = to
                 this.$actionName()
-            }
+                true
         )
     }
     ds.add(parseDecl(quote(
         public func transitionTo(to: $typeTok): Bool {
-            if (!$classId.canTransition(__currentState, to)) {
-                return false
+            match ((__currentState, to)) {
+                $transitionArms
+                case _ => false
             }
-            let fromName = $classId.stateName(__currentState)
-            let toName = $classId.stateName(to)
-            $guardChecks
-            __currentState = to
-            $actionCalls
-            true
         }
     )))
-    cls.body.decls = ds
-
     // 为每个转换补默认 guard / onTransition（用户已写的跳过）
     for (t in spec.transitions) {
         let guardName = "guard${t.source}${t.target}"
@@ -236,6 +258,7 @@ public macro StateMachine(attr: Tokens, input: Tokens): Tokens {
             )))
         }
     }
+    cls.body.decls = ds
     cls.toTokens()
 }
 
@@ -268,6 +291,7 @@ func parseStateMachineAttr(attr: Tokens, className: String): StateMachineSpec {
     var i: Int64 = 0
     var hasStateType = false
     var hasInitial = false
+    let seenKeys = ArrayList<String>()
     while (i < tokens.size) {
         // 跳过条目之间的逗号
         while (i < tokens.size && tokens[i].kind == TokenKind.COMMA) {
@@ -282,6 +306,11 @@ func parseStateMachineAttr(attr: Tokens, className: String): StateMachineSpec {
                 "@StateMachine: ${className} 的属性格式错误，期望键名（stateType / states / initial / transitions）")
         }
         let keyName = key.value
+        // 重复的键会让 states / transitions 被静默追加、initial 被静默覆盖
+        if (seenKeys.contains(keyName)) {
+            throw ASTException("@StateMachine: ${className} 的属性 ${keyName} 重复出现")
+        }
+        seenKeys.add(keyName)
         i++
         if (i >= tokens.size || tokens[i].kind != TokenKind.ASSIGN) {
             throw ASTException("@StateMachine: ${className} 的属性 ${keyName} 后面需要 '='")
@@ -349,6 +378,9 @@ func parseNameList(tokens: Tokens, start: Int64, out: ArrayList<String>, classNa
     while (i < tokens.size && tokens[i].kind != TokenKind.RSQUARE) {
         if (tokens[i].kind != TokenKind.IDENTIFIER) {
             throw ASTException("@StateMachine: ${className} 的 ${key} 只能列状态名")
+        }
+        if (out.contains(tokens[i].value)) {
+            throw ASTException("@StateMachine: ${className} 的 ${key} 里 ${tokens[i].value} 重复列出")
         }
         out.add(tokens[i].value)
         i++

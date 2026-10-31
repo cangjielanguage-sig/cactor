@@ -29,7 +29,7 @@
 | 运行时 | ✅ 每个 Actor 一个侵入式 MPSC 邮箱；亲和调度 + 侵入式就绪队列；独立系统消息队列；阻塞调度器；吞吐参数可配置 | `runtime/guardian/actor_cell.cj` |
 | 经典 API 语义（R1） | ✅ 监督树（父停子、Escalate、OneForAll）、watch / Terminated、become、定时器、Stash、接收超时、PoisonPill / Kill、Props 生效、按路径查找、死信订阅 | `semantics_test.cj` 33 个用例 |
 | 类型化 API（R2） | ✅ 运行在经典 Cell 上；setup / receive / supervise / withTimers / withStash / ask / messageAdapter / pipeToSelf / Receptionist（单机） | `typed_semantics_test.cj` 28 个用例 |
-| DSL | 🟡 `@actorReceive` 宏、`<<` 运算符、时间字面量可用；其余 20 个宏基本原样返回输入 | `macros/src/macros.cj` |
+| DSL | ✅ `@actor`（协议清单编译期核对，`@actorReceive` 为兼容别名）、`@Message`（编解码 + 注册）、`@StateMachine`（转换表 + 穷尽检查）；`Behaviors` 门面、`askInbox`、流管道 `\|>`；`<<` 运算符、时间字面量；占位宏已删除 | `macros/src/`、`core/src/dsl/`、`docs/dsl.md` |
 | 远程 | 🟡 基于 std.net 的 TCP，写线程合并写、批量解析；至多一次投递；没有远程 ask / watch、序列化注册和版本 | `foundation/network/transport.cj`、`remote/simple_remote.cj` |
 | 持久化 | 🟡 文件事件日志、快照、`EventSourcedActor`；没有存储插件接口；CQRS 部分是简化实现 | `persistence/` |
 | 集群 | 🟠 Phi Accrual 故障检测器和 5 种 CRDT 真实可用；成员协议、Singleton 都没有；分片和集群路由是原型（如轮询“总是选择第一个目标”） | `cluster/detector`、`cluster/ddata`、`cluster_routing.cj` |
@@ -141,7 +141,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 - [ ] 单一入口 `actorSystem("name") { s => s.install(...) }`；旧入口（`CActor.system`、各种 Factory / Builder）转调新 API 并标记废弃。
 - [ ] 创建与通信收敛为 `spawn` / `props` / `<<` / `ask`；`TypedBehavior` 构建器。
-- [ ] `@Actor` 宏（在 `@actorReceive` 基础上，同一消息类型多个处理方法时编译期报错）；`@Message` 宏（生成 `messageType`、编解码器并自动注册）。删除其余原样返回输入的宏。
+- [x] `@actor` 宏（在 `@actorReceive` 基础上，同一消息类型多个处理方法、协议清单漏处理/漂移时编译期报错）；`@Message` 宏（生成 `messageType`、编解码器并自动注册）。删除其余原样返回输入的宏。
 - [ ] `testActorSystem`（`cactor_testkit`）。
 - [ ] 类型化 API 补齐：行为拦截器（Interceptor）；Akka Typed 聊天室示例。
 - **验收**：hello world、计数器、请求-应答示例的代码行数比 1.2.0 减少 ≥ 40%；文档给出“经典写法 / DSL 写法”对照。
@@ -221,7 +221,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 - **持久化查询**：按 tag 读事件流。
 - **追踪**：OpenTelemetry 兼容的上下文随消息传播。
 - **虚拟 Actor**：Orleans 风格的按需激活与空闲回收。
-- **状态机**：XState 模块与 Actor、DSL 整合（`@StateMachine` 或枚举状态 + 转换表），清理 `features`、`enterprise` 中的占位。
+- **状态机**：XState 模块与 Actor、DSL 整合（`@StateMachine` 宏已可用：枚举状态 + 转换表 + guard/action 骨架，转换表可喂给 xstate `StateMachineBuilder`），清理 `features`、`enterprise` 中的占位。
 
 ---
 

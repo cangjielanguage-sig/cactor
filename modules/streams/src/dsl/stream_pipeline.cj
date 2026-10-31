@@ -8,7 +8,8 @@
  *   let total = source |> via(flow) |> to(sink)
  *
  * 语义与链式写法完全等价：
- *   source.via(flow).to(sink)  ==  source |> via(flow) |> to(sink)
+ *   source.via(flow).to(sink).run()  ==  source |> via(flow) |> to(sink)
+ * to(sink) 走的就是 StreamGraph.run()（校验、异常包装、日志都一致），不另起一条执行路径。
  */
 package cactor_streams.dsl
 
@@ -25,7 +26,7 @@ public func via<T, U>(flow: StreamFlow<T, U>): (StreamSource<T>) -> StreamSource
  * 把 Sink 包装成管道中的一段：Source<T> -> R
  */
 public func to<T, R>(sink: StreamSink<T, R>): (StreamSource<T>) -> R {
-    { s => sink.consume(s) }
+    { s => s.runWith(sink) }
 }
 
 /**

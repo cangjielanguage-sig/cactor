@@ -10,8 +10,8 @@
  *   MessageResult.Handled   ↔ TypedBehaviors.same()
  *   MessageResult.Unhandled ↔ TypedBehaviors.unhandled()
  *   MessageResult.Stop      ↔ TypedBehaviors.stopped()
- *   MessageResult.Escalate  ↔ 交给监督者（typed 路径由 TypedBehaviors.supervise 承担）
- *   MessageResult.Restart   ↔ 交给监督者（typed 路径由 TypedBehaviors.supervise 承担）
+ *   MessageResult.Escalate  ↔ 抛 SupervisionRequestedException，交给监督者（TypedBehaviors.supervise）
+ *   MessageResult.Restart   ↔ 抛 SupervisionRequestedException，交给监督者（TypedBehaviors.supervise）
  *
  * 本文件提供 Behaviors 门面（对标 Akka Typed 的 Behaviors 命名），内部仍由
  * TypedBehaviors 实现，避免再出现第三套行为 API。
@@ -143,15 +143,42 @@ public struct Behaviors {
 }
 
 /**
+ * 处理方法请求监督者介入（MessageResult.Restart / Escalate 在类型化路径上的对应物）。
+ * 经典运行时把这两个结果当作失败交给监督者（ActorCell.handleFailure），
+ * 类型化路径没有"请求重启"的返回值，只能以失败的形式交出去，由 supervise 的策略决定。
+ */
+public class SupervisionRequestedException <: Exception {
+    public let result: MessageResult
+
+    public init(result: MessageResult) {
+        super("处理方法返回 ${resultName(result)}，交给监督者处理")
+        this.result = result
+    }
+}
+
+// MessageResult 没有实现 ToString，异常信息里需要可读的名字
+func resultName(result: MessageResult): String {
+    match (result) {
+        case MessageResult.Handled => "Handled"
+        case MessageResult.Unhandled => "Unhandled"
+        case MessageResult.Stop => "Stop"
+        case MessageResult.Restart => "Restart"
+        case MessageResult.Escalate => "Escalate"
+    }
+}
+
+/**
  * 形态 A（MessageResult）→ 形态 B（TypedBehavior）的语义映射。
  * 让经典路径与类型化路径共享同一套"处理结果"语义。
+ *
+ * Restart / Escalate 抛 SupervisionRequestedException：若映射成 same / unhandled，
+ * 重启或上报请求会被静默吞掉，与经典路径行为不一致。
  */
 public func messageResultToBehavior<T>(result: MessageResult): TypedBehavior<T> {
     match (result) {
         case MessageResult.Handled => TypedBehaviors.same<T>()
         case MessageResult.Unhandled => TypedBehaviors.unhandled<T>()
         case MessageResult.Stop => TypedBehaviors.stopped<T>()
-        case MessageResult.Restart => TypedBehaviors.same<T>()
-        case MessageResult.Escalate => TypedBehaviors.unhandled<T>()
+        case MessageResult.Restart | MessageResult.Escalate => throw SupervisionRequestedException(result)
     }
 }

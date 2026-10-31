@@ -44,6 +44,20 @@ public class BehaviorsFacadeTest {
     }
 
     @TestCase
+    public func testRestartAndEscalateGoToSupervisor(): Unit {
+        // 经典运行时把 Restart / Escalate 当作失败交给监督者；类型化映射不能把它们吞成 same / unhandled
+        for (r in [MessageResult.Restart, MessageResult.Escalate]) {
+            var thrown = false
+            try {
+                messageResultToBehavior<Int64>(r)
+            } catch (e: SupervisionRequestedException) {
+                thrown = true
+            }
+            @Expect(thrown, true)
+        }
+    }
+
+    @TestCase
     public func testFacadeReceiveMessage(): Unit {
         let ctx = TestCtx<Int64>()
         let ctr = Counter()

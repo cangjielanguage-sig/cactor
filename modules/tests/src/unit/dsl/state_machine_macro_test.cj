@@ -77,6 +77,16 @@ class GuardedMachineDsl {
     }
 }
 
+/** 一个源状态多个目标 + 自环：覆盖 (from, to) 展开后的多分支 match */
+@StateMachine[
+    stateType = OrderState,
+    states = [Idle, Running, Stopped],
+    initial = Idle,
+    transitions = [(Idle, Running), (Idle, Stopped), (Running, Running), (Running, Idle)]
+]
+class BranchyMachine {
+}
+
 @Test
 public class StateMachineMacroTest {
     @TestCase
@@ -108,6 +118,33 @@ public class StateMachineMacroTest {
         @Expect(OrderMachine.canTransition(OrderState.Idle, OrderState.Running), true)
         @Expect(OrderMachine.canTransition(OrderState.Idle, OrderState.Stopped), false)
         @Expect(OrderMachine.canTransition(OrderState.Running, OrderState.Idle), false)
+    }
+
+    @TestCase
+    public func testCanTransitionAgreesWithAllowedTargets(): Unit {
+        // canTransition 与 allowedTargets 由宏分别展开，二者必须对每一对状态给出相同结论
+        let all = [OrderState.Idle, OrderState.Running, OrderState.Stopped]
+        for (from in all) {
+            for (to in all) {
+                let listed = BranchyMachine.allowedTargets(from).contains(BranchyMachine.stateName(to))
+                @Expect(BranchyMachine.canTransition(from, to), listed)
+            }
+        }
+        @Expect(BranchyMachine.canTransition(OrderState.Running, OrderState.Running), true)
+        @Expect(BranchyMachine.canTransition(OrderState.Stopped, OrderState.Idle), false)
+    }
+
+    @TestCase
+    public func testSelfLoopAndMultipleTargets(): Unit {
+        let m = BranchyMachine()
+        @Expect(m.transitionTo(OrderState.Running), true)
+        @Expect(m.transitionTo(OrderState.Running), true)
+        @Expect(m.transitionTo(OrderState.Stopped), false)
+        @Expect(m.transitionTo(OrderState.Idle), true)
+        @Expect(m.transitionTo(OrderState.Stopped), true)
+        // Stopped 没有出边：任何迁移都被拒绝且状态不变
+        @Expect(m.transitionTo(OrderState.Idle), false)
+        @Expect(BranchyMachine.stateName(m.currentState()), "Stopped")
     }
 
     @TestCase

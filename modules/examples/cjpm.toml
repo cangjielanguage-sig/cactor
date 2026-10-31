@@ -171,3 +171,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.dsl_bench"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.dsl_agent"]
+output-type = "executable"
