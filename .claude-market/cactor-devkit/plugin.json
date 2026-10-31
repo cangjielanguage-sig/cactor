@@ -1,0 +1,8 @@
+{
+  "name": "cactor-devkit",
+  "description": "CActor 仓颉 Actor 框架开发工具包：Actor 开发技能、CI 验证技能、模块分层检查 hook 与 /cactor-review 命令",
+  "version": "1.0.0",
+  "author": {
+    "name": "CActor contributors"
+  }
+}

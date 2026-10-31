@@ -1,0 +1,11 @@
+{
+  "name": "cactor-market",
+  "owner": { "name": "CActor contributors" },
+  "plugins": [
+    {
+      "name": "cactor-devkit",
+      "source": "./cactor-devkit",
+      "description": "CActor 仓颉 Actor 框架开发工具包"
+    }
+  ]
+}

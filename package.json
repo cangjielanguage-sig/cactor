@@ -1,0 +1,16 @@
+{
+  "name": "cactor-devkit-pi",
+  "version": "1.0.0",
+  "description": "CActor 仓颉 Actor 框架的 Pi 开发包：分层检查/构建/测试工具、/cactor-ci 与 /cactor-review 命令、.cj 编辑分层防护",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "pi": {
+    "extensions": ["./.pi/extensions/cactor-devkit.ts"],
+    "skills": ["./.pi/skills"],
+    "prompts": ["./.pi/prompts/*.md"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

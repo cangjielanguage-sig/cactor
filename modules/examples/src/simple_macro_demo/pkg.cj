@@ -1,2 +1,0 @@
-package cactor_examples.simple_macro_demo
-

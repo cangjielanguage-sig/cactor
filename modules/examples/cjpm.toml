@@ -34,27 +34,6 @@ output-type = "executable"
 [package.package-configuration."cactor_examples.enhanced_typed_actor_demo"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.macro_test_demo"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.comprehensive_macro_test"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.real_macro_test"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.enhanced_actor_test"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.true_actor_macro_test"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.typed_actor_test"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.comprehensive_improvement_test"]
-output-type = "executable"
-
 [package.package-configuration."cactor_examples.hello_world_demo"]
 output-type = "executable"
 
@@ -124,9 +103,6 @@ output-type = "executable"
 [package.package-configuration."cactor_examples.monitoring_demo"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.simple_macro_demo"]
-output-type = "executable"
-
 [package.package-configuration."cactor_examples.simple_serialization_demo"]
 output-type = "executable"
 
@@ -152,4 +128,34 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.cluster_crash_node"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best01_hello_typed"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best02_ask_roundtrip"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best03_supervision_tree"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best04_state_machine"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best05_backpressure"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best06_receptionist_pool"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best07_event_sourced_account"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best08_remote_nodes"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best09_cluster_sharding"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.best10_agent_workflow"]
 output-type = "executable"

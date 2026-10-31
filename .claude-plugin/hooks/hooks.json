@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PROJECT_DIR}\" && python3 tools/check_module_deps.py 2>&1 | tail -5 || echo '⚠️ 模块依赖分层检查失败：CActor 依赖只能自底向上（见 CLAUDE.md）'"
+          }
+        ]
+      }
+    ]
+  }
+}
