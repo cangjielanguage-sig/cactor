@@ -165,6 +165,9 @@ class CellMailbox {
     // incoming 中的消息数：消费方释放调度权后不加锁检查"是否还有消息"，
     // 与发送方"入队后读调度标志"组成 Dekker 式配对，两侧都是全序原子操作才不会丢失唤醒
     private let incomingSize = AtomicInt64(0)
+    // 已关闭：Actor 停止后不再接受新消息。判定在锁内与入队原子完成，
+    // 否则"发送方刚检查完 terminated"与"Cell 排空邮箱"之间的窗口会让消息滞留（不投递也不计死信）
+    private var closed: Bool = false
     // in* 只在持锁时访问
     private var inMessages = Array<Option<Message>>()
     private var inSenders = Array<Option<String>>()
@@ -177,8 +180,12 @@ class CellMailbox {
     private var drCount: Int64 = 0
     private var drIndex: Int64 = 0
 
-    func add(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Unit {
+    /** 入队；邮箱已关闭时返回 false（消息应计为死信） */
+    func add(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Bool {
         synchronized(lock) {
+            if (closed) {
+                return false
+            }
             if (inCount == inMessages.size) {
                 growIncoming()
             }
@@ -192,6 +199,14 @@ class CellMailbox {
             }
             inCount++
             incomingSize.store(inCount)
+            true
+        }
+    }
+
+    /** 关闭邮箱：与入队在同一把锁内判定，关闭后不再接受新消息 */
+    func close(): Unit {
+        synchronized(lock) {
+            closed = true
         }
     }
 
@@ -283,11 +298,17 @@ class PriorityCellMailbox {
     private let lock = Mutex()
     private let items = ArrayList<Envelope>()
     private let size = AtomicInt64(0)
+    // 已关闭：与入队在同一把锁内判定，避免停止与并发发送之间出现滞留消息
+    private var closed: Bool = false
 
-    func add(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Unit {
+    /** 入队；邮箱已关闭时返回 false（消息应计为死信） */
+    func add(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Bool {
         let env = Envelope(message, sender, senderRef)
         let p = message.priority()
         synchronized(lock) {
+            if (closed) {
+                return false
+            }
             // 第一个 priority >= p 的位置
             var lo: Int64 = 0
             var hi: Int64 = items.size
@@ -301,6 +322,13 @@ class PriorityCellMailbox {
             }
             items.add(env, at: lo)
             size.fetchAdd(1)
+            true
+        }
+    }
+
+    func close(): Unit {
+        synchronized(lock) {
+            closed = true
         }
     }
 
@@ -464,7 +492,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             return
         }
         if (mailboxKind == MAILBOX_UNBOUNDED) {
-            mailbox.add(message, sender, senderRef)
+            // 邮箱已关闭（Actor 正在停止）：入队被拒绝，计为死信而不是滞留在邮箱里
+            if (!mailbox.add(message, sender, senderRef)) {
+                deadLetter(message)
+                return
+            }
         } else if (mailboxKind == MAILBOX_BOUNDED) {
             if (!reserveSlot()) {
                 deadLetter(message)
@@ -474,9 +506,16 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 }
                 return
             }
-            mailbox.add(message, sender, senderRef)
+            if (!mailbox.add(message, sender, senderRef)) {
+                boundedCount.fetchAdd(-1)
+                deadLetter(message)
+                return
+            }
         } else {
-            priorityMailbox.add(message, sender, senderRef)
+            if (!priorityMailbox.add(message, sender, senderRef)) {
+                deadLetter(message)
+                return
+            }
         }
         trySchedule()
     }
@@ -979,6 +1018,13 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             cellLog.warn("Actor ${pathString} postStop 失败: ${e}")
         }
         terminated.store(true)
+        // 先关闭邮箱再排空：关闭与入队在同一把锁内判定，
+        // 因此此后到达的消息一律被拒绝（计死信），不会滞留在邮箱里
+        if (mailboxKind == MAILBOX_PRIORITY) {
+            priorityMailbox.close()
+        } else {
+            mailbox.close()
+        }
         let remaining = takeSystemMessages(true)
         guardian.onCellTerminated(this)
         for (w in watchers) {
@@ -1630,14 +1676,16 @@ class DispatcherWorker {
     }
 
     private func markHungry(): Unit {
-        if (!hungry.load()) {
-            hungry.store(true)
+        // 用 CAS 做状态转移：只有真正从 false 变 true 的那次才计数，
+        // 否则"置位与计数"之间被捐赠线程抢先清位时，hungryCount 会永久偏大，
+        // 忙线程每次运行前都会白跑一次捐赠扫描（取出一个 Cell 再放回队列，热路径上多两次原子操作）
+        if (hungry.compareAndSwap(false, true)) {
             dispatcher.hungryCount.fetchAdd(1)
         }
     }
 
     private func clearHungry(): Unit {
-        if (hungry.load() && hungry.compareAndSwap(true, false)) {
+        if (hungry.compareAndSwap(true, false)) {
             dispatcher.hungryCount.fetchAdd(-1)
         }
     }
@@ -2028,7 +2076,8 @@ public class ActorCellDispatcher <: CellExecutor {
 /**
  * 阻塞调度器：所有工作线程共享一个就绪队列（谁空闲谁取），
  * 某个 Actor 在 receive 中阻塞时，只占用一个线程，不影响默认调度器上的 Actor。
- * 线程数默认 16，可用 CACTOR_BLOCKING_THREADS 调整。
+ * 初始线程数默认 16（CACTOR_BLOCKING_THREADS）；阻塞的 Actor 超过线程数时按需扩容，
+ * 上限 CACTOR_BLOCKING_THREADS_MAX（默认 64），避免后来的 Actor 无限期排队。
  */
 class BlockingCellExecutor <: CellExecutor {
     private let lock = Mutex()
@@ -2037,9 +2086,13 @@ class BlockingCellExecutor <: CellExecutor {
     private var head: Int64 = 0
     private let started = AtomicBool(false)
     private let threads = AtomicInt64(0)
+    // 已启动的工作线程数（按需扩容时用 CAS 递增，避免多个线程同时扩容）
+    private let workers = AtomicInt64(0)
+    private let maxWorkers: Int64
 
     init() {
         this.cond = synchronized(lock) { lock.condition() }
+        this.maxWorkers = envInt("CACTOR_BLOCKING_THREADS_MAX", 64, 1)
     }
 
     public func nextAffinity(): Int64 {
@@ -2055,9 +2108,19 @@ class BlockingCellExecutor <: CellExecutor {
         if (!started.load()) {
             ensureStarted()
         }
+        var pending: Int64 = 0
         synchronized(lock) {
             queue.add(cell)
+            pending = queue.size - head
             cond.notify()
+        }
+        // 排队任务多于工作线程数（说明线程都被阻塞中的 Actor 占住）时按需扩容
+        let w = workers.load()
+        if (pending > w && w < maxWorkers && workers.compareAndSwap(w, w + 1)) {
+            spawn {
+                markActorThread()
+                workerLoop()
+            }
         }
     }
 
@@ -2069,6 +2132,7 @@ class BlockingCellExecutor <: CellExecutor {
         if (started.compareAndSwap(false, true)) {
             let n = envInt("CACTOR_BLOCKING_THREADS", 16, 1)
             threads.store(n)
+            workers.store(n)
             for (_ in 0..n) {
                 spawn {
                     markActorThread()

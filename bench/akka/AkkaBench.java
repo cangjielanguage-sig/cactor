@@ -154,7 +154,71 @@ public class AkkaBench {
         b.terminate();
     }
 
+    // ---- 规模：创建 N 个 Actor，常驻时 ping-pong，广播一条，全部停止 ----
+    // 与 CActor scale_test / scale_latency、bench/protoactor spawn 模式同口径。
+
+    static class ScaleActor extends AbstractActor {
+        final AtomicLong counter;
+        final AtomicLong stopped;
+        ScaleActor(AtomicLong c, AtomicLong s) { counter = c; stopped = s; }
+        public Receive createReceive() {
+            return receiveBuilder().matchAny(m -> counter.incrementAndGet()).build();
+        }
+        @Override public void postStop() { stopped.incrementAndGet(); }
+    }
+
+    static long usedHeap() {
+        Runtime rt = Runtime.getRuntime();
+        return rt.totalMemory() - rt.freeMemory();
+    }
+
+    static boolean boundedWait(java.util.function.BooleanSupplier c, long timeoutMs) throws InterruptedException {
+        long deadline = System.nanoTime() + timeoutMs * 1_000_000L;
+        while (!c.getAsBoolean()) {
+            if (System.nanoTime() > deadline) { return false; }
+            Thread.sleep(1);
+        }
+        return true;
+    }
+
+    static void scale(ActorSystem sys, long n) throws Exception {
+        AtomicLong counter = new AtomicLong();
+        AtomicLong stopped = new AtomicLong();
+        Props props = Props.create(ScaleActor.class, () -> new ScaleActor(counter, stopped));
+        ActorRef[] refs = new ActorRef[(int) n];
+        System.gc();
+        long heap0 = usedHeap();
+        long t0 = System.nanoTime();
+        for (int i = 0; i < n; i++) { refs[i] = sys.actorOf(props); }
+        long created = System.nanoTime() - t0;
+        System.out.printf("[7] 规模 %d Actor：创建 %dms（%d 个/秒）%n", n, created / 1_000_000, n * 1_000_000_000L / created);
+
+        pingPong(sys, 5000);
+
+        long t1 = System.nanoTime();
+        for (ActorRef r : refs) { r.tell("hi", ActorRef.noSender()); }
+        boolean ok1 = boundedWait(() -> counter.get() >= n, 120_000);
+        long drain = System.nanoTime() - t1;
+        System.gc();
+        long heap1 = usedHeap();
+        long t2 = System.nanoTime();
+        for (ActorRef r : refs) { sys.stop(r); }
+        boolean ok2 = boundedWait(() -> stopped.get() >= n, 120_000);
+        long stopMs = (System.nanoTime() - t2) / 1_000_000;
+        System.out.printf("[7] 广播 1 条 drain：%dms（完成 %d/%d），停止：%dms（完成 %d/%d）；存活堆增量 %d 字节/Actor（含测试侧 refs 数组）%n",
+                drain / 1_000_000, counter.get(), n, stopMs, stopped.get(), n, (heap1 - heap0) / n);
+        if (!ok1 || !ok2) { System.out.println("[7] 规模测试：失败（超时）"); }
+    }
+
     public static void main(String[] args) throws Exception {
+        if (args.length > 0 && args[0].equals("spawn")) {
+            long n = args.length > 1 ? Long.parseLong(args[1]) : 1_000_000L;
+            Config cfg = ConfigFactory.parseString("akka.loglevel=WARNING").withFallback(ConfigFactory.load());
+            ActorSystem sys = ActorSystem.create("scale", cfg);
+            scale(sys, n);
+            sys.terminate();
+            System.exit(0);
+        }
         System.out.println("=== Akka 2.6.21 基准 ===");
         Config cfg = ConfigFactory.parseString("akka.loglevel=WARNING").withFallback(ConfigFactory.load());
         ActorSystem sys = ActorSystem.create("bench", cfg);

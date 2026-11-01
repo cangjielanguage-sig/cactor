@@ -221,6 +221,69 @@ func benchInProc(sys *actor.ActorSystem, clients, perClient, batch int64) {
 	fmt.Printf("[6] 多对 ping-pong：%d 对 × %d 条（批量 %d），共 %d 条，%dms → %d msg/s\n", clients, perClient, batch, total, elapsed.Milliseconds(), perSecond(total, elapsed))
 }
 
+// ---- [7] 规模：创建 N 个 Actor，常驻时 ping-pong，广播一条，全部停止 ----
+// 与 CActor scale_test / scale_latency、AkkaBench spawn 模式同口径。
+
+type scaleTick struct{}
+
+func boundedWait(cond func() bool, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for !cond() {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(time.Millisecond)
+	}
+	return true
+}
+
+func benchScale(sys *actor.ActorSystem, n int64) {
+	var counter, stopped int64
+	props := actor.PropsFromFunc(func(ctx actor.Context) {
+		switch ctx.Message().(type) {
+		case *scaleTick:
+			atomic.AddInt64(&counter, 1)
+		case *actor.Stopped:
+			atomic.AddInt64(&stopped, 1)
+		}
+	})
+	pids := make([]*actor.PID, 0, n)
+	var ms0, ms1 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&ms0)
+	t0 := time.Now()
+	for i := int64(0); i < n; i++ {
+		pids = append(pids, sys.Root.Spawn(props))
+	}
+	created := time.Since(t0)
+	fmt.Printf("[7] 规模 %d Actor：创建 %dms（%d 个/秒）\n", n, created.Milliseconds(), n*int64(time.Second)/int64(created))
+
+	// 大量 Actor 常驻时一对 ping-pong（与空系统 [3] 对照）
+	benchPingPong(sys, 5000)
+
+	t1 := time.Now()
+	msg := &scaleTick{}
+	for _, p := range pids {
+		sys.Root.Send(p, msg)
+	}
+	ok1 := boundedWait(func() bool { return atomic.LoadInt64(&counter) >= n }, 120*time.Second)
+	drain := time.Since(t1)
+	runtime.GC()
+	runtime.ReadMemStats(&ms1)
+	t2 := time.Now()
+	for _, p := range pids {
+		sys.Root.Poison(p)
+	}
+	ok2 := boundedWait(func() bool { return atomic.LoadInt64(&stopped) >= n }, 120*time.Second)
+	stop := time.Since(t2)
+	perActor := float64(ms1.HeapAlloc-ms0.HeapAlloc) / float64(n)
+	fmt.Printf("[7] 广播 1 条 drain：%dms（完成 %d/%d），停止：%dms（完成 %d/%d）；存活堆增量 %d 字节/Actor（含测试侧 PID 切片）\n",
+		drain.Milliseconds(), atomic.LoadInt64(&counter), n, stop.Milliseconds(), atomic.LoadInt64(&stopped), n, int64(perActor))
+	if !ok1 || !ok2 {
+		fmt.Println("[7] 规模测试：失败（超时）")
+	}
+}
+
 func argInt(i int, def int64) int64 {
 	if len(os.Args) > i {
 		if v, err := strconv.ParseInt(os.Args[i], 10, 64); err == nil {
@@ -246,5 +309,8 @@ func main() {
 	}
 	if mode == "all" || mode == "inproc" {
 		benchInProc(sys, argInt(2, 64), argInt(3, 100_000), 100)
+	}
+	if mode == "spawn" {
+		benchScale(sys, argInt(2, 1_000_000))
 	}
 }

@@ -121,6 +121,9 @@ output-type = "executable"
 [package.package-configuration."cactor_examples.scale_test"]
 output-type = "executable"
 
+[package.package-configuration."cactor_examples.scale_latency"]
+output-type = "executable"
+
 [package.package-configuration."cactor_examples.cluster_node"]
 output-type = "executable"
 
@@ -173,4 +176,7 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.dsl_agent"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.mem_profile"]
 output-type = "executable"
