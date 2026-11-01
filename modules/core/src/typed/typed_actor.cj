@@ -360,53 +360,68 @@ public interface TypedCancellable {
  * 行为工厂（对标 Akka Behaviors）
  */
 public struct TypedBehaviors {
+    // 下面构造行为的工厂函数标为 @Frozen：-O2 下函数体在调用方的包里展开，`SameBehavior<T>()` 等分配也在那里实例化。
+    // 否则 core 的泛型代码以别的包的类型 T 实例化时，每次分配 C<T> 都要在运行时查找实例化类型的类型信息，
+    // 实测 same() 单线程约 40ns、4 个线程并发时约 0.4µs 且互相阻塞；展开后约 20ns，不随线程数变化。
+    // 用户每处理一条消息都会调用 same() / receive() 之一，这是类型化路径上最热的分配
+
     /** 接收消息（可以使用上下文） */
+    @Frozen
     public static func receive<T>(handler: (TypedActorContext<T>, T) -> TypedBehavior<T>): TypedBehavior<T> {
         ReceiveBehavior<T>(handler)
     }
 
     /** 同时提供消息与信号处理函数 */
+    @Frozen
     public static func receive<T>(handler: (TypedActorContext<T>, T) -> TypedBehavior<T>,
         signalHandler: (TypedActorContext<T>, TypedSignal) -> TypedBehavior<T>): TypedBehavior<T> {
         SignalBehavior<T>(ReceiveBehavior<T>(handler), signalHandler)
     }
 
     /** 只关心消息本身 */
+    @Frozen
     public static func receiveMessage<T>(handler: (T) -> TypedBehavior<T>): TypedBehavior<T> {
         ReceiveBehavior<T>({ _, m => handler(m) })
     }
 
     /** Actor 启动时（在 Actor 线程中）用上下文创建真正的行为；重启时会重新执行 */
+    @Frozen
     public static func setup<T>(factory: (TypedActorContext<T>) -> TypedBehavior<T>): TypedBehavior<T> {
         DeferredBehavior<T>(factory)
     }
 
     /** 保持当前行为 */
+    @Frozen
     public static func same<T>(): TypedBehavior<T> {
         SameBehavior<T>()
     }
 
     /** 保持当前行为，并把消息计为未处理 */
+    @Frozen
     public static func unhandled<T>(): TypedBehavior<T> {
         UnhandledBehavior<T>()
     }
 
     /** 停止 Actor */
+    @Frozen
     public static func stopped<T>(): TypedBehavior<T> {
         StoppedBehavior<T>(None<() -> Unit>)
     }
 
     /** 停止 Actor，并在停止完成后执行 postStop */
+    @Frozen
     public static func stopped<T>(postStop: () -> Unit): TypedBehavior<T> {
         StoppedBehavior<T>(Some(postStop))
     }
 
     /** 接收并丢弃所有消息 */
+    @Frozen
     public static func ignore<T>(): TypedBehavior<T> {
         IgnoreBehavior<T>()
     }
 
     /** 不处理任何消息（全部计为未处理） */
+    @Frozen
     public static func empty<T>(): TypedBehavior<T> {
         EmptyBehavior<T>()
     }
@@ -437,6 +452,7 @@ public struct TypedBehaviors {
     }
 
     /** 部分接收：谓词为真时调用处理器，否则计为未处理 */
+    @Frozen
     public static func receivePartial<T>(p: (T) -> Bool, handler: (TypedActorContext<T>, T) -> TypedBehavior<T>): TypedBehavior<T> {
         PartialBehavior<T>(p, handler)
     }
@@ -452,35 +468,41 @@ public struct TypedBehaviors {
 
     // ---------- 供自定义拦截器 / 测试使用的判断 ----------
 
+    // 用 SpecialBehavior 的种类标记判断，而不是 `b is SameBehavior<T>`（原因见 SpecialBehavior）
     public static func isSame<T>(b: TypedBehavior<T>): Bool {
-        b is SameBehavior<T>
+        specialKindOf(b) == SpecialBehavior.SAME
     }
 
     public static func isUnhandled<T>(b: TypedBehavior<T>): Bool {
-        b is UnhandledBehavior<T>
+        specialKindOf(b) == SpecialBehavior.UNHANDLED
     }
 
     public static func isStopped<T>(b: TypedBehavior<T>): Bool {
-        b is StoppedBehavior<T>
+        specialKindOf(b) == SpecialBehavior.STOPPED
     }
 
     public static func isDeferred<T>(b: TypedBehavior<T>): Bool {
-        b is DeferredBehavior<T>
+        specialKindOf(b) == SpecialBehavior.DEFERRED
     }
 
     /** 展开 setup：反复执行工厂直到得到非延迟行为 */
     public static func start<T>(b: TypedBehavior<T>, ctx: TypedActorContext<T>): TypedBehavior<T> {
+        // 按种类标记分派，而不是逐个 `as DeferredBehavior<T>` / `as StartableBehavior<T>`（原因见 SpecialBehavior）：
+        // 每条消息返回的新行为绝大多数是普通行为，只做一次非泛型类检查就返回
         var current = b
-        while (let Some(d) <- (current as DeferredBehavior<T>)) {
-            current = d.factory(ctx)
+        var kind = specialKindOf(current)
+        while (kind == SpecialBehavior.DEFERRED) {
+            current = (current as DeferredBehavior<T>).getOrThrow().factory(ctx)
+            kind = specialKindOf(current)
         }
         // 监督：登记规则并展开内部行为
-        if (let Some(sb) <- (current as SupervisedBehavior<T>)) {
-            current = sb.startIn(ctx)
+        if (kind == SpecialBehavior.SUPERVISED) {
+            current = (current as SupervisedBehavior<T>).getOrThrow().startIn(ctx)
+            kind = specialKindOf(current)
         }
-        // 组合行为（信号 / 转换 / 过滤）展开其内部的 setup
-        if (let Some(w) <- (current as StartableBehavior<T>)) {
-            current = w.startIn(ctx)
+        // 组合行为（信号 / 转换 / 过滤 / 拦截）展开其内部的 setup
+        if (kind == SpecialBehavior.STARTABLE) {
+            current = (current as StartableBehavior<T>).getOrThrow().startIn(ctx)
         }
         current
     }
@@ -536,11 +558,12 @@ internal class ReceiveBehavior<T> <: TypedBehavior<T> {
 }
 
 /** 附加了信号处理函数的行为 */
-internal class SignalBehavior<T> <: TypedBehavior<T> & StartableBehavior<T> {
+internal class SignalBehavior<T> <: SpecialBehavior & TypedBehavior<T> & StartableBehavior<T> {
     private let inner: TypedBehavior<T>
     private let handler: (TypedActorContext<T>, TypedSignal) -> TypedBehavior<T>
 
     public init(inner: TypedBehavior<T>, handler: (TypedActorContext<T>, TypedSignal) -> TypedBehavior<T>) {
+        super(SpecialBehavior.STARTABLE)
         this.inner = inner
         this.handler = handler
     }
@@ -569,11 +592,42 @@ internal class SignalBehavior<T> <: TypedBehavior<T> & StartableBehavior<T> {
     }
 }
 
+/**
+ * 需要特殊处理的行为（same / unhandled / stopped / setup / 监督 / 组合行为）的非泛型基类，用种类标记区分。
+ * 每处理一条消息都要判断返回的是不是这几种行为、要不要展开。core 里的泛型代码以别的包的类型 T 实例化后，
+ * `b is SameBehavior<T>` 这类泛型类型检查实测单线程约 30ns，4 个线程并发时约 0.4µs CPU 且互相阻塞；
+ * 对非泛型基类做一次类检查再比较标记则不受影响。用户行为不继承它，标记为 0
+ */
+internal abstract class SpecialBehavior {
+    static let SAME: Int64 = 1
+    static let UNHANDLED: Int64 = 2
+    static let STOPPED: Int64 = 3
+    static let DEFERRED: Int64 = 4
+    // SupervisedBehavior
+    static let SUPERVISED: Int64 = 5
+    // 实现 StartableBehavior 的组合行为
+    static let STARTABLE: Int64 = 6
+
+    let specialKind: Int64
+
+    init(specialKind: Int64) {
+        this.specialKind = specialKind
+    }
+}
+
+func specialKindOf(b: Any): Int64 {
+    match (b) {
+        case s: SpecialBehavior => s.specialKind
+        case _ => 0
+    }
+}
+
 /** setup：启动时用上下文创建行为 */
-internal class DeferredBehavior<T> <: TypedBehavior<T> {
+internal class DeferredBehavior<T> <: SpecialBehavior & TypedBehavior<T> {
     let factory: (TypedActorContext<T>) -> TypedBehavior<T>
 
     public init(factory: (TypedActorContext<T>) -> TypedBehavior<T>) {
+        super(SpecialBehavior.DEFERRED)
         this.factory = factory
     }
 
@@ -589,7 +643,11 @@ internal class DeferredBehavior<T> <: TypedBehavior<T> {
 }
 
 /** 保持当前行为 */
-internal class SameBehavior<T> <: TypedBehavior<T> {
+internal class SameBehavior<T> <: SpecialBehavior & TypedBehavior<T> {
+    public init() {
+        super(SpecialBehavior.SAME)
+    }
+
     public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
         this
     }
@@ -600,7 +658,11 @@ internal class SameBehavior<T> <: TypedBehavior<T> {
 }
 
 /** 保持当前行为并计为未处理 */
-internal class UnhandledBehavior<T> <: TypedBehavior<T> {
+internal class UnhandledBehavior<T> <: SpecialBehavior & TypedBehavior<T> {
+    public init() {
+        super(SpecialBehavior.UNHANDLED)
+    }
+
     public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
         this
     }
@@ -611,10 +673,11 @@ internal class UnhandledBehavior<T> <: TypedBehavior<T> {
 }
 
 /** 停止 */
-internal class StoppedBehavior<T> <: TypedBehavior<T> {
+internal class StoppedBehavior<T> <: SpecialBehavior & TypedBehavior<T> {
     let postStop: Option<() -> Unit>
 
     public init(postStop: Option<() -> Unit>) {
+        super(SpecialBehavior.STOPPED)
         this.postStop = postStop
     }
 
@@ -650,11 +713,12 @@ internal class EmptyBehavior<T> <: TypedBehavior<T> {
 }
 
 /** 消息转换 */
-internal class TransformBehavior<In, T> <: TypedBehavior<In> & StartableBehavior<In> {
+internal class TransformBehavior<In, T> <: SpecialBehavior & TypedBehavior<In> & StartableBehavior<In> {
     private let inner: TypedBehavior<T>
     private let f: (In) -> T
 
     public init(inner: TypedBehavior<T>, f: (In) -> T) {
+        super(SpecialBehavior.STARTABLE)
         this.inner = inner
         this.f = f
     }
@@ -685,8 +749,8 @@ internal class TransformBehavior<In, T> <: TypedBehavior<In> & StartableBehavior
             } else {
                 SameBehavior<In>()
             }
-        } else if (let Some(s) <- (next as StoppedBehavior<T>)) {
-            StoppedBehavior<In>(s.postStop)
+        } else if (TypedBehaviors.isStopped(next)) {
+            StoppedBehavior<In>((next as StoppedBehavior<T>).getOrThrow().postStop)
         } else {
             TransformBehavior<In, T>(TypedBehaviors.start(next, ctx), f)
         }
@@ -698,11 +762,12 @@ internal class TransformBehavior<In, T> <: TypedBehavior<In> & StartableBehavior
 }
 
 /** 过滤 */
-internal class FilterBehavior<In> <: TypedBehavior<In> & StartableBehavior<In> {
+internal class FilterBehavior<In> <: SpecialBehavior & TypedBehavior<In> & StartableBehavior<In> {
     private let inner: TypedBehavior<In>
     private let p: (In) -> Bool
 
     public init(inner: TypedBehavior<In>, p: (In) -> Bool) {
+        super(SpecialBehavior.STARTABLE)
         this.inner = inner
         this.p = p
     }

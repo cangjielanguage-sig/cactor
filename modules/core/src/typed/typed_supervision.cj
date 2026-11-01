@@ -78,7 +78,7 @@ class SupervisionRule {
 /**
  * 带监督策略的行为
  */
-public class SupervisedBehavior<T> <: TypedBehavior<T> {
+public class SupervisedBehavior<T> <: SpecialBehavior & TypedBehavior<T> {
     let inner: TypedBehavior<T>
     let rules: Array<SupervisionRule>
 
@@ -87,6 +87,7 @@ public class SupervisedBehavior<T> <: TypedBehavior<T> {
     }
 
     init(inner: TypedBehavior<T>, rules: Array<SupervisionRule>) {
+        super(SpecialBehavior.SUPERVISED)
         this.inner = inner
         this.rules = rules
     }
