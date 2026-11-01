@@ -7,6 +7,27 @@
 
 ## [未发布]
 
+### ⚡ 性能（与 protoactor-go 对比，详见 docs/plan/20261031-protoactor-performance.md）
+- **多线程吞吐不再随线程数下降**：`invoke` 不再对每条消息做 `message is AutoReceivedMessage`，改为直接匹配 5 种控制消息类。
+  仓颉判断"别的包里的类是否实现某接口"在多线程并发时互相阻塞（4 线程每次约 1µs），用户消息总是命中这条慢路径。
+  多对 ping-pong（场景 6）从 1.2M 升到 33.6M msg/s，同一时间窗口内约为 protoactor-go（36.2M）的 93%，进程 CPU 基本相同
+- **类型化路径**：core 的泛型代码以用户类型实例化后，`is C<T>` 和分配 `C<T>` 都要在运行时查找类型信息，多线程时互相阻塞
+  - `TypedBehaviors.isSame / isUnhandled / isStopped / isDeferred`、`start()` 与适配器改为非泛型基类 + 种类标记，
+    监督行为与信号 / 转换 / 过滤 / 拦截行为也带标记，普通行为只做一次非泛型类检查
+  - `TypedBehaviors.receive / receiveMessage / setup / same / unhandled / stopped / ignore / empty / receivePartial` 标为 `@Frozen`：
+    `-O2` 下在调用方的包里实例化，`same()` 4 线程时每次从约 0.4µs 降到约 20ns。这些函数的实现会编译进调用方，修改后依赖方需重新编译
+- **运行时不再启动从不使用的 `DispatcherPool`**：它原来随每个运行时启动 4 个旧调度器，线程以 10–100µs 间隔空转轮询，
+  空闲时占约 11% CPU 并干扰 Actor 工作线程；去掉后空闲 CPU 约为原来的 1/8
+- **邮箱改为双缓冲数组**（与 protoactor-go 的 goring 同类）：稳态零分配，单线程每条 CPU 约 214ns → 161ns，GC 次数降为 0
+- **调度**：runNext（被本线程唤醒的 Actor 紧接着在本线程运行，往来频繁的 Actor 留在同一线程）、
+  空闲线程举手 + 忙线程捐赠 Cell 的负载均衡；默认工作线程数不超过 cgroup CPU 限额（与 Go 1.25 的 GOMAXPROCS 规则一致）；
+  查当前工作线程用 `Thread.currentThread.id`，不用 `ThreadLocal`（仓颉 `ThreadLocal.get` 多线程并发时每次阻塞数微秒）；
+  runNext 槽位可被空闲线程窃取（与 Go 同理）：某个线程卡在同一次运行里超过 100µs 时（例如 receive 里同步等待刚唤醒的 Actor），
+  空闲线程取走它 runNext 里的 Cell，两者不会互相等待
+- **基准**：`real_benchmark` 新增场景 6（多对 ping-pong，protoactor 官方写法）与场景 7（类型化多对互发），
+  输出测量窗口内每条消息的 CPU 时间；新增对照程序 `bench/protoactor`
+
+
 ### ✨ 新增（Actor DSL：docs/plan/dsl20261030.md P1–P5 全部落地）
 - **`@actor` 属性宏 + 协议清单**：`@actor[cases = [A, B]]` / `@actor[protocol = E]` 在编译期核对
   漏处理、协议漂移、重复处理器；签名支持 `onXxx(m)` / `onXxx(m, ctx)` / 返回 `Unit` 或 `MessageResult`；
@@ -45,6 +66,10 @@
 - **`@StateMachine`**：`canTransition` / `transitionTo` 改为 `(from, to)` 枚举 match，比查数组 + 字符串比较快 1.8–2.0 倍
 
 ### 🐛 修复
+- **分片的记忆实体在 receive 里同步等待 Replicator**：`ShardRegionActor` 启动 / 停止实体时调用阻塞的 `addToSet` / `removeFromSet`，
+  Replicator 与它排在同一工作线程时要等 10 秒超时，实体启动失败。改用新增的
+  `Replicator.updateAsync / addToSetAsync / removeFromSetAsync`（不等待本地生效，`modify` 的异常记录为警告）；
+  `update` 的文档注明不要在 receive 里调用
 - **`askInbox().get` 在 Actor 处理方法内阻塞会死锁**：默认亲和调度没有工作窃取，被等的 Actor 与调用方
   分在同一工作线程时互相卡住（`dsl_agent` 示例用 `CACTOR_DISPATCHER_THREADS=1` 可稳定复现）。
   现在亲和工作线程上带超时的 `get` / `tryGet` 立即抛 `IllegalStateException`；`blocking` 调度器不受限制。
