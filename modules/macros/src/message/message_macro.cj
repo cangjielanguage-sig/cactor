@@ -1,6 +1,16 @@
 /*
  * Copyright (c) 2024. All rights reserved.
  * CActor - @Message 宏（自 macros.cj 迁移，对照 docs/plan/dsl20261030.md §8.3）
+ *
+ * 生成：messageType()、二进制编解码 writeMessageFields / init(reader)、registerCodec()。
+ *
+ * 支持的字段类型（P2 增强后）：
+ *   String、Int64、Float64、Bool
+ *   Array<String>、Array<Int64>、Array<Float64>、Array<Bool>
+ *   Option<String>、Option<Int64>、Option<Float64>、Option<Bool>
+ *   HashMap<String, String>、HashMap<String, Int64>、HashMap<String, Float64>、HashMap<String, Bool>
+ *
+ * 报错：字段级错误用 diagReport 定位到具体字段（带行列），类级错误用 ASTException。
  */
 macro package cactor_macros.message
 
@@ -34,6 +44,7 @@ public macro Message(input: Tokens): Tokens {
     }
     var writes = quote()
     var reads = quote()
+    var hasError = false
     for (d in cls.body.decls) {
         match (d) {
             case f: FuncDecl where f.identifier.value == "messageType" =>
@@ -52,7 +63,13 @@ public macro Message(input: Tokens): Tokens {
                 let typeText = try {
                     v.declType.toTokens().toString().replace(" ", "")
                 } catch (e: Exception) {
-                    throw ASTException("@Message: ${className}.${fieldName} 需要显式写出类型")
+                    diagReport(
+                        DiagReportLevel.ERROR,
+                        Tokens(v.identifier),
+                        "@Message: ${className}.${fieldName} 需要显式写出类型",
+                        "例如：let ${fieldName}: String")
+                    hasError = true
+                    continue
                 }
                 var hasInit = false
                 try {
@@ -61,19 +78,23 @@ public macro Message(input: Tokens): Tokens {
                     hasInit = false
                 }
                 if (hasInit && v.keyword.kind == TokenKind.LET) {
-                    throw ASTException("@Message: ${className}.${fieldName} 是带初始值的 let 字段，反序列化时无法赋值（改为 var 或在 init 中赋值）")
+                    diagReport(
+                        DiagReportLevel.ERROR,
+                        Tokens(v.identifier),
+                        "@Message: ${className}.${fieldName} 是带初始值的 let 字段，反序列化时无法赋值",
+                        "改为 var，或在 init 中赋值")
+                    hasError = true
+                    continue
                 }
-                let suffix = match (typeText) {
-                    case "String" => "String"
-                    case "Int64" => "Int64"
-                    case "Float64" => "Float64"
-                    case "Bool" => "Bool"
-                    case "Array<String>" => "Strings"
-                    case "Array<Int64>" => "Int64s"
-                    case "Array<Float64>" => "Float64s"
-                    case "Array<Bool>" => "Bools"
-                    case _ => throw ASTException(
-                        "@Message: ${className}.${fieldName} 的类型 ${typeText} 不支持（只支持 String、Int64、Float64、Bool 及其 Array）")
+                let suffix = codecSuffixOf(typeText)
+                if (suffix.isEmpty()) {
+                    diagReport(
+                        DiagReportLevel.ERROR,
+                        Tokens(v.identifier),
+                        "@Message: ${className}.${fieldName} 的类型 ${typeText} 不支持",
+                        "支持：String、Int64、Float64、Bool 及其 Array，Option<T>，HashMap<String, T>")
+                    hasError = true
+                    continue
                 }
                 let fid = v.identifier
                 let writer = Token(TokenKind.IDENTIFIER, "write${suffix}")
@@ -86,6 +107,9 @@ public macro Message(input: Tokens): Tokens {
                 )
             case _ => ()
         }
+    }
+    if (hasError) {
+        throw ASTException("@Message: ${className} 存在不受支持的字段（详见上方诊断）")
     }
     let codecId = Token(TokenKind.IDENTIFIER, "${className}MessageCodec")
     let classId = cls.identifier
@@ -136,4 +160,32 @@ public macro Message(input: Tokens): Tokens {
         $(cls.toTokens())
         $codec
     )
+}
+
+/**
+ * 字段类型 → 编解码方法后缀。
+ * 例：Option<String> → OptionString（writeOptionString / readOptionString）；
+ *     HashMap<String, Int64> → Int64Map（writeInt64Map / readInt64Map）。
+ * 不支持的类型返回空串（由调用方报错）。
+ */
+func codecSuffixOf(typeText: String): String {
+    match (typeText) {
+        case "String" => "String"
+        case "Int64" => "Int64"
+        case "Float64" => "Float64"
+        case "Bool" => "Bool"
+        case "Array<String>" => "Strings"
+        case "Array<Int64>" => "Int64s"
+        case "Array<Float64>" => "Float64s"
+        case "Array<Bool>" => "Bools"
+        case "Option<String>" => "OptionString"
+        case "Option<Int64>" => "OptionInt64"
+        case "Option<Float64>" => "OptionFloat64"
+        case "Option<Bool>" => "OptionBool"
+        case "HashMap<String,String>" => "StringMap"
+        case "HashMap<String,Int64>" => "Int64Map"
+        case "HashMap<String,Float64>" => "Float64Map"
+        case "HashMap<String,Bool>" => "BoolMap"
+        case _ => ""
+    }
 }

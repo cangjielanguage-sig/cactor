@@ -26,10 +26,10 @@
 
 | 领域 | 状态 | 依据 |
 |---|---|---|
-| 运行时 | ✅ 每个 Actor 一个侵入式 MPSC 邮箱；亲和调度 + 侵入式就绪队列；独立系统消息队列；阻塞调度器；吞吐参数可配置 | `runtime/guardian/actor_cell.cj` |
+| 运行时 | ✅ 每个 Actor 一个双缓冲数组邮箱（稳态零分配）；亲和调度 + 侵入式就绪队列 + runNext + 空闲线程捐赠；线程数不超过 cgroup 限额；独立系统消息队列；阻塞调度器；吞吐参数可配置 | `runtime/guardian/actor_cell.cj` |
 | 经典 API 语义（R1） | ✅ 监督树（父停子、Escalate、OneForAll）、watch / Terminated、become、定时器、Stash、接收超时、PoisonPill / Kill、Props 生效、按路径查找、死信订阅 | `semantics_test.cj` 33 个用例 |
 | 类型化 API（R2） | ✅ 运行在经典 Cell 上；setup / receive / supervise / withTimers / withStash / ask / messageAdapter / pipeToSelf / Receptionist（单机） | `typed_semantics_test.cj` 28 个用例 |
-| DSL | 🟡 `@actorReceive` 宏、`<<` 运算符、时间字面量可用；其余 20 个宏基本原样返回输入 | `macros/src/macros.cj` |
+| DSL | ✅ `@actor`（协议清单编译期核对，`@actorReceive` 为兼容别名）、`@Message`（编解码 + 注册）、`@StateMachine`（转换表 + 穷尽检查）；`Behaviors` 门面、`askInbox`、流管道 `\|>`；`<<` 运算符、时间字面量；占位宏已删除 | `macros/src/`、`core/src/dsl/`、`docs/dsl.md` |
 | 远程 | 🟡 基于 std.net 的 TCP，写线程合并写、批量解析；至多一次投递；没有远程 ask / watch、序列化注册和版本 | `foundation/network/transport.cj`、`remote/simple_remote.cj` |
 | 持久化 | 🟡 文件事件日志、快照、`EventSourcedActor`；没有存储插件接口；CQRS 部分是简化实现 | `persistence/` |
 | 集群 | 🟠 Phi Accrual 故障检测器和 5 种 CRDT 真实可用；成员协议、Singleton 都没有；分片和集群路由是原型（如轮询“总是选择第一个目标”） | `cluster/detector`、`cluster/ddata`、`cluster_routing.cj` |
@@ -55,7 +55,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 按对后续工作的阻碍程度排序：
 
 1. **重复实现和死代码太多，API 面过大。**
-   - 库代码（不含 tests / examples）约 64,500 行，其中 `cactor_runtime` 约 17,400 行、1,142 个公开声明，但消息主路径只经过 `guardian/actor_cell.cj`（`CellMailbox` / `PriorityCellMailbox` / `ActorCellDispatcher`）。`CActorRuntime` 仍在构造 `HighPerformanceActorSystem`、`SimpleActorSystem`、`DispatcherPool` 以及邮箱 / 调度器工厂等旧组件，它们不参与消息投递。
+   - 库代码（不含 tests / examples）约 64,500 行，其中 `cactor_runtime` 约 17,400 行、1,142 个公开声明，但消息主路径只经过 `guardian/actor_cell.cj`（`CellMailbox` / `PriorityCellMailbox` / `ActorCellDispatcher`）。`CActorRuntime` 仍在构造 `HighPerformanceActorSystem`、`SimpleActorSystem` 以及邮箱 / 调度器工厂等旧组件，它们不参与消息投递（2026-10-31 起不再构造 `DispatcherPool`：它从不接收任务，却一直轮询，空闲时占约 11% CPU）。
    - 调度器有 8 个子包（work_stealing、adaptive、optimized、dynamic、advanced、batch_processing……），邮箱有 6 个子包，加起来 30 多个类，都没有接入主路径；`runtime.message`、`runtime.execution`、`runtime.scheduler`、`dispatcher.batch_processing`、`mailbox.ringbuffer`、`mailbox.queue` 在仓库中没有任何引用。
    - 13 个 `placeholder.cj`；库代码中约 390 处“简化”标注。
    - 库模块合计约 3,300 个公开声明（统计口径见 20261029 §2），目标是 2.0.0 时降到 1,000 以下。
@@ -98,7 +98,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 ### 4.1 删除与合并
 
-- [ ] **runtime 瘦身**：先解除 `CActorRuntime` 对旧组件（`HighPerformanceActorSystem`、`SimpleActorSystem`、`DispatcherPool`、`AdvancedMailboxFactory`、`AdvancedDispatcherFactory`）的依赖；再删除未接入主路径的调度器（work_stealing、adaptive、optimized、dynamic、advanced、batch_processing、monitoring 中的重复实现）和邮箱（lockfree、ringbuffer、queue、advanced、batching、factory），只保留 `ActorCellDispatcher`、阻塞调度器和 `CellMailbox` 的 unbounded / bounded / priority 三种；删除无引用的 `runtime.message`、`runtime.execution`、`runtime.scheduler`。删除前逐个确认 tests / examples 中的引用，有对应语义测试的保留测试、改到主路径上。
+- [ ] **runtime 瘦身**：先解除 `CActorRuntime` 对旧组件（`HighPerformanceActorSystem`、`SimpleActorSystem`、`AdvancedMailboxFactory`、`AdvancedDispatcherFactory`；`DispatcherPool` 已解除）的依赖；再删除未接入主路径的调度器（work_stealing、adaptive、optimized、dynamic、advanced、batch_processing、monitoring 中的重复实现）和邮箱（lockfree、ringbuffer、queue、advanced、batching、factory），只保留 `ActorCellDispatcher`、阻塞调度器和 `CellMailbox` 的 unbounded / bounded / priority 三种；删除无引用的 `runtime.message`、`runtime.execution`、`runtime.scheduler`。删除前逐个确认 tests / examples 中的引用，有对应语义测试的保留测试、改到主路径上。
 - [ ] **ActorSystem 收敛**：只保留 `CActorRuntime` + `CActorSystem`；`SimpleActorSystem`、`HighPerformanceActorSystem`、`CActorSystemBuilder`、`ActorSystemExtensions.create*` 转调或删除。
 - [ ] **删除 13 个 `placeholder.cj`**，以及没有真实逻辑的“简化”实现：要么实现，要么删除，不再保留只返回固定值的代码。库代码中“简化”标注降到 50 处以下。
 - [ ] **日志只留一套**：以 `foundation.logging` 为准（已被 72 个文件使用），把 `foundation.log` 中的后端抽象和 `LoggerFactory` 合并进去后删除 `foundation.log`；`integration.logging` 改为在其之上的适配器或删除。补结构化字段 / MDC。
@@ -141,7 +141,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 - [ ] 单一入口 `actorSystem("name") { s => s.install(...) }`；旧入口（`CActor.system`、各种 Factory / Builder）转调新 API 并标记废弃。
 - [ ] 创建与通信收敛为 `spawn` / `props` / `<<` / `ask`；`TypedBehavior` 构建器。
-- [ ] `@Actor` 宏（在 `@actorReceive` 基础上，同一消息类型多个处理方法时编译期报错）；`@Message` 宏（生成 `messageType`、编解码器并自动注册）。删除其余原样返回输入的宏。
+- [x] `@actor` 宏（在 `@actorReceive` 基础上，同一消息类型多个处理方法、协议清单漏处理/漂移时编译期报错）；`@Message` 宏（生成 `messageType`、编解码器并自动注册）。删除其余原样返回输入的宏。
 - [ ] `testActorSystem`（`cactor_testkit`）。
 - [ ] 类型化 API 补齐：行为拦截器（Interceptor）；Akka Typed 聊天室示例。
 - **验收**：hello world、计数器、请求-应答示例的代码行数比 1.2.0 减少 ≥ 40%；文档给出“经典写法 / DSL 写法”对照。
@@ -165,7 +165,10 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 ### 6.1 性能（R4 剩余项 + P5）
 
-- [ ] **扇出**：发送方批量提交、减少每条消息的原子操作；空闲线程工作窃取。目标：与 Akka 的差距从约 3 倍缩小到 1.5 倍以内，负载不均时吞吐不下降。
+- [x] **多线程负扩展**（2026-10-31，[20261031-protoactor-performance.md](docs/plan/20261031-protoactor-performance.md)）：控制消息按具体类匹配、类型化特殊行为用种类标记、运行时不再启动 `DispatcherPool`、双缓冲邮箱、runNext 与捐赠。多对 ping-pong 约为 protoactor-go 的 93%。
+- [ ] **扇出**：发送方批量提交、减少每条消息的原子操作；空闲线程工作窃取。目标：与 Akka 的差距从约 3 倍缩小到 1.5 倍以内，负载不均时吞吐不下降。外部线程扇出目前约为 protoactor-go 的 1/3：每次运行只处理 3–4 条，调度与跨核缓存传递占大头。
+- [ ] **外部线程发送**：单发送方每次 tell 约 235ns（protoactor-go 约 120ns）；单线程同样步骤只要约 37ns，多出的部分是消费方频繁交换缓冲区造成的跨核缓存传递。考虑把 incoming 计数与调度标志合并为一个状态字，减少双方共同写的缓存行。
+- [ ] **类型化路径**：每条消息在 core 泛型代码里分配一次 `TypedEnvelope<T>`（多线程时争用）。评估协议类型是 `Message` 时免信封，或提供按具体类型实例化的发送入口。
 - [ ] **规模**：100 万个 Actor 的创建速度和每个 Actor 的内存，目标 < 1 KB / Actor。
 - [ ] **编译**：评估 `--lto=thin` 和 PGO。
 - [ ] **Native HTTP/1.1 引擎**（P5）：先做 stdx 瓶颈分析，再实现零拷贝解析、接入层反压、对象池、Date 缓存。验收线：同等 CPU 下 plaintext / JSON / 路由 / ask 场景 ≥ Akka HTTP；挑战线：每核 ≥ actix-web 的 50%；模糊测试连续 1 小时无崩溃。达到验收线之前不切换默认引擎。
@@ -221,7 +224,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 - **持久化查询**：按 tag 读事件流。
 - **追踪**：OpenTelemetry 兼容的上下文随消息传播。
 - **虚拟 Actor**：Orleans 风格的按需激活与空闲回收。
-- **状态机**：XState 模块与 Actor、DSL 整合（`@StateMachine` 或枚举状态 + 转换表），清理 `features`、`enterprise` 中的占位。
+- **状态机**：XState 模块与 Actor、DSL 整合（`@StateMachine` 宏已可用：枚举状态 + 转换表 + guard/action 骨架，转换表可喂给 xstate `StateMachineBuilder`），清理 `features`、`enterprise` 中的占位。
 
 ---
 

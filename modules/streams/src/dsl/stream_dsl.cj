@@ -278,6 +278,13 @@ public class StreamSink<T, R> {
     }
     
     /**
+     * 直接消费一个 Source（管道 API：Source |> Flow |> Sink 用）
+     */
+    public func consume(source: StreamSource<T>): R {
+        process(source.getElements())
+    }
+
+    /**
      * 逆向映射 - 在输入端进行转换
      */
     public func contramap<U>(mapper: (U) -> T): StreamSink<U, R> {

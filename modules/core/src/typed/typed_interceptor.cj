@@ -34,11 +34,12 @@ public class FunctionInterceptor<T> <: BehaviorInterceptor<T> {
     }
 }
 
-internal class InterceptBehavior<T> <: TypedBehavior<T> & StartableBehavior<T> {
+internal class InterceptBehavior<T> <: SpecialBehavior & TypedBehavior<T> & StartableBehavior<T> {
     private let interceptor: BehaviorInterceptor<T>
     private let inner: TypedBehavior<T>
 
     init(interceptor: BehaviorInterceptor<T>, inner: TypedBehavior<T>) {
+        super(SpecialBehavior.STARTABLE)
         this.interceptor = interceptor
         this.inner = inner
     }
@@ -161,9 +162,9 @@ extend TypedBehaviors {
 
     /** stopped 行为附带的停止回调（供测试工具执行 PostStop） */
     public static func stoppedCallback<T>(b: TypedBehavior<T>): Option<() -> Unit> {
-        match (b as StoppedBehavior<T>) {
-            case Some(s) => s.postStop
-            case None => None<() -> Unit>
+        if (!TypedBehaviors.isStopped(b)) {
+            return None<() -> Unit>
         }
+        (b as StoppedBehavior<T>).getOrThrow().postStop
     }
 }

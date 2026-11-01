@@ -20,6 +20,7 @@ import std.runtime.*
 import std.env.*
 import std.time.*
 import std.convert.*
+import std.fs.{File, exists}
 import cactor_core.actor.*
 import cactor_core.message.{Message, MessageResult, AutoReceivedMessage}
 import cactor_foundation.logging.{Logger, Logging, LogLevel}
@@ -148,75 +149,129 @@ class EscalateRequestedException <: Exception {
 // ======================= 邮箱 =======================
 
 /**
- * 无界邮箱：Vyukov 侵入式 MPSC 链表
- * - 多个发送方 wait-free 入队（一次 swap + 一次 store），节点直接保存消息和发送方，不额外分配元组
- * - 只有持有调度权的工作线程出队（由 scheduled 标志保证单消费者），因此出队无锁
+ * 无界邮箱：双缓冲数组（与 protoactor-go 的 goring 同类），稳态下不分配内存
+ * - 发送方持锁把消息追加到 incoming；消费方把本地的 draining 读空后，持锁与 incoming 整体交换，之后无锁处理整批
+ * - 不用链表的原因：仓颉的原子变量是独立的堆对象，链表每条消息至少两次分配（节点 + 原子引用）。
+ *   实测多线程下分配与 GC 不能随线程数扩展（8 线程的总吞吐与 1 线程相当），数组在稳态下零分配，可以扩展；
+ *   并且链表里已出队的节点仍指向后继，GC 压力大时会成串滞留，吞吐偶发跌到 1/10
+ * - 不用自旋锁：扇入（多发送方争用）时持锁方被抢占，其余发送方会空转，实测比 Mutex 慢 3 倍以上
+ * - 缓冲区在第一条消息到达时才分配，从未收到消息的 Actor 不占这部分内存；突发后超过阈值的缓冲区在交换时丢弃
  */
-class MailboxNode {
-    var message: Option<Message>
-    var sender: Option<String>
-    var senderRef: Option<ActorRef>
-    let next: AtomicOptionReference<MailboxNode> = AtomicOptionReference<MailboxNode>()
-    init(message: Option<Message>, sender: Option<String>, senderRef: Option<ActorRef>) {
-        this.message = message
-        this.sender = sender
-        this.senderRef = senderRef
-    }
-}
-
 class CellMailbox {
-    private let head: AtomicReference<MailboxNode>
-    private var tail: MailboxNode
+    private static let INITIAL_CAPACITY: Int64 = 8
+    private static let RETAIN_CAPACITY: Int64 = 256
 
-    init() {
-        let stub = MailboxNode(None<Message>, None<String>, None<ActorRef>)
-        this.head = AtomicReference<MailboxNode>(stub)
-        this.tail = stub
-    }
+    private let lock = Mutex()
+    // incoming 中的消息数：消费方释放调度权后不加锁检查"是否还有消息"，
+    // 与发送方"入队后读调度标志"组成 Dekker 式配对，两侧都是全序原子操作才不会丢失唤醒
+    private let incomingSize = AtomicInt64(0)
+    // in* 只在持锁时访问
+    private var inMessages = Array<Option<Message>>()
+    private var inSenders = Array<Option<String>>()
+    private var inSenderRefs = Array<Option<ActorRef>>()
+    private var inCount: Int64 = 0
+    // dr* 只由持有调度权的消费方访问
+    private var drMessages = Array<Option<Message>>()
+    private var drSenders = Array<Option<String>>()
+    private var drSenderRefs = Array<Option<ActorRef>>()
+    private var drCount: Int64 = 0
+    private var drIndex: Int64 = 0
 
     func add(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Unit {
-        let node = MailboxNode(Some(message), sender, senderRef)
-        let prev = head.swap(node)
-        prev.next.store(node)
+        synchronized(lock) {
+            if (inCount == inMessages.size) {
+                growIncoming()
+            }
+            inMessages[inCount] = Some(message)
+            // 交换来的数组在消费时已逐项清空，没有发送方时不必再写
+            if (sender.isSome()) {
+                inSenders[inCount] = sender
+            }
+            if (senderRef.isSome()) {
+                inSenderRefs[inCount] = senderRef
+            }
+            inCount++
+            incomingSize.store(inCount)
+        }
+    }
+
+    private func growIncoming(): Unit {
+        let capacity = if (inMessages.size == 0) { INITIAL_CAPACITY } else { inMessages.size * 2 }
+        let messages = Array<Option<Message>>(capacity, repeat: None<Message>)
+        let senders = Array<Option<String>>(capacity, repeat: None<String>)
+        let senderRefs = Array<Option<ActorRef>>(capacity, repeat: None<ActorRef>)
+        inMessages.copyTo(messages, 0, 0, inCount)
+        inSenders.copyTo(senders, 0, 0, inCount)
+        inSenderRefs.copyTo(senderRefs, 0, 0, inCount)
+        inMessages = messages
+        inSenders = senders
+        inSenderRefs = senderRefs
     }
 
     /** 最近一次 poll 出的消息的发送方（仅消费者使用） */
     var lastSender: Option<String> = None<String>
     var lastSenderRef: Option<ActorRef> = None<ActorRef>
 
-    /**
-     * 仅由持有调度权的线程调用；出队节点成为新的哨兵。
-     * 生产者已 swap 但尚未链接 next 时同样返回 None（此时 nonEmpty() 为 true），
-     * 由调用方稍后重试，而不是原地自旋：在 M:N 调度下，自旋可能恰好挡住那个尚未完成链接的生产者。
-     */
+    /** 仅由持有调度权的线程调用 */
     func poll(): Option<Message> {
-        match (tail.next.load()) {
-            case Some(next) =>
-                let message = next.message
-                lastSender = next.sender
-                lastSenderRef = next.senderRef
-                next.message = None<Message>
-                next.sender = None<String>
-                next.senderRef = None<ActorRef>
-                tail = next
-                message
-            case None => None<Message>
+        if (drIndex == drCount && !refill()) {
+            return None<Message>
         }
+        let i = drIndex
+        drIndex++
+        let message = drMessages[i]
+        // 逐项清空：已处理的消息不能被缓冲区继续引用（消息可能很大），交换回 incoming 时也就是干净的
+        drMessages[i] = None<Message>
+        lastSender = drSenders[i]
+        if (lastSender.isSome()) {
+            drSenders[i] = None<String>
+        }
+        lastSenderRef = drSenderRefs[i]
+        if (lastSenderRef.isSome()) {
+            drSenderRefs[i] = None<ActorRef>
+        }
+        message
+    }
+
+    /** 本地批已读完：与 incoming 交换；incoming 为空时返回 false */
+    private func refill(): Bool {
+        drIndex = 0
+        drCount = 0
+        if (incomingSize.load() == 0) {
+            return false
+        }
+        synchronized(lock) {
+            let messages = drMessages
+            let senders = drSenders
+            let senderRefs = drSenderRefs
+            drMessages = inMessages
+            drSenders = inSenders
+            drSenderRefs = inSenderRefs
+            drCount = inCount
+            if (messages.size > RETAIN_CAPACITY) {
+                // 突发留下的大缓冲区不再复用，下次入队时按初始容量重新分配
+                inMessages = Array<Option<Message>>()
+                inSenders = Array<Option<String>>()
+                inSenderRefs = Array<Option<ActorRef>>()
+            } else {
+                inMessages = messages
+                inSenders = senders
+                inSenderRefs = senderRefs
+            }
+            inCount = 0
+            incomingSize.store(0)
+        }
+        drCount > 0
     }
 
     func nonEmpty(): Bool {
-        !refEq(head.load(), tail)
+        drIndex < drCount || incomingSize.load() > 0
     }
 
-    /** 近似计数（O(n)，仅用于诊断） */
+    /** 近似计数（仅用于诊断，可从任意线程调用） */
     func count(): Int64 {
-        var n: Int64 = 0
-        var cur = tail.next.load()
-        while (let Some(node) <- cur) {
-            n++
-            cur = node.next.load()
-        }
-        n
+        let local = drCount - drIndex
+        incomingSize.load() + (if (local > 0) { local } else { 0 })
     }
 }
 
@@ -602,19 +657,16 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                         }
                         invoke(message, mailbox.lastSender, mailbox.lastSenderRef)
                         count++
-                    case None =>
-                        if (mailbox.nonEmpty()) {
-                            // 生产者正在链接节点：让出处理器给它，之后由下面的检查重新调度
-                            sleep(Duration.Zero)
-                        }
-                        break
+                    case None => break
                 }
             }
         }
         scheduled.store(false)
         // 释放调度权后再检查一次，防止与并发 tell 之间丢失唤醒
         if (hasSystemMessages() || (state == STATE_RUNNING && (userNonEmpty() || hasUnstashed()))) {
-            trySchedule()
+            if (!scheduled.load() && scheduled.compareAndSwap(false, true)) {
+                executor.executeAgain(this)
+            }
         }
     }
 
@@ -625,40 +677,41 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         currentSender = sender
         currentSenderRef = senderRef
         var payload = message
-        // 只对控制消息做具体类型匹配（普通消息只付出这一次类型检查）
-        let control = message is AutoReceivedMessage
-        if (control) {
-            match (message) {
-                case te: TimerEnvelope =>
-                    if (!timersImpl().accept(te)) {
-                        clearCurrent()
-                        return
-                    }
-                    payload = te.payload
-                    currentMessage = Some(payload)
-                case _: PoisonPill =>
-                    processedCount.fetchAdd(1)
+        // 控制消息按具体类匹配，不先做 `message is AutoReceivedMessage`：
+        // 实测仓颉判断"别的包里定义的类是否实现某接口"（结果为否时）单线程约 70ns，
+        // 4 个工作线程并发时每次约 0.8µs CPU、1µs 以上墙钟，线程之间互相阻塞（推测运行时要查全局的类型扩展信息）。
+        // 用户消息都定义在别的包，每条消息一次这样的检查曾让 4 线程的吞吐低于单线程；
+        // 按具体类匹配不争用，5 个合计约 30ns
+        match (message) {
+            case te: TimerEnvelope =>
+                if (!timersImpl().accept(te)) {
                     clearCurrent()
-                    initiateTerminate()
                     return
-                case _: StopMessage =>
-                    // system.stop：在已入队的消息之后停止，不交给用户的 receive
-                    processedCount.fetchAdd(1)
-                    clearCurrent()
-                    initiateTerminate()
-                    return
-                case _: Kill =>
-                    processedCount.fetchAdd(1)
-                    clearCurrent()
-                    handleFailure(ActorKilledException(pathString))
-                    return
-                case restart: RestartMessage =>
-                    // 兼容旧路径：guardian.restartChild / BackoffSupervisor 通过邮箱请求重启
-                    clearCurrent()
-                    doRestart(restart.getReason())
-                    return
-                case _ => ()
-            }
+                }
+                payload = te.payload
+                currentMessage = Some(payload)
+            case _: PoisonPill =>
+                processedCount.fetchAdd(1)
+                clearCurrent()
+                initiateTerminate()
+                return
+            case _: StopMessage =>
+                // system.stop：在已入队的消息之后停止，不交给用户的 receive
+                processedCount.fetchAdd(1)
+                clearCurrent()
+                initiateTerminate()
+                return
+            case _: Kill =>
+                processedCount.fetchAdd(1)
+                clearCurrent()
+                handleFailure(ActorKilledException(pathString))
+                return
+            case restart: RestartMessage =>
+                // 兼容旧路径：guardian.restartChild / BackoffSupervisor 通过邮箱请求重启
+                clearCurrent()
+                doRestart(restart.getReason())
+                return
+            case _ => ()
         }
         try {
             let result = if (behaviors.size > 0) {
@@ -1421,7 +1474,10 @@ class CellTimers <: TimerScheduler {
 
 /** Cell 执行器：默认的亲和调度池，或供阻塞 Actor 使用的共享池 */
 interface CellExecutor {
+    /** 有新消息使 Cell 变为可运行 */
     func execute(cell: SimpleUserActorRef): Unit
+    /** Cell 本次运行用完配额后仍有消息：排到队尾，让同线程的其他 Actor 先运行 */
+    func executeAgain(cell: SimpleUserActorRef): Unit
     func nextAffinity(): Int64
     func throughput(): Int64
 }
@@ -1517,17 +1573,100 @@ class RunQueue {
 }
 
 /**
- * 工作线程：独立的就绪队列 + 自旋后休眠
+ * 工作线程：独立的就绪队列 + runNext 槽位 + 自旋后休眠
+ *
+ * runNext（与 Go 调度器的 runnext 同理）：本线程上运行的 Actor 唤醒了一个空闲的 Actor 时，
+ * 被唤醒的 Actor 不去它的亲和线程，而是在本线程上紧接着运行。
+ * 一来一回的两个 Actor 因此留在同一线程，邮箱、调度标志和消息都在本核缓存里，不跨核同步，也不需要唤醒别的线程。
+ * 槽位里原有的 Actor 被挤到它自己的亲和线程，所以一个 Actor 向多个 Actor 扇出时仍然分散到各线程并行。
+ *
+ * runNext 可被窃取（与 Go 调度器窃取 runnext 同理）：Actor 在 receive 里同步等待刚唤醒的 Actor 时
+ * （例如 Replicator.update、阻塞的 ask），被等的 Actor 正排在等待者所在线程的 runNext 里，两者互相等待。
+ * 空闲线程发现某个线程的执行计数长时间不变（卡在同一次运行里）且 runNext 非空，就把它取走运行。
+ * 只放入由本线程完成，取出用原子交换，本线程与窃取方只有一方拿到。
+ *
+ * 负载均衡（工作捐赠）：就绪队列是单消费者的，空闲线程不能直接去别的队列里取（窃取需要多消费者队列）。
+ * 改为空闲线程举手（hungry），忙的线程每运行一个 Cell 前看一眼有没有人举手，有就把自己队列里的下一个 Cell 交给它。
+ * 被交出的 Actor 下次与伙伴往来时，伙伴会经 runNext 跟过来，整组 Actor 迁到空闲线程上。
  */
 class DispatcherWorker {
+    // 连续从 runNext 取 Cell 的上限：一对频繁往来的 Actor 不能一直插队，饿死队列里的其他 Actor
+    static let RUN_NEXT_LIMIT: Int64 = 16
+    // 别的线程的执行计数超过这个时长没有变化，才窃取它的 runNext：一次运行最多处理 throughput 条消息，
+    // 正常情况下远短于此；Go 只等 3µs，这里取大一些，避免空闲线程拆散正在往来的一对 Actor
+    static let RUN_NEXT_STEAL_AFTER_US: Int64 = 100
+    // 空闲线程检查别的线程的间隔：检查要读别的线程每次运行都会写的执行计数，太频繁会拖慢忙线程
+    static let STEAL_CHECK_INTERVAL_US: Int64 = 10
+
+    let dispatcher: ActorCellDispatcher
     let queue: RunQueue = RunQueue()
     let sleeping: AtomicBool = AtomicBool(false)
     let lock: Mutex = Mutex()
     let cond: Condition
     let executed: AtomicInt64 = AtomicInt64(0)
+    // 空闲、等待别的线程捐赠 Cell；由本线程置位，由本线程或捐赠方用 CAS 清除（各自负责把 hungryCount 减一）
+    let hungry: AtomicBool = AtomicBool(false)
+    let runNextSlot: AtomicOptionReference<SimpleUserActorRef> = AtomicOptionReference<SimpleUserActorRef>()
+    private var runNextStreak: Int64 = 0
+    // 空闲时观察到的别的线程的执行计数与开始观察的时刻（下标同 dispatcher.allWorkers()，只由本线程读写）
+    private var seenExecuted: Array<Int64> = Array<Int64>()
+    private var seenSince: Array<MonoTime> = Array<MonoTime>()
 
-    init() {
+    init(dispatcher: ActorCellDispatcher) {
+        this.dispatcher = dispatcher
         this.cond = synchronized(lock) { lock.condition() }
+    }
+
+    /** 只由本线程调用：放入 runNext，原有的 Cell 挤回它的亲和线程 */
+    func pushRunNext(cell: SimpleUserActorRef): Unit {
+        if (let Some(prev) <- runNextSlot.swap(Some(cell))) {
+            dispatcher.submitToAffinity(prev)
+        }
+    }
+
+    /** 只由本线程调用：排到本线程队尾 */
+    func pushLocal(cell: SimpleUserActorRef): Unit {
+        queue.add(cell)
+    }
+
+    private func markHungry(): Unit {
+        if (!hungry.load()) {
+            hungry.store(true)
+            dispatcher.hungryCount.fetchAdd(1)
+        }
+    }
+
+    private func clearHungry(): Unit {
+        if (hungry.load() && hungry.compareAndSwap(true, false)) {
+            dispatcher.hungryCount.fetchAdd(-1)
+        }
+    }
+
+    /** 有空闲线程时，把本线程队列里的下一个 Cell（不含 runNext）交给它 */
+    private func donateIfHungry(): Unit {
+        if (dispatcher.hungryCount.load() <= 0) {
+            return
+        }
+        if (let Some(cell) <- queue.remove()) {
+            if (!dispatcher.donate(cell, this)) {
+                queue.add(cell)
+            }
+        }
+    }
+
+    private func takeNext(): Option<SimpleUserActorRef> {
+        // 先读再交换：槽位空时只做一次读
+        let slot = if (runNextSlot.load().isSome()) { runNextSlot.swap(None<SimpleUserActorRef>) } else { None<SimpleUserActorRef> }
+        if (let Some(cell) <- slot) {
+            if (runNextStreak < RUN_NEXT_LIMIT) {
+                runNextStreak++
+                return Some(cell)
+            }
+            // 插队次数用完：排到队尾，先轮到队列里的其他 Actor
+            queue.add(cell)
+        }
+        runNextStreak = 0
+        queue.remove()
     }
 
     func submit(cell: SimpleUserActorRef): Unit {
@@ -1539,31 +1678,84 @@ class DispatcherWorker {
         }
     }
 
+    /**
+     * 空闲时调用：别的线程卡在同一次运行里（执行计数 RUN_NEXT_STEAL_AFTER_US 内没有变化）且 runNext 非空时，取走它的 runNext
+     */
+    private func stealStuckRunNext(now: MonoTime): Option<SimpleUserActorRef> {
+        let ws = dispatcher.allWorkers()
+        if (seenExecuted.size != ws.size) {
+            seenExecuted = Array<Int64>(ws.size, repeat: -1)
+            seenSince = Array<MonoTime>(ws.size, repeat: now)
+        }
+        for (i in 0..ws.size) {
+            let w = ws[i]
+            if (refEq(w, this) || w.runNextSlot.load().isNone()) {
+                seenExecuted[i] = -1
+                continue
+            }
+            let count = w.executed.load()
+            if (count != seenExecuted[i]) {
+                seenExecuted[i] = count
+                seenSince[i] = now
+                continue
+            }
+            if (now - seenSince[i] >= Duration.microsecond * RUN_NEXT_STEAL_AFTER_US) {
+                seenExecuted[i] = -1
+                if (let Some(cell) <- w.runNextSlot.swap(None<SimpleUserActorRef>)) {
+                    return Some(cell)
+                }
+            }
+        }
+        None<SimpleUserActorRef>
+    }
+
+    private func runCell(cell: SimpleUserActorRef): Unit {
+        donateIfHungry()
+        try {
+            cell.run()
+        } catch (e: Exception) {
+            cellLog.error("Actor Cell 执行异常: ${e}")
+        }
+        executed.fetchAdd(1)
+    }
+
     func loop(spinTime: Duration): Unit {
         var idle: Int64 = 0
         var idleSince = MonoTime.now()
+        var lastStealCheck = idleSince
+        let stealInterval = Duration.microsecond * STEAL_CHECK_INTERVAL_US
         while (true) {
-            match (queue.remove()) {
+            match (takeNext()) {
                 case Some(cell) =>
-                    idle = 0
-                    try {
-                        cell.run()
-                    } catch (e: Exception) {
-                        cellLog.error("Actor Cell 执行异常: ${e}")
+                    if (idle > 0) {
+                        idle = 0
+                        clearHungry()
                     }
-                    executed.fetchAdd(1)
+                    runCell(cell)
                 case None =>
+                    let now = MonoTime.now()
                     if (idle == 0) {
-                        idleSince = MonoTime.now()
+                        idleSince = now
+                        markHungry()
                     }
                     idle++
-                    if (MonoTime.now() - idleSince < spinTime) {
+                    if (now - lastStealCheck >= stealInterval) {
+                        lastStealCheck = now
+                        if (let Some(cell) <- stealStuckRunNext(now)) {
+                            idle = 0
+                            clearHungry()
+                            runCell(cell)
+                            continue
+                        }
+                    }
+                    if (now - idleSince < spinTime) {
                         // 按时间自旋（而不是按次数），并让出处理器：
                         // 被本线程唤醒的仓颉线程（例如 ask 的等待方）可能排在当前处理器上
                         sleep(Duration.Zero)
                         continue
                     }
-                    idle = 0
+                    // 休眠期间仍然举手；idle 保持大于 0，醒来拿到 Cell 时再清除
+                    idleSince = MonoTime.now() - spinTime
                     synchronized(lock) {
                         sleeping.store(true)
                         // 设置 sleeping 之后再检查一次，避免与 submit 之间丢失唤醒
@@ -1575,6 +1767,46 @@ class DispatcherWorker {
             }
         }
     }
+}
+
+/**
+ * 容器的 CPU 限额（向上取整的核数）；没有限额或读不到时为 None。
+ * cgroup v2 读 cpu.max（"400000 100000" 或 "max 100000"），v1 读 cpu.cfs_quota_us / cpu.cfs_period_us。
+ */
+func cgroupCpuQuota(): Option<Int64> {
+    func readText(path: String): Option<String> {
+        try {
+            if (!exists(path)) {
+                return None<String>
+            }
+            Some(String.fromUtf8(File.readFrom(path)).trimAscii())
+        } catch (_: Exception) {
+            None<String>
+        }
+    }
+    func toCpus(quota: Int64, period: Int64): Option<Int64> {
+        if (quota <= 0 || period <= 0) {
+            return None<Int64>
+        }
+        Some((quota + period - 1) / period)
+    }
+    if (let Some(text) <- readText("/sys/fs/cgroup/cpu.max")) {
+        let parts = text.split(" ", removeEmpty: true)
+        if (parts.size == 2) {
+            if (let (Some(q), Some(p)) <- (Int64.tryParse(parts[0]), Int64.tryParse(parts[1]))) {
+                return toCpus(q, p)
+            }
+        }
+        return None<Int64>
+    }
+    if (let Some(q) <- readText("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")) {
+        if (let Some(p) <- readText("/sys/fs/cgroup/cpu/cpu.cfs_period_us")) {
+            if (let (Some(qv), Some(pv)) <- (Int64.tryParse(q), Int64.tryParse(p))) {
+                return toCpus(qv, pv)
+            }
+        }
+    }
+    None<Int64>
 }
 
 func envInt(name: String, defaultValue: Int64, minValue: Int64): Int64 {
@@ -1606,6 +1838,11 @@ public class ActorCellDispatcher <: CellExecutor {
     private var workers: Array<DispatcherWorker> = Array<DispatcherWorker>()
     private let affinitySeq: AtomicInt64 = AtomicInt64(0)
     private let throughputValue: Int64
+    // 举手等待捐赠的空闲线程数（忙线程每次运行前读一次，大于 0 才去找）
+    let hungryCount: AtomicInt64 = AtomicInt64(0)
+    // 仓颉线程 id → 工作线程下标（见 currentWorker）；启动时写一次，在 ready 置位前发布
+    private var workerIds: Array<Int64> = Array<Int64>()
+    private var workerSlots: Array<Int64> = Array<Int64>()
 
     init() {
         this.throughputValue = envInt("CACTOR_DISPATCHER_THROUGHPUT", 64, 1)
@@ -1630,7 +1867,67 @@ public class ActorCellDispatcher <: CellExecutor {
         if (!ready.load()) {
             ensureStarted()
         }
+        if (let Some(w) <- currentWorker()) {
+            w.pushRunNext(cell)
+            return
+        }
+        submitToAffinity(cell)
+    }
+
+    public func executeAgain(cell: SimpleUserActorRef): Unit {
+        // 运行结束时一定在某个工作线程上：留在本线程，排到队尾
+        if (let Some(w) <- currentWorker()) {
+            w.pushLocal(cell)
+            return
+        }
+        submitToAffinity(cell)
+    }
+
+    /**
+     * 当前线程是本调度器的哪个工作线程（不是工作线程时为 None）。
+     * 不用 ThreadLocal：仓颉的 ThreadLocal.get 实测单线程约 130–330ns，多线程并发时会互相阻塞（每次数微秒），
+     * 每次调度都查一次会让多线程吞吐跌到单线程以下；Thread.currentThread.id 约 25ns 且不争用。
+     * 线程 id 到工作线程的表在启动时建好，之后只读。
+     */
+    private func currentWorker(): Option<DispatcherWorker> {
+        let ids = workerIds
+        if (ids.size == 0) {
+            return None<DispatcherWorker>
+        }
+        let id = Thread.currentThread.id
+        let mask = ids.size - 1
+        var i = id & mask
+        while (true) {
+            let key = ids[i]
+            if (key == id) {
+                return Some(workers[workerSlots[i]])
+            }
+            if (key < 0) {
+                return None<DispatcherWorker>
+            }
+            i = (i + 1) & mask
+        }
+        None<DispatcherWorker>
+    }
+
+    func allWorkers(): Array<DispatcherWorker> {
+        workers
+    }
+
+    func submitToAffinity(cell: SimpleUserActorRef): Unit {
         workers[cell.affinity % workers.size].submit(cell)
+    }
+
+    /** 把 Cell 交给一个举手的空闲线程；没有抢到返回 false */
+    func donate(cell: SimpleUserActorRef, from: DispatcherWorker): Bool {
+        for (w in workers) {
+            if (!refEq(w, from) && w.hungry.load() && w.hungry.compareAndSwap(true, false)) {
+                hungryCount.fetchAdd(-1)
+                w.submit(cell)
+                return true
+            }
+        }
+        false
     }
 
     private func ensureStarted(): Unit {
@@ -1642,16 +1939,45 @@ public class ActorCellDispatcher <: CellExecutor {
             if (n > 64) {
                 n = 64
             }
-            n = envInt("CACTOR_DISPATCHER_THREADS", n, 1)
-            let spin = Duration.microsecond * envInt("CACTOR_DISPATCHER_SPIN_US", 50, 0)
-            let ws = Array<DispatcherWorker>(n, { _ => DispatcherWorker() })
-            workers = ws
-            for (w in ws) {
-                spawn {
-                    markActorThread()
-                    w.loop(spin)
+            // 容器限额（cgroup CPU quota）小于核数时，线程数不超过限额：
+            // 超出限额的线程只会互相抢时间片、被整组限流（与 Go 1.25 起按 cgroup 设置 GOMAXPROCS 同理）
+            if (let Some(quota) <- cgroupCpuQuota()) {
+                if (n > quota) {
+                    n = quota
                 }
             }
+            n = envInt("CACTOR_DISPATCHER_THREADS", n, 1)
+            let spin = Duration.microsecond * envInt("CACTOR_DISPATCHER_SPIN_US", 50, 0)
+            let ws = Array<DispatcherWorker>(n, { _ => DispatcherWorker(this) })
+            workers = ws
+            // 开放寻址表（容量为 2 的幂且至少是线程数的 4 倍），键为仓颉线程 id，值为工作线程下标
+            var capacity: Int64 = 8
+            while (capacity < n * 4) {
+                capacity *= 2
+            }
+            let ids = Array<Int64>(capacity, repeat: -1)
+            let slots = Array<Int64>(capacity, repeat: 0)
+            for (index in 0..n) {
+                let w = ws[index]
+                let future = spawn {
+                    markActorThread()
+                    markAffinityWorkerThread()
+                    // 等线程 id 表发布后再开始运行 Cell，保证本线程上的调度都能找到自己
+                    while (!ready.load()) {
+                        sleep(Duration.Zero)
+                    }
+                    w.loop(spin)
+                }
+                let id = future.thread.id
+                var i = id & (capacity - 1)
+                while (ids[i] >= 0) {
+                    i = (i + 1) & (capacity - 1)
+                }
+                ids[i] = id
+                slots[i] = index
+            }
+            workerSlots = slots
+            workerIds = ids
             ready.store(true)
         } else {
             while (!ready.load()) {
@@ -1733,6 +2059,10 @@ class BlockingCellExecutor <: CellExecutor {
             queue.add(cell)
             cond.notify()
         }
+    }
+
+    public func executeAgain(cell: SimpleUserActorRef): Unit {
+        execute(cell)
     }
 
     private func ensureStarted(): Unit {

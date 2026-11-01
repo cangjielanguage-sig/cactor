@@ -24,6 +24,15 @@ cjpm build
 step "模块分层检查"
 python3 tools/check_module_deps.py
 
+step "宏公开面检查（A5）"
+bash tools/check_macro_surface.sh
+
+step "DSL 行数对照（A1）"
+bash tools/dsl_line_count.sh
+
+step "宏负例编译测试（A2）"
+bash tools/negative_tests.sh
+
 step "全部测试"
 log=$(mktemp)
 if ! cjpm test 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee "$log" | grep -E '^Summary|PASSED:|FAILED:|ERROR:' | tail -4; then

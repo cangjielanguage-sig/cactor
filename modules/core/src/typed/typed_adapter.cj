@@ -253,13 +253,15 @@ class TypedActorAdapter<T> <: Actor {
             }
         }
         let startedBehavior = TypedBehaviors.start(next, c)
-        if (let Some(s) <- (startedBehavior as StoppedBehavior<T>)) {
+        // 先比较种类标记，确认是 stopped 再做泛型转换（原因见 SpecialBehavior）
+        let kind = specialKindOf(startedBehavior)
+        if (kind == SpecialBehavior.STOPPED) {
             // 保留之前的行为，PostStop 信号交给它（除非 stopped 指定了回调）
             stopping = true
-            stoppedCallback = s.postStop
+            stoppedCallback = (startedBehavior as StoppedBehavior<T>).getOrThrow().postStop
             return MessageResult.Stop
         }
-        if (TypedBehaviors.isSame(startedBehavior) || TypedBehaviors.isUnhandled(startedBehavior)) {
+        if (kind == SpecialBehavior.SAME || kind == SpecialBehavior.UNHANDLED) {
             // 初始行为不能是 same / unhandled
             if (initialStart) {
                 throw IllegalStateException("初始行为不能是 same 或 unhandled")

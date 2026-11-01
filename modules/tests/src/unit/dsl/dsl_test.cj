@@ -29,6 +29,7 @@ class Shutdown <: Message {
     public func messageType(): String { "Shutdown" }
 }
 
+// 兼容别名的旧写法（不带方括号）必须继续可用
 @actorReceive
 class Greeter <: Actor {
     let rec: EventRecorder

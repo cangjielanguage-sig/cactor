@@ -17,7 +17,6 @@ import cactor_runtime.mailbox.factory.{AdvancedMailboxFactory, DefaultAdvancedMa
 import cactor_runtime.mailbox.{MailboxFactory as RuntimeMailboxFactory}
 import cactor_runtime.dispatcher.factory.{AdvancedDispatcherFactory, DefaultAdvancedDispatcherFactory}
 import cactor_runtime.system.{SimpleActorSystem}
-import cactor_runtime.dispatcher.{DispatcherPool, DispatcherPoolConfig}
 import cactor_runtime.mailbox.{MailboxFactory, MailboxConfig as RuntimeMailboxConfig}
 import cactor_core.guardian.{GuardianStats}
 import cactor_core.config.{MailboxConfig, DispatcherConfig}
@@ -52,7 +51,6 @@ public class CActorRuntime {
     private let mailboxFactory: AdvancedMailboxFactory
     private let runtimeMailboxFactory: RuntimeMailboxFactory
     private let dispatcherFactory: AdvancedDispatcherFactory
-    private let dispatcherPool: DispatcherPool
     private let highPerformanceSystem: HighPerformanceActorSystem
 
     // plan10.md新增的企业级组件
@@ -95,8 +93,6 @@ public class CActorRuntime {
         this.mailboxFactory = DefaultAdvancedMailboxFactory()
         this.runtimeMailboxFactory = RuntimeMailboxFactory(RuntimeMailboxConfig.createUnbounded())
         this.dispatcherFactory = DefaultAdvancedDispatcherFactory()
-        // 基于配置创建 DispatcherPool
-        this.dispatcherPool = DispatcherPool(DispatcherPoolConfig.createDefault())
         this.highPerformanceSystem = HighPerformanceActorSystem(config.highPerformanceConfig)
 
         // 初始化状态
@@ -120,8 +116,9 @@ public class CActorRuntime {
             // 启动高性能系统
             highPerformanceSystem.start()
 
-            // 启动 DispatcherPool 与 MailboxFactory（如需要）
-            dispatcherPool.start()
+            // Actor 由 ActorCellDispatcher 调度。这里曾经还会启动一个 DispatcherPool（4 个旧调度器），
+            // 它从不接收任务，却有多个线程以 10µs–100µs 的间隔轮询：空闲时占约 10% CPU，
+            // 并不断唤醒仓颉调度器，与 Actor 工作线程争抢处理器，所以已移除
             // MailboxFactory 在首次使用前也可启动，这里提前启动
             // 若后续改为惰性启动，可移除
             // try 启动 mailboxFactory（DefaultAdvancedMailboxFactory 并无 start，但 runtime.MailboxFactory 有）
@@ -395,12 +392,6 @@ public class CActorRuntime {
      */
     private func registerCoordinatedShutdownTasks(): Unit {
         let cs = CoordinatedShutdown.get(systemName)
-        // service-unbind: 停止 DispatcherPool
-        cs.registerTask("service-unbind", { =>
-            try { dispatcherPool.shutdown() } catch (e: Exception) {
-                runtimeLog.warn("dispatcherPool.shutdown 失败: ${e.message}")
-            }
-        })
         // service-stop: 预留调度器/定时器停止点（当前无全局 Scheduler 实例）
         cs.registerTask("service-stop", { =>
             // no-op for now

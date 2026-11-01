@@ -22,6 +22,7 @@ import cactor.api.{CActorSystem}
 import cactor_core.actor.{Actor, ActorContext, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.network.{NetworkAddress}
+import cactor_foundation.logging.{Logger, Logging}
 import cactor_remote.{SimpleRemoteManager}
 
 // ======================= 文本编码 =======================
@@ -263,6 +264,8 @@ func fnv64(s: String): UInt64 {
     h
 }
 
+let log_replicator: Logger = Logging.logger("cactor_cluster.ddata.replicator")
+
 // ======================= Replicator Actor =======================
 
 /** 本地更新请求（只在本节点内传递，不经过网络） */
@@ -389,8 +392,10 @@ class ReplicatorActor <: Actor {
         } catch (e: Exception) {
             Some(e)
         }
-        if (let Some(d) <- u.done) {
-            d.complete(result)
+        match (u.done) {
+            case Some(d) => d.complete(result)
+            // updateAsync 的调用方不等结果，异常只能记在这里
+            case None => if (let Some(e) <- result) { log_replicator.warn("更新 ${u.key} 失败: ${e}") }
         }
     }
 
@@ -651,6 +656,7 @@ public class Replicator {
     /**
      * 本地更新：key 不存在时以 initial 为当前值，modify 返回新值。
      * 等待本地生效后返回（不等待其他节点）；modify 抛出的异常传给调用方。
+     * 不要在 Actor 的 receive 里调用：同步等待 Replicator Actor 会占住当前工作线程，请用 updateAsync
      */
     public func update(key: String, initial: ReplicatedValue, modify: (ReplicatedValue) -> ReplicatedValue): Unit {
         let done = SyncSignal()
@@ -728,23 +734,49 @@ public class Replicator {
         }
     }
 
+    /**
+     * 与 update 相同，但不等待本地生效；modify 抛出的异常记录为警告，调用方收不到。
+     * Actor 在 receive 里更新时用这个版本：Replicator Actor 按顺序处理，之后经它的读写都能看到这次更新
+     */
+    public func updateAsync(key: String, initial: ReplicatedValue, modify: (ReplicatedValue) -> ReplicatedValue): Unit {
+        actor.tell(LocalUpdate(key, initial, modify, None<SyncSignal>))
+    }
+
     public func addToSet(key: String, element: String): Unit {
+        update(key, ReplicatedValue.ORSetValue(ORSet()), orSetAdd(key, element))
+    }
+
+    /** addToSet 的不等待版本（见 updateAsync） */
+    public func addToSetAsync(key: String, element: String): Unit {
+        updateAsync(key, ReplicatedValue.ORSetValue(ORSet()), orSetAdd(key, element))
+    }
+
+    public func removeFromSet(key: String, element: String): Unit {
+        update(key, ReplicatedValue.ORSetValue(ORSet()), orSetRemove(key, element))
+    }
+
+    /** removeFromSet 的不等待版本（见 updateAsync） */
+    public func removeFromSetAsync(key: String, element: String): Unit {
+        updateAsync(key, ReplicatedValue.ORSetValue(ORSet()), orSetRemove(key, element))
+    }
+
+    private func orSetAdd(key: String, element: String): (ReplicatedValue) -> ReplicatedValue {
         let node = selfNode
-        update(key, ReplicatedValue.ORSetValue(ORSet()), { v =>
+        { v =>
             match (v) {
                 case ORSetValue(s) => ReplicatedValue.ORSetValue(s.add(node, element))
                 case _ => throw IllegalArgumentException("${key} 不是 ORSet")
             }
-        })
+        }
     }
 
-    public func removeFromSet(key: String, element: String): Unit {
-        update(key, ReplicatedValue.ORSetValue(ORSet()), { v =>
+    private func orSetRemove(key: String, element: String): (ReplicatedValue) -> ReplicatedValue {
+        { v =>
             match (v) {
                 case ORSetValue(s) => ReplicatedValue.ORSetValue(s.remove(element))
                 case _ => throw IllegalArgumentException("${key} 不是 ORSet")
             }
-        })
+        }
     }
 
     /** ORSet 的元素（按字典序） */
