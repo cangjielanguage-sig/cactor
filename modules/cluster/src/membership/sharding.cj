@@ -366,7 +366,8 @@ class ShardRegionActor <: Actor {
                     shared.entityIds.remove(id)
                 }
                 if (let Some(rep) <- settings.rememberEntities) {
-                    rep.removeFromSet(rememberedEntitiesKey(typeName, shardOf(id, numberOfShards)), id)
+                    // 在 receive 里：不同步等待 Replicator（见 Replicator.updateAsync）
+                    rep.removeFromSetAsync(rememberedEntitiesKey(typeName, shardOf(id, numberOfShards)), id)
                 }
         }
     }
@@ -504,7 +505,9 @@ class ShardRegionActor <: Actor {
             case None =>
                 let r = startEntity(e.entityId, context)
                 if (let Some(rep) <- settings.rememberEntities) {
-                    rep.addToSet(rememberedEntitiesKey(typeName, shardOf(e.entityId, numberOfShards)), e.entityId)
+                    // 在 receive 里：不同步等待 Replicator。同步等待会占住当前工作线程，
+                    // Replicator 若排在同一线程上（亲和线程相同，或在本线程的 runNext 里）就要等到 10 秒超时
+                    rep.addToSetAsync(rememberedEntitiesKey(typeName, shardOf(e.entityId, numberOfShards)), e.entityId)
                 }
                 r
         }
