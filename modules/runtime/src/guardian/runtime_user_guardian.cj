@@ -30,9 +30,11 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     private let actorPathPrefix: String
     // 缓存每个子Actor的BackoffSupervisor保持重试计数
     private let backoffSupervisors: HashMap<String, BackoffSupervisor>
-    // 全部存活 Cell（含子 Actor）的路径索引，供 lookup / watch 使用
+    // 顶层 Cell 的路径索引，供 lookup / watch 使用（子 Actor 由父的 childMap 承载，lookup 按段遍历）
     private let cellsByPath: ConcurrentHashMap<String, SimpleUserActorRef> = ConcurrentHashMap<String, SimpleUserActorRef>()
     private let pathLock: Mutex = Mutex()
+    // 存活 Cell 总数（含子 Actor），O(1) 读取，替代遍历
+    private let liveCellTotal: AtomicInt64 = AtomicInt64(0)
     // 死信监听器（写时复制）
     private var deadLetterListeners: Array<(Message, String) -> Unit> = Array<(Message, String) -> Unit>()
     private let deadLetterTotal: AtomicInt64 = AtomicInt64(0)
@@ -60,7 +62,11 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         if (!isValidUserActorName(name)) {
             throw Exception("非法的用户Actor名称: ${name}")
         }
-        // 名称检查与登记在同一把锁内完成，避免并发创建同名 Actor
+        // 名称检查、构造与登记保持在同一把锁内（避免并发同名 Actor）。
+        // 试过"锁外构造、锁内登记"的并行化：仓颉的分配与 GC 不随线程数扩展
+        // （见 docs/plan/20261031-protoactor-performance.md），并行构造只增加分配争用，
+        // 实测顶层创建从 174k/s 掉到 93–124k/s，已回退。顶层创建 ≥200k/s 的目标
+        // 需要降低每 Cell 的分配成本（结构化改造），不是锁的问题。
         synchronized(guardianLock) {
             if (userActors.contains(name)) {
                 throw Exception("Actor名称已存在: ${name}")
@@ -275,8 +281,15 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
             parent, props)
         // 第一条系统消息：保证 onStarted 先于任何用户消息执行
         cell.sendSystem(SysStarted())
-        synchronized(pathLock) {
-            cellsByPath.add(path, cell)
+        if (parent.isSome()) {
+            // 子 Actor 不进全局路径表：百万级子 Actor 时每个表项（路径 String + 条目）约 150 字节，
+            // 且创建/停止都要串行过同一把 pathLock；子 Actor 由父的 childMap 承载，lookup 按段遍历
+            liveCellTotal.fetchAdd(1)
+        } else {
+            synchronized(pathLock) {
+                cellsByPath.add(path, cell)
+            }
+            liveCellTotal.fetchAdd(1)
         }
         cell
     }
@@ -296,25 +309,62 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
 
     func lookupCell(path: String): Option<SimpleUserActorRef> {
         match (cellsByPath.get(path)) {
-            case Some(c) where !c.isTerminated() => Some(c)
-            case _ => None<SimpleUserActorRef>
+            case Some(c) where !c.isTerminated() => return Some(c)
+            case _ => ()
         }
+        // 子 Actor：按路径分段从顶层向下遍历（父的 childMap 只含存活子 Actor）
+        let prefix = "${actorPathPrefix}/"
+        if (!path.startsWith(prefix)) {
+            return None<SimpleUserActorRef>
+        }
+        let segs = path[(prefix.size)..].split("/", removeEmpty: true)
+        if (segs.size == 0) {
+            return None<SimpleUserActorRef>
+        }
+        var cur: SimpleUserActorRef
+        match (cellsByPath.get("${prefix}${segs[0]}")) {
+            case Some(c) => cur = c
+            case None => return None<SimpleUserActorRef>
+        }
+        for (i in 1..segs.size) {
+            match (cur.childInternal(segs[i])) {
+                case Some(r) =>
+                    match (r as SimpleUserActorRef) {
+                        case Some(c) => cur = c
+                        case None => return None<SimpleUserActorRef>
+                    }
+                case None => return None<SimpleUserActorRef>
+            }
+        }
+        if (cur.isTerminated()) {
+            return None<SimpleUserActorRef>
+        }
+        Some(cur)
     }
 
-    /** 当前存活的全部 Actor（含子 Actor）的快照 */
+    /** 当前存活的全部 Actor（含子 Actor）的快照（诊断用，递归遍历） */
     public func liveCells(): Array<SimpleUserActorRef> {
         let result = ArrayList<SimpleUserActorRef>()
-        for ((_, c) in cellsByPath) {
-            if (!c.isTerminated()) {
-                result.add(c)
+        func collect(cell: SimpleUserActorRef): Unit {
+            if (!cell.isTerminated()) {
+                result.add(cell)
             }
+            for (r in cell.childrenInternal()) {
+                match (r as SimpleUserActorRef) {
+                    case Some(c) => collect(c)
+                    case None => ()
+                }
+            }
+        }
+        for ((_, c) in cellsByPath) {
+            collect(c)
         }
         result.toArray()
     }
 
     /** 当前存活的 Actor 总数（含子 Actor） */
     public func liveCellCount(): Int64 {
-        cellsByPath.size
+        liveCellTotal.load()
     }
 
     /** Cell 完全停止后调用：注销路径；顶层 Actor 还要从 Guardian 中移除并通知运行时 */
@@ -337,11 +387,12 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         }
         if (isActorThread()) {
             // 在 Actor 中调用 terminate：等待会等到自己，只发出停止请求
-            return synchronized(pathLock) { cellsByPath.size }
+            return liveCellTotal.load()
         }
         let deadline = MonoTime.now() + timeout
         while (true) {
-            let alive = synchronized(pathLock) { cellsByPath.size }
+            // 顶层 Cell 终止前必先等全部子 Actor 终止，所以顶层计数归零即全部停止
+            let alive = liveCellTotal.load()
             if (alive == 0) {
                 return 0
             }
@@ -355,28 +406,33 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     }
 
     func onCellTerminated(cell: SimpleUserActorRef): Unit {
+        if (cell.parentCell.isSome()) {
+            // 子 Actor 不在全局路径表（与 createCell 对应）：停止时只递减计数，
+            // 不碰 pathLock——百万级子 Actor 批量停止时，全部工作线程抢同一把锁曾是主要瓶颈
+            liveCellTotal.fetchAdd(-1)
+            return
+        }
         synchronized(pathLock) {
             match (cellsByPath.get(cell.pathString)) {
                 case Some(c) where refEq(c, cell) => cellsByPath.remove(cell.pathString)
                 case _ => ()
             }
         }
-        if (cell.parentCell.isNone()) {
-            let removed = synchronized(guardianLock) {
-                match (userActors.get(cell.getName())) {
-                    case Some(r) where r.equals(cell) =>
-                        userActors.remove(cell.getName())
-                        supervisionStrategies.remove(cell.path.toString())
-                        backoffSupervisors.remove(cell.path.toString())
-                        stopCounter.fetchAdd(1)
-                        true
-                    case _ => false
-                }
+        liveCellTotal.fetchAdd(-1)
+        let removed = synchronized(guardianLock) {
+            match (userActors.get(cell.getName())) {
+                case Some(r) where r.equals(cell) =>
+                    userActors.remove(cell.getName())
+                    supervisionStrategies.remove(cell.path.toString())
+                    backoffSupervisors.remove(cell.path.toString())
+                    stopCounter.fetchAdd(1)
+                    true
+                case _ => false
             }
-            if (removed) {
-                if (let Some(hook) <- topLevelTerminatedHook) {
-                    hook(cell)
-                }
+        }
+        if (removed) {
+            if (let Some(hook) <- topLevelTerminatedHook) {
+                hook(cell)
             }
         }
     }

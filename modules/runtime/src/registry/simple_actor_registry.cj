@@ -226,8 +226,13 @@ public class SimpleActorRegistry {
      * 从路径中提取Actor名称
      */
     private func extractActorName(path: String): String {
-        // 简化实现：直接返回路径作为名称
-        path
+        // 取路径最后一段作为名称。旧实现直接返回整条路径，导致 nameToPath 与 pathToActor
+        // 是两张同键表（白占一份索引），且 validateActorCreation 用裸名字 findByName 永远查不到
+        // → 顶层重名检测形同虚设。改为真正的末段提取后，两处语义都正确。
+        match (path.lastIndexOf("/")) {
+            case Some(i) => path[(i + 1)..]
+            case None => path
+        }
     }
     
     private func getCurrentTimeNanos(): Int64 {

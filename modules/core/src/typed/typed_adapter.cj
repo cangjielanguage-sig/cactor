@@ -18,8 +18,8 @@ import cactor_core.actor.*
 import cactor_core.message.{Message, MessageResult}
 import cactor_foundation.logging.{Logger, Logging}
 
-/** 可以取出任意类型载荷的消息（用于兼容载荷类型与目标协议是子类型关系的情况） */
-interface PayloadCarrier {
+/** 可以取出任意类型载荷的消息（TypedPayloadBox / TypedEnvelope 等载体；用于跨协议投递与测试工具） */
+public interface PayloadCarrier {
     func anyPayload(): Any
 }
 
@@ -35,6 +35,30 @@ public class TypedEnvelope<T> <: Message & PayloadCarrier {
 
     public func messageType(): String {
         "TypedEnvelope"
+    }
+
+    public func anyPayload(): Any {
+        payload
+    }
+}
+
+/**
+ * 类型化消息的非泛型载体：热路径（每次 tell）上分配它而不是 TypedEnvelope<T>。
+ *
+ * core 的泛型代码以用户包的类型 T 实例化时，分配 C<T> 或做 `is C<T>` 都要在运行时查找类型信息，
+ * 且多线程下互相阻塞（实测分配 60ns→300ns、匹配 ~30ns→0.4µs）；非泛型类没有这个成本（≈10ns）。
+ * 载荷以 Any 携带，取出时的 `as T` 由 TypedSpawn.props 在调用方包里生成的桥接闭包完成
+ * （用户包里编译的具体类型转换只需 4–10ns，见 P4-1）。
+ */
+public class TypedPayloadBox <: Message & PayloadCarrier {
+    public let payload: Any
+
+    public init(payload: Any) {
+        this.payload = payload
+    }
+
+    public func messageType(): String {
+        "TypedPayloadBox"
     }
 
     public func anyPayload(): Any {
@@ -60,18 +84,17 @@ class AdaptedEnvelope<T> <: Message {
  */
 public class ClassicTypedRef<T> <: TypedActorRef<T> {
     public let classic: ActorRef
-
     public init(classic: ActorRef) {
         this.classic = classic
     }
 
     public func tell(message: T): Unit {
-        classic.tell(TypedEnvelope<T>(message))
+        classic.tell(TypedPayloadBox(message))
     }
 
     /** 带发送方发送（接收方可以用经典上下文 reply） */
     public func tell(message: T, sender: ActorRef): Unit {
-        classic.tell(TypedEnvelope<T>(message), sender)
+        classic.tell(TypedPayloadBox(message), sender)
     }
 
     public func pathString(): String {
@@ -129,9 +152,15 @@ public struct TypedProps {
  * 把类型化行为转换为经典 Props（供系统与上下文创建 Actor）
  */
 public struct TypedSpawn {
-    public static func props<U>(behavior: TypedBehavior<U>, system: Option<TypedActorSystem>, typedProps: TypedProps): Props<Actor> {
+    /**
+     * unwrap 是"Any → Option<U>"的桥接闭包：由调用链上被 @Frozen 展开的入口（typedActorOf / ctx.actorOf）
+     * 在调用方（用户）包里创建，其中的 `any as U` 是用户包里编译的具体类型转换（4–10ns）。
+     * 传 None 时适配器退回 core 内的泛型转换（正确，但多线程下有运行时类型查找成本）。
+     */
+    public static func props<U>(behavior: TypedBehavior<U>, system: Option<TypedActorSystem>, typedProps: TypedProps,
+        unwrap: Option<(Any) -> Option<U>>): Props<Actor> {
         let rules = SupervisionRules()
-        var p = PropsFactory.create<Actor>({ => TypedActorAdapter<U>(behavior, rules, system) })
+        var p = PropsFactory.create<Actor>({ => TypedActorAdapter<U>(behavior, rules, system, unwrap) })
         p = p.withSupervisorStrategy(TypedDeciderStrategy(rules))
         if (typedProps.dispatcher != "default") {
             p = p.withDispatcher(typedProps.dispatcher)
@@ -140,6 +169,10 @@ public struct TypedSpawn {
             p = p.withBoundedMailbox(typedProps.mailboxCapacity, typedProps.overflow)
         }
         p
+    }
+
+    public static func props<U>(behavior: TypedBehavior<U>, system: Option<TypedActorSystem>, typedProps: TypedProps): Props<Actor> {
+        props<U>(behavior, system, typedProps, None<(Any) -> Option<U>>)
     }
 
     public static func props<U>(behavior: TypedBehavior<U>): Props<Actor> {
@@ -154,17 +187,25 @@ class TypedActorAdapter<T> <: Actor {
     private let initial: TypedBehavior<T>
     private let rules: SupervisionRules
     private let typedSystem: Option<TypedActorSystem>
+    // TypedPayloadBox 载荷 → T 的桥接；由 @Frozen 入口在用户包里生成（见 TypedSpawn.props），
+    // 未提供时退回 core 泛型转换（只在 core 内部创建 Actor 的场景出现）
+    private let unwrap: (Any) -> Option<T>
     private var behavior: TypedBehavior<T>
     private var ctxValue: Option<ClassicTypedContext<T>> = None<ClassicTypedContext<T>>
     private var started: Bool = false
     private var stopping: Bool = false
     private var stoppedCallback: Option<() -> Unit> = None<() -> Unit>
 
-    init(initial: TypedBehavior<T>, rules: SupervisionRules, typedSystem: Option<TypedActorSystem>) {
+    init(initial: TypedBehavior<T>, rules: SupervisionRules, typedSystem: Option<TypedActorSystem>,
+        unwrap: Option<(Any) -> Option<T>>) {
         this.initial = initial
         this.rules = rules
         this.typedSystem = typedSystem
         this.behavior = initial
+        this.unwrap = match (unwrap) {
+            case Some(f) => f
+            case None => { any => any as T }
+        }
     }
 
     public prop name: String {
@@ -208,7 +249,12 @@ class TypedActorAdapter<T> <: Actor {
             return MessageResult.Unhandled
         }
         match (message) {
-            case e: TypedEnvelope<T> => deliver(e.payload, c)
+            case p: TypedPayloadBox =>
+                // 热路径：非泛型类检查 + 用户包里编译的 `as T` 桥接（见 TypedPayloadBox 说明）
+                match (unwrap(p.payload)) {
+                    case Some(m) => deliver(m, c)
+                    case None => MessageResult.Unhandled
+                }
             case a: AdaptedEnvelope<T> => deliver(a.produce(), c)
             case t: Terminated =>
                 match (c.watchMessages.remove(t.actor.path.getPath())) {
@@ -221,14 +267,16 @@ class TypedActorAdapter<T> <: Actor {
                     case None => MessageResult.Handled
                 }
             case e: PayloadCarrier =>
-                // 载荷类型与协议类型是子类型关系（例如用 TypedActorRef<Any> 发送）
+                // 载荷类型与协议类型是子类型关系（例如用 TypedActorRef<Any> 发送），
+                // 以及旧信封 TypedEnvelope<T>（payload 在创建方包里取出成本高，这里走通用路径）
                 match (e.anyPayload() as T) {
                     case Some(m) => deliver(m, c)
                     case None => MessageResult.Unhandled
                 }
             case _ =>
-                // 经典消息：协议类型本身就是 Message 的子类型时直接处理
-                match (message as T) {
+                // 经典消息 / 协议本身就是 Message 时的直投：走用户包里编译的桥接闭包，
+                // 而不是 core 泛型代码里的 `message as T`（后者每次都要运行时查类型信息）
+                match (unwrap(message)) {
                     case Some(m) => deliver(m, c)
                     case None => MessageResult.Unhandled
                 }
@@ -348,12 +396,17 @@ class ClassicTypedContext<T> <: TypedActorContext<T> {
 
     // ---------- 子 Actor ----------
 
+    @Frozen
     public func actorOf<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U> {
         actorOf<U>(behavior, name, TypedProps())
     }
 
+    @Frozen
     public func actorOf<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps): TypedActorRef<U> {
-        let ref = classic.actorOf(TypedSpawn.props<U>(behavior, typedSystem, props), name)
+        // @Frozen：本函数体在调用方（用户）包里展开，桥接闭包里的 `any as U`
+        // 因此是用户包里的具体类型转换（4–10ns），而不是 core 泛型代码里的运行时类型查找
+        let unwrap: (Any) -> Option<U> = { any => any as U }
+        let ref = classic.actorOf(TypedSpawn.props<U>(behavior, typedSystem, props, Some(unwrap)), name)
         ClassicTypedRef<U>(ref)
     }
 

@@ -180,3 +180,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.mem_profile"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.idle_probe"]
+output-type = "executable"

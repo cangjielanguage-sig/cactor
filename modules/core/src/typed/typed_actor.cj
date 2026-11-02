@@ -110,16 +110,19 @@ public interface TypedActorContext<T> {
      * 创建类型化子 Actor（spawn 是仓颉关键字，沿用 actorOf）
      * 名称在兄弟之间唯一，否则抛出 InvalidActorNameException
      */
+    @Frozen
     func actorOf<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U> {
         throw UnsupportedContextException("actorOf")
     }
 
     /** 指定调度器 / 邮箱创建子 Actor */
+    @Frozen
     func actorOf<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps): TypedActorRef<U> {
         throw UnsupportedContextException("actorOf")
     }
 
     /** 创建自动命名的子 Actor */
+    @Frozen
     func actorOf<U>(behavior: TypedBehavior<U>): TypedActorRef<U> {
         throw UnsupportedContextException("actorOf")
     }

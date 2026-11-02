@@ -23,17 +23,17 @@ public class TypedTimerScheduler<T> {
 
     /** delay 之后向自己投递一次 message */
     public func startSingleTimer(key: String, message: T, delay: Duration): Unit {
-        classic.startSingleTimer(key, TypedEnvelope<T>(message), delay)
+        classic.startSingleTimer(key, TypedPayloadBox(message), delay)
     }
 
     /** 每次投递之间至少间隔 delay */
     public func startTimerWithFixedDelay(key: String, message: T, delay: Duration): Unit {
-        classic.startTimerWithFixedDelay(key, TypedEnvelope<T>(message), delay)
+        classic.startTimerWithFixedDelay(key, TypedPayloadBox(message), delay)
     }
 
     /** 按固定频率投递 */
     public func startTimerAtFixedRate(key: String, message: T, interval: Duration): Unit {
-        classic.startTimerAtFixedRate(key, TypedEnvelope<T>(message), interval)
+        classic.startTimerAtFixedRate(key, TypedPayloadBox(message), interval)
     }
 
     public func isTimerActive(key: String): Bool {

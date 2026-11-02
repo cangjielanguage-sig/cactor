@@ -653,9 +653,14 @@ class EffectfulContext<T> <: TypedActorContext<T> {
                     let me = this
                     let mt = ManualTimerScheduler(time, effects, { m: Message =>
                         if (me.alive) {
-                            match (m as TypedEnvelope<T>) {
-                                case Some(e) => me.run(e.payload)
-                                case None => ()
+                            // 定时器经 TypedPayloadBox / TypedEnvelope 载体投递，取载荷后按 T 处理
+                            match (m) {
+                                case c: PayloadCarrier =>
+                                    match (c.anyPayload() as T) {
+                                        case Some(t) => me.run(t)
+                                        case None => ()
+                                    }
+                                case _ => ()
                             }
                         }
                     })

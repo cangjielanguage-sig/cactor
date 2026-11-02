@@ -50,6 +50,23 @@ class SysClosed <: SysMsg {}
 /** Cell 终止后栈顶被换成这个哨兵，之后发来的系统消息按“死亡后”规则处理 */
 let SYS_CLOSED: SysNode = SysNode(SysClosed(), None<SysNode>)
 
+// schedState 状态字位定义（见 SimpleUserActorRef.schedState 说明）
+let SCHED_BIT: Int64 = 1
+let TERM_BIT: Int64 = 2
+let SCHED_COUNT_SHIFT: Int64 = 2
+// 清除调度位（bit0）的掩码：除 bit0 外全 1（仓颉整数没有按位取反运算符，用补码常量）
+let SCHED_CLEAR_MASK: Int64 = -2
+
+// 诊断计数器位域（P1-5）：processed / deadLetters / restarts / unhandled 各占 16 位。
+// 四个独立原子对象每个约 46 字节，合并后每 Actor 省下约 138 字节；
+// 16 位封顶（65535），诊断计数不需要无界精度。每次 fetchAdd 一个"预先移位好的增量"，
+// 各字段相互独立（只要不越过 65535，就不会进位污染相邻字段）。
+let CTR_FIELD_MASK: Int64 = 0xFFFF
+let CTR_PROCESSED_SHIFT: Int64 = 0
+let CTR_DEADLETTER_SHIFT: Int64 = 16
+let CTR_RESTART_SHIFT: Int64 = 32
+let CTR_UNHANDLED_SHIFT: Int64 = 48
+
 /** 标记 Actor 调度线程：系统终止时据此判断调用方是否就在某个 Actor 中 */
 let actorThreadFlag: ThreadLocal<Bool> = ThreadLocal<Bool>()
 
@@ -102,6 +119,9 @@ class SysChildTerminated <: SysMsg {
     let child: SimpleUserActorRef
     init(child: SimpleUserActorRef) { this.child = child }
 }
+
+/** 停止合批（P5-2）：一批子 Actor 全部终止的汇总信号（替代每子一条 SysChildTerminated） */
+class SysChildrenTerminated <: SysMsg {}
 
 class SysReceiveTimeout <: SysMsg {
     let generation: Int64
@@ -158,27 +178,35 @@ class EscalateRequestedException <: Exception {
  * - 缓冲区在第一条消息到达时才分配，从未收到消息的 Actor 不占这部分内存；突发后超过阈值的缓冲区在交换时丢弃
  */
 class CellMailbox {
-    private static let INITIAL_CAPACITY: Int64 = 8
+    // 初始容量 4：多数 Actor 每条消息处理完即空（drain 场景），数组越小、长期占用越少；
+    // 突发按 2× 增长，超过 RETAIN_CAPACITY 的大缓冲在换批时丢弃
+    private static let INITIAL_CAPACITY: Int64 = 4
     private static let RETAIN_CAPACITY: Int64 = 256
 
     private let lock = Mutex()
-    // incoming 中的消息数：消费方释放调度权后不加锁检查"是否还有消息"，
-    // 与发送方"入队后读调度标志"组成 Dekker 式配对，两侧都是全序原子操作才不会丢失唤醒
-    private let incomingSize = AtomicInt64(0)
+    // cell 的调度状态字（见 SimpleUserActorRef.schedState 说明）：本邮箱的 incoming 计数占用 bit2..，
+    // 由发送方在锁内 fetchAdd、消费方换批时 fetchSub。消费方释放调度权后不加锁检查"是否还有消息"，
+    // 与发送方"入队后置调度位"组成 Dekker 式配对；两侧都是同一原子字上的全序操作，不会丢失唤醒
+    private let state: AtomicInt64
     // 已关闭：Actor 停止后不再接受新消息。判定在锁内与入队原子完成，
     // 否则"发送方刚检查完 terminated"与"Cell 排空邮箱"之间的窗口会让消息滞留（不投递也不计死信）
     private var closed: Bool = false
-    // in* 只在持锁时访问
-    private var inMessages = Array<Option<Message>>()
-    private var inSenders = Array<Option<String>>()
-    private var inSenderRefs = Array<Option<ActorRef>>()
+    // in* 只在持锁时访问；首次入队时才分配（注释原先说"缓冲区在第一条消息到达时才分配"，
+    // 实测此前字段初始化就分配了 6 个空数组，每个约 79 字节，从不收消息的 Actor 白占这部分内存）
+    private var inMessages: Option<Array<Option<Message>>> = None<Array<Option<Message>>>
+    private var inSenders: Option<Array<Option<String>>> = None<Array<Option<String>>>
+    private var inSenderRefs: Option<Array<Option<ActorRef>>> = None<Array<Option<ActorRef>>>
     private var inCount: Int64 = 0
-    // dr* 只由持有调度权的消费方访问
-    private var drMessages = Array<Option<Message>>()
-    private var drSenders = Array<Option<String>>()
-    private var drSenderRefs = Array<Option<ActorRef>>()
+    // dr* 只由持有调度权的消费方访问；首次 refill 时才分配
+    private var drMessages: Option<Array<Option<Message>>> = None<Array<Option<Message>>>
+    private var drSenders: Option<Array<Option<String>>> = None<Array<Option<String>>>
+    private var drSenderRefs: Option<Array<Option<ActorRef>>> = None<Array<Option<ActorRef>>>
     private var drCount: Int64 = 0
     private var drIndex: Int64 = 0
+
+    init(state: AtomicInt64) {
+        this.state = state
+    }
 
     /** 入队；邮箱已关闭时返回 false（消息应计为死信） */
     func add(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Bool {
@@ -186,19 +214,35 @@ class CellMailbox {
             if (closed) {
                 return false
             }
-            if (inCount == inMessages.size) {
+            if (inMessages.isNone()) {
+                // 首条消息：按初始容量分配
+                inMessages = Some(Array<Option<Message>>(INITIAL_CAPACITY, repeat: None<Message>))
+            }
+            let msgs = inMessages.getOrThrow()
+            if (inCount == msgs.size) {
                 growIncoming()
             }
-            inMessages[inCount] = Some(message)
-            // 交换来的数组在消费时已逐项清空，没有发送方时不必再写
+            // Array 是引用类型：通过局部引用写入与字段里的是同一个数组
+            let slotMsgs = inMessages.getOrThrow()
+            slotMsgs[inCount] = Some(message)
+            // sender 两件套懒分配：绝大多数消息不带发送方（普通 tell），
+            // 只有第一条带发送方的消息才分配这两个数组（各约 100–140 字节）
             if (sender.isSome()) {
-                inSenders[inCount] = sender
+                if (inSenders.isNone() || inSenders.getOrThrow().size != slotMsgs.size) {
+                    inSenders = Some(Array<Option<String>>(slotMsgs.size, repeat: None<String>))
+                }
+                let slotSenders = inSenders.getOrThrow()
+                slotSenders[inCount] = sender
             }
             if (senderRef.isSome()) {
-                inSenderRefs[inCount] = senderRef
+                if (inSenderRefs.isNone() || inSenderRefs.getOrThrow().size != slotMsgs.size) {
+                    inSenderRefs = Some(Array<Option<ActorRef>>(slotMsgs.size, repeat: None<ActorRef>))
+                }
+                let slotSenderRefs = inSenderRefs.getOrThrow()
+                slotSenderRefs[inCount] = senderRef
             }
             inCount++
-            incomingSize.store(inCount)
+            state.fetchAdd(1 << SCHED_COUNT_SHIFT)
             true
         }
     }
@@ -211,16 +255,23 @@ class CellMailbox {
     }
 
     private func growIncoming(): Unit {
-        let capacity = if (inMessages.size == 0) { INITIAL_CAPACITY } else { inMessages.size * 2 }
+        let oldMsgs = inMessages.getOrThrow()
+        let old = oldMsgs.size
+        let capacity = if (old == 0) { INITIAL_CAPACITY } else { old * 2 }
         let messages = Array<Option<Message>>(capacity, repeat: None<Message>)
-        let senders = Array<Option<String>>(capacity, repeat: None<String>)
-        let senderRefs = Array<Option<ActorRef>>(capacity, repeat: None<ActorRef>)
-        inMessages.copyTo(messages, 0, 0, inCount)
-        inSenders.copyTo(senders, 0, 0, inCount)
-        inSenderRefs.copyTo(senderRefs, 0, 0, inCount)
-        inMessages = messages
-        inSenders = senders
-        inSenderRefs = senderRefs
+        oldMsgs.copyTo(messages, 0, 0, inCount)
+        inMessages = Some(messages)
+        // sender 数组可能尚未分配（从未有过带发送方的消息）；已分配则同步扩容
+        if (let Some(oldSenders) <- inSenders) {
+            let senders = Array<Option<String>>(capacity, repeat: None<String>)
+            oldSenders.copyTo(senders, 0, 0, inCount)
+            inSenders = Some(senders)
+        }
+        if (let Some(oldRefs) <- inSenderRefs) {
+            let senderRefs = Array<Option<ActorRef>>(capacity, repeat: None<ActorRef>)
+            oldRefs.copyTo(senderRefs, 0, 0, inCount)
+            inSenderRefs = Some(senderRefs)
+        }
     }
 
     /** 最近一次 poll 出的消息的发送方（仅消费者使用） */
@@ -232,18 +283,26 @@ class CellMailbox {
         if (drIndex == drCount && !refill()) {
             return None<Message>
         }
+        // refill 成功后 drMessages 必然已分配；sender 数组可能仍未分配（无发送方）
+        let msgs = drMessages.getOrThrow()
         let i = drIndex
         drIndex++
-        let message = drMessages[i]
+        let message = msgs[i]
         // 逐项清空：已处理的消息不能被缓冲区继续引用（消息可能很大），交换回 incoming 时也就是干净的
-        drMessages[i] = None<Message>
-        lastSender = drSenders[i]
-        if (lastSender.isSome()) {
-            drSenders[i] = None<String>
+        msgs[i] = None<Message>
+        lastSender = match (drSenders) {
+            case Some(senders) =>
+                let s = senders[i]
+                if (s.isSome()) { senders[i] = None<String> }
+                s
+            case None => None<String>
         }
-        lastSenderRef = drSenderRefs[i]
-        if (lastSenderRef.isSome()) {
-            drSenderRefs[i] = None<ActorRef>
+        lastSenderRef = match (drSenderRefs) {
+            case Some(senderRefs) =>
+                let r = senderRefs[i]
+                if (r.isSome()) { senderRefs[i] = None<ActorRef> }
+                r
+            case None => None<ActorRef>
         }
         message
     }
@@ -252,41 +311,55 @@ class CellMailbox {
     private func refill(): Bool {
         drIndex = 0
         drCount = 0
-        if (incomingSize.load() == 0) {
+        if ((state.load() >> SCHED_COUNT_SHIFT) == 0) {
             return false
         }
         synchronized(lock) {
-            let messages = drMessages
-            let senders = drSenders
-            let senderRefs = drSenderRefs
+            if (drMessages.isNone()) {
+                // 首次消费：准备用于交换的本地数组（先给空的，交换后即持有 incoming 的数组）
+                drMessages = Some(Array<Option<Message>>())
+                drSenders = Some(Array<Option<String>>())
+                drSenderRefs = Some(Array<Option<ActorRef>>())
+            }
+            // sender 数组可能为 None（从未有带发送方的消息）：换出的"空数组"同样用 None 表示
+            let messages = drMessages.getOrThrow()
+            let oldSenders = drSenders
+            let oldSenderRefs = drSenderRefs
             drMessages = inMessages
             drSenders = inSenders
             drSenderRefs = inSenderRefs
             drCount = inCount
             if (messages.size > RETAIN_CAPACITY) {
-                // 突发留下的大缓冲区不再复用，下次入队时按初始容量重新分配
-                inMessages = Array<Option<Message>>()
-                inSenders = Array<Option<String>>()
-                inSenderRefs = Array<Option<ActorRef>>()
+                // 突发留下的大缓冲区不再复用，下次入队时再按初始容量分配
+                inMessages = None<Array<Option<Message>>>
+                inSenders = None<Array<Option<String>>>
+                inSenderRefs = None<Array<Option<ActorRef>>>
             } else {
-                inMessages = messages
-                inSenders = senders
-                inSenderRefs = senderRefs
+                inMessages = Some(messages)
+                // 换回的空数组用 None 表示，由下一次带发送方的 add 按当前容量重新分配
+                inSenders = match (oldSenders) {
+                    case Some(a) => if (a.size > 0) { Some(a) } else { None<Array<Option<String>>> }
+                    case None => None<Array<Option<String>>>
+                }
+                inSenderRefs = match (oldSenderRefs) {
+                    case Some(a) => if (a.size > 0) { Some(a) } else { None<Array<Option<ActorRef>>> }
+                    case None => None<Array<Option<ActorRef>>>
+                }
             }
             inCount = 0
-            incomingSize.store(0)
+            state.fetchSub(drCount << SCHED_COUNT_SHIFT)
         }
         drCount > 0
     }
 
     func nonEmpty(): Bool {
-        drIndex < drCount || incomingSize.load() > 0
+        drIndex < drCount || (state.load() >> SCHED_COUNT_SHIFT) > 0
     }
 
     /** 近似计数（仅用于诊断，可从任意线程调用） */
     func count(): Int64 {
         let local = drCount - drIndex
-        incomingSize.load() + (if (local > 0) { local } else { 0 })
+        (state.load() >> SCHED_COUNT_SHIFT) + (if (local > 0) { local } else { 0 })
     }
 }
 
@@ -366,22 +439,29 @@ let MAILBOX_PRIORITY: Int64 = 2
  * 用户 Actor 的引用与执行单元（Actor Cell）
  */
 public class SimpleUserActorRef <: RunLink & ActorRef {
-    private let actorName: String
     private var actor: Actor
     private let actorFactory: () -> Actor
-    private let actorPath: ActorPath
     let pathString: String
     let guardian: RuntimeUserGuardian
     let parentCell: Option<SimpleUserActorRef>
     let childStrategy: Option<SupervisionStrategy>
     private let executor: CellExecutor
 
+    // 共享的空容器：只读路径返回它们，写路径一律先分配真实容器
+    private static let EMPTY_CHILD_MAP: HashMap<String, SimpleUserActorRef> = HashMap<String, SimpleUserActorRef>(0)
+    private static let EMPTY_WATCHING: HashMap<String, SimpleUserActorRef> = HashMap<String, SimpleUserActorRef>(0)
+    private static let EMPTY_WATCHERS: ArrayList<SimpleUserActorRef> = ArrayList<SimpleUserActorRef>(0)
+    private static let EMPTY_BEHAVIORS: ArrayList<Receive> = ArrayList<Receive>(0)
+    private static let EMPTY_STASH: ArrayList<Envelope> = ArrayList<Envelope>(0)
+    private static let EMPTY_UNSTASHED: ArrayList<Envelope> = ArrayList<Envelope>(0)
+
     // ---- 邮箱（任意线程写） ----
     private let mailbox: CellMailbox
     private let mailboxKind: Int64
     private let capacity: Int64
     private let overflow: MailboxOverflow
-    private let boundedCount: AtomicInt64
+    // 仅 MAILBOX_BOUNDED 使用：懒分配，无界/优先级邮箱（绝大多数 Actor）不占这个原子对象
+    private var boundedCountValue: Option<AtomicInt64> = None<AtomicInt64>
     private let priorityMailboxValue: Option<PriorityCellMailbox>
     // 只在 mailboxKind == MAILBOX_PRIORITY 时使用
     private prop priorityMailbox: PriorityCellMailbox {
@@ -394,23 +474,51 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     private let sysHead: AtomicOptionReference<SysNode>
 
     // ---- 调度与状态 ----
-    private let scheduled: AtomicBool
-    private let terminated: AtomicBool
-    private let processedCount: AtomicInt64
-    private let deadLetterCount: AtomicInt64
-    private let restartCount: AtomicInt64
-    private let unhandledCount: AtomicInt64
+    // 调度状态字（P2-1/P1-6：scheduled + terminated + 邮箱 incoming 计数合并为一个原子字）
+    //   bit0 = SCHED_BIT：同一时刻最多一个线程持有本 Cell 的调度权（CAS 0→1 后 execute）
+    //   bit1 = TERM_BIT：已终止（terminated 标志的镜像，热路径每条 tell 读一次）
+    //   bit2.. = 无界邮箱 incoming 计数（发送方在邮箱锁内 fetchAdd，见 CellMailbox.state）
+    // 每条 tell 由"terminated.load + incomingSize.store + scheduled.load + scheduled.CAS"
+    // （三个独立原子对象 = 三次跨核缓存行往返）减为同一字上的 1 次 load + 1 次 CAS。
+    // Dekker 配对不变且更严格：发送方"计数++ 后查/置调度位"、消费方"清调度位 后查计数"
+    // 都是同一原子字上的顺序一致操作，任一交错都不会丢失唤醒。
+    private let schedState: AtomicInt64
+    // 诊断计数器合并为一个位域原子字（见文件头的 CTR_* 定义与 P1-5）
+    private let counters: AtomicInt64
 
     // ---- 只在 Cell 线程内访问 ----
     private var state: Int64 = STATE_RUNNING
-    // 容量 0：大多数 Actor 没有子 Actor / 不监视别人，默认容量的 HashMap 每个约 900 字节
-    private let childMap: HashMap<String, SimpleUserActorRef> = HashMap<String, SimpleUserActorRef>(0)
+    // 以下容器按需分配：没有子 Actor / 不监视别人 / 没有 stash 的 Actor 不再各自分配一个空容器
+    // （实测空的 HashMap 约 280 字节、空的 ArrayList 约 96 字节，六个容器合计约 944 字节，
+    //   而绝大多数 Actor 从不使用它们）
+    private var childMapValue: Option<HashMap<String, SimpleUserActorRef>> = None<HashMap<String, SimpleUserActorRef>>
     private var anonymousSeq: Int64 = 0
-    private let watchers: ArrayList<SimpleUserActorRef> = ArrayList<SimpleUserActorRef>(0)
-    private let watching: HashMap<String, SimpleUserActorRef> = HashMap<String, SimpleUserActorRef>(0)
-    private let behaviors: ArrayList<Receive> = ArrayList<Receive>(0)
-    private let stashBuffer: ArrayList<Envelope> = ArrayList<Envelope>(0)
-    private var unstashed: ArrayList<Envelope> = ArrayList<Envelope>(0)
+    // 停止合批（P5-2）：父进入"停止整棵子树"时把子数记入 stoppingChildren 并置 childBatchStopping；
+    // 每个子终止恰好把计数减 1，减到 0 的那一方让父收尾。这样百万子 Actor 不必各发一条
+    // SysChildTerminated 在父的 sysHead 上做百万次 CAS 争用与百万次 childMap.remove。
+    // 懒分配：只有真正进入"停止有子 Actor 的子树"时才创建这两个原子对象，
+    // 叶 Actor（绝大多数）不为它们付费。childBatchStopping 用 AtomicInt64（0/1）而非 AtomicBool，
+    // 与 stoppingChildren 同生命周期，避免多一个对象。
+    private var stoppingChildrenValue: Option<AtomicInt64> = None<AtomicInt64>
+    private var childBatchStoppingValue: Option<AtomicInt64> = None<AtomicInt64>
+    private prop stoppingChildren: AtomicInt64 {
+        get() { stoppingChildrenValue.getOrThrow() }
+    }
+    private prop childBatchStopping: AtomicInt64 {
+        get() { childBatchStoppingValue.getOrThrow() }
+    }
+    /** 子侧读父的合批标志：父未分配即视为未合批（返回 false） */
+    private func batchStopping(): Bool {
+        match (childBatchStoppingValue) {
+            case Some(f) => f.load() != 0
+            case None => false
+        }
+    }
+    private var watchersValue: Option<ArrayList<SimpleUserActorRef>> = None<ArrayList<SimpleUserActorRef>>
+    private var watchingValue: Option<HashMap<String, SimpleUserActorRef>> = None<HashMap<String, SimpleUserActorRef>>
+    private var behaviorsValue: Option<ArrayList<Receive>> = None<ArrayList<Receive>>
+    private var stashBufferValue: Option<ArrayList<Envelope>> = None<ArrayList<Envelope>>
+    private var unstashedValue: Option<ArrayList<Envelope>> = None<ArrayList<Envelope>>
     private var unstashIndex: Int64 = 0
     private var currentMessage: Option<Message> = None<Message>
     private var currentSender: Option<String> = None<String>
@@ -421,6 +529,115 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     private var receiveTimeoutTimer: Option<Timer> = None<Timer>
     private var cellTimersValue: Option<CellTimers> = None<CellTimers>
     private var contextValue: Option<CellContext> = None<CellContext>
+
+
+    // ---- 按需容器的访问器 ----
+    // 只读：没有容器时返回共享的空容器（只读，不会被修改）
+    private func childMap(): HashMap<String, SimpleUserActorRef> {
+        match (childMapValue) {
+            case Some(m) => m
+            case None => EMPTY_CHILD_MAP
+        }
+    }
+
+    // 写：首次写入时才分配真实容器
+    private func childMapMut(): HashMap<String, SimpleUserActorRef> {
+        match (childMapValue) {
+            case Some(m) => m
+            case None =>
+                let m = HashMap<String, SimpleUserActorRef>(4)
+                childMapValue = Some(m)
+                m
+        }
+    }
+
+    private func watchers(): ArrayList<SimpleUserActorRef> {
+        match (watchersValue) {
+            case Some(l) => l
+            case None => EMPTY_WATCHERS
+        }
+    }
+
+    private func watchersMut(): ArrayList<SimpleUserActorRef> {
+        match (watchersValue) {
+            case Some(l) => l
+            case None =>
+                let l = ArrayList<SimpleUserActorRef>(0)
+                watchersValue = Some(l)
+                l
+        }
+    }
+
+    private func watching(): HashMap<String, SimpleUserActorRef> {
+        match (watchingValue) {
+            case Some(m) => m
+            case None => EMPTY_WATCHING
+        }
+    }
+
+    private func watchingMut(): HashMap<String, SimpleUserActorRef> {
+        match (watchingValue) {
+            case Some(m) => m
+            case None =>
+                let m = HashMap<String, SimpleUserActorRef>(4)
+                watchingValue = Some(m)
+                m
+        }
+    }
+
+    private func behaviors(): ArrayList<Receive> {
+        match (behaviorsValue) {
+            case Some(l) => l
+            case None => EMPTY_BEHAVIORS
+        }
+    }
+
+    private func behaviorsMut(): ArrayList<Receive> {
+        match (behaviorsValue) {
+            case Some(l) => l
+            case None =>
+                let l = ArrayList<Receive>(0)
+                behaviorsValue = Some(l)
+                l
+        }
+    }
+
+    private func stashBuffer(): ArrayList<Envelope> {
+        match (stashBufferValue) {
+            case Some(l) => l
+            case None => EMPTY_STASH
+        }
+    }
+
+    private func stashBufferMut(): ArrayList<Envelope> {
+        match (stashBufferValue) {
+            case Some(l) => l
+            case None =>
+                let l = ArrayList<Envelope>(0)
+                stashBufferValue = Some(l)
+                l
+        }
+    }
+
+    private func unstashed(): ArrayList<Envelope> {
+        match (unstashedValue) {
+            case Some(l) => l
+            case None => EMPTY_UNSTASHED
+        }
+    }
+
+    private func unstashedMut(): ArrayList<Envelope> {
+        match (unstashedValue) {
+            case Some(l) => l
+            case None =>
+                let l = ArrayList<Envelope>(0)
+                unstashedValue = Some(l)
+                l
+        }
+    }
+
+    // path 属性按需构造时使用的 system 名（与 createCell 构造 ActorPath 时一致）
+    private static let actorPathSystem: String = "user-system"
 
     /** 固定分配到的工作线程（亲和调度） */
     let affinity: Int64
@@ -435,17 +652,16 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     init(name: String, actor: Actor, factory: () -> Actor, path: ActorPath, guardian: RuntimeUserGuardian,
         parent: Option<SimpleUserActorRef>, props: Props<Actor>) {
-        this.actorName = name
         this.actor = actor
         this.actorFactory = factory
-        this.actorPath = path
         this.pathString = path.getPath()
         this.guardian = guardian
         this.parentCell = parent
         this.childStrategy = props.getSupervisorStrategy()
         this.executor = ActorCellDispatcher.forName(props.getDispatcher())
         this.affinity = executor.nextAffinity()
-        this.mailbox = CellMailbox()
+        this.schedState = AtomicInt64(0)
+        this.mailbox = CellMailbox(schedState)
         this.mailboxKind = match (props.getMailboxType()) {
             case "bounded" => if (props.getMailboxCapacity() > 0) { MAILBOX_BOUNDED } else { MAILBOX_UNBOUNDED }
             case "priority" => MAILBOX_PRIORITY
@@ -453,23 +669,25 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         this.capacity = props.getMailboxCapacity()
         this.overflow = props.getMailboxOverflow()
-        this.boundedCount = AtomicInt64(0)
+        this.boundedCountValue = if (mailboxKind == MAILBOX_BOUNDED) { Some(AtomicInt64(0)) } else { None<AtomicInt64> }
         this.priorityMailboxValue = if (mailboxKind == MAILBOX_PRIORITY) { Some(PriorityCellMailbox()) } else { None<PriorityCellMailbox> }
         this.sysHead = AtomicOptionReference<SysNode>()
-        this.scheduled = AtomicBool(false)
-        this.terminated = AtomicBool(false)
-        this.processedCount = AtomicInt64(0)
-        this.deadLetterCount = AtomicInt64(0)
-        this.restartCount = AtomicInt64(0)
-        this.unhandledCount = AtomicInt64(0)
+        this.counters = AtomicInt64(0)
     }
 
+    // 按需构造：pathString 已覆盖全部用途，单独保存 ActorPath 每个多占约 150 字节
     public prop path: ActorPath {
-        get() { actorPath }
+        get() { ActorPath(actorPathSystem, pathString) }
     }
 
     public func getName(): String {
-        actorName
+        // 名字即路径最后一段（顶层与子 Actor 均由 createCell 以 "${prefix}/${name}" 构造路径）；
+        // 调用点只在注销与诊断，按需截取，不再为每个 Actor 单独保存一份名字字符串
+        let i = pathString.lastIndexOf('/')
+        if (let Some(idx) <- i) {
+            return pathString[(idx + 1)..]
+        }
+        pathString
     }
 
     // ---------------- 发送 ----------------
@@ -487,7 +705,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     private func enqueue(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Unit {
-        if (terminated.load()) {
+        if ((schedState.load() & TERM_BIT) != 0) {
             deadLetter(message)
             return
         }
@@ -520,6 +738,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         trySchedule()
     }
 
+    /** 有界邮箱的占位计数（仅 MAILBOX_BOUNDED 会调用，此时必然已分配） */
+    private prop boundedCount: AtomicInt64 {
+        get() { boundedCountValue.getOrThrow() }
+    }
+
     /** 有界邮箱占位；Block 策略下等待空位直到超时 */
     private func reserveSlot(): Bool {
         if (boundedCount.fetchAdd(1) < capacity) {
@@ -530,7 +753,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case MailboxOverflow.Block(timeout) =>
                 let deadline = MonoTime.now() + timeout
                 var spins: Int64 = 0
-                while (MonoTime.now() < deadline && !terminated.load()) {
+                while (MonoTime.now() < deadline && (schedState.load() & TERM_BIT) == 0) {
                     if (boundedCount.fetchAdd(1) < capacity) {
                         return true
                     }
@@ -545,7 +768,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     func deadLetter(message: Message): Unit {
-        deadLetterCount.fetchAdd(1)
+        this.incCounter(CTR_DEADLETTER_SHIFT)
         guardian.publishDeadLetter(message, pathString)
     }
 
@@ -604,14 +827,27 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     // ---------------- 诊断 ----------------
 
+    /** 位域计数器自增：字段饱和于 65535，不越过则不污染相邻字段 */
+    private func incCounter(shift: Int64): Unit {
+        let w = counters.load()
+        let field = (w >> shift) & CTR_FIELD_MASK
+        if (field < CTR_FIELD_MASK) {
+            counters.fetchAdd(1 << shift)
+        }
+    }
+
+    private func readCounter(shift: Int64): Int64 {
+        (counters.load() >> shift) & CTR_FIELD_MASK
+    }
+
     /** 已处理的消息数 */
     public func processed(): Int64 {
-        processedCount.load()
+        this.readCounter(CTR_PROCESSED_SHIFT)
     }
 
     /** 被丢弃的消息数（停止后收到、有界邮箱已满等） */
     public func deadLetters(): Int64 {
-        deadLetterCount.load()
+        this.readCounter(CTR_DEADLETTER_SHIFT)
     }
 
     /** 邮箱中待处理的消息数 */
@@ -625,25 +861,31 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     /** 被监督重启的次数 */
     public func restarts(): Int64 {
-        restartCount.load()
+        this.readCounter(CTR_RESTART_SHIFT)
     }
 
     /** receive 返回 Unhandled 的次数 */
     public func unhandled(): Int64 {
-        unhandledCount.load()
+        this.readCounter(CTR_UNHANDLED_SHIFT)
     }
 
     /** Actor 是否已完全停止 */
     public func isTerminated(): Bool {
-        terminated.load()
+        (schedState.load() & TERM_BIT) != 0
     }
 
     // ---------------- 调度 ----------------
 
-    // 先读后 CAS：已被调度时只做一次读，避免每次 tell 都写共享缓存行
+    // 先读后 CAS：已被调度时只做一次读，避免每次 tell 都写共享缓存行。
+    // CAS 失败只可能是计数并发变化（位0 仍是 0），重读重试即可
     private func trySchedule(): Unit {
-        if (!scheduled.load() && scheduled.compareAndSwap(false, true)) {
-            executor.execute(this)
+        var s = schedState.load()
+        while ((s & SCHED_BIT) == 0) {
+            if (schedState.compareAndSwap(s, s | SCHED_BIT)) {
+                executor.execute(this)
+                return
+            }
+            s = schedState.load()
         }
     }
 
@@ -656,7 +898,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     private func hasUnstashed(): Bool {
-        unstashIndex < unstashed.size
+        unstashIndex < unstashed().size
     }
 
     /** 由调度器工作线程调用 */
@@ -671,10 +913,10 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 break
             }
             if (hasUnstashed()) {
-                let env = unstashed[unstashIndex]
+                let env = unstashed()[unstashIndex]
                 unstashIndex++
-                if (unstashIndex >= unstashed.size) {
-                    unstashed = ArrayList<Envelope>(0)
+                if (unstashIndex >= unstashed().size) {
+                    unstashedValue = Some(ArrayList<Envelope>(0))
                     unstashIndex = 0
                 }
                 invoke(env.message, env.sender, env.senderRef)
@@ -700,11 +942,18 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 }
             }
         }
-        scheduled.store(false)
-        // 释放调度权后再检查一次，防止与并发 tell 之间丢失唤醒
+        // 释放调度权（清位0）后再检查一次，防止与并发 tell 之间丢失唤醒：
+        // 清位与随后的计数检查在同一原子字上顺序一致，发送方"计数++ 后置位"不会落空
+        schedState.fetchAnd(SCHED_CLEAR_MASK)
         if (hasSystemMessages() || (state == STATE_RUNNING && (userNonEmpty() || hasUnstashed()))) {
-            if (!scheduled.load() && scheduled.compareAndSwap(false, true)) {
-                executor.executeAgain(this)
+            var s = schedState.load()
+            while ((s & SCHED_BIT) == 0) {
+                if (schedState.compareAndSwap(s, s | SCHED_BIT)) {
+                    // 运行结束时一定在某个工作线程上：留在本线程，排到队尾（先轮到其他 Actor）
+                    executor.executeAgain(this)
+                    break
+                }
+                s = schedState.load()
             }
         }
     }
@@ -730,18 +979,18 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 payload = te.payload
                 currentMessage = Some(payload)
             case _: PoisonPill =>
-                processedCount.fetchAdd(1)
+                this.incCounter(CTR_PROCESSED_SHIFT)
                 clearCurrent()
                 initiateTerminate()
                 return
             case _: StopMessage =>
                 // system.stop：在已入队的消息之后停止，不交给用户的 receive
-                processedCount.fetchAdd(1)
+                this.incCounter(CTR_PROCESSED_SHIFT)
                 clearCurrent()
                 initiateTerminate()
                 return
             case _: Kill =>
-                processedCount.fetchAdd(1)
+                this.incCounter(CTR_PROCESSED_SHIFT)
                 clearCurrent()
                 handleFailure(ActorKilledException(pathString))
                 return
@@ -753,15 +1002,15 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case _ => ()
         }
         try {
-            let result = if (behaviors.size > 0) {
-                behaviors[behaviors.size - 1](payload, contextImpl())
+            let result = if (behaviors().size > 0) {
+                behaviors()[behaviors().size - 1](payload, contextImpl())
             } else {
                 actor.receive(payload, contextImpl())
             }
             match (result) {
                 case MessageResult.Handled => ()
                 case MessageResult.Unhandled =>
-                    unhandledCount.fetchAdd(1)
+                    this.incCounter(CTR_UNHANDLED_SHIFT)
                     if (payload is Terminated) {
                         // 与 Akka 一致：监视者不处理 Terminated 视为失败
                         let t = (payload as Terminated).getOrThrow()
@@ -774,7 +1023,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         } catch (e: Exception) {
             handleFailure(e)
         }
-        processedCount.fetchAdd(1)
+        this.incCounter(CTR_PROCESSED_SHIFT)
         if (receiveTimeoutValue > Duration.Zero && !(payload is NotInfluenceReceiveTimeout)) {
             lastActivity = MonoTime.now()
         }
@@ -806,7 +1055,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     /** 父 Actor 处理子 Actor 的失败（在父 Actor 的 Cell 线程中执行） */
     private func handleChildFailed(child: SimpleUserActorRef, cause: Exception): Unit {
-        match (childMap.get(child.getName())) {
+        match (childMap().get(child.getName())) {
             case Some(c) where refEq(c, child) => ()
             case _ => return // 已经停止或已被替换
         }
@@ -818,7 +1067,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             SupervisionDirective.Stop
         }
         let targets = if (strategy.appliesToAllChildren()) {
-            childMap.values().toArray()
+            childMap().values().toArray()
         } else {
             [child]
         }
@@ -847,22 +1096,22 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             cellLog.warn("Actor ${pathString} preRestart 失败: ${e}")
         }
         // 与 Akka 默认 preRestart 一致：重启时停止全部子 Actor
-        for (c in childMap.values()) {
+        for (c in childMap().values()) {
             c.sendSystem(SysTerminate())
         }
-        childMap.clear()
+        childMapMut().clear()
         timersImpl().cancelAll()
         cancelReceiveTimeoutInternal()
-        behaviors.clear()
+        behaviorsMut().clear()
         // 暂存的消息放回队首，由新实例处理
-        if (stashBuffer.size > 0) {
+        if (stashBuffer().size > 0) {
             unstashAllInternal()
         }
         try {
             let fresh = actorFactory()
             actor = fresh
             fresh.postRestart(reason)
-            restartCount.fetchAdd(1)
+            this.incCounter(CTR_RESTART_SHIFT)
             state = STATE_RUNNING
         } catch (e: Exception) {
             // 无法重建实例时停止该 Actor，避免继续用损坏的状态处理消息
@@ -911,7 +1160,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case _: SysResume =>
                 if (state == STATE_SUSPENDED) {
                     state = STATE_RUNNING
-                    for (c in childMap.values()) {
+                    for (c in childMap().values()) {
                         c.sendSystem(SysResume())
                     }
                 }
@@ -924,6 +1173,13 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case d: SysDeathNotification => onDeathNotification(d.actor)
             case f: SysChildFailed => handleChildFailed(f.child, f.cause)
             case t: SysChildTerminated => onChildTerminated(t.child)
+            case _: SysChildrenTerminated =>
+                // 停止合批：整批子 Actor 已终止，直接收尾（childMap 一并丢弃）
+                if (let Some(f) <- childBatchStoppingValue) { f.store(0) }
+                childMapMut().clear()
+                if (state == STATE_TERMINATING) {
+                    finishTerminate()
+                }
             case rt: SysReceiveTimeout => onReceiveTimeoutCheck(rt.generation)
             case _ => ()
         }
@@ -933,19 +1189,19 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (refEq(watcher, this)) {
             return
         }
-        for (w in watchers) {
+        for (w in watchers()) {
             if (refEq(w, watcher)) {
                 return
             }
         }
-        watchers.add(watcher)
+        watchersMut().add(watcher)
     }
 
     private func removeWatcher(watcher: SimpleUserActorRef): Unit {
         var i: Int64 = 0
-        while (i < watchers.size) {
-            if (refEq(watchers[i], watcher)) {
-                watchers.remove(at: i)
+        while (i < watchers().size) {
+            if (refEq(watchers()[i], watcher)) {
+                watchersMut().remove(at: i)
                 return
             }
             i++
@@ -957,8 +1213,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         // 这样 Terminated 处理中可以立即用同一名称重建子 Actor（例如分片实体钝化后重建）
         onChildTerminated(dead)
         // 已取消监视（或从未监视）的不投递
-        match (watching.get(dead.pathString)) {
-            case Some(w) where refEq(w, dead) => watching.remove(dead.pathString)
+        match (watching().get(dead.pathString)) {
+            case Some(w) where refEq(w, dead) => watchingMut().remove(dead.pathString)
             case _ => return
         }
         if (state == STATE_TERMINATING || state == STATE_TERMINATED) {
@@ -966,19 +1222,32 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         if (state == STATE_SUSPENDED) {
             // 挂起期间暂存，恢复后再处理
-            unstashed.add(Envelope(Terminated(dead), None<String>, None<ActorRef>))
+            unstashedMut().add(Envelope(Terminated(dead), None<String>, None<ActorRef>))
             return
         }
         invoke(Terminated(dead), None<String>, None<ActorRef>)
     }
 
     private func onChildTerminated(child: SimpleUserActorRef): Unit {
-        match (childMap.get(child.getName())) {
-            case Some(c) where refEq(c, child) => childMap.remove(child.getName())
-            case _ => ()
+        let existed = match (childMap().get(child.getName())) {
+            case Some(c) where refEq(c, child) =>
+                childMapMut().remove(child.getName())
+                true
+            case _ => false
         }
-        if (state == STATE_TERMINATING && childMap.size == 0) {
+        if (state == STATE_TERMINATING && childMap().size == 0) {
             finishTerminate()
+            return
+        }
+        // 合批兜底：父已进入合批、但该子在此之前就自行终止（发的是旧式 SysChildTerminated，
+        // 未递减计数）。它在初始化子数时已被计入，这里补一次递减，否则计数永远到不了 0。
+        // 每个子只会走两条路径之一（旧式消息 或 原子递减），不会重复扣减。
+        if (existed && state == STATE_TERMINATING && batchStopping()) {
+            if (stoppingChildren.fetchAdd(-1) <= 1) {
+                if (let Some(f) <- childBatchStoppingValue) { f.store(0) }
+                childMapMut().clear()
+                finishTerminate()
+            }
         }
     }
 
@@ -998,13 +1267,59 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         } catch (e: Exception) {
             cellLog.warn("Actor ${pathString} preStop 失败: ${e}")
         }
-        if (childMap.size == 0) {
+        if (childMap().size == 0) {
             finishTerminate()
         } else {
-            for (c in childMap.values()) {
-                c.sendSystem(SysTerminate())
+            // 启动"子 Actor 全部终止"的计数（P5-2）：每个子终止时递减，
+            // 减到 0 的最后一个子发一条汇总消息，而不是每子一条
+            if (stoppingChildrenValue.isNone()) {
+                stoppingChildrenValue = Some(AtomicInt64(0))
+            }
+            if (childBatchStoppingValue.isNone()) {
+                childBatchStoppingValue = Some(AtomicInt64(0))
+            }
+            stoppingChildren.store(childMap().size)
+            childBatchStopping.store(1)
+            for (c in childMap().values()) {
+                // 空闲的子直接在当前线程领养并完成停止（省一次调度入队 + 工作线程唤醒）；
+                // 正被调度/运行中的子回退到系统消息，保证同一 Cell 不会被两个线程同时处理
+                c.terminateIfIdle()
             }
         }
+    }
+
+    /**
+     * 停止整棵子树时的快速路径（P5-2 深化）：若本 Cell 当前空闲（调度位为 0），
+     * 用 CAS 取得调度权后在**调用方线程**直接执行停止流程；否则退化为投递 SysTerminate。
+     *
+     * 正确性：SCHED_BIT 只在 trySchedule 时置位、由持有者在 run() 末尾清除；
+     * CAS 0→1 成功即证明没有任何工作线程持有或即将持有本 Cell，独占成立。
+     */
+    func terminateIfIdle(): Unit {
+        var s = schedState.load()
+        while ((s & SCHED_BIT) == 0) {
+            if (schedState.compareAndSwap(s, s | SCHED_BIT)) {
+                // 只有叶子（无子 Actor）才能内联完成：它的 initiateTerminate 会同步走到
+                // finishTerminate，不依赖"子 Actor 全部终止"的系统消息。
+                // 非叶子必须交给自己的 run() 循环处理——它的完成信号是投递给自己的系统消息，
+                // 内联调用后若立刻释放调度权，这条消息就再也没人处理，Actor 会永远停在 TERMINATING。
+                if (childMap().size == 0) {
+                    try {
+                        initiateTerminate()
+                    } catch (e: Exception) {
+                        cellLog.error("Actor ${pathString} 停止失败: ${e}")
+                    }
+                    // 与 run() 末尾一致：释放调度权（保留 TERM_BIT，不动计数位）
+                    schedState.fetchAnd(SCHED_CLEAR_MASK)
+                    return
+                }
+                // 非叶子：释放调度权后走常规系统消息路径（由本 Cell 的 run() 收尾）
+                schedState.fetchAnd(SCHED_CLEAR_MASK)
+                break
+            }
+            s = schedState.load()
+        }
+        sendSystem(SysTerminate())
     }
 
     private func finishTerminate(): Unit {
@@ -1017,7 +1332,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         } catch (e: Exception) {
             cellLog.warn("Actor ${pathString} postStop 失败: ${e}")
         }
-        terminated.store(true)
+        schedState.fetchOr(TERM_BIT)
         // 先关闭邮箱再排空：关闭与入队在同一把锁内判定，
         // 因此此后到达的消息一律被拒绝（计死信），不会滞留在邮箱里
         if (mailboxKind == MAILBOX_PRIORITY) {
@@ -1027,29 +1342,39 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         let remaining = takeSystemMessages(true)
         guardian.onCellTerminated(this)
-        for (w in watchers) {
+        for (w in watchers()) {
             w.sendSystem(SysDeathNotification(this))
         }
-        watchers.clear()
-        for ((_, target) in watching) {
+        watchersMut().clear()
+        for ((_, target) in watching()) {
             target.sendSystem(SysUnwatch(this))
         }
-        watching.clear()
+        watchingMut().clear()
         if (let Some(parent) <- parentCell) {
-            parent.sendSystem(SysChildTerminated(this))
+            // 停止合批（P5-2）：父正在停止整棵子树时，每个子只递减计数，最后一个子唤醒父。
+            // 判定与递减都在父的原子字上：读到标志为真才递减（标志在计数写入之前发布）。
+            // 若在标志发布之前就已读到假（父刚进入终止、标志尚未置位），走旧式消息，
+            // 由父的 onChildTerminated 做同样的补递减，两条路径不会双重扣减。
+            if (parent.batchStopping()) {
+                if (parent.stoppingChildren.fetchAdd(-1) <= 1) {
+                    parent.sendSystem(SysChildrenTerminated())
+                }
+            } else {
+                parent.sendSystem(SysChildTerminated(this))
+            }
         }
         for (m in remaining) {
             handleSystemAfterDeath(m)
         }
         // 未处理的消息计为死信
         while (hasUnstashed()) {
-            deadLetter(unstashed[unstashIndex].message)
+            deadLetter(unstashed()[unstashIndex].message)
             unstashIndex++
         }
-        for (env in stashBuffer) {
+        for (env in stashBuffer()) {
             deadLetter(env.message)
         }
-        stashBuffer.clear()
+        stashBufferMut().clear()
         if (mailboxKind == MAILBOX_PRIORITY) {
             while (let Some(env) <- priorityMailbox.poll()) {
                 deadLetter(env.message)
@@ -1158,11 +1483,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             throw IllegalStateException("Actor ${pathString} 正在停止，不能创建子 Actor")
         }
         validateChildName(name)
-        if (childMap.contains(name)) {
+        if (childMap().contains(name)) {
             throw InvalidActorNameException("子 Actor 名称已存在: ${pathString}/${name}")
         }
         let child = guardian.createCell(props, name, "${pathString}/${name}", Some(this))
-        childMap.add(name, child)
+        childMapMut().add(name, child)
         child
     }
 
@@ -1173,14 +1498,14 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     func childrenInternal(): Array<ActorRef> {
         let result = ArrayList<ActorRef>()
-        for (c in childMap.values()) {
+        for (c in childMap().values()) {
             result.add(c)
         }
         result.toArray()
     }
 
     func childInternal(name: String): Option<ActorRef> {
-        match (childMap.get(name)) {
+        match (childMap().get(name)) {
             case Some(c) => Some<ActorRef>(c)
             case None => None<ActorRef>
         }
@@ -1189,7 +1514,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     func stopInternal(ref: ActorRef): Unit {
         let isSelf = match (ref) {
             case c: SimpleUserActorRef => refEq(c, this)
-            case _ => ref.path.toString() == actorPath.toString()
+            case _ => ref.path.getPath() == pathString
         }
         if (isSelf) {
             // 停止自身：当前消息处理完后生效
@@ -1198,7 +1523,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         match (ref) {
             case c: SimpleUserActorRef =>
-                match (childMap.get(c.getName())) {
+                match (childMap().get(c.getName())) {
                     case Some(existing) where refEq(existing, c) => c.sendSystem(SysTerminate())
                     case _ => throw IllegalArgumentException("context.stop 只能停止自身或子 Actor: ${c.pathString}")
                 }
@@ -1211,17 +1536,17 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (refEq(target, this)) {
             return
         }
-        if (!watching.contains(target.pathString)) {
-            watching.add(target.pathString, target)
+        if (!watching().contains(target.pathString)) {
+            watchingMut().add(target.pathString, target)
             target.sendSystem(SysWatch(this))
         }
     }
 
     func unwatchInternal(ref: ActorRef): Unit {
         let target = asLocalCell(ref, "unwatch")
-        match (watching.get(target.pathString)) {
+        match (watching().get(target.pathString)) {
             case Some(w) where refEq(w, target) =>
-                watching.remove(target.pathString)
+                watchingMut().remove(target.pathString)
                 target.sendSystem(SysUnwatch(this))
             case _ => ()
         }
@@ -1239,38 +1564,38 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     func becomeInternal(behavior: Receive, discardOld: Bool): Unit {
-        if (discardOld && behaviors.size > 0) {
-            behaviors[behaviors.size - 1] = behavior
+        if (discardOld && behaviors().size > 0) {
+            behaviorsMut()[behaviorsMut().size - 1] = behavior
         } else {
-            behaviors.add(behavior)
+            behaviorsMut().add(behavior)
         }
     }
 
     func unbecomeInternal(): Unit {
-        if (behaviors.size > 0) {
-            behaviors.remove(at: behaviors.size - 1)
+        if (behaviors().size > 0) {
+            behaviorsMut().remove(at: behaviorsMut().size - 1)
         }
     }
 
     func stashInternal(): Unit {
         match (currentMessage) {
-            case Some(m) => stashBuffer.add(Envelope(m, currentSender, currentSenderRef))
+            case Some(m) => stashBufferMut().add(Envelope(m, currentSender, currentSenderRef))
             case None => throw IllegalStateException("stash 只能在处理消息时调用")
         }
     }
 
     func unstashAllInternal(): Unit {
-        if (stashBuffer.size == 0) {
+        if (stashBuffer().size == 0) {
             return
         }
         let merged = ArrayList<Envelope>()
-        merged.add(all: stashBuffer)
+        merged.add(all: stashBuffer())
         while (hasUnstashed()) {
-            merged.add(unstashed[unstashIndex])
+            merged.add(unstashed()[unstashIndex])
             unstashIndex++
         }
-        stashBuffer.clear()
-        unstashed = merged
+        stashBufferMut().clear()
+        unstashedValue = Some(merged)
         unstashIndex = 0
     }
 
@@ -1641,8 +1966,14 @@ class DispatcherWorker {
     // 别的线程的执行计数超过这个时长没有变化，才窃取它的 runNext：一次运行最多处理 throughput 条消息，
     // 正常情况下远短于此；Go 只等 3µs，这里取大一些，避免空闲线程拆散正在往来的一对 Actor
     static let RUN_NEXT_STEAL_AFTER_US: Int64 = 100
-    // 空闲线程检查别的线程的间隔：检查要读别的线程每次运行都会写的执行计数，太频繁会拖慢忙线程
-    static let STEAL_CHECK_INTERVAL_US: Int64 = 10
+    // 空闲线程检查别的线程的间隔：检查要读别的线程每次运行都会写的执行计数，太频繁会拖慢忙线程。
+    // 之前 10µs 一次 = 每个空闲线程每秒 10 万次跨核缓存行读，14 线程就是 140 万次/秒；
+    // 卡死救援（卡住的 runNext 被别的线程取走）的等待从最多 110µs 变为最多约 1.25ms，
+    // 分片已改为不阻塞的 addToSetAsync，真实场景不再依赖这条快速救援路径
+    static let STEAL_CHECK_INTERVAL_US: Int64 = 250
+    // 空闲等待退避：200µs 起步，×5 到 100ms 封顶
+    static let IDLE_BACKOFF_START_US: Int64 = 200
+    static let IDLE_BACKOFF_MAX_US: Int64 = 100_000
 
     let dispatcher: ActorCellDispatcher
     let queue: RunQueue = RunQueue()
@@ -1650,9 +1981,9 @@ class DispatcherWorker {
     let lock: Mutex = Mutex()
     let cond: Condition
     let executed: AtomicInt64 = AtomicInt64(0)
+    let runNextSlot: AtomicOptionReference<SimpleUserActorRef> = AtomicOptionReference<SimpleUserActorRef>()
     // 空闲、等待别的线程捐赠 Cell；由本线程置位，由本线程或捐赠方用 CAS 清除（各自负责把 hungryCount 减一）
     let hungry: AtomicBool = AtomicBool(false)
-    let runNextSlot: AtomicOptionReference<SimpleUserActorRef> = AtomicOptionReference<SimpleUserActorRef>()
     private var runNextStreak: Int64 = 0
     // 空闲时观察到的别的线程的执行计数与开始观察的时刻（下标同 dispatcher.allWorkers()，只由本线程读写）
     private var seenExecuted: Array<Int64> = Array<Int64>()
@@ -1703,9 +2034,7 @@ class DispatcherWorker {
     }
 
     private func takeNext(): Option<SimpleUserActorRef> {
-        // 先读再交换：槽位空时只做一次读
-        let slot = if (runNextSlot.load().isSome()) { runNextSlot.swap(None<SimpleUserActorRef>) } else { None<SimpleUserActorRef> }
-        if (let Some(cell) <- slot) {
+        if (let Some(cell) <- runNextSlot.swap(None<SimpleUserActorRef>)) {
             if (runNextStreak < RUN_NEXT_LIMIT) {
                 runNextStreak++
                 return Some(cell)
@@ -1772,12 +2101,18 @@ class DispatcherWorker {
         var idleSince = MonoTime.now()
         var lastStealCheck = idleSince
         let stealInterval = Duration.microsecond * STEAL_CHECK_INTERVAL_US
+        // 空闲等待的指数退避：自旋到期后从 200µs 起，逐级 ×5 到 100ms 封顶。
+        // submit 在 sleeping 为真时必然 notifyAll，cond.wait 的超时只是丢失唤醒的安全网，
+        // 之前固定 10ms 让空闲线程每秒无条件醒来 100 次；14 个线程的空转自旋+唤醒
+        // 曾把空闲系统推到约 800% CPU（同吞吐是 protoactor-go 的 10 倍能耗）
+        var backoffUs: Int64 = IDLE_BACKOFF_START_US
         while (true) {
             match (takeNext()) {
                 case Some(cell) =>
                     if (idle > 0) {
                         idle = 0
                         clearHungry()
+                        backoffUs = IDLE_BACKOFF_START_US
                     }
                     runCell(cell)
                 case None =>
@@ -1792,6 +2127,7 @@ class DispatcherWorker {
                         if (let Some(cell) <- stealStuckRunNext(now)) {
                             idle = 0
                             clearHungry()
+                            backoffUs = IDLE_BACKOFF_START_US
                             runCell(cell)
                             continue
                         }
@@ -1804,11 +2140,18 @@ class DispatcherWorker {
                     }
                     // 休眠期间仍然举手；idle 保持大于 0，醒来拿到 Cell 时再清除
                     idleSince = MonoTime.now() - spinTime
+                    let waitUs = backoffUs
+                    if (backoffUs < IDLE_BACKOFF_MAX_US) {
+                        backoffUs = backoffUs * 5
+                        if (backoffUs > IDLE_BACKOFF_MAX_US) {
+                            backoffUs = IDLE_BACKOFF_MAX_US
+                        }
+                    }
                     synchronized(lock) {
                         sleeping.store(true)
                         // 设置 sleeping 之后再检查一次，避免与 submit 之间丢失唤醒
                         if (queue.isEmpty()) {
-                            cond.wait(timeout: Duration.millisecond * 10)
+                            cond.wait(timeout: Duration.microsecond * waitUs)
                         }
                         sleeping.store(false)
                     }
@@ -1888,6 +2231,8 @@ public class ActorCellDispatcher <: CellExecutor {
     private let throughputValue: Int64
     // 举手等待捐赠的空闲线程数（忙线程每次运行前读一次，大于 0 才去找）
     let hungryCount: AtomicInt64 = AtomicInt64(0)
+    // 捐赠扫描起点轮转序列
+    let donateSeq: AtomicInt64 = AtomicInt64(0)
     // 仓颉线程 id → 工作线程下标（见 currentWorker）；启动时写一次，在 ready 置位前发布
     private var workerIds: Array<Int64> = Array<Int64>()
     private var workerSlots: Array<Int64> = Array<Int64>()
@@ -1968,7 +2313,11 @@ public class ActorCellDispatcher <: CellExecutor {
 
     /** 把 Cell 交给一个举手的空闲线程；没有抢到返回 false */
     func donate(cell: SimpleUserActorRef, from: DispatcherWorker): Bool {
-        for (w in workers) {
+        // 起点轮转：固定从 0 号开始会让低编号线程成为捐赠热点
+        let n = workers.size
+        let start = donateSeq.fetchAdd(1)
+        for (k in 0..n) {
+            let w = workers[(start + k) % n]
             if (!refEq(w, from) && w.hungry.load() && w.hungry.compareAndSwap(true, false)) {
                 hungryCount.fetchAdd(-1)
                 w.submit(cell)

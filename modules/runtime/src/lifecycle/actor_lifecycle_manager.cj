@@ -78,31 +78,24 @@ public class ActorLifecycleManager {
     
     /**
      * 启动Actor
+     *
+     * 实例创建时已在 Cell 中执行 preStart，所以这里没有可能失败的启动步骤：
+     * 直接由 Created 进入 Running（Starting 只是无人观察的中间态）。
+     * 旧实现经 updateActorState 重入加锁两次、每次重新构造路径字符串与时间戳，
+     * 且两次重写同一个 map 条目——顶层创建吞吐的主要开销之一。
+     * 现在只加锁一次、只分配一次时间戳、只写一次条目。
      */
     public func startActor(actorRef: ActorRef): Unit {
         synchronized(lock) {
             let path = actorRef.path.toString()
             let currentTime = getCurrentTimeNanos()
-        
-            // 更新状态为启动中
-            updateActorState(actorRef, ActorLifecycleState.Starting, None<Exception>)
-        
-            try {
-                // 实例创建时已在 Cell 中执行 preStart，这里不再向用户 Actor 投递 StartMessage
-                // （Akka 也不会向用户 Actor 发送启动消息；多余的消息会被当作业务消息处理）
-
-                // 更新状态为运行中
-                updateActorState(actorRef, ActorLifecycleState.Running, None<Exception>)
-            
-                // 发布启动事件
-                eventBus.publish(ActorStartedEvent(actorRef, currentTime))
-            
-            } catch (e: Exception) {
-                // 启动失败，更新状态
-                updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
-                eventBus.publish(ActorStartFailedEvent(actorRef, e, currentTime))
-                throw e
+            let created = match (lifecycleInfos.get(path)) {
+                case Some(i) => i.createdAt
+                case None => currentTime
             }
+            lifecycleInfos.add(path, ActorLifecycleInfo(
+                actorRef, ActorLifecycleState.Running, created, currentTime, 0, None<Exception>))
+            eventBus.publish(ActorStartedEvent(actorRef, currentTime))
         }
     }
     

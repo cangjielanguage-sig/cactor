@@ -605,7 +605,7 @@ public class TypedSemanticsTest {
         let wrapped = kit.system.wrapAsTypedActor<Message>(probe.ref, "probe")
         wrapped.tell(StringMessage("via typed"))
         let viaTyped = probe.expectMsg()
-        @Expect(viaTyped.messageType() == "TypedEnvelope" || viaTyped is StringMessage, true)
+        @Expect(viaTyped.messageType() == "TypedPayloadBox" || viaTyped.messageType() == "TypedEnvelope" || viaTyped is StringMessage, true)
         kit.shutdown()
     }
 

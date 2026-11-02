@@ -11,6 +11,7 @@ import std.sync.*
 import std.collection.*
 import cactor_core.typed.*
 import cactor_core.actor.*
+import cactor_core.message.{Message}
 import cactor_runtime.*
 
 /**
@@ -50,10 +51,19 @@ public class TypedActorSystemImpl <: TypedActorSystem {
 
     /** 指定调度器 / 邮箱创建顶层类型化 Actor */
     public func actorOf<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps): TypedActorRef<U> {
+        actorOfVia<U>(behavior, name, props, None<(Any) -> Option<U>>)
+    }
+
+    /**
+     * 带桥接闭包的创建入口：门面（cactor）的 typedActorOf 被 @Frozen 展开到用户包后
+     * 在那里生成"Any → Option<U>"与"U → Message"两个闭包，经本方法传入（不经接口虚调用）。
+     */
+    public func actorOfVia<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps,
+        unwrap: Option<(Any) -> Option<U>>): TypedActorRef<U> {
         if (terminated.load()) {
             throw IllegalStateException("Actor 系统 ${systemName} 已终止")
         }
-        let classic = runtime.actorOf(TypedSpawn.props<U>(behavior, Some<TypedActorSystem>(this), props), name)
+        let classic = runtime.actorOf(TypedSpawn.props<U>(behavior, Some<TypedActorSystem>(this), props, unwrap), name)
         ClassicTypedRef<U>(classic)
     }
 

@@ -185,14 +185,22 @@ public class CActorSystem {
      * @param behavior 类型安全的Actor行为
      * @param name Actor名称
      * @return 类型安全的Actor引用
+     *
+     * @Frozen：函数体在调用方（用户）包里展开，其中的桥接闭包 `any as T` 因此编译在用户包里
+     * （具体类型转换 4–10ns），而不是 core 泛型代码里的运行时类型查找（多线程下互相阻塞）。
+     * 消息路径见 core 的 TypedPayloadBox / TypedSpawn.props 说明。
      */
+    @Frozen
     public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String): TypedActorRef<T> {
-        typed().actorOf<T>(behavior, name)
+        let unwrap: (Any) -> Option<T> = { any => any as T }
+        typed().actorOfVia<T>(behavior, name, TypedProps(), Some(unwrap))
     }
 
     /** 指定调度器 / 邮箱创建类型安全 Actor */
+    @Frozen
     public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String, props: TypedProps): TypedActorRef<T> {
-        typed().actorOf<T>(behavior, name, props)
+        let unwrap: (Any) -> Option<T> = { any => any as T }
+        typed().actorOfVia<T>(behavior, name, props, Some(unwrap))
     }
 
     /**
@@ -216,9 +224,11 @@ public class CActorSystem {
      * @param behavior 类型安全的Actor行为
      * @return 类型安全的Actor引用
      */
+    @Frozen
     public func typedActorOf<T>(behavior: TypedBehavior<T>): TypedActorRef<T> {
         let name = "typed-actor-${DateTime.now().toUnixTimeStamp().toNanoseconds()}"
-        typedActorOf(behavior, name)
+        let unwrap: (Any) -> Option<T> = { any => any as T }
+        typed().actorOfVia<T>(behavior, name, TypedProps(), Some(unwrap))
     }
 
     /**

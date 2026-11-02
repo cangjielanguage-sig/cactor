@@ -209,7 +209,7 @@ public class PromiseRef<T> <: TypedActorRef<T> {
 
 /**
  * 经典引用形式的一次性回复引用：经典 Actor 用 context.reply 回复时完成 Promise。
- * 收到 TypedEnvelope 时取出其中的载荷。
+ * 收到 TypedPayloadBox / TypedEnvelope 等载荷载体时取出其中的载荷。
  */
 public class PromiseActorRef <: ActorRef {
     private let promise: TypedPromise<Any>

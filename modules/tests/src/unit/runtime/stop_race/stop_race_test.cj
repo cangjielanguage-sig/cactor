@@ -107,4 +107,34 @@ public class StopRaceTestSuite {
         @Assert(processed.load(), 0)
         system.terminate()
     }
+
+    /**
+     * 多生产者持续争用下的调度握手不丢消息（P2-1 状态字合并的回归锚点）：
+     * 发送方"计数++ 后查/置调度位"与消费方"清调度位 后查计数"在同一原子字上配对，
+     * 任意交错下每条消息必须恰好被处理一次。不带停止（与停止竞态用例互补），
+     * 专门压"位已置→跳过→消费方清位后补调度"这条最易丢失唤醒的路径。
+     */
+    @TestCase
+    public func testMultiProducerNoMessageLost(): Unit {
+        let system = CActorSystemFactory.create("sched-word-race")
+        let processed = AtomicInt64(0)
+        let stopped = AtomicBool(false)
+        let ref = system.actorOf({ => Counter(processed, stopped) }, "counter")
+        let total: Int64 = 200000
+
+        let senders = ArrayList<Future<Unit>>()
+        for (_ in 0..4) {
+            senders.add(spawn {
+                for (_ in 0..total / 4) {
+                    ref.tell(StringMessage("x"))
+                }
+            })
+        }
+        for (f in senders) {
+            f.get()
+        }
+        @Assert(waitUntil({ => processed.load() >= total }, Duration.second * 10), true)
+        @Assert(processed.load(), total)
+        system.terminate()
+    }
 }
