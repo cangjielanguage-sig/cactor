@@ -292,13 +292,22 @@ class TypedActorAdapter<T> <: Actor {
     }
 
     private func applyNext(next: TypedBehavior<T>, c: ClassicTypedContext<T>, initialStart: Bool): MessageResult {
+        // 只取一次种类标记。旧实现调用 isUnhandled(next) + isSame(next)，各是一次
+        // specialKindOf(Any) 调用——普通行为每条消息因此多两次 Any 装箱；
+        // start() 内部还要再取一次。合并后普通路径（最常见）只有一次非泛型类检查。
+        let nextKind = specialKindOf(next)
         if (!initialStart) {
-            if (TypedBehaviors.isUnhandled(next)) {
+            if (nextKind == SpecialBehavior.UNHANDLED) {
                 return MessageResult.Unhandled
             }
-            if (TypedBehaviors.isSame(next)) {
+            if (nextKind == SpecialBehavior.SAME) {
                 return MessageResult.Handled
             }
+        }
+        // 普通行为（绝大多数）：start 是恒等变换，直接更新后返回
+        if (nextKind == 0) {
+            behavior = next
+            return MessageResult.Handled
         }
         let startedBehavior = TypedBehaviors.start(next, c)
         // 先比较种类标记，确认是 stopped 再做泛型转换（原因见 SpecialBehavior）

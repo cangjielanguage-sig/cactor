@@ -381,6 +381,169 @@ func benchTypedPairs(system: CActorSystem, pairs: Int64, perActor: Int64, inFlig
     println("[7] 类型化多对互发：${pairs} 对 × 每对 ${inFlight} 个球，约 ${total} 条，${elapsed.toMilliseconds()}ms → ${perSecond(total, elapsed)} msg/s${cpuPerMessage(cpu0, total)}")
 }
 
+// ---------- [8] 类型化批量往返：与 [6] 完全同结构，仅消息走 TypedActorRef ----------
+
+enum TypedBatch {
+    | Start(TypedActorRef<TypedBatch>)
+    | Ball
+}
+
+class TypedEcho {
+    var client: Option<TypedActorRef<TypedBatch>> = None
+}
+
+func typedEchoBehavior(st: TypedEcho): TypedBehavior<TypedBatch> {
+    TypedBehaviors.receiveMessage<TypedBatch>({ m =>
+        match (m) {
+            case Start(c) => st.client = Some(c)
+            case Ball => if (let Some(c) <- st.client) { c.tell(TypedBatch.Ball) }
+        }
+        TypedBehaviors.same<TypedBatch>()
+    })
+}
+
+class TypedClient {
+    var echo: Option<TypedActorRef<TypedBatch>> = None
+    var remaining: Int64
+    var inFlight: Int64 = 0
+    let batchSize: Int64
+    let finished: AtomicInt64
+    init(remaining: Int64, batchSize: Int64, finished: AtomicInt64) {
+        this.remaining = remaining
+        this.batchSize = batchSize
+        this.finished = finished
+    }
+}
+
+func typedClientSend(st: TypedClient): Bool {
+    if (st.remaining <= 0) {
+        return false
+    }
+    if (let Some(e) <- st.echo) {
+        for (_ in 0..st.batchSize) { e.tell(TypedBatch.Ball) }
+        st.remaining -= st.batchSize
+        st.inFlight = st.batchSize
+        true
+    } else {
+        false
+    }
+}
+
+func typedClientBehavior(st: TypedClient): TypedBehavior<TypedBatch> {
+    TypedBehaviors.receiveMessage<TypedBatch>({ m =>
+        match (m) {
+            case Start(e) =>
+                st.echo = Some(e)
+                let _ = typedClientSend(st)
+            case Ball =>
+                st.inFlight--
+                if (st.inFlight == 0 && !typedClientSend(st)) {
+                    st.finished.fetchAdd(1)
+                }
+        }
+        TypedBehaviors.same<TypedBatch>()
+    })
+}
+
+func benchTypedBatch(system: CActorSystem, clients: Int64, perClient: Int64, batch: Int64): Unit {
+    let finished = AtomicInt64(0)
+    let pairs = Array<(TypedActorRef<TypedBatch>, TypedActorRef<TypedBatch>)>(clients, { i =>
+        let c = system.typedActorOf<TypedBatch>(typedClientBehavior(TypedClient(perClient, batch, finished)), "tc-${i}")
+        let e = system.typedActorOf<TypedBatch>(typedEchoBehavior(TypedEcho()), "te-${i}")
+        (c, e)
+    })
+    let start = MonoTime.now()
+    for ((c, e) in pairs) {
+        c.tell(TypedBatch.Start(e))
+        e.tell(TypedBatch.Start(c))
+    }
+    let deadline = MonoTime.now() + Duration.second * 30
+    while (finished.load() < clients && MonoTime.now() < deadline) { sleep(Duration.microsecond * 50) }
+    let elapsed = MonoTime.now() - start
+    let total = clients * perClient * 2
+    println("[8] 类型化批量往返：${clients} 对 × 批量 ${batch}，共 ${total} 条，${elapsed.toMilliseconds()}ms → ${perSecond(total, elapsed)} msg/s")
+}
+
+// ---------- [9] 经典批量往返：与 [8] 完全同结构，Actor 是经典 Actor（对照组）----------
+
+class ClassicEcho <: Actor {
+    var client: Option<ActorRef> = None
+    public prop name: String { get() { "ClassicEcho" } }
+    public prop description: String { get() { "echo" } }
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case s: Start => client = Some(s.c)
+            case _: Ball => if (let Some(c) <- client) { c.tell(Ball()) }
+            case _ => ()
+        }
+        MessageResult.Handled
+    }
+}
+
+class Ball <: Message {
+    public func messageType(): String { "Ball" }
+}
+
+class Start <: Message {
+    let c: ActorRef
+    init(c: ActorRef) { this.c = c }
+    public func messageType(): String { "Start" }
+}
+
+class ClassicClient <: Actor {
+    var echo: Option<ActorRef> = None
+    var remaining: Int64
+    var inFlight: Int64 = 0
+    let batchSize: Int64
+    let finished: AtomicInt64
+    init(remaining: Int64, batchSize: Int64, finished: AtomicInt64) {
+        this.remaining = remaining
+        this.batchSize = batchSize
+        this.finished = finished
+    }
+    public prop name: String { get() { "ClassicClient" } }
+    public prop description: String { get() { "client" } }
+    func send(): Bool {
+        if (remaining <= 0) { return false }
+        if (let Some(e) <- echo) {
+            for (_ in 0..batchSize) { e.tell(Ball()) }
+            remaining -= batchSize
+            inFlight = batchSize
+            true
+        } else { false }
+    }
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        match (message) {
+            case s: Start =>
+                echo = Some(s.c)
+                let _ = send()
+            case _: Ball =>
+                inFlight--
+                if (inFlight == 0 && !send()) { finished.fetchAdd(1) }
+            case _ => ()
+        }
+        MessageResult.Handled
+    }
+}
+
+func benchClassicBatch(system: CActorSystem, clients: Int64, perClient: Int64, batch: Int64): Unit {
+    let finished = AtomicInt64(0)
+    let pairs = Array<(ActorRef, ActorRef)>(clients, { i =>
+        (system.actorOf({ => ClassicClient(perClient, batch, finished) }, "cc-${i}"),
+         system.actorOf({ => ClassicEcho() }, "ce-${i}"))
+    })
+    let start = MonoTime.now()
+    for ((c, e) in pairs) {
+        c.tell(Start(e))
+        e.tell(Start(c))
+    }
+    let deadline = MonoTime.now() + Duration.second * 30
+    while (finished.load() < clients && MonoTime.now() < deadline) { sleep(Duration.microsecond * 50) }
+    let elapsed = MonoTime.now() - start
+    let total = clients * perClient * 2
+    println("[9] 经典批量往返：${clients} 对 × 批量 ${batch}，共 ${total} 条，${elapsed.toMilliseconds()}ms → ${perSecond(total, elapsed)} msg/s")
+}
+
 main(): Int64 {
     println("=== CActor 真实基准（MonoTime 计时）===")
     let system = CActorSystemFactory.create("bench")
@@ -390,6 +553,8 @@ main(): Int64 {
     benchAsk(system, 20_000)
     benchInProc(system, 64, 100_000, 100)
     benchTypedPairs(system, 64, 50_000, 64)
+    benchTypedBatch(system, 64, 100_000, 100)
+    benchClassicBatch(system, 64, 100_000, 100)
     system.terminate()
     benchRemote(200_000)
     return 0
