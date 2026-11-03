@@ -382,10 +382,19 @@ class ReplicatorActor <: Actor {
 
     private func onLocalUpdate(u: LocalUpdate): Unit {
         let result: Option<Exception> = try {
-            let current = synchronized(store.lock) { store.values.get(u.key) ?? u.initial }
-            let next = u.modify(current)
-            // 防止 modify 返回其他类型的值
-            let _ = current.merge(next)
+            // modify / merge 会遍历存储在 store.values 里的 CRDT 对象（ORSet 的 entries/vv 是
+            // 引用类型 HashMap）。这些遍历必须在锁内进行：digestsNow() 在锁内调用 digest()，
+            // 也遍历同一批 HashMap；锁外遍历会与其并发，实测在全量并行测试下触发
+            // HashMap.contains 的 SIGSEGV（addr 0x8）。CRDT 的操作本身都是不可变的
+            // （add/remove/merge 返回新实例），锁只用于串行化对这些对象的**读取**。
+            let (next, check) = synchronized(store.lock) {
+                let current = store.values.get(u.key) ?? u.initial
+                let n = u.modify(current)
+                // 防止 modify 返回其他类型的值
+                let c = current.merge(n)
+                (n, c)
+            }
+            let _ = check
             apply(u.key, next)
             push(u.key, next)
             None<Exception>
@@ -496,9 +505,13 @@ class ReplicatorActor <: Actor {
             for (_ in 0..n) {
                 let key = r.next()
                 let incoming = ReplicatedValue.decodeFrom(r)
-                let merged = match (synchronized(store.lock) { store.values.get(key) }) {
-                    case Some(cur) => cur.merge(incoming)
-                    case None => incoming
+                // merge 遍历存储值的 HashMap：必须与 digestsNow()/apply() 的遍历互斥
+                // （锁外遍历曾导致 HashMap.contains SIGSEGV，见 onLocalUpdate 注释）
+                let merged = synchronized(store.lock) {
+                    match (store.values.get(key)) {
+                        case Some(cur) => cur.merge(incoming)
+                        case None => incoming
+                    }
                 }
                 synchronized(store.lock) {
                     store.mergesReceived++
@@ -537,16 +550,23 @@ class ReplicatorActor <: Actor {
         }
     }
 
+    /**
+     * 编码一组值。值对象内部的 HashMap 会被 encode 遍历，而 store.values 里的同一批对象
+     * 也可能正被 digestsNow()/merge 遍历——必须与它们在同一把锁下，否则并发遍历
+     * 引用类型 HashMap 会崩溃（见 onLocalUpdate 注释）。本函数只做内存拼装，不做 I/O。
+     */
     private func encodeState(entries: Array<(String, ReplicatedValue)>): String {
-        let w = FieldWriter()
-        w.put("S")
-        w.put(entries.size)
-        for ((k, v) in entries) {
-            w.put(k)
-            // 值本身已是字段序列，直接拼接
-            w.sb.append(v.encode())
+        synchronized(store.lock) {
+            let w = FieldWriter()
+            w.put("S")
+            w.put(entries.size)
+            for ((k, v) in entries) {
+                w.put(k)
+                // 值本身已是字段序列，直接拼接
+                w.sb.append(v.encode())
+            }
+            w.done()
         }
-        w.done()
     }
 
     private func sendToPeers(text: String): Unit {
