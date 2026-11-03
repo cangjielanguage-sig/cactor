@@ -242,6 +242,8 @@ class CellMailbox {
                 slotSenderRefs[inCount] = senderRef
             }
             inCount++
+            // 只自增计数位。不能把调度位一起 fetchAdd：整数自加遇到 bit0 已置位会向上进位，
+            // 污染终止位与计数位（实测导致停止彻底失效）。选举由调用方用 fetchOr 单独完成。
             state.fetchAdd(1 << SCHED_COUNT_SHIFT)
             true
         }
@@ -876,16 +878,17 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     // ---------------- 调度 ----------------
 
-    // 先读后 CAS：已被调度时只做一次读，避免每次 tell 都写共享缓存行。
-    // CAS 失败只可能是计数并发变化（位0 仍是 0），重读重试即可
+    // 读优先 + 单次 fetchOr，不重试：
+    // ① 不能 load+CAS 循环——schedState 低位承载 incoming 计数，并发计数自增会让别人的 CAS
+    //    失败，多发送方扇出同一 Actor 时退化成重试风暴（实测 T1 25.0M → T14 2.8M）。
+    // ② 也不能无条件 fetchOr——扇出稳态下目标通常已被调度，这次写 RMW 纯属让缓存行在核间弹跳。
+    //    先做一次只读 load（已调度时命中共享副本、不产生失效），仅在位0 为 0 时才 fetchOr。
     private func trySchedule(): Unit {
-        var s = schedState.load()
-        while ((s & SCHED_BIT) == 0) {
-            if (schedState.compareAndSwap(s, s | SCHED_BIT)) {
-                executor.execute(this)
-                return
-            }
-            s = schedState.load()
+        if ((schedState.load() & SCHED_BIT) != 0) {
+            return
+        }
+        if ((schedState.fetchOr(SCHED_BIT) & SCHED_BIT) == 0) {
+            executor.execute(this)
         }
     }
 
@@ -946,14 +949,10 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         // 清位与随后的计数检查在同一原子字上顺序一致，发送方"计数++ 后置位"不会落空
         schedState.fetchAnd(SCHED_CLEAR_MASK)
         if (hasSystemMessages() || (state == STATE_RUNNING && (userNonEmpty() || hasUnstashed()))) {
-            var s = schedState.load()
-            while ((s & SCHED_BIT) == 0) {
-                if (schedState.compareAndSwap(s, s | SCHED_BIT)) {
-                    // 运行结束时一定在某个工作线程上：留在本线程，排到队尾（先轮到其他 Actor）
-                    executor.executeAgain(this)
-                    break
-                }
-                s = schedState.load()
+            // 同 trySchedule：单次 fetchOr 选举，不重试（理由见 trySchedule 注释）
+            if ((schedState.fetchOr(SCHED_BIT) & SCHED_BIT) == 0) {
+                // 运行结束时一定在某个工作线程上：留在本线程，排到队尾（先轮到其他 Actor）
+                executor.executeAgain(this)
             }
         }
     }
@@ -1309,7 +1308,14 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                     } catch (e: Exception) {
                         cellLog.error("Actor ${pathString} 停止失败: ${e}")
                     }
-                    // 与 run() 末尾一致：释放调度权（保留 TERM_BIT，不动计数位）
+                    // 与 run() 末尾一致：释放调度权（保留 TERM_BIT，不动计数位）。
+                    // 但停止过程中可能已被投递系统消息（例如 stop 与并发 tell/父级终止交错），
+                    // 释放前必须先交给自己的 run() 收取，否则该消息无人处理，
+                    // Actor 停在 TERMINATING（soak 实测：创建 195550 / 停止 195500，差 50）。
+                    if (hasSystemMessages()) {
+                        executor.execute(this)
+                        return
+                    }
                     schedState.fetchAnd(SCHED_CLEAR_MASK)
                     return
                 }
@@ -1997,7 +2003,10 @@ class DispatcherWorker {
     /** 只由本线程调用：放入 runNext，原有的 Cell 挤回它的亲和线程 */
     func pushRunNext(cell: SimpleUserActorRef): Unit {
         if (let Some(prev) <- runNextSlot.swap(Some(cell))) {
+            // 槽位被顶替出来：待取计数不变（换了一个节点而已），转交亲和线程
             dispatcher.submitToAffinity(prev)
+        } else {
+            dispatcher.runNextPending.fetchAdd(1)
         }
     }
 
@@ -2035,6 +2044,7 @@ class DispatcherWorker {
 
     private func takeNext(): Option<SimpleUserActorRef> {
         if (let Some(cell) <- runNextSlot.swap(None<SimpleUserActorRef>)) {
+            dispatcher.runNextPending.fetchAdd(-1)
             if (runNextStreak < RUN_NEXT_LIMIT) {
                 runNextStreak++
                 return Some(cell)
@@ -2059,6 +2069,11 @@ class DispatcherWorker {
      * 空闲时调用：别的线程卡在同一次运行里（执行计数 RUN_NEXT_STEAL_AFTER_US 内没有变化）且 runNext 非空时，取走它的 runNext
      */
     private func stealStuckRunNext(now: MonoTime): Option<SimpleUserActorRef> {
+        // 没有待取的 runNext 时直接返回：避免空闲线程全量扫描所有 worker 的
+        // runNextSlot/executed（跨核读风暴，且会偷走忙线程正在热的 Cell）
+        if (dispatcher.runNextPending.load() <= 0) {
+            return None<SimpleUserActorRef>
+        }
         let ws = dispatcher.allWorkers()
         if (seenExecuted.size != ws.size) {
             seenExecuted = Array<Int64>(ws.size, repeat: -1)
@@ -2079,6 +2094,7 @@ class DispatcherWorker {
             if (now - seenSince[i] >= Duration.microsecond * RUN_NEXT_STEAL_AFTER_US) {
                 seenExecuted[i] = -1
                 if (let Some(cell) <- w.runNextSlot.swap(None<SimpleUserActorRef>)) {
+                    dispatcher.runNextPending.fetchAdd(-1)
                     return Some(cell)
                 }
             }
@@ -2233,6 +2249,11 @@ public class ActorCellDispatcher <: CellExecutor {
     let hungryCount: AtomicInt64 = AtomicInt64(0)
     // 捐赠扫描起点轮转序列
     let donateSeq: AtomicInt64 = AtomicInt64(0)
+    // 全局"有 runNext 待取"计数：push 时 +1、被取走时 -1。
+    // 空闲线程仅在其 > 0 时才去扫描各线程的 runNextSlot/executed——
+    // 否则 14 个空闲线程每 250µs 全量扫一遍所有 worker，是跨核读风暴，
+    // 还会偷走忙线程正在热的 Cell（实测扇出 T14 3.0M vs T4 11.7M 的主因）
+    let runNextPending: AtomicInt64 = AtomicInt64(0)
     // 仓颉线程 id → 工作线程下标（见 currentWorker）；启动时写一次，在 ready 置位前发布
     private var workerIds: Array<Int64> = Array<Int64>()
     private var workerSlots: Array<Int64> = Array<Int64>()
