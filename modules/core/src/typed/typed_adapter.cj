@@ -66,16 +66,25 @@ public class TypedPayloadBox <: Message & PayloadCarrier {
     }
 }
 
-/** 在目标 Actor 线程中才计算出消息（messageAdapter / pipeToSelf 使用） */
-class AdaptedEnvelope<T> <: Message {
-    let produce: () -> T
+/**
+ * 在目标 Actor 线程中才计算出消息（messageAdapter / pipeToSelf 使用）。
+ * 载荷以 Any 携带（非泛型）：接收侧若写成 `case a: AdaptedEnvelope<T>`，
+ * 每次都会触发运行时的泛型类型信息查找（profile 实测在多线程下互相阻塞，是 [7] 反缩放的主因）；
+ * 取出后的 `as T` 交由用户包里编译的桥接闭包（unwrap）完成。
+ */
+class AdaptedEnvelope <: Message & PayloadCarrier {
+    let produce: () -> Any
 
-    init(produce: () -> T) {
+    init(produce: () -> Any) {
         this.produce = produce
     }
 
     public func messageType(): String {
         "AdaptedEnvelope"
+    }
+
+    public func anyPayload(): Any {
+        produce()
     }
 }
 
@@ -255,7 +264,6 @@ class TypedActorAdapter<T> <: Actor {
                     case Some(m) => deliver(m, c)
                     case None => MessageResult.Unhandled
                 }
-            case a: AdaptedEnvelope<T> => deliver(a.produce(), c)
             case t: Terminated =>
                 match (c.watchMessages.remove(t.actor.path.getPath())) {
                     case Some(m) => deliver(m, c)
@@ -267,9 +275,10 @@ class TypedActorAdapter<T> <: Actor {
                     case None => MessageResult.Handled
                 }
             case e: PayloadCarrier =>
-                // 载荷类型与协议类型是子类型关系（例如用 TypedActorRef<Any> 发送），
-                // 以及旧信封 TypedEnvelope<T>（payload 在创建方包里取出成本高，这里走通用路径）
-                match (e.anyPayload() as T) {
+                // AdaptedEnvelope / 旧信封 TypedEnvelope，以及"载荷类型与协议类型是子类型关系"
+                // （例如用 TypedActorRef<Any> 发送）：都经用户包的桥接闭包取出具体类型，
+                // 不在 core 泛型代码里做 `as T`（后者每次都要运行时查类型信息，多线程下互相阻塞）
+                match (unwrap(e.anyPayload())) {
                     case Some(m) => deliver(m, c)
                     case None => MessageResult.Unhandled
                 }
@@ -478,7 +487,7 @@ class ClassicTypedContext<T> <: TypedActorContext<T> {
 
     public func pipeToSelf<V>(future: TypedFuture<V>, map: (AskOutcome<V>) -> T): Unit {
         let me = classic.self
-        future.onComplete({ outcome => me.tell(AdaptedEnvelope<T>({ => map(outcome) })) })
+        future.onComplete({ outcome => me.tell(AdaptedEnvelope({ => map(outcome) })) })
     }
 
     public func messageAdapter<U>(f: (U) -> T): TypedActorRef<U> {
@@ -558,7 +567,7 @@ class MessageAdapterTypedRef<U, T> <: TypedActorRef<U> {
 
     public func tell(message: U): Unit {
         let fn = f
-        owner.tell(AdaptedEnvelope<T>({ => fn(message) }))
+        owner.tell(AdaptedEnvelope({ => fn(message) }))
     }
 
     public func pathString(): String {
