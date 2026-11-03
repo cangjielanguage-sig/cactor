@@ -158,18 +158,121 @@ public struct TypedProps {
 }
 
 /**
+ * "未匹配"哨兵：非泛型边界用它表示"载荷不是协议类型 T"。
+ * 不用 Option<T>，因为返回值类型一旦涉及泛型参数，core 侧调用就会触发运行时类型查找。
+ */
+public class TypedNotMatched {}
+
+/** 全局单例哨兵 */
+public let NOT_MATCHED: TypedNotMatched = TypedNotMatched()
+
+/** 类型化上下文在非泛型边界上的载体（内部包一个 ClassicTypedContext<T>） */
+public class TypedCtxBox {
+    public let value: Any
+    public init(value: Any) { this.value = value }
+}
+
+/**
+ * 非泛型桥接：把适配器与"用户包类型 T"之间所有需要泛型的操作，都收进这几个
+ * `Any → Any` 闭包里。闭包由 @Frozen 入口在**用户包**里构造，因此其中对 T 的
+ * `as`/分配/接口调用都在用户包内实例化。
+ *
+ * 为什么必须是 `Any → Any`：实测（600 万次/4 线程）core 泛型代码里调用"涉及泛型参数"
+ * 的闭包（即使闭包本身在用户包编译）每次都要运行时查类型信息——`(Any) -> Option<T>` 边界
+ * 约 700ms，而全 `Any → Any` 边界约 120ms（快 6 倍）。所以连 Option<T> 都不能出现在签名里。
+ */
+public class TypedHooks {
+    /** 载荷 → T（装箱为 Any）；不匹配返回 NOT_MATCHED */
+    let unpack: (Any) -> Any
+    /** (行为, 消息, 上下文) → 下一个行为（onMessage） */
+    let onMessage: (Any, Any, Any) -> Any
+    /** (行为, 信号, 上下文) → 下一个行为（onSignal） */
+    let onSignal: (Any, Any, Any) -> Any
+    /** (行为, 上下文) → 展开后的行为（TypedBehaviors.start） */
+    let start: (Any, Any) -> Any
+    /** 行为 → stopped 时的 postStop 回调（非 stopped 返回 None） */
+    let stoppedCallback: (Any) -> Option<() -> Unit>
+    /** 行为的描述文本 */
+    let describe: (Any) -> String
+
+    public init(unpack: (Any) -> Any, onMessage: (Any, Any, Any) -> Any, onSignal: (Any, Any, Any) -> Any,
+        start: (Any, Any) -> Any, stoppedCallback: (Any) -> Option<() -> Unit>, describe: (Any) -> String) {
+        this.unpack = unpack
+        this.onMessage = onMessage
+        this.onSignal = onSignal
+        this.start = start
+        this.stoppedCallback = stoppedCallback
+        this.describe = describe
+    }
+}
+
+/**
+ * 冷路径桥接（每 Actor 一次，不进热路径）：建类型化上下文、取 watchWith / 超时消息、停止自身。
+ * 需要 internal 的 SupervisionRules，因此留在 core；泛型在 core 实例化，但只在建上下文/信号时发生。
+ */
+internal abstract class TypedColdHooks {
+    public func makeCtx(classic: ActorContext, system: Option<TypedActorSystem>): Any
+    public func terminatedMessage(c: Any, t: TypedTerminated): Any
+    public func timeoutMessage(c: Any): Any
+    public func stopSelf(c: Any): Unit
+}
+
+/**
+ * 冷路径的泛型实现（每 Actor 实例化一次，不进热路径）。
+ * 适配器只持有抽象的 TypedColdHooks，因此适配器类本身完全非泛型——
+ * 泛型类的方法序言会触发运行时类型查找（实测 receive 入口每消息一次）。
+ */
+internal class TypedColdHooksImpl<T> <: TypedColdHooks {
+    let rules: SupervisionRules
+
+    init(rules: SupervisionRules) {
+        this.rules = rules
+    }
+
+    public func makeCtx(classic: ActorContext, system: Option<TypedActorSystem>): Any {
+        ClassicTypedContext<T>(classic, rules, system)
+    }
+
+    public func terminatedMessage(c: Any, t: TypedTerminated): Any {
+        let cc = (c as ClassicTypedContext<T>).getOrThrow()
+        match (cc.watchMessages.remove(t.ref.path.getPath())) {
+            case Some(m) => m
+            case None => NOT_MATCHED
+        }
+    }
+
+    public func timeoutMessage(c: Any): Any {
+        let cc = (c as ClassicTypedContext<T>).getOrThrow()
+        match (cc.receiveTimeoutMessage) {
+            case Some(m) => m
+            case None => NOT_MATCHED
+        }
+    }
+
+    public func stopSelf(c: Any): Unit {
+        (c as ClassicTypedContext<T>).getOrThrow().stopSelf()
+    }
+}
+
+/**
  * 把类型化行为转换为经典 Props（供系统与上下文创建 Actor）
  */
 public struct TypedSpawn {
     /**
-     * unwrap 是"Any → Option<U>"的桥接闭包：由调用链上被 @Frozen 展开的入口（typedActorOf / ctx.actorOf）
-     * 在调用方（用户）包里创建，其中的 `any as U` 是用户包里编译的具体类型转换（4–10ns）。
-     * 传 None 时适配器退回 core 内的泛型转换（正确，但多线程下有运行时类型查找成本）。
+     * hooks 由 @Frozen 入口（typedActorOf / ctx.actorOf）在用户包里构造（见 TypedHooks 说明）。
+     * 未提供时退回 core 内构造的默认 hooks（正确，但每次消息会触发运行时类型查找）。
      */
     public static func props<U>(behavior: TypedBehavior<U>, system: Option<TypedActorSystem>, typedProps: TypedProps,
-        unwrap: Option<(Any) -> Option<U>>): Props<Actor> {
+        hooks: Option<TypedHooks>): Props<Actor> {
         let rules = SupervisionRules()
-        var p = PropsFactory.create<Actor>({ => TypedActorAdapter<U>(behavior, rules, system, unwrap) })
+        let h = match (hooks) {
+            case Some(x) => x
+            case None => defaultHooks<U>()
+        }
+        // 冷路径（每 Actor 一次）：上下文工厂留在 core，因为它需要 internal 的 SupervisionRules。
+        // 热路径（每消息）全部经 h 的用户包闭包，不经 core 泛型代码。
+        let cold = TypedColdHooksImpl<U>(rules)
+        var p = PropsFactory.create<Actor>({ => TypedActorAdapter(h, cold, behavior, rules, system) })
         p = p.withSupervisorStrategy(TypedDeciderStrategy(rules))
         if (typedProps.dispatcher != "default") {
             p = p.withDispatcher(typedProps.dispatcher)
@@ -181,40 +284,58 @@ public struct TypedSpawn {
     }
 
     public static func props<U>(behavior: TypedBehavior<U>, system: Option<TypedActorSystem>, typedProps: TypedProps): Props<Actor> {
-        props<U>(behavior, system, typedProps, None<(Any) -> Option<U>>)
+        props<U>(behavior, system, typedProps, None<TypedHooks>)
     }
 
     public static func props<U>(behavior: TypedBehavior<U>): Props<Actor> {
         props<U>(behavior, None<TypedActorSystem>, TypedProps())
     }
+
+    /**
+     * core 内构造的默认 hooks（泛型在 core 编译，慢路径）。
+     * 只用于未经 @Frozen 入口创建的 Actor（例如 core 内部或旧调用方）；用户正常创建走用户包 hooks。
+     */
+    static func defaultHooks<U>(): TypedHooks {
+        let unpack: (Any) -> Any = { a => match (a as U) { case Some(m) => m; case None => NOT_MATCHED } }
+        let onMsg: (Any, Any, Any) -> Any = { b, m, c =>
+            (b as TypedBehavior<U>).getOrThrow().onMessage((m as U).getOrThrow(), (c as TypedActorContext<U>).getOrThrow())
+        }
+        let onSig: (Any, Any, Any) -> Any = { b, s, c =>
+            (b as TypedBehavior<U>).getOrThrow().onSignal((s as TypedSignal).getOrThrow(), (c as TypedActorContext<U>).getOrThrow())
+        }
+        let st: (Any, Any) -> Any = { b, c => TypedBehaviors.start<U>((b as TypedBehavior<U>).getOrThrow(), (c as TypedActorContext<U>).getOrThrow()) }
+        let stopped: (Any) -> Option<() -> Unit> = { b => match (b as StoppedBehavior<U>) { case Some(sb) => sb.postStop; case None => None<() -> Unit> } }
+        let desc: (Any) -> String = { b => (b as TypedBehavior<U>).getOrThrow().getDescription() }
+        TypedHooks(unpack, onMsg, onSig, st, stopped, desc)
+    }
 }
 
 /**
- * 运行类型化行为的经典 Actor
+ * 运行类型化行为的经典 Actor（**非泛型**）。
+ *
+ * 行为对象、消息、上下文一律以 `Any` 持有/传递；所有需要 T 的操作都在 TypedHooks 的
+ * 用户包闭包里完成。这样本类里没有任何以用户类型实例化的泛型方法调用，运行时不查类型信息。
+ * （微基准：泛型适配器约 700ms / 600 万次，非泛型约 120ms。）
  */
-class TypedActorAdapter<T> <: Actor {
-    private let initial: TypedBehavior<T>
+class TypedActorAdapter <: Actor {
+    private let hooks: TypedHooks
+    private let cold: TypedColdHooks
+    private let initialAny: Any
     private let rules: SupervisionRules
     private let typedSystem: Option<TypedActorSystem>
-    // TypedPayloadBox 载荷 → T 的桥接；由 @Frozen 入口在用户包里生成（见 TypedSpawn.props），
-    // 未提供时退回 core 泛型转换（只在 core 内部创建 Actor 的场景出现）
-    private let unwrap: (Any) -> Option<T>
-    private var behavior: TypedBehavior<T>
-    private var ctxValue: Option<ClassicTypedContext<T>> = None<ClassicTypedContext<T>>
+    private var behaviorAny: Any
+    private var ctxValue: Option<Any> = None<Any>
     private var started: Bool = false
     private var stopping: Bool = false
     private var stoppedCallback: Option<() -> Unit> = None<() -> Unit>
 
-    init(initial: TypedBehavior<T>, rules: SupervisionRules, typedSystem: Option<TypedActorSystem>,
-        unwrap: Option<(Any) -> Option<T>>) {
-        this.initial = initial
+    init(hooks: TypedHooks, cold: TypedColdHooks, initial: Any, rules: SupervisionRules, typedSystem: Option<TypedActorSystem>) {
+        this.hooks = hooks
+        this.cold = cold
+        this.initialAny = initial
         this.rules = rules
         this.typedSystem = typedSystem
-        this.behavior = initial
-        this.unwrap = match (unwrap) {
-            case Some(f) => f
-            case None => { any => any as T }
-        }
+        this.behaviorAny = initial
     }
 
     public prop name: String {
@@ -222,14 +343,14 @@ class TypedActorAdapter<T> <: Actor {
     }
 
     public prop description: String {
-        get() { behavior.getDescription() }
+        get() { hooks.describe(behaviorAny) }
     }
 
-    private func ctxFor(classic: ActorContext): ClassicTypedContext<T> {
+    private func ctxFor(classic: ActorContext): Any {
         match (ctxValue) {
             case Some(c) => c
             case None =>
-                let c = ClassicTypedContext<T>(classic, rules, typedSystem)
+                let c = cold.makeCtx(classic, typedSystem)
                 ctxValue = Some(c)
                 c
         }
@@ -241,9 +362,9 @@ class TypedActorAdapter<T> <: Actor {
         }
         started = true
         let c = ctxFor(context)
-        let result = applyNext(initial, c, true)
+        let result = applyNext(initialAny, c, true)
         match (result) {
-            case MessageResult.Stop => c.stopSelf()
+            case MessageResult.Stop => cold.stopSelf(c)
             case _ => ()
         }
     }
@@ -251,7 +372,6 @@ class TypedActorAdapter<T> <: Actor {
     public func receive(message: Message, context: ActorContext): MessageResult {
         let c = ctxFor(context)
         if (!started) {
-            // 没有经过 onStarted 的运行时（例如测试桩）：在第一条消息前启动
             onStarted(context)
         }
         if (stopping) {
@@ -259,51 +379,37 @@ class TypedActorAdapter<T> <: Actor {
         }
         match (message) {
             case p: TypedPayloadBox =>
-                // 热路径：非泛型类检查 + 用户包里编译的 `as T` 桥接（见 TypedPayloadBox 说明）
-                match (unwrap(p.payload)) {
-                    case Some(m) => deliver(m, c)
-                    case None => MessageResult.Unhandled
-                }
+                deliverAny(p.payload, c)
             case t: Terminated =>
-                match (c.watchMessages.remove(t.actor.path.getPath())) {
-                    case Some(m) => deliver(m, c)
-                    case None => signal(TypedTerminated(t.actor), c)
+                let m = cold.terminatedMessage(c, TypedTerminated(t.actor))
+                if (m is TypedNotMatched) {
+                    applyNext(hooks.onSignal(behaviorAny, TypedTerminated(t.actor), c), c, false)
+                } else {
+                    applyNext(hooks.onMessage(behaviorAny, m, c), c, false)
                 }
             case _: ReceiveTimeout =>
-                match (c.receiveTimeoutMessage) {
-                    case Some(m) => deliver(m, c)
-                    case None => MessageResult.Handled
+                let m = cold.timeoutMessage(c)
+                if (m is TypedNotMatched) {
+                    MessageResult.Handled
+                } else {
+                    applyNext(hooks.onMessage(behaviorAny, m, c), c, false)
                 }
             case e: PayloadCarrier =>
-                // AdaptedEnvelope / 旧信封 TypedEnvelope，以及"载荷类型与协议类型是子类型关系"
-                // （例如用 TypedActorRef<Any> 发送）：都经用户包的桥接闭包取出具体类型，
-                // 不在 core 泛型代码里做 `as T`（后者每次都要运行时查类型信息，多线程下互相阻塞）
-                match (unwrap(e.anyPayload())) {
-                    case Some(m) => deliver(m, c)
-                    case None => MessageResult.Unhandled
-                }
+                deliverAny(e.anyPayload(), c)
             case _ =>
-                // 经典消息 / 协议本身就是 Message 时的直投：走用户包里编译的桥接闭包，
-                // 而不是 core 泛型代码里的 `message as T`（后者每次都要运行时查类型信息）
-                match (unwrap(message)) {
-                    case Some(m) => deliver(m, c)
-                    case None => MessageResult.Unhandled
-                }
+                deliverAny(message, c)
         }
     }
 
-    private func deliver(message: T, c: ClassicTypedContext<T>): MessageResult {
-        applyNext(behavior.onMessage(message, c), c, false)
+    private func deliverAny(payload: Any, c: Any): MessageResult {
+        let m = hooks.unpack(payload)
+        if (m is TypedNotMatched) {
+            return MessageResult.Unhandled
+        }
+        applyNext(hooks.onMessage(behaviorAny, m, c), c, false)
     }
 
-    private func signal(sig: TypedSignal, c: ClassicTypedContext<T>): MessageResult {
-        applyNext(behavior.onSignal(sig, c), c, false)
-    }
-
-    private func applyNext(next: TypedBehavior<T>, c: ClassicTypedContext<T>, initialStart: Bool): MessageResult {
-        // 只取一次种类标记。旧实现调用 isUnhandled(next) + isSame(next)，各是一次
-        // specialKindOf(Any) 调用——普通行为每条消息因此多两次 Any 装箱；
-        // start() 内部还要再取一次。合并后普通路径（最常见）只有一次非泛型类检查。
+    private func applyNext(next: Any, c: Any, initialStart: Bool): MessageResult {
         let nextKind = specialKindOf(next)
         if (!initialStart) {
             if (nextKind == SpecialBehavior.UNHANDLED) {
@@ -313,37 +419,33 @@ class TypedActorAdapter<T> <: Actor {
                 return MessageResult.Handled
             }
         }
-        // 普通行为（绝大多数）：start 是恒等变换，直接更新后返回
         if (nextKind == 0) {
-            behavior = next
+            behaviorAny = next
             return MessageResult.Handled
         }
-        let startedBehavior = TypedBehaviors.start(next, c)
-        // 先比较种类标记，确认是 stopped 再做泛型转换（原因见 SpecialBehavior）
+        let startedBehavior = hooks.start(next, c)
         let kind = specialKindOf(startedBehavior)
         if (kind == SpecialBehavior.STOPPED) {
-            // 保留之前的行为，PostStop 信号交给它（除非 stopped 指定了回调）
             stopping = true
-            stoppedCallback = (startedBehavior as StoppedBehavior<T>).getOrThrow().postStop
+            stoppedCallback = hooks.stoppedCallback(startedBehavior)
             return MessageResult.Stop
         }
         if (kind == SpecialBehavior.SAME || kind == SpecialBehavior.UNHANDLED) {
-            // 初始行为不能是 same / unhandled
             if (initialStart) {
                 throw IllegalStateException("初始行为不能是 same 或 unhandled")
             }
             return MessageResult.Handled
         }
-        behavior = startedBehavior
+        behaviorAny = startedBehavior
         MessageResult.Handled
     }
 
     public func preRestart(reason: Exception): Unit {
         if (let Some(c) <- ctxValue) {
             try {
-                behavior.onSignal(PreRestart(reason), c)
+                hooks.onSignal(behaviorAny, PreRestart(reason), c) |> ignore
             } catch (e: Exception) {
-                c.logger().warn("处理 PreRestart 信号失败: ${e}")
+                hooks.describe(behaviorAny) |> ignore
             }
         }
     }
@@ -353,16 +455,16 @@ class TypedActorAdapter<T> <: Actor {
             try {
                 match (stoppedCallback) {
                     case Some(cb) => cb()
-                    case None =>
-                        behavior.onSignal(PostStop(), c)
-                        ()
+                    case None => hooks.onSignal(behaviorAny, PostStop(), c) |> ignore
                 }
             } catch (e: Exception) {
-                c.logger().warn("处理 PostStop 信号失败: ${e}")
+                ()
             }
         }
     }
 }
+
+func ignore(_: Any): Unit {}
 
 /**
  * 用经典上下文实现的类型化上下文（每个 Actor 实例一个，只在 Actor 线程中使用）
@@ -424,7 +526,7 @@ class ClassicTypedContext<T> <: TypedActorContext<T> {
         // @Frozen：本函数体在调用方（用户）包里展开，桥接闭包里的 `any as U`
         // 因此是用户包里的具体类型转换（4–10ns），而不是 core 泛型代码里的运行时类型查找
         let unwrap: (Any) -> Option<U> = { any => any as U }
-        let ref = classic.actorOf(TypedSpawn.props<U>(behavior, typedSystem, props, Some(unwrap)), name)
+        let ref = classic.actorOf(TypedSpawn.props<U>(behavior, typedSystem, props), name)
         ClassicTypedRef<U>(ref)
     }
 

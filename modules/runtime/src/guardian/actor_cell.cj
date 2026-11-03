@@ -56,6 +56,9 @@ let TERM_BIT: Int64 = 2
 let SCHED_COUNT_SHIFT: Int64 = 2
 // 清除调度位（bit0）的掩码：除 bit0 外全 1（仓颉整数没有按位取反运算符，用补码常量）
 let SCHED_CLEAR_MASK: Int64 = -2
+// 停止子树时"父线程内联领养"的子数上限：超过则改为并行分发到各子自己的 worker。
+// 可用 CACTOR_INLINE_STOP_LIMIT 覆盖（设为 0 则总是并行，设为很大则总是内联），便于对照实测。
+let INLINE_STOP_LIMIT: Int64 = envInt("CACTOR_INLINE_STOP_LIMIT", 4096, 0)
 
 // 诊断计数器位域（P1-5）：processed / deadLetters / restarts / unhandled 各占 16 位。
 // 四个独立原子对象每个约 46 字节，合并后每 Actor 省下约 138 字节；
@@ -1316,10 +1319,19 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             }
             stoppingChildren.store(childMap().size)
             childBatchStopping.store(1)
-            for (c in childMap().values()) {
-                // 空闲的子直接在当前线程领养并完成停止（省一次调度入队 + 工作线程唤醒）；
-                // 正被调度/运行中的子回退到系统消息，保证同一 Cell 不会被两个线程同时处理
-                c.terminateIfIdle()
+            let kids = childMap()
+            // 小子树：父线程内联领养（省每子一次调度入队+唤醒，短突发最快）；
+            // 大子树：交给各子自己的亲和 worker 并行处理（sendSystem 进的是每个子自己的系统队列）。
+            // 纯内联在百万级是单线程串行，1M→2M 停止耗时 1039→2856ms 超线性（实测）；
+            // 纯并行又要为每子付一次入队+唤醒。按规模切换，二者兼得。
+            if (kids.size <= INLINE_STOP_LIMIT) {
+                for (c in kids.values()) {
+                    c.terminateIfIdle()
+                }
+            } else {
+                for (c in kids.values()) {
+                    c.sendSystem(SysTerminate())
+                }
             }
         }
     }

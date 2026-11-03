@@ -484,6 +484,14 @@ public struct TypedBehaviors {
         specialKindOf(b) == SpecialBehavior.STOPPED
     }
 
+    /** stopped 行为的 postStop 回调（非 stopped 返回 None）。供用户包的 @Frozen hooks 使用。 */
+    public static func stoppedCallbackOf<T>(b: TypedBehavior<T>): Option<() -> Unit> {
+        match (b as StoppedBehavior<T>) {
+            case Some(sb) => sb.postStop
+            case None => None<() -> Unit>
+        }
+    }
+
     public static func isDeferred<T>(b: TypedBehavior<T>): Bool {
         specialKindOf(b) == SpecialBehavior.DEFERRED
     }

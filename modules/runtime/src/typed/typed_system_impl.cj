@@ -51,7 +51,7 @@ public class TypedActorSystemImpl <: TypedActorSystem {
 
     /** 指定调度器 / 邮箱创建顶层类型化 Actor */
     public func actorOf<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps): TypedActorRef<U> {
-        actorOfVia<U>(behavior, name, props, None<(Any) -> Option<U>>)
+        actorOfVia<U>(behavior, name, props, None<TypedHooks>)
     }
 
     /**
@@ -59,11 +59,11 @@ public class TypedActorSystemImpl <: TypedActorSystem {
      * 在那里生成"Any → Option<U>"与"U → Message"两个闭包，经本方法传入（不经接口虚调用）。
      */
     public func actorOfVia<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps,
-        unwrap: Option<(Any) -> Option<U>>): TypedActorRef<U> {
+        hooks: Option<TypedHooks>): TypedActorRef<U> {
         if (terminated.load()) {
             throw IllegalStateException("Actor 系统 ${systemName} 已终止")
         }
-        let classic = runtime.actorOf(TypedSpawn.props<U>(behavior, Some<TypedActorSystem>(this), props, unwrap), name)
+        let classic = runtime.actorOf(TypedSpawn.props<U>(behavior, Some<TypedActorSystem>(this), props, hooks), name)
         ClassicTypedRef<U>(classic)
     }
 

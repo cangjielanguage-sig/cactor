@@ -8,7 +8,7 @@ package cactor.api
 
 import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory}
 import cactor_core.config.{MailboxConfig as CoreMailboxConfig, DispatcherConfig as CoreDispatcherConfig, SupervisionConfig as CoreSupervisionConfig}
-import cactor_core.typed.{TypedBehavior, TypedActorRef, TypedActorSelection, ClassicTypedRef, TypedProps}
+import cactor_core.typed.{TypedBehavior, TypedBehaviors, TypedActorRef, TypedActorSelection, TypedActorContext, ClassicTypedRef, TypedProps, TypedHooks, TypedSignal, NOT_MATCHED}
 import std.sync.{Mutex}
 import cactor_runtime.wrappers.{TypedActorRefWrapper, MessageBridge}
 import cactor_runtime.{CActorRuntime, CActorRuntimeConfig}
@@ -192,15 +192,47 @@ public class CActorSystem {
      */
     @Frozen
     public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String): TypedActorRef<T> {
-        let unwrap: (Any) -> Option<T> = { any => any as T }
-        typed().actorOfVia<T>(behavior, name, TypedProps(), Some(unwrap))
+        // 非泛型热路径闭包：全部在这里（用户包）编译，core 侧调用不触发运行时类型查找。
+        // 实测：core 泛型代码调用涉及 T 的闭包约 700ms/600万次，纯 Any→Any 约 120ms（快 6 倍）。
+        let unpack: (Any) -> Any = { a => match (a as T) { case Some(m) => m; case None => NOT_MATCHED } }
+        let onMsg: (Any, Any, Any) -> Any = { b, m, cx =>
+            (b as TypedBehavior<T>).getOrThrow().onMessage((m as T).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let onSig: (Any, Any, Any) -> Any = { b, sg, cx =>
+            (b as TypedBehavior<T>).getOrThrow().onSignal((sg as TypedSignal).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let st: (Any, Any) -> Any = { b, cx =>
+            TypedBehaviors.start<T>((b as TypedBehavior<T>).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let stoppedCb: (Any) -> Option<() -> Unit> = { b =>
+            TypedBehaviors.stoppedCallbackOf<T>((b as TypedBehavior<T>).getOrThrow())
+        }
+        let desc: (Any) -> String = { b => (b as TypedBehavior<T>).getOrThrow().getDescription() }
+        let hooks = TypedHooks(unpack, onMsg, onSig, st, stoppedCb, desc)
+        typed().actorOfVia<T>(behavior, name, TypedProps(), Some(hooks))
     }
 
     /** 指定调度器 / 邮箱创建类型安全 Actor */
     @Frozen
     public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String, props: TypedProps): TypedActorRef<T> {
-        let unwrap: (Any) -> Option<T> = { any => any as T }
-        typed().actorOfVia<T>(behavior, name, props, Some(unwrap))
+        // 非泛型热路径闭包：全部在这里（用户包）编译，core 侧调用不触发运行时类型查找。
+        // 实测：core 泛型代码调用涉及 T 的闭包约 700ms/600万次，纯 Any→Any 约 120ms（快 6 倍）。
+        let unpack: (Any) -> Any = { a => match (a as T) { case Some(m) => m; case None => NOT_MATCHED } }
+        let onMsg: (Any, Any, Any) -> Any = { b, m, cx =>
+            (b as TypedBehavior<T>).getOrThrow().onMessage((m as T).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let onSig: (Any, Any, Any) -> Any = { b, sg, cx =>
+            (b as TypedBehavior<T>).getOrThrow().onSignal((sg as TypedSignal).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let st: (Any, Any) -> Any = { b, cx =>
+            TypedBehaviors.start<T>((b as TypedBehavior<T>).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let stoppedCb: (Any) -> Option<() -> Unit> = { b =>
+            TypedBehaviors.stoppedCallbackOf<T>((b as TypedBehavior<T>).getOrThrow())
+        }
+        let desc: (Any) -> String = { b => (b as TypedBehavior<T>).getOrThrow().getDescription() }
+        let hooks = TypedHooks(unpack, onMsg, onSig, st, stoppedCb, desc)
+        typed().actorOfVia<T>(behavior, name, props, Some(hooks))
     }
 
     /**
@@ -227,8 +259,24 @@ public class CActorSystem {
     @Frozen
     public func typedActorOf<T>(behavior: TypedBehavior<T>): TypedActorRef<T> {
         let name = "typed-actor-${DateTime.now().toUnixTimeStamp().toNanoseconds()}"
-        let unwrap: (Any) -> Option<T> = { any => any as T }
-        typed().actorOfVia<T>(behavior, name, TypedProps(), Some(unwrap))
+        // 非泛型热路径闭包：全部在这里（用户包）编译，core 侧调用不触发运行时类型查找。
+        // 实测：core 泛型代码调用涉及 T 的闭包约 700ms/600万次，纯 Any→Any 约 120ms（快 6 倍）。
+        let unpack: (Any) -> Any = { a => match (a as T) { case Some(m) => m; case None => NOT_MATCHED } }
+        let onMsg: (Any, Any, Any) -> Any = { b, m, cx =>
+            (b as TypedBehavior<T>).getOrThrow().onMessage((m as T).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let onSig: (Any, Any, Any) -> Any = { b, sg, cx =>
+            (b as TypedBehavior<T>).getOrThrow().onSignal((sg as TypedSignal).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let st: (Any, Any) -> Any = { b, cx =>
+            TypedBehaviors.start<T>((b as TypedBehavior<T>).getOrThrow(), (cx as TypedActorContext<T>).getOrThrow())
+        }
+        let stoppedCb: (Any) -> Option<() -> Unit> = { b =>
+            TypedBehaviors.stoppedCallbackOf<T>((b as TypedBehavior<T>).getOrThrow())
+        }
+        let desc: (Any) -> String = { b => (b as TypedBehavior<T>).getOrThrow().getDescription() }
+        let hooks = TypedHooks(unpack, onMsg, onSig, st, stoppedCb, desc)
+        typed().actorOfVia<T>(behavior, name, TypedProps(), Some(hooks))
     }
 
     /**

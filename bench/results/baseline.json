@@ -4,13 +4,13 @@
     "create_ms": 1100,
     "drain_ms": 420,
     "stop_ms": 1300,
-    "heap_bytes_per_actor": 1650
+    "heap_bytes_per_actor": 1550
   },
   "real_benchmark_t4": {
     "single_actor_mps": 16000000,
     "fanout_mps": 17000000,
     "multi_pairs_mps": 62000000,
-    "typed_pairs_mps": 6000000,
+    "typed_pairs_mps": 25000000,
     "pingpong_p50_us": 1.0,
     "pingpong_p99_us": 2.0
   },
