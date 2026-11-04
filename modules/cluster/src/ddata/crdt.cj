@@ -305,18 +305,32 @@ public class ORSet <: ReplicatedData<ORSet> & Equatable<ORSet> {
             keys.add(k)
         }
         for (k in keys) {
-            let mine = entries.get(k) ?? HashSet<String>()
-            let theirs = other.entries.get(k) ?? HashSet<String>()
+            // 不用 `?? HashSet()` 的空集回退：合并是只读操作，缺键直接按"空集合"处理，
+            // 避免为每个缺失键临时分配对象（百万级 key 的 gossip 同步时是真实的分配压力）
+            let mine = entries.get(k)
+            let theirs = other.entries.get(k)
             let dots = HashSet<String>()
-            for (d in mine) {
-                // 双方都有，或对方没见过（对方没删）
-                if (theirs.contains(d) || !covered(d, other.vv)) {
-                    dots.add(d)
+            if (let Some(m) <- mine) {
+                for (d in m) {
+                    // 双方都有，或对方没见过（对方没删）
+                    let seen = match (theirs) {
+                        case Some(t) => t.contains(d)
+                        case None => false
+                    }
+                    if (seen || !covered(d, other.vv)) {
+                        dots.add(d)
+                    }
                 }
             }
-            for (d in theirs) {
-                if (mine.contains(d) || !covered(d, vv)) {
-                    dots.add(d)
+            if (let Some(t) <- theirs) {
+                for (d in t) {
+                    let seen = match (mine) {
+                        case Some(m) => m.contains(d)
+                        case None => false
+                    }
+                    if (seen || !covered(d, vv)) {
+                        dots.add(d)
+                    }
                 }
             }
             if (!dots.isEmpty()) {

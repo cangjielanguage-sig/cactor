@@ -686,10 +686,27 @@ public class Replicator {
         }
     }
 
-    /** 本地当前值 */
+    /**
+     * 本地当前值（返回一份独立副本）。
+     *
+     * 为什么不直接返回 store 里的引用：一旦把引用交给锁外调用方，调用方的遍历
+     * （setElements / encode / digest）就会与 Replicator Actor 线程的 merge/digestsNow
+     * 同时走访同一批 CRDT 内部 HashMap，实测会 SIGSEGV（ReplicatorDigestTest 全量并行时
+     * 崩溃于 ORSet.merge → HashMap.contains，addr 0x8）。
+     *
+     * 副本用"锁内编码 + 锁外解码"构造，保证编码遍历发生在锁内；不在热路径
+     * （生产代码走 setElements 等专用访问器）。
+     */
     public func get(key: String): Option<ReplicatedValue> {
-        synchronized(store.lock) {
-            store.values.get(key)
+        let encoded = synchronized(store.lock) {
+            match (store.values.get(key)) {
+                case Some(v) => Some(v.encode())
+                case None => None<String>
+            }
+        }
+        match (encoded) {
+            case Some(text) => Some(ReplicatedValue.decode(text))
+            case None => None<ReplicatedValue>
         }
     }
 
