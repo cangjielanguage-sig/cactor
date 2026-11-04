@@ -21,6 +21,7 @@ import std.collection.*
 import cactor_core.actor.{Actor, ActorPath, Props, PropsFactory}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.context.{ActorContext}
+import cactor_foundation.queue.{ConcurrentHashMap}
 
 class Dummy <: Actor {
     public prop name: String { get() { "dummy" } }
@@ -56,6 +57,47 @@ func itemProps(n: Int64): Unit { for (_ in 0..n) { gKeep.add(PropsFactory.create
 func itemClosure(n: Int64): Unit { for (_ in 0..n) { gKeep.add({ => Dummy() }) } }
 func itemActor(n: Int64): Unit { for (_ in 0..n) { gKeep.add(Dummy()) } }
 func itemRefSlot(n: Int64): Unit { for (_ in 0..n) { gKeep.add(Array<Int64>(1, repeat: 0)) } }
+// 定长字符串：测"每字符成本 + 固定开销"，为路径字符串存废决策提供依据
+func itemStringLen(n: Int64, len: Int64): Unit {
+    for (_ in 0..n) {
+        let sb = StringBuilder()
+        for (_ in 0..len) { sb.append("c") }
+        gKeep.add(sb.toString())
+    }
+}
+// 并发容器每条目成本：与普通 HashMap 对比，判断顶层注册表是否值得换实现
+func itemConcurrentMap(n: Int64): Unit {
+    let m = ConcurrentHashMap<String, Int64>()
+    for (i in 0..n) { m.put("c${i}", i) }
+    gKeep.add(m)
+}
+func itemPlainMap(n: Int64): Unit {
+    let m = HashMap<String, Int64>(n)
+    for (i in 0..n) { m.add("c${i}", i) }
+    gKeep.add(m)
+}
+
+func itemAtomicOptionRef(n: Int64): Unit {
+    for (_ in 0..n) { gKeep.add(AtomicOptionReference<Dummy>()) }
+}
+// 插值构造的定长字符串（与运行时实际构造方式一致）
+func itemStringInterp(n: Int64, len: Int64): Unit {
+    for (i in 0..n) {
+        let pad = "xxxxxxxxxxxxxxxx"[0..len]
+        gKeep.add("c${i}${pad}")
+    }
+}
+// HashMap 的 String 键是否复制：n 个字符串 + 一个装下它们的 HashMap。
+// 与"只有 n 个字符串"对比，差值即每个键的额外成本（若接近一个字符串的长度说明 HashMap 复制了键）
+func itemMapKeys(n: Int64): Unit {
+    let map = HashMap<String, Int64>(n)
+    for (i in 0..n) {
+        let k = "c${i}padpadpad"
+        map.add(k, i)
+        gKeep.add(k)
+    }
+    gKeep.add(map)
+}
 
 main(args: Array<String>): Int64 {
     let which = if (args.size > 0) { args[0] } else { "all" }
@@ -75,6 +117,16 @@ main(args: Array<String>): Int64 {
         case "closure" => measure(n, "闭包 () -> Actor", itemClosure)
         case "actor" => measure(n, "Actor 实例", itemActor)
         case "refslot" => measure(n, "引用数组槽位（1 槽）", itemRefSlot)
+        case "atomicoptionref" => measure(n, "AtomicOptionReference", itemAtomicOptionRef)
+        case "interp7" => measure(n, "插值 String(7 字符)", { x => itemStringInterp(x, 3) })
+        case "interp21" => measure(n, "插值 String(21 字符)", { x => itemStringInterp(x, 17) })
+        case "concurrentmap" => measure(n, "ConcurrentHashMap 每条目", itemConcurrentMap)
+        case "plainmap" => measure(n, "HashMap 每条目", itemPlainMap)
+        case "mapkeys" => measure(n, "HashMap 键（n 个字符串 + 1 个 map）", itemMapKeys)
+        case "string8" => measure(n, "String(8 字符)", { x => itemStringLen(x, 8) })
+        case "string16" => measure(n, "String(16 字符)", { x => itemStringLen(x, 16) })
+        case "string24" => measure(n, "String(24 字符)", { x => itemStringLen(x, 24) })
+        case "string32" => measure(n, "String(32 字符)", { x => itemStringLen(x, 32) })
         case _ =>
             measure(n, "AtomicInt64", itemAtomicInt64)
             measure(n, "AtomicBool", itemAtomicBool)

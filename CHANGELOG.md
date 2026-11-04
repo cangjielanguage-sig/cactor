@@ -60,12 +60,31 @@
   `dsl_bench`（宏 vs 手写零开销基准，最好成绩比值 97.5%）
 
 ### ⚡ 性能
+- **每 Actor 存活堆大幅下降**：子 Actor **3371 → 1280–1387 B（-59~62%）**，顶层 Actor
+  **3423 → 1645–1880 B（-49%）**
+  - Cell 不再常驻完整路径字符串，只保留 `name`（子 Actor 与父 `childMap` 键共用同一个 String 实例），
+    完整路径由 `fullPath()` 按"父链 + 名字"惰性拼出；`hashCode()` 改为创建时混合父链哈希
+  - 新增 `Props.creator()` / `ActorFactory.rawCreator()`，Cell 的创建闭包不再经
+    "闭包 → Props 副本 → SimpleActorFactory" 这条链（每组省约 130–140 B）
+  - 顶层路径恒为 `/user/<名字>`，因此删掉三张冗余注册表：`cellsByPath`（与 `userActors` 同构）、
+    `SimpleActorRegistry` 的 `pathToActor`+`nameToPath`（合并为 `nameToActor`）、
+    `ActorLifecycleManager` 以完整路径为键（改为名字）
+  - `cellsByPath` 由 `ConcurrentHashMap`（每条目约 631 B）改为普通 `HashMap` + 既有锁（每条目约 134 B）
+- **顶层创建吞吐 203k → 551k/s**（Akka 2.6.21 同口径 415k/s、protoactor-go 707k/s）
 - **`@Message` 编码**：`MessageFieldWriter` 由 `ArrayList<UInt8>` 逐字节追加改为数组缓冲 + 下标写入，
   编码一条 283 字节的消息快约 1.5 倍；线上字节格式不变（`testWireFormatIsStable` 逐字节锁定）
 - **`HashMap` 字段解码**：先按每条最小字节数核对剩余数据，再按条目数预分配容量（快 1.4–3 倍）
 - **`@StateMachine`**：`canTransition` / `transitionTo` 改为 `(from, to)` 枚举 match，比查数组 + 字符串比较快 1.8–2.0 倍
 
 ### 🐛 修复
+- **CRDT 合并偶发 SIGSEGV（集群测试约 5/10）**：两处修复——
+  ① `ORSet.merge` 里 `entries.get(k) ?? HashSet<S>()` 的空集临时对象在多线程下被并发使用，
+  崩溃于 `HashMap.contains`（addr 0x8）；改为显式 `Option` 分支，缺失键按空集合处理、不再分配临时空集
+  （修复后集群套件 **20/20 无崩溃**）；
+  ② `Replicator.get(key)` 原在锁内取出 `store.values` 的引用后直接返回，调用方（`setElements` /
+  `counterValue` / `registerValue`）在锁外遍历 CRDT 内部 HashMap，与 Replicator Actor 线程的
+  `merge` / `digestsNow` 并发；现在 `get()` 在锁内 `encode()`、锁外 `decode()` 返回独立副本
+  （不在热路径）。全量测试 ERROR 归零
 - **分片的记忆实体在 receive 里同步等待 Replicator**：`ShardRegionActor` 启动 / 停止实体时调用阻塞的 `addToSet` / `removeFromSet`，
   Replicator 与它排在同一工作线程时要等 10 秒超时，实体启动失败。改用新增的
   `Replicator.updateAsync / addToSetAsync / removeFromSetAsync`（不等待本地生效，`modify` 的异常记录为警告）；

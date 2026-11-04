@@ -152,26 +152,29 @@ public class ClusterShardingTest {
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 3) }), true)
         let ledger = Ledgers()
         let regions = shardings(nodes, ledger)
-        // 30 个实体 × 10 条消息，轮流从三个节点发送
-        for (k in 0..10) {
-            for (e in 0..30) {
+        // 实体数从 30 提到 200：30 个实体时样本太小，分片视图收敛时序会让"三个节点都有负载"
+        // 这条断言偶发失败（此前约 1/10）。放大样本后每个节点都必然分到实体，
+        // 断言语义（每实体单宿主 + 计数准确 + 三节点都有负载）不变。
+        let ENTITIES: Int64 = 200
+        let PER_ENTITY: Int64 = 10
+        for (k in 0..PER_ENTITY) {
+            for (e in 0..ENTITIES) {
                 regions[(e + k) % 3].tell("entity-${e}", StringMessage("${k}"))
             }
         }
-        @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == 300 }), true)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == ENTITIES * PER_ENTITY }), true)
         var hostedTotal: Int64 = 0
-        for (e in 0..30) {
+        for (e in 0..ENTITIES) {
             let id = "entity-${e}"
             @Expect(ledger.hostsOf(id).size, 1)
-            // 计数准确：每个实体只有一个实例，10 条消息全部到达
-            @Expect(ledger.latestOf(id), 10)
+            // 计数准确：每个实体只有一个实例，全部消息都到达
+            @Expect(ledger.latestOf(id), PER_ENTITY)
         }
         for (r in regions) {
-            // 三个节点都承担了一部分实体
             @Expect(r.localEntityCount() > 0, true)
             hostedTotal += r.localEntityCount()
         }
-        @Expect(hostedTotal, 30)
+        @Expect(hostedTotal, ENTITIES)
         let (_, forwarded, _, dropped, _) = regions[0].stats()
         @Expect(forwarded > 0, true)
         @Expect(dropped, 0)
@@ -236,27 +239,43 @@ public class ClusterShardingTest {
             regions[0].tell("c${e}", StringMessage("x"))
         }
         @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == 30 }), true)
-        let victimIds = regions[2].localEntityIds()
-        @Expect(victimIds.size > 0, true)
-        nodes[2].crash()
-        let survivors = [nodes[0], nodes[1]]
+        // 选一个"真正持有实体"的节点当受害者：分片分配是哈希 + 异步的，固定选 2 号节点时
+        // 它有概率一个实体都分不到（30 个实体 / 64 分片 / 3 节点），此时 victimIds 为空，
+        // "受害实体在别处重建"就无从验证——这是本用例此前约 1/10 失败的真实原因，
+        // 等待更久也修不好（属于分配结果而非时序）。改为挑实体最多的节点。
+        var victim = 0
+        var picked = regions[0].localEntityIds()
+        for (i in 1..3) {
+            let ids = regions[i].localEntityIds()
+            if (ids.size > picked.size) {
+                victim = i
+                picked = ids
+            }
+        }
+        @Expect(picked.size > 0, true)
+        let victimIds = picked
+        let victimNode = nodes[victim]
+        victimNode.crash()
+        let survivorIdx = (victim + 1) % 3
+        let targetIdx = (victim + 2) % 3
+        let survivors = [nodes[survivorIdx], nodes[targetIdx]]
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(survivors, 2) }), true)
         ledger.clearHosts()
         let before = ledger.count()
         for (id in victimIds) {
-            regions[1].tell(id, StringMessage("y"))
+            regions[targetIdx].tell(id, StringMessage("y"))
         }
         @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == before + victimIds.size }), true)
         for (id in victimIds) {
             let hosts = ledger.hostsOf(id)
             @Expect(hosts.size, 1)
-            @Expect(hosts[0] != nodes[2].address(), true)
+            @Expect(hosts[0] != victimNode.address(), true)
             // 没有持久化：新实体从 0 开始计数
             @Expect(ledger.latestOf(id), 1)
         }
-        regions[0].stop()
-        regions[1].stop()
-        nodes[0].close()
-        nodes[1].close()
+        regions[survivorIdx].stop()
+        regions[targetIdx].stop()
+        nodes[survivorIdx].close()
+        nodes[targetIdx].close()
     }
 }

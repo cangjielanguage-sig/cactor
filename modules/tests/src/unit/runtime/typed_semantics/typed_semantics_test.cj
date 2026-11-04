@@ -206,8 +206,9 @@ public class TypedSemanticsTest {
             })
         })
         let p = sys.actorOf(parent, "parent")
-        @Expect(rec.await("child:/user/parent/child", T3S), true)
-        @Expect(rec.contains("children:1"), true)
+        // 两条记录由 setup 连续写入，但 await 在第一条出现时就返回；
+        // 这里等"两条都在"，否则偶发地在两条之间断言（实测全量并行时约 1/30 失败）
+        @Expect(awaitCondition(T3S, { => rec.contains("child:/user/parent/child") && rec.contains("children:1") }), true)
         p << "kill-child"
         @Expect(rec.await("terminated:/user/parent/child:true", T3S), true)
         kit.shutdown()

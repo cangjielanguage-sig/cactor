@@ -1,15 +1,15 @@
 {
-  "comment": "性能基线（2026-11-02，macOS arm64 14 核，桌面负载 20-80 下多次交替取较好值）。perf20261101.md 实施后状态。tools/bench_gate.sh 与此比较。",
+  "comment": "性能基线（2026-11-04，macOS arm64 14 核，桌面负载 25-55 下多次交替取较好值）。perf20261101.md 实施后状态（含 P1-11/P1-12 内存结构优化、P0-4 CRDT 修复）。tools/bench_gate.sh 与此比较。",
   "scale_test_child_1000000": {
     "create_ms": 1100,
-    "drain_ms": 420,
-    "stop_ms": 1300,
-    "heap_bytes_per_actor": 1550
+    "drain_ms": 400,
+    "stop_ms": 2000,
+    "heap_bytes_per_actor": 1400
   },
   "real_benchmark_t4": {
-    "single_actor_mps": 16000000,
+    "single_actor_mps": 14000000,
     "fanout_mps": 17000000,
-    "multi_pairs_mps": 62000000,
+    "multi_pairs_mps": 55000000,
     "typed_pairs_mps": 25000000,
     "pingpong_p50_us": 1.0,
     "pingpong_p99_us": 2.0

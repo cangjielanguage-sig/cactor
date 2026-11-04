@@ -121,8 +121,13 @@ public class GrainsTest {
         let nodes = startCluster(3, "grain-spread", FAST)
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 3) }), true)
         let grains = grainsOn(nodes, None<DurableStateStore>, EventRecorder(), Duration.second * 30)
+        // 标识数从 30 提到 200：30 个标识时样本太小，一次运行里"三个节点都出现过"这件事
+        // 会被分片视图的收敛时序放大成偶发失败（某个 region 尚未就绪，它的标识还没落地）。
+        // 放大样本后每个节点都必然分到大量标识，断言（分布到全部节点 + 同一标识固定宿主）
+        // 的语义不变，但对收敛时序的敏感度显著降低。
+        let N: Int64 = 200
         let hosts = HashMap<String, String>()
-        for (k in 0..30) {
+        for (k in 0..N) {
             hosts["c${k}"] = text(grains[0].call("c${k}", StringMessage("where"), Duration.second * 10))
         }
         let distinct = HashSet<String>()
@@ -131,14 +136,14 @@ public class GrainsTest {
         }
         @Expect(distinct.size, 3)
         // 从其他节点调用同一标识：仍在同一个激活上
-        for (k in 0..30) {
+        for (k in 0..N) {
             @Expect(text(grains[(k % 2) + 1].call("c${k}", StringMessage("where"), Duration.second * 10)), hosts["c${k}"])
         }
         var active: Int64 = 0
         for (g in grains) {
             active += g.activeIds().size
         }
-        @Expect(active, 30)
+        @Expect(active, N)
         for (g in grains) {
             g.stop()
         }

@@ -77,7 +77,7 @@ done
 check "创建 1M 子 Actor (ms)"  "$(best lower "${CREATE_LIST[@]}")" "$(base '.scale_test_child_1000000.create_ms')" lower
 check "drain 1M (ms)"          "$(best lower "${DRAIN_LIST[@]}")"   "$(base '.scale_test_child_1000000.drain_ms')"  lower
 check "停止 1M 子 Actor (ms)"  "$(best lower "${STOP_LIST[@]}")"    "$(base '.scale_test_child_1000000.stop_ms')"   lower
-check "每 Actor 存活堆 (B)"    "$(best lower "${HEAP_LIST[@]}")"    "$(base '.scale_test_child_1000000.heap_bytes_per_actor')"
+check "每 Actor 存活堆 (B)"    "$(best lower "${HEAP_LIST[@]}")"    "$(base '.scale_test_child_1000000.heap_bytes_per_actor')" lower
 
 # ---------- 常规基准（4 线程）----------
 # 不在正则里用多字节字符（BSD grep 的 [^→] 按字节匹配不可靠）：取行内 "N msg/s" 的 N
