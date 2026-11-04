@@ -8,22 +8,7 @@ protected package cactor_runtime.registry
 import std.sync.*
 import std.collection.*
 import std.time.*
-import cactor_core.actor.{ActorRef, ActorPath}
-
-/**
- * 简化的Actor注册信息
- */
-public struct SimpleActorRegistryEntry {
-    public let actorRef: ActorRef
-    public let registeredAt: Int64
-    public let parentPath: Option<String>
-    
-    public init(actorRef: ActorRef, registeredAt: Int64, parentPath: Option<String>) {
-        this.actorRef = actorRef
-        this.registeredAt = registeredAt
-        this.parentPath = parentPath
-    }
-}
+import cactor_core.actor.{ActorRef}
 
 /**
  * 简化的Actor注册表
@@ -34,21 +19,21 @@ public struct SimpleActorRegistryEntry {
  * 3. 支持Actor路径解析
  */
 public class SimpleActorRegistry {
-    // 主要存储：路径 -> ActorRef
-    private let pathToActor: HashMap<String, SimpleActorRegistryEntry>
-    
-    // 名称索引：名称 -> 路径
-    private let nameToPath: HashMap<String, String>
+    // 名称 -> Actor（顶层 Actor 的唯一索引）。
+    // 为什么不再维护"完整路径 -> 条目"和"路径 -> 名称"两张附加表：
+    // 顶层路径恒为 "/user/<名字>"，路径与名称一一对应；原来的 pathToActor + nameToPath
+    // 在百万级顶层 Actor 时每个 Actor 多占一份完整路径 String、一个包装条目与两个表项，
+    // 实测合计约 500–700 B/Actor（对标 Akka 的 spawn 基准就是顶层 Actor，这一项影响最大）。
+    private let nameToActor: HashMap<String, ActorRef>
     
     // 统计信息
     private let totalActors: AtomicInt64
     private let registrationCount: AtomicInt64
-    // 保护 pathToActor / nameToPath 的复合操作
+    // 保护 nameToActor 与统计的复合操作
     private let lock: Mutex
     
     public init() {
-        this.pathToActor = HashMap<String, SimpleActorRegistryEntry>()
-        this.nameToPath = HashMap<String, String>()
+        this.nameToActor = HashMap<String, ActorRef>()
         this.totalActors = AtomicInt64(0)
         this.registrationCount = AtomicInt64(0)
         this.lock = Mutex()
@@ -59,26 +44,13 @@ public class SimpleActorRegistry {
      */
     public func register(actorRef: ActorRef, parentPath: Option<String>): Unit {
         synchronized(lock) {
-            let path = actorRef.path.toString()
-            let name = extractActorName(path)
-            let currentTime = getCurrentTimeNanos()
-        
-            // 检查是否已经注册
-            match (pathToActor.get(path)) {
-                case Some(existing) =>
-                    return  // 已经注册，忽略
-                case None =>
-                    ()  // 继续注册
+            let name = extractActorName(actorRef.path.toString())
+            // 已经注册（同名同引用）则忽略
+            match (nameToActor.get(name)) {
+                case Some(existing) where existing.equals(actorRef) => return
+                case _ => ()
             }
-        
-            // 创建注册条目
-            let entry = SimpleActorRegistryEntry(actorRef, currentTime, parentPath)
-        
-            // 主要存储
-            pathToActor.add(path, entry)
-            nameToPath.add(name, path)
-        
-            // 更新统计
+            nameToActor[name] = actorRef
             totalActors.fetchAdd(1)
             registrationCount.fetchAdd(1)
         }
@@ -97,19 +69,9 @@ public class SimpleActorRegistry {
      */
     public func unregisterByPath(path: String): Unit {
         synchronized(lock) {
-            match (pathToActor.get(path)) {
-                case Some(entry) =>
-                    let name = extractActorName(path)
-                
-                    // 移除主要存储
-                    pathToActor.remove(path)
-                    nameToPath.remove(name)
-                
-                    // 更新统计
-                    totalActors.fetchAdd(-1)
-                
-                case None =>
-                    ()  // Actor未注册，忽略
+            let name = extractActorName(path)
+            if (nameToActor.remove(name).isSome()) {
+                totalActors.fetchAdd(-1)
             }
         }
     }
@@ -118,14 +80,7 @@ public class SimpleActorRegistry {
      * 通过路径查找Actor
      */
     public func findByPath(path: String): Option<ActorRef> {
-        synchronized(lock) {
-            match (pathToActor.get(path)) {
-                case Some(entry) =>
-                    Some(entry.actorRef)
-                case None =>
-                    None<ActorRef>
-            }
-        }
+        findByName(extractActorName(path))
     }
     
     /**
@@ -133,11 +88,9 @@ public class SimpleActorRegistry {
      */
     public func findByName(name: String): Option<ActorRef> {
         synchronized(lock) {
-            match (nameToPath.get(name)) {
-                case Some(path) =>
-                    findByPath(path)
-                case None =>
-                    None<ActorRef>
+            match (nameToActor.get(name)) {
+                case Some(ref) => Some(ref)
+                case None => None<ActorRef>
             }
         }
     }
@@ -147,12 +100,9 @@ public class SimpleActorRegistry {
      */
     public func isRegistered(actorRef: ActorRef): Bool {
         synchronized(lock) {
-            let path = actorRef.path.toString()
-            match (pathToActor.get(path)) {
-                case Some(entry) =>
-                    true
-                case None =>
-                    false
+            match (nameToActor.get(extractActorName(actorRef.path.toString()))) {
+                case Some(existing) => existing.equals(actorRef)
+                case None => false
             }
         }
     }
@@ -176,11 +126,7 @@ public class SimpleActorRegistry {
      */
     public func getAllActors(): Array<ActorRef> {
         synchronized(lock) {
-            let result = ArrayList<ActorRef>()
-            for ((path, entry) in pathToActor) {
-                result.add(entry.actorRef)
-            }
-            result.toArray()
+            nameToActor.values().toArray()
         }
     }
     
@@ -189,8 +135,7 @@ public class SimpleActorRegistry {
      */
     public func clear(): Unit {
         synchronized(lock) {
-            pathToActor.clear()
-            nameToPath.clear()
+            nameToActor.clear()
             totalActors.store(0)
         }
     }
@@ -202,24 +147,11 @@ public class SimpleActorRegistry {
         println("=== SimpleActorRegistry统计信息 ===")
         println("总Actor数量: ${getTotalActorCount()}")
         println("注册次数: ${getRegistrationCount()}")
-        println("路径索引大小: ${countPathToActor()}")
-        println("名称索引大小: ${countNameToPath()}")
+        println("名称索引大小: ${countNames()}")
     }
 
-    private func countPathToActor(): Int32 {
-        var count = 0
-        for ((_, _) in pathToActor) {
-            count += 1
-        }
-        Int32(count)
-    }
-
-    private func countNameToPath(): Int32 {
-        var count = 0
-        for ((_, _) in nameToPath) {
-            count += 1
-        }
-        Int32(count)
+    private func countNames(): Int32 {
+        Int32(nameToActor.size)
     }
     
     /**
@@ -235,7 +167,4 @@ public class SimpleActorRegistry {
         }
     }
     
-    private func getCurrentTimeNanos(): Int64 {
-        DateTime.now().toUnixTimeStamp().toMilliseconds() * 1000000
-    }
 }

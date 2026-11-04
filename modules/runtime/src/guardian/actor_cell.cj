@@ -483,7 +483,11 @@ let MAILBOX_PRIORITY: Int64 = 2
 public class SimpleUserActorRef <: RunLink & ActorRef {
     private var actor: Actor
     private let actorFactory: () -> Actor
-    let pathString: String
+    // 名字（= 路径最后一段）：与父的 childMap 键是同一个 String 实例，子 Actor 不额外占内存。
+    // 完整路径不再常驻——按需由"父路径 + 名字"拼出（P1-11），每 Actor 省约 143 字节。
+    private let actorName: String
+    // 路径哈希：创建时算一次（名字 + 父链混合），避免 hashCode() 每次都拼路径
+    private let pathHashValue: Int32
     let guardian: RuntimeUserGuardian
     let parentCell: Option<SimpleUserActorRef>
     let childStrategy: Option<SupervisionStrategy>
@@ -684,19 +688,25 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     /** 固定分配到的工作线程（亲和调度） */
     let affinity: Int64
 
+    // 兼容性构造器：path 参数保留（旧调用方签名不变），但 Cell 的完整路径由
+    // "guardian 顶层前缀 + name"惰性派生（P1-11）；仓库内唯一的构造点是 createCell。
     public init(name: String, actor: Actor, path: ActorPath, guardian: RuntimeUserGuardian) {
-        this(name, actor, { => actor }, path, guardian)
+        this(name, actor, { => actor }, guardian, None<SimpleUserActorRef>, PropsFactory.create<Actor>({ => actor }))
     }
 
     public init(name: String, actor: Actor, factory: () -> Actor, path: ActorPath, guardian: RuntimeUserGuardian) {
-        this(name, actor, factory, path, guardian, None<SimpleUserActorRef>, PropsFactory.create<Actor>(factory))
+        this(name, actor, factory, guardian, None<SimpleUserActorRef>, PropsFactory.create<Actor>(factory))
     }
 
-    init(name: String, actor: Actor, factory: () -> Actor, path: ActorPath, guardian: RuntimeUserGuardian,
+    init(name: String, actor: Actor, factory: () -> Actor, guardian: RuntimeUserGuardian,
         parent: Option<SimpleUserActorRef>, props: Props<Actor>) {
         this.actor = actor
         this.actorFactory = factory
-        this.pathString = path.getPath()
+        this.actorName = name
+        this.pathHashValue = match (parent) {
+            case Some(p) => mixPathHash(p.pathHash(), name)
+            case None => mixPathHash(0, name)
+        }
         this.guardian = guardian
         this.parentCell = parent
         this.childStrategy = props.getSupervisorStrategy()
@@ -717,19 +727,43 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         this.counters = AtomicInt64(0)
     }
 
+    // 完整路径按需拼接：顶层 = "/user/<名字>"，子 Actor = 父路径 + "/" + 名字。
+    // 路径字符串不再常驻每个 Cell（原先每个 Actor 常驻一份完整路径，约 143 字节）。
+    public func fullPath(): String {
+        match (parentCell) {
+            case Some(p) => "${p.fullPath()}/${actorName}"
+            case None => "${guardian.topLevelPathPrefix()}/${actorName}"
+        }
+    }
+
+    /** 完整路径（兼容旧字段访问；按需拼接，勿在热路径反复取） */
+    public prop pathString: String {
+        get() { fullPath() }
+    }
+
     // 按需构造：pathString 已覆盖全部用途，单独保存 ActorPath 每个多占约 150 字节
     public prop path: ActorPath {
-        get() { ActorPath(actorPathSystem, pathString) }
+        get() { ActorPath(actorPathSystem, fullPath()) }
     }
 
     public func getName(): String {
-        // 名字即路径最后一段（顶层与子 Actor 均由 createCell 以 "${prefix}/${name}" 构造路径）；
-        // 调用点只在注销与诊断，按需截取，不再为每个 Actor 单独保存一份名字字符串
-        let i = pathString.lastIndexOf('/')
-        if (let Some(idx) <- i) {
-            return pathString[(idx + 1)..]
-        }
-        pathString
+        // 名字即路径最后一段：创建时由调用方传入，与父的 childMap 键是同一个 String 实例
+        actorName
+    }
+
+    /** 路径哈希：创建时由名字与父链混合算出，避免 hashCode() 每次拼路径 */
+    func pathHash(): Int32 {
+        pathHashValue
+    }
+
+    /**
+     * 路径哈希混合：把父链哈希与本级名字揉成一个非负 Int32。
+     * 与"完整路径的 String.hashCode"一样保证"同一路径同一哈希"，但不需要常驻路径字符串。
+     */
+    private static func mixPathHash(parentHash: Int32, name: String): Int32 {
+        // 只用乘加与掩码（避开异或/幂运算的溢出与语义歧义）
+        let h = (Int64(parentHash) * 31 + Int64(name.hashCode())) & 0x7FFFFFFF
+        Int32(h)
     }
 
     // ---------------- 发送 ----------------
@@ -761,7 +795,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             if (!reserveSlot()) {
                 deadLetter(message)
                 match (overflow) {
-                    case MailboxOverflow.Fail => throw MailboxFullException("Actor ${pathString} 的邮箱已满（容量 ${capacity}）")
+                    case MailboxOverflow.Fail => throw MailboxFullException("Actor ${fullPath()} 的邮箱已满（容量 ${capacity}）")
                     case _ => ()
                 }
                 return
@@ -811,7 +845,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     func deadLetter(message: Message): Unit {
         this.incCounter(CTR_DEADLETTER_SHIFT)
-        guardian.publishDeadLetter(message, pathString)
+        guardian.publishDeadLetter(message, fullPath())
     }
 
     /** 投递系统消息；目标已停止时按“死亡后”规则处理（例如对已停止的 Actor 发起 watch 会立即收到通知） */
@@ -1031,7 +1065,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case _: Kill =>
                 this.incCounter(CTR_PROCESSED_SHIFT)
                 clearCurrent()
-                handleFailure(ActorKilledException(pathString))
+                handleFailure(ActorKilledException(fullPath()))
                 return
             case restart: RestartMessage =>
                 // 兼容旧路径：guardian.restartChild / BackoffSupervisor 通过邮箱请求重启
@@ -1102,7 +1136,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         let directive = try {
             strategy.decide(ActorFailure(child, cause, 1))
         } catch (e: Exception) {
-            cellLog.error("监督策略执行异常，停止子 Actor ${child.pathString}: ${e}")
+            cellLog.error("监督策略执行异常，停止子 Actor ${child.fullPath()}: ${e}")
             SupervisionDirective.Stop
         }
         let targets = if (strategy.appliesToAllChildren()) {
@@ -1110,7 +1144,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         } else {
             [child]
         }
-        cellLog.error("Actor ${child.pathString} 失败：${cause}，监督指令：${directiveName(directive)}")
+        cellLog.error("Actor ${child.fullPath()} 失败：${cause}，监督指令：${directiveName(directive)}")
         match (directive) {
             case SupervisionDirective.Resume => child.sendSystem(SysResume())
             case SupervisionDirective.Restart =>
@@ -1132,7 +1166,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         try {
             actor.preRestart(reason)
         } catch (e: Exception) {
-            cellLog.warn("Actor ${pathString} preRestart 失败: ${e}")
+            cellLog.warn("Actor ${fullPath()} preRestart 失败: ${e}")
         }
         // 与 Akka 默认 preRestart 一致：重启时停止全部子 Actor
         for (c in childMap().values()) {
@@ -1154,7 +1188,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             state = STATE_RUNNING
         } catch (e: Exception) {
             // 无法重建实例时停止该 Actor，避免继续用损坏的状态处理消息
-            cellLog.error("Actor ${pathString} 重启失败，已停止: ${e}")
+            cellLog.error("Actor ${fullPath()} 重启失败，已停止: ${e}")
             initiateTerminate()
             return
         }
@@ -1252,8 +1286,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         // 这样 Terminated 处理中可以立即用同一名称重建子 Actor（例如分片实体钝化后重建）
         onChildTerminated(dead)
         // 已取消监视（或从未监视）的不投递
-        match (watching().get(dead.pathString)) {
-            case Some(w) where refEq(w, dead) => watchingMut().remove(dead.pathString)
+        match (watching().get(dead.fullPath())) {
+            case Some(w) where refEq(w, dead) => watchingMut().remove(dead.fullPath())
             case _ => return
         }
         if (state == STATE_TERMINATING || state == STATE_TERMINATED) {
@@ -1304,7 +1338,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         try {
             actor.preStop()
         } catch (e: Exception) {
-            cellLog.warn("Actor ${pathString} preStop 失败: ${e}")
+            cellLog.warn("Actor ${fullPath()} preStop 失败: ${e}")
         }
         if (childMap().size == 0) {
             finishTerminate()
@@ -1355,7 +1389,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                     try {
                         initiateTerminate()
                     } catch (e: Exception) {
-                        cellLog.error("Actor ${pathString} 停止失败: ${e}")
+                        cellLog.error("Actor ${fullPath()} 停止失败: ${e}")
                     }
                     // 与 run() 末尾一致：释放调度权（保留 TERM_BIT，不动计数位）。
                     // 但停止过程中可能已被投递系统消息（例如 stop 与并发 tell/父级终止交错），
@@ -1385,7 +1419,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         try {
             actor.postStop()
         } catch (e: Exception) {
-            cellLog.warn("Actor ${pathString} postStop 失败: ${e}")
+            cellLog.warn("Actor ${fullPath()} postStop 失败: ${e}")
         }
         schedState.fetchOr(TERM_BIT)
         // 先关闭邮箱再排空：关闭与入队在同一把锁内判定，
@@ -1535,13 +1569,13 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     func spawnChild(props: Props<Actor>, name: String): ActorRef {
         if (state == STATE_TERMINATING || state == STATE_TERMINATED) {
-            throw IllegalStateException("Actor ${pathString} 正在停止，不能创建子 Actor")
+            throw IllegalStateException("Actor ${fullPath()} 正在停止，不能创建子 Actor")
         }
         validateChildName(name)
         if (childMap().contains(name)) {
-            throw InvalidActorNameException("子 Actor 名称已存在: ${pathString}/${name}")
+            throw InvalidActorNameException("子 Actor 名称已存在: ${fullPath()}/${name}")
         }
-        let child = guardian.createCell(props, name, "${pathString}/${name}", Some(this))
+        let child = guardian.createCell(props, name, Some(this))
         childMapMut().add(name, child)
         child
     }
@@ -1569,7 +1603,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     func stopInternal(ref: ActorRef): Unit {
         let isSelf = match (ref) {
             case c: SimpleUserActorRef => refEq(c, this)
-            case _ => ref.path.getPath() == pathString
+            case _ => ref.path.getPath() == fullPath()
         }
         if (isSelf) {
             // 停止自身：当前消息处理完后生效
@@ -1580,7 +1614,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case c: SimpleUserActorRef =>
                 match (childMap().get(c.getName())) {
                     case Some(existing) where refEq(existing, c) => c.sendSystem(SysTerminate())
-                    case _ => throw IllegalArgumentException("context.stop 只能停止自身或子 Actor: ${c.pathString}")
+                    case _ => throw IllegalArgumentException("context.stop 只能停止自身或子 Actor: ${c.fullPath()}")
                 }
             case _ => throw IllegalArgumentException("context.stop 只能停止自身或子 Actor: ${ref.path.toString()}")
         }
@@ -1591,17 +1625,17 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (refEq(target, this)) {
             return
         }
-        if (!watching().contains(target.pathString)) {
-            watchingMut().add(target.pathString, target)
+        if (!watching().contains(target.fullPath())) {
+            watchingMut().add(target.fullPath(), target)
             target.sendSystem(SysWatch(this))
         }
     }
 
     func unwatchInternal(ref: ActorRef): Unit {
         let target = asLocalCell(ref, "unwatch")
-        match (watching().get(target.pathString)) {
+        match (watching().get(target.fullPath())) {
             case Some(w) where refEq(w, target) =>
-                watchingMut().remove(target.pathString)
+                watchingMut().remove(target.fullPath())
                 target.sendSystem(SysUnwatch(this))
             case _ => ()
         }
@@ -1673,11 +1707,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     public func hashCode(): Int32 {
-        Int32(pathString.hashCode() & 0x7FFFFFFF)
+        pathHashValue
     }
 
     public func toString(): String {
-        "Actor[${pathString}]"
+        "Actor[${fullPath()}]"
     }
 }
 
@@ -1797,7 +1831,7 @@ public class CellContext <: ActorContext {
         match (loggerValue) {
             case Some(l) => l
             case None =>
-                let l = Logging.logger(cell.pathString)
+                let l = Logging.logger(cell.fullPath())
                 loggerValue = Some(l)
                 l
         }

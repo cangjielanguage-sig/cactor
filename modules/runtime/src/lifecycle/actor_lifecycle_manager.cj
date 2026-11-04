@@ -63,6 +63,9 @@ public struct ActorLifecycleInfo {
  * 4. 发布生命周期事件
  */
 public class ActorLifecycleManager {
+    // 键用"名字"而不是完整路径：本管理器只登记顶层 Actor（运行时 actorOf），名字在顶层唯一。
+    // 旧实现每次 start/register/stop 都调 actorRef.path.toString() 现造一条完整路径字符串，
+    // 并把它作为 map 键长期驻留——百万级顶层 Actor 时每个 Actor 白占约 143 B。
     private let lifecycleInfos: HashMap<String, ActorLifecycleInfo>
     private let eventBus: ActorEventBus
     private let isRunning: AtomicBool
@@ -87,7 +90,7 @@ public class ActorLifecycleManager {
      */
     public func startActor(actorRef: ActorRef): Unit {
         synchronized(lock) {
-            let path = actorRef.path.toString()
+            let path = actorName(actorRef)
             let currentTime = getCurrentTimeNanos()
             let created = match (lifecycleInfos.get(path)) {
                 case Some(i) => i.createdAt
@@ -104,7 +107,7 @@ public class ActorLifecycleManager {
      */
     public func stopActor(actorRef: ActorRef): Unit {
         synchronized(lock) {
-            let path = actorRef.path.toString()
+            let path = actorName(actorRef)
             let currentTime = getCurrentTimeNanos()
         
             // 检查当前状态
@@ -150,7 +153,7 @@ public class ActorLifecycleManager {
      */
     public func restartActor(actorRef: ActorRef, reason: Exception): Unit {
         synchronized(lock) {
-            let path = actorRef.path.toString()
+            let path = actorName(actorRef)
             let currentTime = getCurrentTimeNanos()
         
             // 更新状态为重启中
@@ -187,7 +190,7 @@ public class ActorLifecycleManager {
      */
     public func registerActor(actorRef: ActorRef): Unit {
         synchronized(lock) {
-            let path = actorRef.path.toString()
+            let path = actorName(actorRef)
             let currentTime = getCurrentTimeNanos()
         
             let info = ActorLifecycleInfo(
@@ -209,7 +212,7 @@ public class ActorLifecycleManager {
      */
     public func unregisterActor(actorRef: ActorRef): Unit {
         synchronized(lock) {
-            let path = actorRef.path.toString()
+            let path = actorName(actorRef)
             lifecycleInfos.remove(path)
             eventBus.publish(ActorUnregisteredEvent(actorRef, getCurrentTimeNanos()))
         }
@@ -220,7 +223,7 @@ public class ActorLifecycleManager {
      */
     public func getActorState(actorRef: ActorRef): Option<ActorLifecycleInfo> {
         synchronized(lock) {
-            let path = actorRef.path.toString()
+            let path = actorName(actorRef)
             lifecycleInfos.get(path)
         }
     }
@@ -276,7 +279,7 @@ public class ActorLifecycleManager {
     // 私有辅助方法
     private func updateActorState(actorRef: ActorRef, newState: ActorLifecycleState, failureReason: Option<Exception>): Unit {
         synchronized(lock) {
-            let path = actorRef.path.toString()
+            let path = actorName(actorRef)
             let currentTime = getCurrentTimeNanos()
         
             match (lifecycleInfos.get(path)) {
@@ -306,7 +309,7 @@ public class ActorLifecycleManager {
     
     private func incrementRestartCount(actorRef: ActorRef): Unit {
         synchronized(lock) {
-            let path = actorRef.path.toString()
+            let path = actorName(actorRef)
             match (lifecycleInfos.get(path)) {
                 case Some(oldInfo) =>
                     let newInfo = ActorLifecycleInfo(
@@ -325,6 +328,15 @@ public class ActorLifecycleManager {
         }
     }
     
+    /** 顶层 Actor 的名字（= 路径最后一段），作为 lifecycleInfos 的键 */
+    private func actorName(actorRef: ActorRef): String {
+        let path = actorRef.path.getPath()
+        match (path.lastIndexOf("/")) {
+            case Some(i) => path[(i + 1)..]
+            case None => path
+        }
+    }
+
     private func getCurrentTimeNanos(): Int64 {
         DateTime.now().toUnixTimeStamp().toMilliseconds() * 1000000
     }

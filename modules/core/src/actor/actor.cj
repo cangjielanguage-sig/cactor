@@ -193,6 +193,18 @@ public interface ActorFactory<T> where T <: Actor {
      * @return 新的Actor实例
      */
     func create(): T
+
+    /**
+     * 取出底层创建闭包（不经过本工厂对象）。
+     *
+     * 运行时每个 Actor Cell 只保留这个闭包用于重启时重建实例；若 Cell 保留的是
+     * "闭包 → Props → ActorFactory → 闭包"这条链，则每个 Actor 会多留住一个
+     * Props 副本与一个 SimpleActorFactory 对象（约 90 字节/个，百万级 Actor 场景可观）。
+     * 默认实现保持语义不变，只是多一层包装。
+     */
+    func rawCreator(): () -> T {
+        { => this.create() }
+    }
 }
 
 /**
@@ -207,6 +219,11 @@ public class SimpleActorFactory<T> <: ActorFactory<T> where T <: Actor {
 
     public func create(): T {
         creator()
+    }
+
+    /** 直接交出底层闭包：调用方（如 Actor Cell）不必连本工厂对象一起留住 */
+    public func rawCreator(): () -> T {
+        creator
     }
 }
 
@@ -311,6 +328,14 @@ public struct Props<T> where T <: Actor {
 
     public func create(): T {
         factory.create()
+    }
+
+    /**
+     * 取出底层创建闭包：让需要长期持有"重建实例能力"的调用方（如 Actor Cell）
+     * 只保留这个闭包，而不必连带保留 Props 副本与工厂对象。
+     */
+    public func creator(): () -> T {
+        factory.rawCreator()
     }
 
     public func getDispatcher(): String {

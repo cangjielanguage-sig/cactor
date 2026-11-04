@@ -30,9 +30,13 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     private let actorPathPrefix: String
     // 缓存每个子Actor的BackoffSupervisor保持重试计数
     private let backoffSupervisors: HashMap<String, BackoffSupervisor>
-    // 顶层 Cell 的路径索引，供 lookup / watch 使用（子 Actor 由父的 childMap 承载，lookup 按段遍历）
-    private let cellsByPath: ConcurrentHashMap<String, SimpleUserActorRef> = ConcurrentHashMap<String, SimpleUserActorRef>()
-    private let pathLock: Mutex = Mutex()
+    // 顶层 Actor 只由 userActors（名字 → 引用）承载，不再额外维护"完整路径 → Cell"的第二张表：
+    // 顶层路径恒为 "${actorPathPrefix}/<名字>"，因此 lookup 的首段、liveCells 的顶层集合、
+    // 停止注销都可以直接由 userActors 推出。原先的第二张表在百万级顶层 Actor 时
+    // 每个 Actor 多占一份完整路径 String + 一个表项（实测合计约 500–900 B）。
+    // 子 Actor 由父的 childMap 承载，lookup 继续按段遍历。
+    // 死信订阅者列表的写锁（读走不可变快照，无需加锁）
+    private let deadLetterLock: Mutex = Mutex()
     // 存活 Cell 总数（含子 Actor），O(1) 读取，替代遍历
     private let liveCellTotal: AtomicInt64 = AtomicInt64(0)
     // 死信监听器（写时复制）
@@ -52,6 +56,11 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         this.defaultSupervisionStrategy = DefaultSupervisionStrategy.restartAlways()
         this.actorPathPrefix = "/user"
         this.backoffSupervisors = HashMap<String, BackoffSupervisor>()
+    }
+
+    /** 顶层 Actor 的路径前缀（Cell 用它惰性拼出自己的完整路径） */
+    func topLevelPathPrefix(): String {
+        actorPathPrefix
     }
 
     /**
@@ -267,28 +276,28 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     
     // 实现抽象方法
     protected func doCreateChild(props: Props<Actor>, name: String): ActorRef {
-        createCell(props, name, "${actorPathPrefix}/${name}", None<SimpleUserActorRef>)
+        createCell(props, name, None<SimpleUserActorRef>)
     }
 
     /**
      * 创建 Cell：调用工厂创建实例并执行 preStart，然后登记路径。
      * preStart 抛出异常时创建失败，异常传给调用方。
+     *
+     * 路径不再作为参数传入：Cell 只保存名字，完整路径按需由"父链 + 名字"拼出（P1-11），
+     * 顶层 Cell 则在这里按需拼一次用于登记全局路径表。
      */
-    func createCell(props: Props<Actor>, name: String, path: String, parent: Option<SimpleUserActorRef>): SimpleUserActorRef {
+    func createCell(props: Props<Actor>, name: String, parent: Option<SimpleUserActorRef>): SimpleUserActorRef {
         let actor = props.create()
         actor.preStart()
-        let cell = SimpleUserActorRef(name, actor, { => props.create() }, ActorPath("user-system", path), this,
-            parent, props)
+        let cell = SimpleUserActorRef(name, actor, props.creator(), this, parent, props)
         // 第一条系统消息：保证 onStarted 先于任何用户消息执行
         cell.sendSystem(SysStarted())
         if (parent.isSome()) {
             // 子 Actor 不进全局路径表：百万级子 Actor 时每个表项（路径 String + 条目）约 150 字节，
-            // 且创建/停止都要串行过同一把 pathLock；子 Actor 由父的 childMap 承载，lookup 按段遍历
+            // 且创建要串行过全局注册表；子 Actor 由父的 childMap 承载，lookup 按段遍历
             liveCellTotal.fetchAdd(1)
         } else {
-            synchronized(pathLock) {
-                cellsByPath.add(path, cell)
-            }
+            // 顶层 Actor 已由 createUserActor 写入 userActors，这里无需再登记路径
             liveCellTotal.fetchAdd(1)
         }
         cell
@@ -308,10 +317,6 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     }
 
     func lookupCell(path: String): Option<SimpleUserActorRef> {
-        match (cellsByPath.get(path)) {
-            case Some(c) where !c.isTerminated() => return Some(c)
-            case _ => ()
-        }
         // 子 Actor：按路径分段从顶层向下遍历（父的 childMap 只含存活子 Actor）
         let prefix = "${actorPathPrefix}/"
         if (!path.startsWith(prefix)) {
@@ -321,9 +326,15 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         if (segs.size == 0) {
             return None<SimpleUserActorRef>
         }
+        // 顶层段直接查 userActors（顶层路径恒为 "/user/<名字>"，不再维护第二张路径表）
         var cur: SimpleUserActorRef
-        match (cellsByPath.get("${prefix}${segs[0]}")) {
-            case Some(c) => cur = c
+        let top = synchronized(guardianLock) { userActors.get(segs[0]) }
+        match (top) {
+            case Some(r) =>
+                match (r as SimpleUserActorRef) {
+                    case Some(c) => cur = c
+                    case None => return None<SimpleUserActorRef>
+                }
             case None => return None<SimpleUserActorRef>
         }
         for (i in 1..segs.size) {
@@ -356,8 +367,12 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                 }
             }
         }
-        for ((_, c) in cellsByPath) {
-            collect(c)
+        let tops = synchronized(guardianLock) { userActors.values().toArray() }
+        for (r in tops) {
+            match (r as SimpleUserActorRef) {
+                case Some(c) => collect(c)
+                case None => ()
+            }
         }
         result.toArray()
     }
@@ -408,15 +423,9 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     func onCellTerminated(cell: SimpleUserActorRef): Unit {
         if (cell.parentCell.isSome()) {
             // 子 Actor 不在全局路径表（与 createCell 对应）：停止时只递减计数，
-            // 不碰 pathLock——百万级子 Actor 批量停止时，全部工作线程抢同一把锁曾是主要瓶颈
+            // 不碰全局注册表锁——百万级子 Actor 批量停止时，全部工作线程抢同一把锁曾是主要瓶颈
             liveCellTotal.fetchAdd(-1)
             return
-        }
-        synchronized(pathLock) {
-            match (cellsByPath.get(cell.pathString)) {
-                case Some(c) where refEq(c, cell) => cellsByPath.remove(cell.pathString)
-                case _ => ()
-            }
         }
         liveCellTotal.fetchAdd(-1)
         let removed = synchronized(guardianLock) {
@@ -454,7 +463,7 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
 
     /** 订阅死信：参数为消息和原目标路径。回调在发送方线程上执行，应尽快返回 */
     public func subscribeDeadLetters(listener: (Message, String) -> Unit): Unit {
-        synchronized(pathLock) {
+        synchronized(deadLetterLock) {
             let next = ArrayList<(Message, String) -> Unit>()
             next.add(all: deadLetterListeners)
             next.add(listener)
