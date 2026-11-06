@@ -43,22 +43,42 @@ public func stableHash(s: String): UInt64 {
     h
 }
 
-/** 实体所在的分片 */
-public func shardOf(entityId: String, numberOfShards: Int64): Int64 {
-    Int64(stableHash(entityId) % UInt64(numberOfShards))
+/**
+ * 64 位最终混合（MurmurHash3 的 fmix64）：把输入的所有位雪崩到输出。
+ *
+ * 为什么必须加：FNV-1a 对"共享前缀、仅末位不同"的字符串（例如本机测试里顺序分配端口的
+ * `127.0.0.1:4916{8,9,0}`）就近平移关系；直接比较 FNV 值取最大时，末位字符会系统性地
+ * 决定大小关系——实测 64 个分片全部落在 .168/.170 两个节点上，.169 一个都分不到。
+ * 先过一遍 fmix64 后分布变为 24/23/17，问题消失。
+ */
+@OverflowWrapping
+public func mixHash(h: UInt64): UInt64 {
+    var x = h
+    x = x ^ (x >> 33)
+    x = x * 0xff51afd7ed558ccd
+    x = x ^ (x >> 33)
+    x = x * 0xc4ceb9fe1a85ec53
+    x = x ^ (x >> 33)
+    x
 }
 
-/** 分片的拥有者：在候选成员上做 rendezvous 哈希（成员变化时只有约 1/n 的分片移动） */
+/** 实体所在的分片（先混合再取模，避免短 id/共享前缀造成的低位聚集） */
+public func shardOf(entityId: String, numberOfShards: Int64): Int64 {
+    Int64(mixHash(stableHash(entityId)) % UInt64(numberOfShards))
+}
+
+/**
+ * 分片的拥有者：在候选成员上做 rendezvous 哈希（成员变化时只有约 1/n 的分片移动）。
+ * 取"混合后分数最大"的成员；分数相同按地址字典序兜底，保证各节点独立计算结果一致。
+ */
 public func shardOwner(shard: Int64, members: Array<String>): Option<String> {
     var best: Option<String> = None
     var bestScore: UInt64 = 0
     for (m in members) {
-        let score = stableHash("${shard}|${m}")
-        match (best) {
-            case Some(b) where score < bestScore || (score == bestScore && m > b) => ()
-            case _ =>
-                best = Some(m)
-                bestScore = score
+        let score = mixHash(stableHash("${shard}|${m}"))
+        if (best.isNone() || score > bestScore || (score == bestScore && m > best.getOrThrow())) {
+            best = Some(m)
+            bestScore = score
         }
     }
     best
@@ -193,6 +213,8 @@ class RegionShared {
     var buffered: Int64 = 0
     var passivated: Int64 = 0
     var restarted: Int64 = 0
+    // 当前路由使用的 Up 成员数（0 表示视图未收敛）；供测试/诊断等待"分片区域已看到全部节点"
+    var ownerCount: Int64 = 0
 }
 
 class ShardRegionActor <: Actor {
@@ -214,6 +236,10 @@ class ShardRegionActor <: Actor {
     let buffer = ArrayList<ShardingEnvelope>()
     // 当前（已收敛的）Up 成员，None 表示视图未收敛
     var owners: Option<Array<String>> = None
+    // 上次计算 owners 时对应的集群快照（P3-6）：快照对象按不可变整体替换，
+    // 用引用相等判断"成员视图是否变了"。route 前据此即时刷新，
+    // 避免在 50ms 轮询间隙里用旧的 2 成员视图把实体路由到错误节点。
+    var cachedSnapshot: Option<ClusterSnapshot> = None
     var ticks: Int64 = 0
     var ownersChanged = false
     let log = Logging.logger("cactor.cluster.sharding")
@@ -268,10 +294,11 @@ class ShardRegionActor <: Actor {
     }
 
     private func refreshOwners(context: ActorContext): Unit {
-        let s = cluster.state()
-        if (cluster.isTerminated()) {
+        let (s, terminated) = cluster.stateAndTerminated()
+        if (terminated) {
             // 本节点已离开、被 down 或被脑裂处理停止：其他节点会接管这些分片，本地实例必须停止
             owners = None
+            cachedSnapshot = None
             for ((_, ref) in entities) {
                 context.unwatch(ref)
                 context.stop(ref)
@@ -282,13 +309,29 @@ class ShardRegionActor <: Actor {
             lastActive.clear()
             synchronized(shared.lock) {
                 shared.entityIds.clear()
+                shared.ownerCount = 0
             }
             return
         }
-        if (!s.converged || !cluster.isUp()) {
+        let selfUp = match (s.statusOf(cluster.selfAddress)) {
+            case Some(MemberStatus.Up) => true
+            case _ => false
+        }
+        if (!s.converged || !selfUp) {
             owners = None
+            cachedSnapshot = Some(s)
+            synchronized(shared.lock) {
+                shared.ownerCount = 0
+            }
             return
         }
+        // 成员视图未变（同一个快照对象）就不必重算与移交扫描：
+        // 这是每次 route 前的快速路径，只有一两次无争用锁 + 一次引用比较。
+        match (cachedSnapshot) {
+            case Some(c) where refEq(c, s) => return
+            case _ => ()
+        }
+        cachedSnapshot = Some(s)
         let ups = ArrayList<String>()
         for (m in s.members) {
             if (m.status == MemberStatus.Up) {
@@ -300,6 +343,9 @@ class ShardRegionActor <: Actor {
             ownersChanged = true
         }
         owners = Some(next)
+        synchronized(shared.lock) {
+            shared.ownerCount = next.size
+        }
         // 移交：停止不再属于本节点的实体（remember-entities 时 ID 留在集合中，由新拥有者启动）
         let moved = ArrayList<String>()
         for ((id, _) in entities) {
@@ -472,6 +518,9 @@ class ShardRegionActor <: Actor {
     }
 
     private func route(e: ShardingEnvelope, context: ActorContext): Unit {
+        // 即时刷新成员视图：50ms 轮询间隙内成员可能已变化，用旧视图路由会把实体投到错误节点，
+        // 随后又被移交，表现为"某节点分不到实体"。快照未变时这里只多一次加锁 + 引用比较。
+        refreshOwners(context)
         match (ownerOf(e.entityId)) {
             case None => enqueue(e)
             case Some(o) where o == cluster.selfAddress => deliver(e, context)
@@ -581,6 +630,13 @@ public class ClusterSharding {
     public func localEntityIds(): Array<String> {
         synchronized(shared.lock) {
             shared.entityIds.toArray()
+        }
+    }
+
+    /** 分片区域当前用于路由的 Up 成员数（0 = 视图未收敛）。用于诊断/测试等待成员视图就绪。 */
+    public func ownerCount(): Int64 {
+        synchronized(shared.lock) {
+            shared.ownerCount
         }
     }
 

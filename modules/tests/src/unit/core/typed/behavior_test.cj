@@ -89,6 +89,19 @@ class DummySystem <: TypedActorSystem {
 @Test
 public class BehaviorTestSuite {
   @TestCase
+  public func testCtxSameIsCachedPerActor(): Unit {
+    // P2-20：ctx.same() 返回缓存的同一实例（零分配），语义与 TypedBehaviors.same() 相同
+    let ctx = TestCtx<Int32>()
+    let b1 = ctx.same()
+    let b2 = ctx.same()
+    @Expect(TypedBehaviors.isSame(b1), true)
+    @Expect(TypedBehaviors.isSame(b2), true)
+    // canonicalize 语义：same 返回值使行为保持 current
+    let current = TypedBehaviors.receive<Int32>({ _, _ => TypedBehaviors.same<Int32>() })
+    let next = TypedBehaviors.canonicalize(ctx.same(), current, ctx)
+    @Expect(TypedBehaviors.isSame(next), false) // 归一为 current（普通行为，非 same 标记）
+  }
+  @TestCase
   public func testTransformMessages(): Unit {
     let ctr = Counter()
     let base = TypedBehaviors.receive<Int32>({ ctx, msg =>

@@ -152,6 +152,11 @@ public class ClusterShardingTest {
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 3) }), true)
         let ledger = Ledgers()
         let regions = shardings(nodes, ledger)
+        // 等三个分片区域都看到 3 个成员再发消息：区域每 50ms 才刷新一次成员快照，
+        // 若在某个区域仍持 2 成员视图时发 200 个实体，它们会只落到 2 个节点。
+        @Expect(awaitCondition(CLUSTER_WAIT, { =>
+            regions[0].ownerCount() == 3 && regions[1].ownerCount() == 3 && regions[2].ownerCount() == 3
+        }), true)
         // 实体数从 30 提到 200：30 个实体时样本太小，分片视图收敛时序会让"三个节点都有负载"
         // 这条断言偶发失败（此前约 1/10）。放大样本后每个节点都必然分到实体，
         // 断言语义（每实体单宿主 + 计数准确 + 三节点都有负载）不变。

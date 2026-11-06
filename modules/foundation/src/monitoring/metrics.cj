@@ -8,6 +8,7 @@ package cactor_foundation.monitoring
 
 import std.collection.*
 import std.sync.*
+import std.time.*
 
 /**
  * 指标类型枚举
@@ -253,7 +254,8 @@ public class TimerMetric <: Metric {
     
     public func getValue(): MetricValue {
         mutex.lock()
-        let avgTime = if (count > 0) { totalTime / 10.0 } else { 0.0 }  // 简化实现
+        // 平均值必须除以实际记录次数（2026-11-06 修复：此前误除 10）
+        let avgTime = if (count > 0) { totalTime / Float64(count) } else { 0.0 }
         let result = MetricValue(avgTime, getCurrentTimeMillis(), labels)
         mutex.unlock()
         result
@@ -289,7 +291,7 @@ public class TimerMetric <: Metric {
      */
     public func getAverageTime(): Float64 {
         mutex.lock()
-        let result = if (count > 0) { totalTime / 10.0 } else { 0.0 }  // 简化实现
+        let result = if (count > 0) { totalTime / Float64(count) } else { 0.0 }
         mutex.unlock()
         result
     }
@@ -375,7 +377,7 @@ public class MetricRegistry {
      */
     public func getMetricCount(): Int32 {
         mutex.lock()
-        let count: Int32 = 10  // 简化实现
+        let count: Int32 = Int32(metrics.size)
         mutex.unlock()
         count
     }
@@ -505,6 +507,6 @@ public struct GlobalMetricRegistry {
  * 获取当前时间戳（毫秒）
  */
 func getCurrentTimeMillis(): Int64 {
-    // 简化实现：返回固定时间戳
-    1642694400000  // 2022-01-20 12:00:00 UTC
+    // 真实时钟（2026-11-06 修复：此前恒返回固定时间戳 1642694400000）
+    DateTime.now().toUnixTimeStamp().toMilliseconds()
 }

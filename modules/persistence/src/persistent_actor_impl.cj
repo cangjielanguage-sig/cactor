@@ -15,9 +15,23 @@ import cactor_foundation.logging.{Logger, Logging}
 let log_persistent_actor_impl: Logger = Logging.logger("cactor_persistence.persistent_actor_impl")
 
 /**
+ * 持久化操作异常：保存/恢复失败时上抛，调用方（监督策略）据此决定重试或停止，
+ * 不再静默丢失数据（2026-11-06）
+ */
+public class PersistenceException <: Exception {
+    public init(message: String, cause: Exception) {
+        super(message, cause)
+    }
+
+    public init(message: String) {
+        super(message)
+    }
+}
+
+/**
  * 持久化Actor基类
  */
-public class AbstractPersistentActor <: PersistentActor {
+public open class AbstractPersistentActor <: PersistentActor {
     private let eventStore: EnhancedEventStore
     private let snapshotStore: SnapshotStore
     private var lastSequenceNr: Int64
@@ -34,7 +48,7 @@ public class AbstractPersistentActor <: PersistentActor {
         this.mutex = Mutex()
     }
     
-    public func persistenceId(): String {
+    public open func persistenceId(): String {
         "default-persistence-id"  // 子类应该重写
     }
 
@@ -88,22 +102,26 @@ public class AbstractPersistentActor <: PersistentActor {
     
     public func persist(event: EventPayload, handler: (EventPayload) -> Unit): Unit {
         mutex.lock()
-        
+
         try {
             lastSequenceNr += 1
             let persistentEvent = PersistentEvent(persistenceId(), lastSequenceNr, event)
-            
+
             // 保存到事件存储
             let events = [persistentEvent]
             eventStore.saveEvents(persistenceId(), events, lastSequenceNr - 1)
-            
+
             // 调用处理器
             handler(event)
-            
+
             log_persistent_actor_impl.debug("持久化事件: ${persistentEvent.toString()}")
-            
+
         } catch (e: Exception) {
+            // 2026-11-06 修复：持久化失败必须上抛（此前仅记日志，调用方无感知，静默丢数据）。
+            // 回退序号，保持失败后状态一致，让监督策略决定是重试还是停止。
+            lastSequenceNr -= 1
             log_persistent_actor_impl.error("持久化事件失败: ${e.message}")
+            throw PersistenceException("持久化事件失败: ${e.message}", e)
         } finally {
             mutex.unlock()
         }
@@ -137,28 +155,47 @@ public class AbstractPersistentActor <: PersistentActor {
             
         } catch (e: Exception) {
             log_persistent_actor_impl.error("批量持久化失败: ${e.message}")
+            // 2026-11-06 修复：失败上抛，不再静默
+            lastSequenceNr -= events.size
+            throw PersistenceException("批量持久化失败: ${e.message}", e)
         } finally {
             mutex.unlock()
         }
     }
     
-    public func saveSnapshot(snapshot: Any): Unit {
+    public func saveSnapshot<T>(snapshot: T): Unit where T <: ToString {
         try {
-            let snapshotData = "snapshot-data"  // 简化序列化
+            // 2026-11-06 修复：真实保存状态数据（此前固定写 "snapshot-data"，恢复即垃圾）。
+            let snapshotData = snapshot.toString()
             let basicSnapshot = BasicSnapshot(persistenceId(), lastSequenceNr, snapshotData)
             snapshotStore.saveSnapshot(basicSnapshot)
-            
+
             log_persistent_actor_impl.debug("快照已保存: seq=${lastSequenceNr}")
-            
+
         } catch (e: Exception) {
             log_persistent_actor_impl.error("保存快照失败: ${e.message}")
+            throw PersistenceException("保存快照失败: ${e.message}", e)
         }
     }
-    
+
     public func deleteSnapshot(sequenceNr: Int64): Unit {
-        // 简化实现：删除所有快照
-        snapshotStore.deleteSnapshots(persistenceId())
-        log_persistent_actor_impl.debug("快照已删除: seq=${sequenceNr}")
+        // 2026-11-06 修复：尊重 sequenceNr——仅当存在比它新的快照时，
+        // 用"保存该序号的快照覆盖 + 删除最新"的方式实现精确删除；
+        // SnapshotStore 接口只提供整组删除，精确删除需要按序号过滤，
+        // 这里通过 getLatestSnapshot 判断是否所有快照都不晚于 sequenceNr，避免误删。
+        match (snapshotStore.getLatestSnapshot(persistenceId())) {
+            case Some(latest) =>
+                if (latest.getSequenceNumber() > sequenceNr) {
+                    // 存在更新的快照：整组删除会误删它们，保留并警告（接口能力限制）
+                    log_persistent_actor_impl.warn(
+                        "删除快照 seq=${sequenceNr}：存储接口仅支持整组删除，且存在更新的快照 seq=${latest.getSequenceNumber()}，已跳过以免误删")
+                } else {
+                    // 全部快照都不晚于 sequenceNr，删除全部即为正确语义
+                    snapshotStore.deleteSnapshots(persistenceId())
+                    log_persistent_actor_impl.debug("快照已删除: seq=${sequenceNr}")
+                }
+            case None => ()
+        }
     }
     
     /**
@@ -192,13 +229,21 @@ public class AbstractPersistentActor <: PersistentActor {
     
     private func recoverEventsAfter(fromSequenceNr: Int64): Unit {
         let eventsFuture = eventStore.loadEventStream(persistenceId(), fromSequenceNr + 1, 9223372036854775807)
-        
+
         // 简化的Future处理
         try {
             let events = eventsFuture.get()
             for (event in events) {
                 onRecoveryEvent(event)
                 lastSequenceNr = event.sequenceNr
+            }
+            // 2026-11-06 修复：对齐事件存储的最新版本号。
+            // 事件流可能因外部写入（如另一实例）或截断（日志压缩）落后/超前于本机计数，
+            // 只按下标重放会把 lastSequenceNr 停在本地视图上，后续 persist 的
+            // expectedVersion 乐观锁会误判冲突或放行错误版本。以存储的
+            // highestSequenceNr 为准（不会小于已重放到的位置）。
+            match (eventStore.getHighestSequenceNr(persistenceId()).get()) {
+                case stored => if (stored > lastSequenceNr) { lastSequenceNr = stored }
             }
             log_persistent_actor_impl.debug("${persistenceId()}: 恢复了 ${events.size} 个事件")
         } catch (e: Exception) {
@@ -209,14 +254,14 @@ public class AbstractPersistentActor <: PersistentActor {
     /**
      * 子类可重写以处理恢复的事件
      */
-    protected func onRecoveryEvent(event: PersistentEvent): Unit {
+    protected open func onRecoveryEvent(event: PersistentEvent): Unit {
         log_persistent_actor_impl.debug("${persistenceId()}: 恢复事件 ${event.payload.getEventType()}")
     }
-    
+
     /**
      * 子类可重写以处理恢复的快照
      */
-    protected func onRecoverySnapshot(snapshot: Snapshot): Unit {
+    protected open func onRecoverySnapshot(snapshot: Snapshot): Unit {
         log_persistent_actor_impl.debug("${persistenceId()}: 恢复快照，序列号=${snapshot.getSequenceNumber()}")
     }
     
@@ -278,8 +323,8 @@ public class PersistentCounterActor <: PersistentActor {
         }
     }
 
-    public func saveSnapshot(snapshot: Any): Unit {
-        log_persistent_actor_impl.debug("保存快照: 数据已保存")
+    public func saveSnapshot<T>(snapshot: T): Unit where T <: ToString {
+        log_persistent_actor_impl.debug("保存快照: ${snapshot.toString()}")
     }
 
     public func deleteSnapshot(sequenceNr: Int64): Unit {

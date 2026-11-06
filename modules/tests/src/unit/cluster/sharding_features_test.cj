@@ -362,14 +362,19 @@ public class ShardingPersistentEntityTest {
         for (e in 0..20) {
             @Expect(ledger.latestOf("a${e}"), 6)
         }
-        // 2) 第二个节点宕机：其上的实体在幸存节点上从日志恢复
-        let victimIds = regions[1].localEntityIds()
+        // 2) 两个初始节点中实体较多的一个宕机：其上的实体在幸存节点上从日志恢复。
+        // 分片是哈希分配的，固定选 1 号时它有真实概率（实测约 5%，第三节点加入后部分分片移交）
+        // 一个实体都不剩，此时 victimIds 为空、"在别处恢复"无从验证——属测试设计问题，
+        // 受害者应由实际分布决定（与 testEntitiesOfCrashedNodeAreRecreatedElsewhere 的做法一致）。
+        let victimIdx: Int64 = if (regions[0].localEntityCount() >= regions[1].localEntityCount()) { 0 } else { 1 }
+        let victimIds = regions[victimIdx].localEntityIds()
         @Expect(victimIds.size > 0, true)
-        nodes[1].crash()
-        let survivors = [nodes[0], third]
+        let survivorIdx: Int64 = if (victimIdx == 0) { 1 } else { 0 }
+        nodes[victimIdx].crash()
+        let survivors = [nodes[survivorIdx], third]
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(survivors, 2) }), true)
         for (e in 0..20) {
-            regions[0].tell("a${e}", StringMessage("after-crash"))
+            regions[survivorIdx].tell("a${e}", StringMessage("after-crash"))
         }
         @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == 140 }), true)
         for (e in 0..20) {
@@ -378,9 +383,9 @@ public class ShardingPersistentEntityTest {
         for (id in victimIds) {
             @Expect(store.countEvents("counter-${id}"), 7)
         }
-        regions[0].stop()
+        regions[survivorIdx].stop()
         regions[2].stop()
-        nodes[0].close()
+        nodes[survivorIdx].close()
         third.close()
         removeIfExists(dir, recursive: true)
     }

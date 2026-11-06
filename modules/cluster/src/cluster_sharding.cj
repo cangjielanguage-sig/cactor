@@ -13,26 +13,40 @@ import cactor_foundation.logging.{Logger, Logging}
 let log_cluster_sharding: Logger = Logging.logger("cactor_cluster.cluster_sharding")
 
 /**
+ * 稳定字符串哈希（FNV-1a 的取模变体）。
+ *
+ * 不能直接连乘 Int64：仓颉整数溢出默认抛异常；这里每步取模保持在 31 位以内，
+ * 结果非负、与插入顺序无关，可作为分片/哈希的稳定键。
+ */
+func stableShardHash(text: String): Int32 {
+    var h: Int64 = 2166136261
+    for (i in 0..text.size) {
+        h = (h * 131 + Int64(text[i])) % 2147483647
+    }
+    Int32(h)
+}
+
+/**
  * 分片标识
  */
 public struct ShardId {
     public let id: String
-    
+
     public init(id: String) {
         this.id = id
     }
-    
+
     public func toString(): String {
         "ShardId(${id})"
     }
-    
+
     public func equals(other: ShardId): Bool {
         this.id == other.id
     }
-    
+
     public func hashCode(): Int32 {
-        // 简化的hashCode实现
-        42  // 固定值
+        // 用 id 的稳定哈希（旧实现固定返回 42，所有分片在哈希容器里会退化成同一条链）
+        stableShardHash(id)
     }
 }
 
@@ -41,19 +55,25 @@ public struct ShardId {
  */
 public struct EntityId {
     public let id: String
-    
+
     public init(id: String) {
         this.id = id
     }
-    
+
     public func toString(): String {
         "EntityId(${id})"
     }
-    
+
+    /**
+     * 按实体 id 的稳定哈希取模分片（旧实现固定返回 shard-0，所有实体挤在一个分片上：
+     * 既失去分片水平扩展，也让"实体分散到多节点"的集群测试必然依赖协调器时序）。
+     */
     public func extractShardId(numberOfShards: Int32): ShardId {
-        // 简化的分片映射算法
-        let shardIndex = if (numberOfShards > 0) { 0 } else { 0 }  // 简化为固定值
-        ShardId("shard-${shardIndex}")
+        if (numberOfShards <= 0) {
+            return ShardId("shard-0")
+        }
+        let index = Int64(stableShardHash(id)) % Int64(numberOfShards)
+        ShardId("shard-${index}")
     }
 }
 
@@ -235,10 +255,9 @@ public class ShardInfo {
     
     public func getEntityCount(): Int32 {
         mutex.lock()
-        let count = entities.size
+        let count = Int32(entities.size)
         mutex.unlock()
-        // 简化返回固定值
-        42
+        count
     }
     
     public func hasEntity(entityId: EntityId): Bool {

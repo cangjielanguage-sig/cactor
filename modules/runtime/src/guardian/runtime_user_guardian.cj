@@ -290,8 +290,8 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         let actor = props.create()
         actor.preStart()
         let cell = SimpleUserActorRef(name, actor, props.creator(), this, parent, props)
-        // 第一条系统消息：保证 onStarted 先于任何用户消息执行
-        cell.sendSystem(SysStarted())
+        // 置启动位并调度：保证 onStarted 先于任何用户消息执行（P1-17，替代 SysStarted 系统消息）
+        cell.scheduleStart()
         if (parent.isSome()) {
             // 子 Actor 不进全局路径表：百万级子 Actor 时每个表项（路径 String + 条目）约 150 字节，
             // 且创建要串行过全局注册表；子 Actor 由父的 childMap 承载，lookup 按段遍历

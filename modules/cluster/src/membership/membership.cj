@@ -1111,6 +1111,17 @@ public class Cluster {
         }
     }
 
+    /**
+     * 一次加锁同时读取"快照 + 是否已终止"。
+     * 分片路由每次投递都要判断成员视图与终止状态，分成两次加锁会在热路径上多一次锁往返；
+     * 快照按不可变对象整体替换，返回引用即可安全使用。
+     */
+    public func stateAndTerminated(): (ClusterSnapshot, Bool) {
+        synchronized(shared.lock) {
+            (shared.snapshot, shared.terminated)
+        }
+    }
+
     public func members(): Array<Member> {
         state().members
     }

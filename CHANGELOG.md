@@ -29,6 +29,9 @@
 
 
 ### ✨ 新增（Actor DSL：docs/plan/dsl20261030.md P1–P5 全部落地）
+- **`ctx.same()` 零分配路径（P2-20）**：`TypedActorContext.same()` 返回每 Actor 缓存的
+  同一 `SameBehavior<T>` 实例，消除类型化路径每消息的第三次堆分配（泛型类静态单例在仓颉
+  不可行，改为每 Actor 惰性缓存）；`TypedBehaviors.same<T>()` 保持不变，现有代码零改动
 - **`@actor` 属性宏 + 协议清单**：`@actor[cases = [A, B]]` / `@actor[protocol = E]` 在编译期核对
   漏处理、协议漂移、重复处理器；签名支持 `onXxx(m)` / `onXxx(m, ctx)` / 返回 `Unit` 或 `MessageResult`；
   不带方括号的 `@actor` / `@actorReceive` 旧写法由同名非属性宏承接，继续可用
@@ -60,6 +63,32 @@
   `dsl_bench`（宏 vs 手写零开销基准，最好成绩比值 97.5%）
 
 ### ⚡ 性能
+- **每 Actor 存活堆突破 1 KB：3371 → 1017 B（-70%）**；5M 子 Actor 规模 **1072 B/Actor**（详见 perf20261101.md §7.13）
+  - **`SysStarted` 系统消息改为 `schedState` 的 START_BIT**：`run()` 进入消息循环前先启动，
+    每条 tell 省掉系统栈上的节点分配
+  - **系统消息队列迁入邮箱并按需分配**：`CellMailbox.pushSystem` 在邮箱锁内推送（与 close 互斥），
+    首条系统消息才分配队列对象并以 `SYS_BIT` 发布；从未收到系统消息的 Actor 不再占那个原子对象
+  - 邮箱 6 个 `Option<Array<T>>` 改共享空数组哨兵（该字段类型占 32 B，普通引用 8 B）
+  - receive-timeout 的 4 个字段收进按需分配的 `ReceiveTimeoutState`
+- **P1-18（CellMailbox 改 struct 内联）实测否决**：值类型省约 16 B 对象头，但 mut 方法按值复制
+  整个邮箱结构，交替 A/B 实测 [1] 13M → 4.3M、[6] 62M → 30M msg/s，吞吐损失过半，已回退为
+  class 并留档（perf20261101.md §7.14）
+- **每 Actor 存活堆降到 1120–1151 B（基线 3371 B，-66~67%）**：`Cell` 的 4 个 receive-timeout 字段
+  （约 32 B）收进按需分配的 `ReceiveTimeoutState`，只有调用过 `setReceiveTimeout` 的 Actor 才分配；
+  `invoke` 热路径改为 Option 判空（无超时的 Actor 更便宜）
+- **扇出"反缩放"根因修正**：`real_benchmark` 新增 `CACTOR_BENCH_SENDERS` 开关。实测扇出吞吐随发送方
+  数量线性增长（单发送方约 4.6M/s），T14 相对 T4 的下降约等于"8 发送方 + 14 worker = 22 线程跑在
+  14 核"的超额订阅比例；worker 驱动的多对 ping-pong/类型化在 T14 仍正扩展。因此该指标不构成
+  "运行时反缩放"的证据（详见 docs/plan/perf20261101.md §7.10）
+- **邮箱自旋锁对象内联**：`CellMailbox` 不再持有独立的 `SpinLock` 对象，改为 `AtomicBool` 字段 +
+  手写 lock/unlock（语义不变），每 Actor 再省约 35 B（`bench_gate` 实测 **1170 B**）
+- **每 Actor 存活堆继续下降：1280–1387 → 1169–1212 B（基线 3371 B，累计 -64%）**；
+  5M 子 Actor 规模 **1182 B/Actor**，创建 824k/s、drain 1871 ms、停止 9086 ms（详见 perf20261101.md §7.5）
+  - 邮箱的 6 个 `Option<Array<T>>` 改为普通数组 + 共享只读空数组哨兵：仓颉 `Option<Array<T>>` 字段占 32 B，
+    普通数组引用只占 8 B，这一项每 Actor 省约 90 B（`in/dr × msg/sender/senderRef`）
+- **每条 tell 少一次跨核原子 RMW**：邮箱 incoming 计数从 `schedState` 的每条 `fetchAdd`
+  改为锁内普通自增；锁外"是否还有消息"改读同一状态字的 `INCOMING_BIT`（每批首条置位、换批清除）。
+  交替 A/B 均值：单 Actor +19%、扇出 **+42%**、多对 ping-pong +7%、类型化 +4.5%（perf20261101.md §7.5.2）
 - **每 Actor 存活堆大幅下降**：子 Actor **3371 → 1280–1387 B（-59~62%）**，顶层 Actor
   **3423 → 1645–1880 B（-49%）**
   - Cell 不再常驻完整路径字符串，只保留 `name`（子 Actor 与父 `childMap` 键共用同一个 String 实例），
@@ -77,6 +106,29 @@
 - **`@StateMachine`**：`canTransition` / `transitionTo` 改为 `(from, to)` 枚举 match，比查数组 + 字符串比较快 1.8–2.0 倍
 
 ### 🐛 修复
+- **集群分片的 rendezvous 哈希缺陷（真实分配 bug）**：节点地址共享前缀、仅末位不同（如顺序分配的
+  `127.0.0.1:4916{8,9,0}`）时，直接比较 FNV-1a 值取最大会让某个节点一个分片都分不到
+  （实测 64 分片全部落在 2 个节点）。新增 `mixHash`（MurmurHash3 fmix64）做雪崩混合后再取最大；
+  `shardOf` 同样先混合再取模。`stableHash` 作为公开的稳定哈希未改动
+  （`testStableHashKnownVectors` 继续通过）。修复后集群包连跑 6 次全通过
+- **分片区域成员视图访问器**：新增 `ClusterSharding.ownerCount()` / `Grains.ownerCount()`
+  （0 = 视图未收敛），供测试等待"区域已看到全部成员"后再断言分布
+- **CI 测试改为串行执行**：集群/分片用例会起真实 TCP 集群，并行跑多个时故障检测器在宿主高负载下
+  偶发误判节点不可达，导致与代码无关的分布断言失败（`distinct.size==2`）。`tools/ci.sh` 与
+  `tools/stress_matrix.sh` 改用 `cjpm test --parallel 1`，421 例连续通过，墙钟时间几乎不变
+- **分片路由在成员视图更新前使用旧视图**：`ShardRegionActor.refreshOwners` 只在 50ms 的
+  RegionTick 上刷新成员快照，成员变化后的窗口内会把实体路由到错误节点（测试表现为某节点
+  `localEntityCount()==0` / 实体只分布在 2 个节点）。现在 `route` 前按"快照对象引用是否变化"
+  即时刷新；新增 `Cluster.stateAndTerminated()` 一次加锁读取快照与终止状态。
+  隔离复跑：`testGrainsSpreadAndStayPut` / `testEachEntityLivesOnExactlyOneNode` 均 10/10
+- **测试受害者选择**：`testEventSourcedEntityKeepsStateAcrossCrashAndHandoff` 固定宕机 1 号节点，
+  第三节点加入后有约 7% 概率该节点已无实体；改为选实体较多的初始节点
+- **遗留分片 API 的两处硬编码占位**（`modules/cluster/src/cluster_sharding.cj`）：
+  `EntityId.extractShardId` 恒返回 `shard-0`（所有实体挤在一个分片），改为按实体 id 的稳定哈希取模；
+  `ShardInfo.getEntityCount()` 恒返回 42，改为返回真实条目数；`ShardId.hashCode()` 恒返回 42，改为稳定哈希
+- **新增 CRDT 并发回归测试**：`modules/tests/src/unit/cluster/crdt_concurrency_test.cj`
+  覆盖"多线程并发 merge/遍历/编解码不相交 ORSet"与"并发读 Replicator + 持续本地更新"，
+  把 P0-4 的崩溃路径固化为常驻用例（连续 5/5 通过）
 - **CRDT 合并偶发 SIGSEGV（集群测试约 5/10）**：两处修复——
   ① `ORSet.merge` 里 `entries.get(k) ?? HashSet<S>()` 的空集临时对象在多线程下被并发使用，
   崩溃于 `HashMap.contains`（addr 0x8）；改为显式 `Option` 分支，缺失键按空集合处理、不再分配临时空集

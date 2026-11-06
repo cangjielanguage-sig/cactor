@@ -480,6 +480,8 @@ class ClassicTypedContext<T> <: TypedActorContext<T> {
     /** watchWith 登记的消息：路径 -> 消息 */
     let watchMessages = HashMap<String, T>()
     var receiveTimeoutMessage: Option<T> = None<T>
+    /** same() 的缓存实例（P2-20）：每 Actor 一个，只在 Actor 线程内使用，消除每消息分配 */
+    private var sameBehaviorValue: Option<SameBehavior<T>> = None<SameBehavior<T>>
 
     init(classic: ActorContext, supervision: SupervisionRules, typedSystem: Option<TypedActorSystem>) {
         this.classic = classic
@@ -490,6 +492,16 @@ class ClassicTypedContext<T> <: TypedActorContext<T> {
 
     public prop self: TypedActorRef<T> {
         get() { selfRef }
+    }
+
+    public func same(): TypedBehavior<T> {
+        match (sameBehaviorValue) {
+            case Some(b) => b
+            case None =>
+                let b = SameBehavior<T>()
+                sameBehaviorValue = Some(b)
+                b
+        }
     }
 
     public func sender(): Option<String> {

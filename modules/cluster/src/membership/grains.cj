@@ -362,6 +362,11 @@ public class Grains {
         sharding.localEntityIds()
     }
 
+    /** 底层分片区域当前看到的 Up 成员数（0 = 视图未收敛；用于测试等待成员视图就绪） */
+    public func ownerCount(): Int64 {
+        sharding.ownerCount()
+    }
+
     /** (本节点激活次数, 停用次数, 处理的调用数, 超时后才到达的应答数) */
     public func stats(): (Int64, Int64, Int64, Int64) {
         synchronized(grainStats.lock) {

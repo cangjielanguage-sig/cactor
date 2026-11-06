@@ -35,7 +35,11 @@ bash tools/negative_tests.sh
 
 step "全部测试"
 log=$(mktemp)
-if ! cjpm test 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee "$log" | grep -E '^Summary|PASSED:|FAILED:|ERROR:' | tail -4; then
+# --parallel 1：仓库里的集群/分片用例会起真实 TCP 集群并等待选主/故障检测；
+# 在本机（桌面负载 40–55）上并行跑多个集群用例时，故障检测偶发把节点误判为不可达，
+# 出现 `distinct.size==2` / `localEntityCount()==0` 这类分布断言失败（隔离单跑 10/10 通过）。
+# 串行执行的墙钟时间与并行基本相同（约 2m50s，长等待本来就占主导），因此默认串行。
+if ! cjpm test --parallel 1 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee "$log" | grep -E '^Summary|PASSED:|FAILED:|ERROR:' | tail -4; then
     true
 fi
 if grep -qE '\[ (FAILED|ERROR) \] CASE' "$log" || ! grep -q 'cjpm test success' "$log"; then
@@ -82,8 +86,14 @@ if [[ "${1:-}" == "--soak" ]]; then
 fi
 
 if [[ "${1:-}" == "--bench" ]]; then
-    step "基准"
-    CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.real_benchmark
+    step "基准门禁（bench_gate.sh 决定退出码）"
+    # 2026-11-06 修复（E4）：--bench 接入 bench_gate.sh 门禁，由它决定 CI 退出码；
+    # 此前只打印数字不判定，门禁形同虚设。
+    if [ -f tools/bench_gate.sh ]; then
+        bash tools/bench_gate.sh
+    else
+        CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.real_benchmark
+    fi
 fi
 
 step "全部通过"

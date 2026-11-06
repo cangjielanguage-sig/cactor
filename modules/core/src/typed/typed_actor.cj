@@ -89,6 +89,16 @@ public interface TypedActorContext<T> {
     /** 自身引用 */
     prop self: TypedActorRef<T>
 
+    /**
+     * 保持当前行为（P2-20）：与 `TypedBehaviors.same<T>()` 语义相同，但返回本 Actor 缓存的
+     * 同一实例，不产生堆分配。`same()` 在每个消息处理末尾都会调用，是类型化路径上的
+     * 每消息第三次分配；泛型类静态单例在仓颉不可行（禁止引用 T），所以按"每 Actor 一个"
+     * 缓存——实例只在 Actor 线程内创建与使用，无并发问题。
+     */
+    func same(): TypedBehavior<T> {
+        TypedBehaviors.same<T>()
+    }
+
     /** 当前消息发送方的路径 */
     func sender(): Option<String> {
         None<String>
@@ -393,7 +403,7 @@ public struct TypedBehaviors {
         DeferredBehavior<T>(factory)
     }
 
-    /** 保持当前行为 */
+    /** 保持当前行为。每消息场景推荐在处理函数里用 `ctx.same()`（复用每 Actor 缓存实例，零分配，P2-20） */
     @Frozen
     public static func same<T>(): TypedBehavior<T> {
         SameBehavior<T>()

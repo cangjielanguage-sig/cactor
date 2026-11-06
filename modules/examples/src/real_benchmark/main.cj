@@ -22,6 +22,7 @@ import std.sort.*
 import std.collection.*
 import std.fs.{File}
 import std.convert.*
+import std.env.*
 import cactor.api.{CActorSystem, CActorSystemFactory}
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage, PingMessage, PongMessage}
@@ -115,6 +116,16 @@ func report(title: String, samples: ArrayList<Int64>): Unit {
     var sum: Int64 = 0
     for (v in arr) { sum += v }
     println("  ${title}: n=${arr.size} 平均=${Float64(sum) / Float64(arr.size) / 1000.0}µs P50=${percentile(arr, 0.5)}µs P99=${percentile(arr, 0.99)}µs P99.9=${percentile(arr, 0.999)}µs 最大=${Float64(arr[arr.size - 1]) / 1000.0}µs")
+}
+
+func envInt(name: String, def: Int64): Int64 {
+    match (getVariable(name)) {
+        case Some(s) => match (Int64.tryParse(s)) {
+            case Some(v) => v
+            case None => def
+        }
+        case None => def
+    }
 }
 
 func benchSingleActor(system: CActorSystem, n: Int64): Unit {
@@ -548,7 +559,9 @@ main(): Int64 {
     println("=== CActor 真实基准（MonoTime 计时）===")
     let system = CActorSystemFactory.create("bench")
     benchSingleActor(system, 1_000_000)
-    benchFanOut(system, 8, 100, 250_000)
+    // 发送方数可用 CACTOR_BENCH_SENDERS 覆盖：用于区分"运行时扇出效率"与"基准自身线程数超过核数"
+    // 造成的 CPU 超额订阅（T14 时 8 发送方 + 14 worker = 22 线程 > 14 核）。
+    benchFanOut(system, envInt("CACTOR_BENCH_SENDERS", 8), 100, 250_000)
     benchPingPong(system, 20_000)
     benchAsk(system, 20_000)
     benchInProc(system, 64, 100_000, 100)

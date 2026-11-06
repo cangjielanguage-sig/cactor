@@ -6,6 +6,7 @@
 package cactor_foundation.serialization
 
 import std.collection.*
+import std.convert.*
 
 /**
  * 通用序列化器接口 - 零依赖
@@ -128,21 +129,121 @@ public class JsonSerializer <: Serializer<String> {
     }
 
     private func parseJsonString(json: String): String {
-        // 简化的JSON解析 - 提取data字段
-        if (json.contains("\"data\":\"")) {
-            "parsed_from_json"
-        } else {
-            "default_value"
+        // 真实解析（2026-11-06 修复：此前任何输入都返回硬编码 "parsed_from_json"）。
+        // 定位顶层 "data" 字段的字符串值，处理 \" \\ \/ \n \r \t \b \f \uXXXX 转义。
+        let dataKey = "\"data\""
+        let keyIdx = match (json.indexOf(dataKey)) {
+            case Some(i) => i
+            case None => throw DeserializationException("JSON 中缺少 data 字段")
         }
+        var i = keyIdx + dataKey.size
+        // 跳过空白
+        while (i < json.size && isWs(json[i])) { i++ }
+        if (i >= json.size || json[i] != b':') {
+            throw DeserializationException("JSON 格式错误：data 后缺少冒号")
+        }
+        i++
+        while (i < json.size && isWs(json[i])) { i++ }
+        if (i >= json.size || json[i] != b'"') {
+            throw DeserializationException("JSON 格式错误：data 值不是字符串")
+        }
+        i++
+        let sb = StringBuilder()
+        while (i < json.size) {
+            let c = json[i]
+            if (c == b'"') {
+                return sb.toString()
+            }
+            if (c == b'\\') {
+                i++
+                if (i >= json.size) {
+                    throw DeserializationException("JSON 格式错误：转义符后无字符")
+                }
+                let esc = json[i]
+                if (esc == b'"') {
+                    sb.append("\"")
+                } else if (esc == b'\\') {
+                    sb.append("\\")
+                } else if (esc == b'/') {
+                    sb.append("/")
+                } else if (esc == b'n') {
+                    sb.append("\n")
+                } else if (esc == b'r') {
+                    sb.append("\r")
+                } else if (esc == b't') {
+                    sb.append("\t")
+                } else if (esc == b'b') {
+                    sb.append("\u{8}")
+                } else if (esc == b'f') {
+                    sb.append("\u{c}")
+                } else if (esc == b'u') {
+                    appendUnicodeEscape(json, i, sb)
+                    i += 4
+                } else {
+                    throw DeserializationException("JSON 格式错误：未知转义 \\${esc}")
+                }
+            } else {
+                // 多字节 UTF-8 字符逐字节追加
+                let bytes = ArrayList<UInt8>()
+                bytes.add(c)
+                var j = i + 1
+                while (j < json.size && (json[j] & 0xC0) == 0x80) {
+                    bytes.add(json[j])
+                    j++
+                }
+                i = j - 1
+                try {
+                    sb.append(String.fromUtf8(bytes.toArray()))
+                } catch (e: Exception) {
+                    throw DeserializationException("非法 UTF-8 序列: ${e.message}")
+                }
+            }
+            i++
+        }
+        throw DeserializationException("JSON 格式错误：data 字符串值未闭合")
+    }
+
+    private func isWs(c: UInt8): Bool {
+        c == b' ' || c == b'\t' || c == b'\n' || c == b'\r'
+    }
+
+    /** 解析 \uXXXX 转义并追加到 sb。json 的 escape 起始位置为 escapeIdx（指向 'u'）。 */
+    private func appendUnicodeEscape(json: String, escapeIdx: Int64, sb: StringBuilder): Unit {
+        if (escapeIdx + 4 >= json.size) {
+            throw DeserializationException("JSON 格式错误：\\u 转义不完整")
+        }
+        let hex = json[escapeIdx + 1..escapeIdx + 5]
+        let cpRes = match (UInt32.tryParse(hex, radix: 16)) {
+            case Some(v) => v
+            case None => throw DeserializationException("JSON 格式错误：非法 \\u 转义")
+        }
+        sb.append(Rune(UInt32(cpRes)))
     }
 
 
-
-
-
     private func escapeJson(str: String): String {
-        // 简化的JSON转义
-        str.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+        // 转义特殊字符（2026-11-06 补全：控制字符此前未处理，会产生非法 JSON）
+        let sb = StringBuilder()
+        for (c in str.runes()) {
+            if (c == r'"') {
+                sb.append("\\\"")
+            } else if (c == r'\\') {
+                sb.append("\\\\")
+            } else if (c == r'\n') {
+                sb.append("\\n")
+            } else if (c == r'\r') {
+                sb.append("\\r")
+            } else if (c == r'\t') {
+                sb.append("\\t")
+            } else if (c == r'\u{8}') {
+                sb.append("\\b")
+            } else if (c == r'\u{c}') {
+                sb.append("\\f")
+            } else {
+                sb.append(c)
+            }
+        }
+        sb.toString()
     }
 
 

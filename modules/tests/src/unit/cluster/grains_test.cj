@@ -72,6 +72,23 @@ func text(m: Message): String {
     (m as StringMessage).getOrThrow().getContent()
 }
 
+/**
+ * 等所有分片区域都看到 `n` 个 Up 成员再发消息。
+ *
+ * 区域按 50ms 的 tick 刷新成员快照；`allUp` 只保证集群模块的视图收敛，不保证分片区域已经刷新。
+ * 若在某个区域仍持 2 成员视图时发 200 个标识，它们会只落到 2 个节点——这是测试时序问题，
+ * 不是路由/哈希缺陷（隔离单跑时该窗口基本不会出现）。
+ */
+func waitOwners(grains: Array<Grains>, n: Int64): Bool {
+    awaitCondition(CLUSTER_WAIT, { =>
+        var ok = true
+        for (g in grains) {
+            ok = ok && g.ownerCount() == n
+        }
+        ok
+    })
+}
+
 @Test
 public class GrainsTest {
     @TestCase
@@ -121,6 +138,8 @@ public class GrainsTest {
         let nodes = startCluster(3, "grain-spread", FAST)
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 3) }), true)
         let grains = grainsOn(nodes, None<DurableStateStore>, EventRecorder(), Duration.second * 30)
+        // 先等三个分片区域都看到 3 个成员，再做分布断言（原因见 waitOwners 注释）
+        @Expect(waitOwners(grains, 3), true)
         // 标识数从 30 提到 200：30 个标识时样本太小，一次运行里"三个节点都出现过"这件事
         // 会被分片视图的收敛时序放大成偶发失败（某个 region 尚未就绪，它的标识还没落地）。
         // 放大样本后每个节点都必然分到大量标识，断言（分布到全部节点 + 同一标识固定宿主）
@@ -133,6 +152,22 @@ public class GrainsTest {
         let distinct = HashSet<String>()
         for ((_, h) in hosts) {
             distinct.add(h)
+        }
+        if (distinct.size != 3) {
+            // 仅失败时输出：用于区分"运行时路由/哈希错误"与"某节点在测试进行中被 down 掉"
+            let counts = HashMap<String, Int64>()
+            for ((_, h) in hosts) {
+                counts[h] = (counts.get(h) ?? 0) + 1
+            }
+            println("DIAG hostCounts=${counts}")
+            for (i in 0..3) {
+                let s = nodes[i].cluster.state()
+                let ups = ArrayList<String>()
+                for (m in s.members) {
+                    ups.add("${m.address}=${m.status}")
+                }
+                println("DIAG node${i} converged=${s.converged} up=${s.upCount()} members=${ups} localEntities=${grains[i].activeIds().size} ownerCount=${grains[i].ownerCount()}")
+            }
         }
         @Expect(distinct.size, 3)
         // 从其他节点调用同一标识：仍在同一个激活上

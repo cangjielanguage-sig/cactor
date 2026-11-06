@@ -268,9 +268,9 @@ public interface PersistentActor <: Actor {
     func persistAll(events: Array<EventPayload>, handler: (EventPayload) -> Unit): Unit
     
     /**
-     * 保存快照
+     * 保存快照（2026-11-06：约束状态类型必须可序列化为字符串，消除 "snapshot-data" 假实现）
      */
-    func saveSnapshot(snapshot: Any): Unit
+    func saveSnapshot<T>(snapshot: T): Unit where T <: ToString
     
     /**
      * 删除快照
