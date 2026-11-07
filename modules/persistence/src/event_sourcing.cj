@@ -53,14 +53,31 @@ public struct PersistentEvent {
         this.correlationId = correlationId
     }
     
+    /**
+     * 完整构造：withMetadata 等派生操作用它保留时间戳与全部字段
+     */
+    public init(persistenceId: String, sequenceNr: Int64, timestamp: DateTime, payload: EventPayload,
+                metadata: HashMap<String, String>, causationId: Option<String>, correlationId: Option<String>) {
+        this.persistenceId = persistenceId
+        this.sequenceNr = sequenceNr
+        this.timestamp = timestamp
+        this.payload = payload
+        this.metadata = metadata
+        this.causationId = causationId
+        this.correlationId = correlationId
+    }
+
+    /**
+     * 返回附加了一项元数据的新事件（原事件不变）。
+     * 此前构建了新表却随后丢弃，返回的事件没有任何元数据，时间戳也被换成了当前时间（P8）
+     */
     public func withMetadata(key: String, value: String): PersistentEvent {
         let newMetadata = HashMap<String, String>()
         for ((k, v) in metadata) {
             newMetadata[k] = v
         }
         newMetadata[key] = value
-        
-        PersistentEvent(persistenceId, sequenceNr, payload, causationId, correlationId)
+        PersistentEvent(persistenceId, sequenceNr, timestamp, payload, newMetadata, causationId, correlationId)
     }
     
     public func toString(): String {

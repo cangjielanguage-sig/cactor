@@ -183,3 +183,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.idle_probe"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.typed_spawn_bench"]
+output-type = "executable"

@@ -41,6 +41,10 @@ private func isResume(d: SupervisionDirective): Bool {
 private func isEscalate(d: SupervisionDirective): Bool {
     match (d) { case SupervisionDirective.Escalate => true; case _ => false }
 }
+/** RestartAfter 的延迟（毫秒）；其他指令返回 -1 */
+private func delayOf(d: SupervisionDirective): Int64 {
+    match (d) { case SupervisionDirective.RestartAfter(x) => x.toMilliseconds(); case _ => -1 }
+}
 
 @Test
 public class SupervisionMatrixTestSuite {
@@ -95,8 +99,9 @@ public class SupervisionMatrixTestSuite {
         let d2 = strat.decide(f())
         // 达到2后应Stop
         let d3 = strat.decide(f())
-        @Assert(isRestart(d1) || isStop(d1), true)
-        @Assert(isRestart(d2) || isStop(d2), true)
+        // 此前断言"是 Restart 或是 Stop"即可，迁就了恒返回 Stop 的假实现（R9/Q5）；现在必须真正退避
+        @Assert(delayOf(d1), 1)
+        @Assert(delayOf(d2), 2)
         @Assert(isStop(d3), true)
     }
 }

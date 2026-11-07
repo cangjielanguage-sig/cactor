@@ -7,7 +7,7 @@ package cactor.api.extensions
 
 import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory}
 import cactor_core.system.{ActorSystem}
-import cactor_runtime.system.{SimpleActorSystem}
+import cactor_runtime.{RuntimeActorSystem}
 import cactor.api.config.{MailboxConfig, DispatcherConfig, SupervisionConfig}
 
 /**
@@ -28,14 +28,15 @@ import cactor.api.config.{MailboxConfig, DispatcherConfig, SupervisionConfig}
  * 创建默认配置的ActorSystem
  */
 public func createDefaultActorSystem(): ActorSystem {
-    SimpleActorSystem("default")
+    // E29：此前返回 SimpleActorSystem（调用方线程同步执行 receive，无串行保证）
+    RuntimeActorSystem("default")
 }
 
 /**
  * 创建命名的ActorSystem
  */
 public func createActorSystem(name: String): ActorSystem {
-    SimpleActorSystem(name)
+    RuntimeActorSystem(name)
 }
 
 public struct ActorSystemExtensions {
@@ -43,14 +44,14 @@ public struct ActorSystemExtensions {
      * 创建默认配置的ActorSystem
      */
     public static func createDefault(): ActorSystem {
-        SimpleActorSystem("default")
+        RuntimeActorSystem("default")
     }
 
     /**
      * 创建命名的ActorSystem
      */
     public static func create(name: String): ActorSystem {
-        SimpleActorSystem(name)
+        RuntimeActorSystem(name)
     }
 
     /**

@@ -3,11 +3,12 @@
  * CActor - 改进的Ask模式API
  * Plan20阶段1：Ask模式完善 - 提供类型安全、高性能的Ask API
  *
- * P2 ask 收敛（dsl20261030.md §9 P2.3）后的入口定位：
- *   - 类型化路径（推荐）：cactor_core.typed.TypedAsk.ask（进程外）
- *     与 TypedActorContext.ask（Actor 内，响应回到自己的消息流）；
- *   - 经典 ActorRef 路径（本文件）：Ask / AskPatternManager，功能完整，行为不变；
- *   - 早期模拟实现（cactor_patterns.ask.TypedAsk / TypedAskPattern）已标记 @Deprecated。
+ * ask 入口收敛（E38，docs/plan/20261106.md）：只保留三个入口——
+ *   - 类型化、Actor 外：cactor_core.typed.TypedAsk.ask；
+ *   - 类型化、Actor 内：TypedActorContext.ask（响应回到自己的消息流）；
+ *   - 经典 ActorRef：cactor_core.dsl.AskInbox.ask(target, message).get(timeout)（目标照常 context.reply）。
+ * 本文件的 Ask 与 AskPatternManager 要求目标解包 AskMessage、回 AskResponse，普通 Actor 的 reply 收不到，
+ * 因此 @Deprecated（since 1.3.0，2.0.0 移除）；早期模拟实现 TypedAsk / TypedAskPattern（恒以超时结束，C10）已删除。
  */
 package cactor_patterns.ask
 
@@ -24,6 +25,7 @@ import cactor_core.message.{Message}
  * 3. 异步回调处理
  * 4. 错误处理和恢复
  */
+@Deprecated["经典 ask 请改用 cactor_core.dsl.AskInbox.ask(target, message).get(timeout)（目标照常 context.reply，无需解包 AskMessage）；类型化用 TypedAsk.ask / ctx.ask。将在 2.0.0 移除", since: "1.3.0"]
 public struct Ask {
     private static let defaultManager: AskPatternManager = AskPatternManager(Duration.second * 5)
 

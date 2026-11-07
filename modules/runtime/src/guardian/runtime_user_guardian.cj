@@ -10,14 +10,17 @@ import std.sync.*
 import std.collection.*
 import std.collection.concurrent.*
 import std.time.*
-import cactor_core.actor.{Actor, ActorRef, Props, ActorPath, ActorSystemView}
-import cactor_foundation.logging.{Logging}
+import cactor_core.actor.{Actor, ActorRef, Props, ActorPath, ActorSystemView, UnhandledMessage}
+import cactor_foundation.logging.{Logging, LogRateLimiter}
 import cactor_core.message.{Message, MessageResult, AutoReceivedMessage}
 import cactor_core.context.{ActorContext}
-import cactor_core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy, SupervisionDirective, ActorFailure, BackoffSupervisorStrategy}
-import cactor_runtime.supervision.{BackoffSupervisor}
+import cactor_core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy, SupervisionDirective, ActorFailure}
 import cactor_core.system.{ActorSystem}
+import cactor_core.typed.{TypedPayloadBox}
 import cactor_core.guardian.{GuardianType}
+
+// gracefulStop 等待终止的分段长度：正常由终止方唤醒，分段只是兜底
+let TERMINATION_RECHECK: Duration = Duration.millisecond * 50
 
 /**
  * Runtime层的用户Guardian实现
@@ -28,8 +31,6 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     private let userActors: HashMap<String, ActorRef>
     private let defaultSupervisionStrategy: SupervisionStrategy
     private let actorPathPrefix: String
-    // 缓存每个子Actor的BackoffSupervisor保持重试计数
-    private let backoffSupervisors: HashMap<String, BackoffSupervisor>
     // 顶层 Actor 只由 userActors（名字 → 引用）承载，不再额外维护"完整路径 → Cell"的第二张表：
     // 顶层路径恒为 "${actorPathPrefix}/<名字>"，因此 lookup 的首段、liveCells 的顶层集合、
     // 停止注销都可以直接由 userActors 推出。原先的第二张表在百万级顶层 Actor 时
@@ -42,11 +43,23 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     // 死信监听器（写时复制）
     private var deadLetterListeners: Array<(Message, String) -> Unit> = Array<(Message, String) -> Unit>()
     private let deadLetterTotal: AtomicInt64 = AtomicInt64(0)
+    // 未处理消息（Unhandled / 类型化协议之外的消息）的累计数：与死信分开计——死信是"没有送达"，
+    // 这里是"送达了但没处理"，监控与测试对两者的语义要求不同
+    private let unhandledTotal: AtomicInt64 = AtomicInt64(0)
+    // 死信 / 未处理消息的 INFO 日志限速（对标 Akka log-dead-letters = 10，暂停 5 分钟）：
+    // 此前死信只在 DEBUG 逐条记、未处理消息完全不记，默认日志级别下误投与协议错误静默消失。
+    // CACTOR_LOG_DEAD_LETTERS 设每个窗口记几条，0 关闭
+    private let letterLog: LogRateLimiter = LogRateLimiter(envInt("CACTOR_LOG_DEAD_LETTERS", 10, 0), Duration.minute * 5)
     // 顶层 Actor 自行停止（PoisonPill、MessageResult.Stop、监督 Stop 等）时通知运行时清理注册信息
     private var topLevelTerminatedHook: Option<(ActorRef) -> Unit> = None<(ActorRef) -> Unit>
     private let log = Logging.logger("cactor.guardian")
     // Actor 中 context.system() 返回的视图，由运行时在启动时设置
     private var systemViewValue: Option<ActorSystemView> = None<ActorSystemView>
+    // gracefulStop 等待目标终止：Cell 终止时只在有等待者时才加锁唤醒（百万级子 Actor 批量停止不付这份开销）。
+    // 协议与 BoundedSlots 相同：等待者先 waiters+1 再检查，终止方先改状态再读 waiters
+    private let terminationLock: Mutex = Mutex()
+    private let terminationCond: Condition
+    private let terminationWaiters: AtomicInt64 = AtomicInt64(0)
 
     public init(system: ActorSystem) {
         super(GuardianType.User, None<ActorRef>)  // 用户Guardian通常没有父Guardian
@@ -55,7 +68,7 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         // 与 Akka 经典 API 相同：默认不限次数重启（旧默认值一分钟 3 次后停止，长期运行的 Actor 会因偶发故障被永久停止）
         this.defaultSupervisionStrategy = DefaultSupervisionStrategy.restartAlways()
         this.actorPathPrefix = "/user"
-        this.backoffSupervisors = HashMap<String, BackoffSupervisor>()
+        this.terminationCond = synchronized(terminationLock) { terminationLock.condition() }
     }
 
     /** 顶层 Actor 的路径前缀（Cell 用它惰性拼出自己的完整路径） */
@@ -92,42 +105,81 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     }
 
     /**
-     * 移除用户Actor并发送停止消息
-     * @return 该 Actor 是否仍在本 Guardian 管理下（重复停止返回 false）
+     * 停止 Actor（对标 Akka `system.stop` / 监督 Stop，E33）：经系统消息投递，处理完当前消息即停，
+     * 邮箱中剩余的消息计为死信；名字与登记保留到真正终止（onCellTerminated 注销），终止前同名 actorOf
+     * 报"名称已存在"。顶层与子 Actor 都适用。重复调用无害。
+     * 此前先摘除登记、再在已入队的消息之后停止：停止期间可以同名重建（新旧实例短暂共存），
+     * 被监督停止的失败 Actor 还要先把积压消息处理完；对子 Actor 调用则静默无效。
+     * @return 该 Actor 此刻是否登记为本 Guardian 下的顶层 Actor
      */
     public func removeUserActor(child: ActorRef): Bool {
-        let removed = synchronized(guardianLock) {
-            // 先按路径最后一段直接查找（O(1)），找不到再线性扫描
-            var found: Option<String> = None
+        let managed = synchronized(guardianLock) {
             let path = child.path.getPath()
             let key = match (path.lastIndexOf("/")) {
                 case Some(i) => path[(i + 1)..]
                 case None => path
             }
             match (userActors.get(key)) {
-                case Some(r) where r.equals(child) => found = Some(key)
-                case _ =>
-                    for ((name, actorRef) in userActors) {
-                        if (actorRef.equals(child)) {
-                            found = Some(name)
-                            break
-                        }
-                    }
-            }
-            match (found) {
-                case Some(name) =>
-                    userActors.remove(name)
-                    supervisionStrategies.remove(child.path.toString())
-                    backoffSupervisors.remove(child.path.toString())
-                    stopCounter.fetchAdd(1)
-                    true
+                case Some(r) => r.equals(child)
                 case None => false
             }
         }
-        if (removed) {
-            child.tell(StopMessage())
+        match (child) {
+            // 系统消息不受有界邮箱容量限制（R7）
+            case cell: SimpleUserActorRef => cell.sendSystem(SysTerminate())
+            case _ =>
+                if (managed) {
+                    child.tell(StopMessage())
+                }
         }
-        return removed
+        managed
+    }
+
+    /**
+     * 等待 Cell 终止并释放名字（gracefulStop 用）：只能在 Actor 之外调用。
+     * 顶层 Actor 以"登记已注销"为准，子 Actor 以 Cell 终止为准
+     */
+    public func awaitTerminated(cell: SimpleUserActorRef, timeout: Duration): Bool {
+        let deadline = MonoTime.now() + timeout
+        terminationWaiters.fetchAdd(1)
+        try {
+            synchronized(terminationLock) {
+                while (!terminatedAndReleased(cell)) {
+                    let remaining = deadline - MonoTime.now()
+                    if (remaining <= Duration.Zero) {
+                        return false
+                    }
+                    // 分段等待只是兜底：正常由 onCellTerminated 唤醒
+                    terminationCond.wait(timeout: if (remaining < TERMINATION_RECHECK) { remaining } else { TERMINATION_RECHECK })
+                }
+                return true
+            }
+        } finally {
+            terminationWaiters.fetchAdd(-1)
+        }
+    }
+
+    private func terminatedAndReleased(cell: SimpleUserActorRef): Bool {
+        if (!cell.isTerminated()) {
+            return false
+        }
+        if (cell.parentCell.isSome()) {
+            return true
+        }
+        synchronized(guardianLock) {
+            match (userActors.get(cell.getName())) {
+                case Some(r) => !r.equals(cell)
+                case None => true
+            }
+        }
+    }
+
+    private func notifyTerminationWaiters(): Unit {
+        if (terminationWaiters.load() > 0) {
+            synchronized(terminationLock) {
+                terminationCond.notifyAll()
+            }
+        }
     }
     
     /**
@@ -172,34 +224,30 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
     func handleFailureInCell(cell: SimpleUserActorRef, cause: Exception): Unit {
         failureCounter.fetchAdd(1)
         let key = cell.path.toString()
-        let failure = ActorFailure(cell, cause, 1)
+        let failure = cell.failureInfo(cause)
         let strategy = synchronized(guardianLock) {
             supervisionStrategies.get(key) ?? defaultSupervisionStrategy
         }
-        let directive = strategy.decide(failure)
+        // 决策执行用户代码（自定义 decider），异常按 Stop 处理，不能逃出 Cell 的消息处理
+        let directive = try {
+            strategy.decide(failure)
+        } catch (e: Exception) {
+            log.error("Actor ${cell.pathString} 的监督策略执行异常，停止: ${e}")
+            SupervisionDirective.Stop
+        }
         // 与 Akka 一致：每次失败都以 ERROR 级别记录（否则一直失败并重启的 Actor 完全看不出问题）
         log.error("Actor ${cell.pathString} 失败：${cause}，监督指令：${directiveLabel(directive)}")
         match (directive) {
             case SupervisionDirective.Resume => ()
             case SupervisionDirective.Restart =>
-                match (strategy) {
-                    case _: BackoffSupervisorStrategy =>
-                        // 退避重启由 BackoffSupervisor 按延迟调度
-                        executeSupervisionDirective(cell, SupervisionDirective.Restart, cause)
-                    case _ =>
-                        restartCounter.fetchAdd(1)
-                        cell.restartInCell(cause)
-                }
-            case SupervisionDirective.RestartAfter(delay) =>
-                // E6（2026-11-06）：Backoff 监督的真实延迟重启——延迟后重建实例
                 restartCounter.fetchAdd(1)
-                if (delay.toNanoseconds() <= 0) {
-                    cell.restartInCell(cause)
-                } else {
-                    Timer.once(delay, { =>
-                        cell.restartInCell(cause)
-                    })
-                }
+                // E27：挂起后经本 Cell 的系统队列重启（不在失败调用栈里同步重启）
+                cell.restartInCell(cause, Duration.Zero)
+            case SupervisionDirective.RestartAfter(delay) =>
+                // E27：Backoff 延迟重启——挂起（延迟期间不处理用户消息），到期只投递 SysRecreate。
+                // 此前由定时器线程直接 doRestart，与 Cell 线程并发改写状态，且会让已停止的 Actor 复活（R2）
+                restartCounter.fetchAdd(1)
+                cell.restartInCell(cause, delay)
             case SupervisionDirective.Stop =>
                 // 先停止（包括子 Actor），停止完成后由 onCellTerminated 清理登记信息
                 cell.terminateInCell()
@@ -230,38 +278,15 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                 ()
 
             case SupervisionDirective.Restart =>
-                let key = actor.path.toString()
-                let backoff: Option<BackoffSupervisor> = synchronized(guardianLock) {
-                    match (supervisionStrategies.get(key)) {
-                        case Some(s: BackoffSupervisorStrategy) =>
-                            // 获取/创建缓存的监督器以保持重试计数
-                            match (backoffSupervisors.get(key)) {
-                                case Some(existing) => Some(existing)
-                                case None =>
-                                    let created = BackoffSupervisor(s, this)
-                                    backoffSupervisors.add(key, created)
-                                    Some(created)
-                            }
-                        case _ => None<BackoffSupervisor>
-                    }
-                }
-                match (backoff) {
-                    case Some(bof) => bof.handleFailure(ActorFailure(actor, cause, 1))
-                    case None => restartChild(actor, cause)
-                }
+                // 退避重启统一由策略返回 RestartAfter（E6′），不再由定时器线程直接 restartChild
+                restartChild(actor, cause)
 
             case SupervisionDirective.RestartAfter(delay) =>
                 // E6（2026-11-06）：Backoff 监督的真实延迟重启——延迟后重建实例
                 restartCounter.fetchAdd(1)
                 match (actor) {
-                    case cell: SimpleUserActorRef =>
-                        if (delay.toNanoseconds() <= 0) {
-                            cell.restartInCell(cause)
-                        } else {
-                            Timer.once(delay, { =>
-                                cell.restartInCell(cause)
-                            })
-                        }
+                    // 不在目标 Cell 线程上：只投递系统消息，由目标自己的线程重启
+                    case cell: SimpleUserActorRef => cell.requestRestart(cause, delay)
                     case _ => restartChild(actor, cause)
                 }
 
@@ -314,7 +339,7 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
      */
     func createCell(props: Props<Actor>, name: String, parent: Option<SimpleUserActorRef>): SimpleUserActorRef {
         let actor = props.create()
-        actor.preStart()
+        // preStart 改在 Cell 线程、onStarted 之前执行（E33）
         let cell = SimpleUserActorRef(name, actor, props.creator(), this, parent, props)
         // 置启动位并调度：保证 onStarted 先于任何用户消息执行（P1-17，替代 SysStarted 系统消息）
         cell.scheduleStart()
@@ -451,6 +476,7 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
             // 子 Actor 不在全局路径表（与 createCell 对应）：停止时只递减计数，
             // 不碰全局注册表锁——百万级子 Actor 批量停止时，全部工作线程抢同一把锁曾是主要瓶颈
             liveCellTotal.fetchAdd(-1)
+            notifyTerminationWaiters()
             return
         }
         liveCellTotal.fetchAdd(-1)
@@ -459,7 +485,6 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                 case Some(r) where r.equals(cell) =>
                     userActors.remove(cell.getName())
                     supervisionStrategies.remove(cell.path.toString())
-                    backoffSupervisors.remove(cell.path.toString())
                     stopCounter.fetchAdd(1)
                     true
                 case _ => false
@@ -470,6 +495,7 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                 hook(cell)
             }
         }
+        notifyTerminationWaiters()
     }
 
     /** 运行时注册：顶层 Actor 自行停止时回调，用于清理注册表和计数 */
@@ -511,7 +537,32 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                 log.warn("死信监听器异常: ${e}")
             }
         }
-        log.debug({ => "死信: ${message.messageType()} -> ${path}" })
+        letterLog.tryLog({ s => log.info(s) }, { => "死信: ${describeLetter(message)} -> ${path}（目标不存在或已停止）" })
+    }
+
+    /** 系统内累计的未处理消息数（不含死信） */
+    public func unhandledCount(): Int64 {
+        unhandledTotal.load()
+    }
+
+    /**
+     * Actor 没有处理的消息（对标 Akka UnhandledMessage）：包装成 UnhandledMessage 交给死信订阅者
+     * （Akka 中二者同属 AllDeadLetters），并按限速记 INFO。不计入 deadLetterCount
+     */
+    func publishUnhandled(message: Message, path: String): Unit {
+        unhandledTotal.fetchAdd(1)
+        let listeners = deadLetterListeners
+        if (listeners.size > 0) {
+            let wrapped = UnhandledMessage(message, path)
+            for (l in listeners) {
+                try {
+                    l(wrapped, path)
+                } catch (e: Exception) {
+                    log.warn("死信监听器异常: ${e}")
+                }
+            }
+        }
+        letterLog.tryLog({ s => log.info(s) }, { => "未处理消息: ${describeLetter(message)} -> ${path}" })
     }
     
     protected func doStopChild(child: ActorRef): Unit {
@@ -622,4 +673,30 @@ public class RestartMessage <: AutoReceivedMessage {
     public func getType(): String { "Restart" }
     public func getPayload(): String { "Restart(${reason})" }
     public func messageType(): String { "Restart" }
+}
+
+/**
+ * 日志里的消息描述：类型化载体取出载荷再描述（否则只看到 "TypedPayloadBox"）。
+ * 只解 TypedPayloadBox——AdaptedEnvelope 取载荷要重新执行适配函数，不能为了打日志调用
+ */
+func describeLetter(message: Message): String {
+    match (message) {
+        case b: TypedPayloadBox => "类型化消息 ${describePayload(b.payload)}"
+        case _ => message.messageType()
+    }
+}
+
+func describePayload(payload: Any): String {
+    match (payload) {
+        case m: Message => m.messageType()
+        case t: ToString =>
+            let runes = t.toString().toRuneArray()
+            // 按字符截断：按字节切片可能切在多字节字符中间
+            if (runes.size > 120) {
+                "${String(runes[..120])}…"
+            } else {
+                String(runes)
+            }
+        case _ => "（无 toString 的载荷）"
+    }
 }

@@ -8,10 +8,10 @@ package cactor_runtime
 import std.sync.*
 import std.time.*
 import cactor_foundation.logging.{Logging}
-import cactor_core.actor.{Actor, ActorRef, Props, ActorSystemView}
+import cactor_core.actor.{Actor, ActorRef, Props, ActorSystemView, PoisonPill, isAffinityWorkerThread}
 import cactor_core.message.{Message}
 import cactor_core.system.{ActorSystem}
-import cactor_runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian}
+import cactor_runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian, SimpleUserActorRef, isActorThread}
 import cactor_runtime.system.{HighPerformanceActorSystem, HighPerformanceActorSystemConfig, SystemStats}
 import cactor_runtime.mailbox.factory.{AdvancedMailboxFactory, DefaultAdvancedMailboxFactory}
 import cactor_runtime.mailbox.{MailboxFactory as RuntimeMailboxFactory}
@@ -67,6 +67,8 @@ public class CActorRuntime {
     private let nameSequence: AtomicInt64
     // 串行化 Actor 创建中的“名称检查 + 创建 + 注册”
     private let creationLock: Mutex
+    // 协调关闭：由本实例持有（E34，旧实现按系统名放在静态表里，闭包永不释放，同名系统还会共享任务）
+    private let coordinatedShutdown: CoordinatedShutdown
 
     // 配置
     private let config: CActorRuntimeConfig
@@ -101,6 +103,7 @@ public class CActorRuntime {
         this.actorCount = AtomicInt64(0)
         this.nameSequence = AtomicInt64(0)
         this.creationLock = Mutex()
+        this.coordinatedShutdown = CoordinatedShutdown(systemName)
     }
 
     /**
@@ -140,23 +143,23 @@ public class CActorRuntime {
      * 停止Runtime系统
      */
     public func shutdown(): Unit {
-        if (isRunning.compareAndSwap(true, false)) {
-            // 先停止全部用户 Actor：与 Akka 一致，terminate 会让每个 Actor 执行 postStop、取消定时器
-            //（旧实现不停止任何 Actor，终止后 Actor 和定时器仍在运行）
-            userGuardian.terminateAll(Duration.second * 10)
-
-            // 停止高性能系统
-            highPerformanceSystem.shutdown()
-
-            // 触发协调关闭各阶段任务（最小实现）
-            let cs = CoordinatedShutdown.get(systemName)
-            cs.run()
-
-            // 停止所有Guardian（后续在协调关闭中接入）
-            // systemGuardian 和 userGuardian 的停止逻辑
-
-            runtimeLog.info("CActorRuntime 已停止: ${systemName}")
+        // 发起关闭后即视为已终止（isTerminated 为真、不再接受新 Actor），与此前语义相同；
+        // 已有的 Actor 要到 actor-system-terminate 阶段才停止（E34），之前各阶段的任务仍可与它们交互。
+        // 只执行一次：并发或重复的 shutdown 都等待同一次关闭完成
+        if (!isRunning.compareAndSwap(true, false) && !coordinatedShutdown.isRunning()) {
+            return
         }
+        let done = coordinatedShutdown.runAsync()
+        // 在 Actor 中调用：同步等待就是等自己停止（与 Akka 相同，terminate 是异步的），只发起关闭
+        if (isActorThread()) {
+            return
+        }
+        done.get()
+    }
+
+    /** 本系统的协调关闭：可在各阶段注册关闭任务（对标 Akka CoordinatedShutdown(system)） */
+    public func getCoordinatedShutdown(): CoordinatedShutdown {
+        coordinatedShutdown
     }
 
     /**
@@ -204,7 +207,11 @@ public class CActorRuntime {
 
     /** 顶层 Actor 自行停止后的清理（由用户 Guardian 回调） */
     private func onTopLevelTerminated(actorRef: ActorRef): Unit {
-        actorRegistry.unregister(actorRef)
+        // 与 actorOf 的"创建 + 登记"互斥（R11）：Actor 在登记之前就终止时，先登记、后注销，
+        // 否则注销落空、随后的登记留下死条目，此后同名 actorOf 永远报"名称已存在"
+        synchronized(creationLock) {
+            actorRegistry.unregister(actorRef)
+        }
         lifecycleManager.unregisterActor(actorRef)
         systemMetrics.decrementActorCount()
         actorCount.fetchAdd(-1)
@@ -225,16 +232,35 @@ public class CActorRuntime {
         userGuardian.deadLetterCount()
     }
 
+    /** 系统内累计的未处理消息数（receive 返回 Unhandled、类型化协议之外的消息；不含死信） */
+    public func unhandledCount(): Int64 {
+        userGuardian.unhandledCount()
+    }
+
     /**
-     * 停止Actor
+     * 停止 Actor（对标 Akka `system.stop`，E33）：处理完当前消息即停，邮箱中剩余的消息计为死信；
+     * 名字保留到真正终止，登记与计数在终止时由 onTopLevelTerminated 统一清理（重复停止不会重复计数）。
+     * 顶层与子 Actor 都适用。需要"处理完已排队的消息再停"请用 gracefulStop 或 PoisonPill
      */
     public func stop(actorRef: ActorRef): Unit {
-        // 重复停止同一个 Actor 不会重复计数
-        if (userGuardian.removeUserActor(actorRef)) {
-            actorRegistry.unregister(actorRef)
-            lifecycleManager.unregisterActor(actorRef)
-            systemMetrics.decrementActorCount()
-            actorCount.fetchAdd(-1)
+        userGuardian.removeUserActor(actorRef) |> ignoreBool
+    }
+
+    /**
+     * 处理完已入队的消息后停止，并等待它终止（对标 Akka `Patterns.gracefulStop`）：发 PoisonPill，
+     * 返回 true 表示已终止且名字已释放（可立即同名重建）；超时返回 false（目标可能仍在处理）。
+     * 会阻塞调用线程，只能在 Actor 之外调用；远程引用只发 PoisonPill、返回 false
+     */
+    public func gracefulStop(actorRef: ActorRef, timeout: Duration): Bool {
+        if (isAffinityWorkerThread()) {
+            throw IllegalStateException(
+                "gracefulStop 会阻塞等待目标终止，不能在 Actor 处理方法内调用：会占住亲和调度线程。" +
+                "Actor 内请 watch 目标后发 PoisonPill，在 Terminated 里继续")
+        }
+        actorRef.tell(PoisonPill())
+        match (actorRef) {
+            case cell: SimpleUserActorRef => userGuardian.awaitTerminated(cell, timeout)
+            case _ => false
         }
     }
 
@@ -356,10 +382,11 @@ public class CActorRuntime {
     }
 
     /**
-     * 获取基础Actor系统
+     * 以 core ActorSystem 接口访问本运行时（E29）：actorOf / actorSelection / terminate 都作用于真实的 Cell 运行时。
+     * 此前返回内部占位的 SimpleActorSystem，经它创建的 Actor 在调用方线程同步执行、不受监督。
      */
     public func getActorSystem(): ActorSystem {
-        actorSystem
+        RuntimeActorSystem(this)
     }
 
     private func generateActorName(): String {
@@ -391,19 +418,20 @@ public class CActorRuntime {
      * 注册 CoordinatedShutdown 阶段任务
      */
     private func registerCoordinatedShutdownTasks(): Unit {
-        let cs = CoordinatedShutdown.get(systemName)
-        // service-stop: 预留调度器/定时器停止点（当前无全局 Scheduler 实例）
-        cs.registerTask("service-stop", { =>
-            // no-op for now
-            ()
+        let cs = coordinatedShutdown
+        // 停止全部用户 Actor：与 Akka 一致，每个 Actor 执行 postStop、取消定时器
+        cs.registerTask(CoordinatedShutdown.PhaseActorSystemTerminate, "terminate-user-actors", { =>
+            userGuardian.terminateAll(Duration.second * 10)
         })
-        // actor-system-terminate: 停止运行时 MailboxFactory
-        cs.registerTask("actor-system-terminate", { =>
+        // 最后释放运行时资源：此时已没有存活的用户 Actor
+        cs.registerTask(CoordinatedShutdown.PhaseSystemTerminate, "runtime-resources", { =>
+            highPerformanceSystem.shutdown()
             try {
                 runtimeMailboxFactory.shutdown()
             } catch (e: Exception) {
                 runtimeLog.warn("runtimeMailboxFactory.shutdown 失败: ${e.message}")
             }
+            runtimeLog.info("CActorRuntime 已停止: ${systemName}")
         })
     }
 
@@ -658,3 +686,5 @@ class RuntimeSystemView <: ActorSystemView {
         !runtime.getRuntimeStats().isRunning
     }
 }
+
+func ignoreBool(_: Bool): Unit {}

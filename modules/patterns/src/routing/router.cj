@@ -11,6 +11,7 @@ import std.collection.*
 import cactor_core.message.{Message}
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.hashing.{stableHash64, rendezvousIndex}
 
 let log_router: Logger = Logging.logger("cactor_patterns.routing.router")
 
@@ -57,7 +58,9 @@ public class RandomRoutingStrategy <: RoutingStrategy {
     private let random: AtomicInt64
 
     public init() {
-        this.random = AtomicInt64(DateTime.now().toUnixTimeStamp().toMilliseconds())
+        // Lehmer 生成器的状态必须落在 [1, 2^31-2]：种子先折叠进该区间
+        let ms = DateTime.now().toUnixTimeStamp().toMilliseconds()
+        this.random = AtomicInt64((ms & 0x7FFFFFFF) % 2147483646 + 1)
     }
 
     public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef> {
@@ -81,13 +84,16 @@ public class RandomRoutingStrategy <: RoutingStrategy {
      */
     private func nextLcg(): Int64 {
         while (true) {
-            let prev = random.load() & 0x7FFFFFFF
-            let seed = if (prev == 0) { 1 } else { prev }
-            let next = (seed * 48271) % 2147483647
+            // CAS 的期望值必须是 load() 读到的原值（T1）：此前用掩码后的值做期望值，
+            // 而初始种子是毫秒时间戳（> 2^31），期望值与实际值永远不等，首次调用即死循环。
+            let prev = random.load()
+            let seed = (prev & 0x7FFFFFFF) % 2147483647
+            let state = if (seed == 0) { 1 } else { seed }
+            let next = (state * 48271) % 2147483647
             if (random.compareAndSwap(prev, next)) {
                 return next
             }
-            // CAS 失败：其他线程已推进，重试（相邻重试必然取到新状态，无活锁）
+            // CAS 失败：其他线程已推进，下一轮读到新状态后重试（失败必然意味着别人成功，无活锁）
         }
         0  // 不可达：while(true) 只能经 return 退出（仓颉要求循环后有尾表达式）
     }
@@ -116,6 +122,10 @@ public class SmallestMailboxRoutingStrategy <: RoutingStrategy {
         var bestCount: Int64 = 0x7FFFFFFFFFFFFFFF
         var allUnknown = true
         for (i in 0..Int64(routees.size)) {
+            // 已终止的目标邮箱计数恒为 0，比任何存活目标都"空"——必须跳过，否则流量全变死信
+            if (routees[i].isTerminated()) {
+                continue
+            }
             let c = routees[i].pendingCount()
             if (c >= 0) {
                 allUnknown = false
@@ -126,11 +136,16 @@ public class SmallestMailboxRoutingStrategy <: RoutingStrategy {
             }
         }
         if (allUnknown) {
-            let start = (counter.fetchAdd(1) & 0x7FFFFFFFFFFFFFFF) % Int64(routees.size)
+            // 无法查询负载：轮询存活目标（全部已终止时退回第一个，由死信统计暴露问题）
+            let n = Int64(routees.size)
+            let start = (counter.fetchAdd(1) & 0x7FFFFFFFFFFFFFFF) % n
+            for (k in 0..n) {
+                let r = routees[(start + k) % n]
+                if (!r.isTerminated()) {
+                    return Some(r)
+                }
+            }
             return Some(routees[start])
-        }
-        if (bestIdx < 0) {
-            bestIdx = 0
         }
         Some(routees[bestIdx])
     }
@@ -153,35 +168,78 @@ public class BroadcastRoutingStrategy <: RoutingStrategy {
             routee.tell(message)
         }
     }
+
+    /** 携带发送方广播：每个目标都能直接回复原发送方 */
+    public func broadcast(routees: Array<ActorRef>, message: Message, sender: Option<ActorRef>): Unit {
+        for (routee in routees) {
+            forwardTo(routee, message, sender)
+        }
+    }
 }
 
 /**
- * 一致性哈希路由策略
- * 基于消息内容的哈希值选择Actor
+ * 一致性哈希路由策略（对标 Akka ConsistentHashingRoutingLogic 的 hashMapping）
+ *
+ * - 路由键由 keyOf 从消息中提取（默认取 messageType，兼容旧行为；实际使用应传入业务键，如用户 id）；
+ * - 用 Rendezvous（HRW）哈希选目标：同一键稳定落到同一目标，目标增减只迁移 1/n 的键。
+ *   此前用 `hashCode % n`：hashCode 为负时下标为负直接越界，且目标数一变几乎全部键重新分布；
+ * - 已终止的目标不参与选择（其余键的落点不受影响，这正是 HRW 的性质）。
  */
 public class ConsistentHashRoutingStrategy <: RoutingStrategy {
-    public init() {}
+    private let keyOf: (Message) -> String
+
+    public init() {
+        this({ m: Message => m.messageType() })
+    }
+
+    public init(keyOf: (Message) -> String) {
+        this.keyOf = keyOf
+    }
 
     public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef> {
         if (routees.size == 0) {
             return None
         }
-
-        // 使用消息类型的哈希值
-        let hash = message.messageType().hashCode()
-        let index = Int64(hash) % Int64(routees.size)
-        Some(routees[index])
+        let alive = ArrayList<ActorRef>(routees.size)
+        for (r in routees) {
+            if (!r.isTerminated()) {
+                alive.add(r)
+            }
+        }
+        let pool = if (alive.isEmpty()) { routees } else { alive.toArray() }
+        let candidates = Array<UInt64>(pool.size, { i => stableHash64(pool[i].path.toString()) })
+        let index = rendezvousIndex(stableHash64(keyOf(message)), candidates)
+        Some(pool[index])
     }
 }
 
 /**
- * 路由器接口
+ * 转发并保留原发送方（对标 Akka forward）：目标的 context.senderRef() / reply 指向原发送方而不是路由器。
+ * 发送方为 None 时与普通 tell 相同
+ */
+public func forwardTo(routee: ActorRef, message: Message, sender: Option<ActorRef>): Unit {
+    match (sender) {
+        case Some(s) => routee.tell(message, s)
+        case None => routee.tell(message)
+    }
+}
+
+/**
+ * 路由器接口（不是 Actor 的路由助手，对标 Akka akka.routing.Router）。
+ * 需要监视目标、自动摘除已终止目标、按池创建目标时，用 Routers.pool / Routers.group 创建路由器 Actor
  */
 public interface Router {
     /**
      * 路由消息
      */
     func route(message: Message): Unit
+
+    /**
+     * 携带发送方路由（E37）：选中的目标回复时直接回到 sender。默认实现丢弃发送方，实现类应覆盖
+     */
+    func route(message: Message, sender: Option<ActorRef>): Unit {
+        route(message)
+    }
 
     /**
      * 添加路由目标
@@ -219,19 +277,20 @@ public class BasicRouter <: Router {
     }
 
     public func route(message: Message): Unit {
-        mutex.lock()
-        let routeeArray = routees.toArray()
-        mutex.unlock()
+        route(message, None<ActorRef>)
+    }
 
+    public func route(message: Message, sender: Option<ActorRef>): Unit {
+        let routeeArray = synchronized(mutex) {
+            routees.toArray()
+        }
         // 特殊处理广播策略
         match (strategy) {
-            case broadcast: BroadcastRoutingStrategy => 
-                broadcast.broadcast(routeeArray, message)
-            case _ => 
+            case broadcast: BroadcastRoutingStrategy => broadcast.broadcast(routeeArray, message, sender)
+            case _ =>
                 match (strategy.selectRoutee(routeeArray, message)) {
-                    case Some(routee) => routee.tell(message)
-                    case None => 
-                        log_router.warn("警告: 没有可用的路由目标")
+                    case Some(routee) => forwardTo(routee, message, sender)
+                    case None => log_router.warn("警告: 没有可用的路由目标")
                 }
         }
     }
@@ -342,11 +401,13 @@ public class RouterActorRef <: ActorRef {
     }
 
     public func tell(message: Message, sender: Option<String>): Unit {
-        // E9（2026-11-06）C12 说明：Message 接口没有 sender 字段可注入，本层无法把
-        // sender 携带进消息体；经 router 转发的 ask 需要在 AskInbox/TypedAsk 层
-        // 注册回复入口（它们不走 sender 参数）。这里保留参数签名并在日志记录，
-        // 待 Message 支持 sender 透传后改为注入。
+        // 只有发送方路径、没有引用时无法回程：按普通 tell 路由。需要回程请用 tell(message, senderRef)
         router.route(message)
+    }
+
+    /** 透传发送方引用（E37，C12）：选中的目标 context.reply 直接回到原发送方 */
+    public func tell(message: Message, sender: ActorRef): Unit {
+        router.route(message, Some(sender))
     }
 
     public func equals(other: ActorRef): Bool {

@@ -232,7 +232,7 @@ public interface Span {
 | `error` | 错误处理机制 |
 | `guardian` | GuardianActor, GuardianType |
 | `message` | Message, SystemMessage, UserMessage, Envelope, DeadLetter |
-| `supervision` | OneForOne, OneForAll, Escalate, BackoffSupervisor |
+| `supervision` | OneForOne, OneForAll, Escalate, BackoffSupervisionStrategy / BackoffPolicy |
 | `system` | ActorSystem, ActorSelection, Scheduler |
 | `typed` | TypedBehavior, TypedActorRef, TypedActorContext, TypedBehaviors |
 
@@ -419,11 +419,17 @@ public class OneForAllStrategy <: SupervisionStrategy {
     public let decider: (Throwable) -> SupervisionDirective
 }
 
-// 3. BackoffSupervisor: 指数退避重启
-public class BackoffSupervisor <: Actor {
-    public let initialDelay: Duration      // 初始延迟
-    public let maxDelay: Duration          // 最大延迟
-    public let randomFactor: Float64      // 随机抖动因子
+// 3. 指数退避重启：返回 RestartAfter(延迟)，延迟期间 Actor 挂起；类型化 API 用
+//    TypedSupervisorStrategy.restartWithBackoff，两者共用 BackoffPolicy 算法
+public struct BackoffPolicy {
+    public let minBackoff: Duration        // 首次重启延迟
+    public let maxBackoff: Duration        // 延迟上限（翻倍封顶）
+    public let randomFactor: Float64       // 抖动：延迟 × (1 + [0, randomFactor))
+    public let maxRestarts: Int64          // <0 不限
+    public let resetBackoffAfter: Duration // 稳定运行这么久后计数清零，缺省 = minBackoff
+}
+public class BackoffSupervisionStrategy <: SupervisionStrategy {
+    public init(policy: BackoffPolicy)
 }
 ```
 
@@ -681,27 +687,29 @@ public class ActorLifecycleManager {
 
 #### 5.4.2 CoordinatedShutdown
 
-协调关闭确保系统优雅终止：
+协调关闭按阶段让系统优雅终止（对标 Akka CoordinatedShutdown；实现见 `runtime/lifecycle/coordinated_shutdown.cj`）。
+- 阶段按依赖顺序串行执行；同一阶段的任务在轻量线程上并行执行。
+- 每个阶段有超时（默认 5 s）。任务超时或抛异常只记日志，不阻塞后续阶段。
+- 用户 Actor 在倒数第二个阶段 `actor-system-terminate` 中停止，之前各阶段的任务仍可与 Actor 交互。
 
-``` 1
+```cangjie
 public class CoordinatedShutdown {
-    // 添加清理任务
-    public func addTask(
-        phase: String,           // 阶段名称
-        task: () -> Future[Unit], // 清理任务
-        dependsOn: Array[String] = []  // 依赖的阶段
-    ): Unit
+    // 内置阶段（顺序与 Akka 相同）：
+    // before-service-unbind → service-unbind → service-requests-done → service-stop →
+    // before-cluster-shutdown → cluster-leave → cluster-shutdown → before-actor-system-terminate →
+    // actor-system-terminate（停止用户 Actor）→ system-terminate（释放运行时资源）
+    public static let PhaseBeforeServiceUnbind: String
+    // ...
 
-    // 执行关闭
-    public func run(reason: String): Future[Unit]
-
-    // 预定义阶段
-    // phase-0: 服务开始停止
-    // phase-1: 持久化检查点
-    // phase-2: 等待分片迁移完成
-    // phase-3: 停止 Actor
-    // phase-4: 终止系统
+    public func addPhase(phase: String, timeout: Duration): Unit       // 追加自定义阶段
+    public func registerTask(phase: String, name: String, task: () -> Unit): Unit
+    public func runAsync(): Future<Unit>                                // 只执行一次
+    public func run(): Unit                                             // 等待 runAsync 完成
 }
+
+// 每个系统一个实例
+let cs = system.getRuntime().getCoordinatedShutdown()
+cs.registerTask(CoordinatedShutdown.PhaseServiceUnbind, "http", { => server.stop() })
 ```
 
 ### 5.5 高性能 ActorSystem
@@ -752,6 +760,11 @@ public class HighPerformanceActorSystem <: ActorSystem {
 封装常用分布式计算模式。
 
 ### 6.1 Ask Pattern (请求-响应)
+
+> **E38（2026-11-07）**：ask 已收敛为三个入口——类型化 Actor 外 `TypedAsk.ask`、Actor 内 `ctx.ask`、
+> 经典 `ActorRef` 用 `cactor_core.dsl.AskInbox.ask(target, message)`（收件箱就是发送方，目标照常 `context.reply`）。
+> 下面的 `AskPatternManager` / `Ask`（要求目标解包 `AskMessage`）自 1.3.0 起 @Deprecated，2.0.0 移除；
+> `TypedAskPattern` 已删除。本节保留作旧设计说明。
 
 ```cangjie
 // AskFuture - 请求未来结果

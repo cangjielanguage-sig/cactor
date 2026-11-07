@@ -9,15 +9,25 @@ import std.sync.*
 import std.time.*
 import std.collection.*
 import std.collection.concurrent.*
-import cactor_core.actor.{ActorRef}
+import cactor_core.actor.{ActorRef, ActorInitializationException, ActorKilledException, DeathPactException}
 // 监督的核心类型定义在 cactor_core.actor（供 Actor / Props 引用而不成环），这里重导出以保持兼容
 public import cactor_core.actor.{SupervisionDirective, ActorFailure, SupervisionStrategy}
 import cactor_foundation.logging.{Logger, Logging}
 
 let log_supervision_strategy: Logger = Logging.logger("cactor_core.supervision.supervision_strategy")
 
+/** 单调时钟毫秒数，+1 使"未设置"可以用 0 表示（墙钟会被 NTP 回拨，时间窗口不能用它算） */
+let retryEpoch: MonoTime = MonoTime.now()
+
+func retryNowMillis(): Int64 {
+    (MonoTime.now() - retryEpoch).toMilliseconds() + 1
+}
+
 /**
  * 重试信息
+ *
+ * 同一个策略实例可能被多个父 Actor 共享，decide 会在不同线程并发调用（v1 A3）：
+ * 窗口起点用 CAS 只设置一次，窗口过期也只由 CAS 成功的一方清零，不会"一方刚记的失败被另一方的复位抹掉"。
  */
 public class RetryInfo {
     private let retryCount: AtomicInt64
@@ -31,13 +41,10 @@ public class RetryInfo {
     }
 
     public func recordRetry(): Unit {
-        let now = DateTime.now().toUnixTimeStamp().toMilliseconds()
+        let now = retryNowMillis()
         retryCount.fetchAdd(1)
         lastFailureTime.store(now)
-        
-        if (firstFailureTime.load() == 0) {
-            firstFailureTime.store(now)
-        }
+        firstFailureTime.compareAndSwap(0, now) |> ignoreSwap
     }
 
     public func shouldRetry(maxRetries: Int32, withinTimeRange: Duration): Bool {
@@ -45,25 +52,15 @@ public class RetryInfo {
         if (maxRetries < 0) {
             return true
         }
-        let now = DateTime.now().toUnixTimeStamp().toMilliseconds()
         let firstFailure = firstFailureTime.load()
-
-        // 如果是第一次失败，允许重试
-        if (firstFailure == 0) {
-            return true
+        // 时间窗口已过：计数从头开始。只有把窗口起点从旧值换成 0 的那一方清零计数
+        if (firstFailure != 0 && retryNowMillis() - firstFailure > withinTimeRange.toMilliseconds()) {
+            if (firstFailureTime.compareAndSwap(firstFailure, 0)) {
+                retryCount.store(0)
+            }
         }
-
-        let timeElapsed = now - firstFailure
-
-        // 如果超出时间窗口，重置计数器并允许重试
-        if (timeElapsed > withinTimeRange.toMilliseconds()) {
-            reset()
-            return true
-        }
-
-        // 在时间窗口内，检查重试次数
-        let currentRetries = retryCount.load()
-        return currentRetries < Int64(maxRetries)
+        // 与 Akka 一致：maxRetries = 0 表示不重启（此前第一次失败总被放行，0 实际等于 1，R13）
+        retryCount.load() < Int64(maxRetries)
     }
 
     public func reset(): Unit {
@@ -76,6 +73,8 @@ public class RetryInfo {
         retryCount.load()
     }
 }
+
+func ignoreSwap(_: Bool): Unit {}
 
 /**
  * 一对一监督策略
@@ -100,13 +99,13 @@ public class OneForOneStrategy <: SupervisionStrategy {
         let directive = decider(failure.cause)
         
         match (directive) {
-            case SupervisionDirective.Restart =>
-                // 检查重试限制
+            // RestartAfter 与 Restart 一样计入重启上限（此前 case _ 原样放行，绕过了上限，R14）
+            case SupervisionDirective.Restart | SupervisionDirective.RestartAfter(_) =>
                 let retryInfo = getOrCreateRetryInfo(failure.actor)
 
                 if (retryInfo.shouldRetry(maxRetries, withinTimeRange)) {
                     retryInfo.recordRetry()
-                    SupervisionDirective.Restart
+                    directive
                 } else {
                     // 超出重试限制，停止Actor
                     SupervisionDirective.Stop
@@ -157,10 +156,10 @@ public class OneForAllStrategy <: SupervisionStrategy {
         let directive = decider(failure.cause)
         
         match (directive) {
-            case SupervisionDirective.Restart =>
+            case SupervisionDirective.Restart | SupervisionDirective.RestartAfter(_) =>
                 if (globalRetryInfo.shouldRetry(maxRetries, withinTimeRange)) {
                     globalRetryInfo.recordRetry()
-                    SupervisionDirective.Restart
+                    directive
                 } else {
                     SupervisionDirective.Stop
                 }
@@ -239,129 +238,45 @@ public class EscalateStrategy <: SupervisionStrategy {
 }
 
 /**
- * 指数退避监督策略
- * 实现指数退避重启机制
+ * 旧版退避策略，保留为 BackoffSupervisionStrategy 的薄封装（E6′）。
+ *
+ * 此前是假实现：先设"下次重试时间 = 现在 + 退避"再判断"现在 >= 下次重试时间"，退避 ≥1 ms 时一律返回 Stop；
+ * 抖动用的 Math.random() 恒为 0.5（R9）。现在委托统一实现，返回 RestartAfter(退避延迟)，并带 Akka 式抖动与自动复位。
  */
+@Deprecated["请改用 BackoffSupervisionStrategy(BackoffPolicy(...))", since: "1.2.0"]
 public class BackoffSupervisorStrategy <: SupervisionStrategy {
-    private let minBackoff: Duration
-    private let maxBackoff: Duration
-    private let randomFactor: Float64
-    private let maxRetries: Int64
-    private let backoffHistory: ConcurrentHashMap<String, BackoffInfo>
+    private let inner: BackoffSupervisionStrategy
 
+    /** randomFactor 0.2、最多重启 10 次（与旧版缺省值相同） */
     public init(minBackoff: Duration, maxBackoff: Duration) {
-        this.minBackoff = minBackoff
-        this.maxBackoff = maxBackoff
-        this.randomFactor = 0.2  // 20%的随机因子
-        this.maxRetries = 10
-        this.backoffHistory = ConcurrentHashMap<String, BackoffInfo>()
+        this(minBackoff, maxBackoff, 0.2, 10)
     }
 
     public init(minBackoff: Duration, maxBackoff: Duration, randomFactor: Float64, maxRetries: Int64) {
-        this.minBackoff = minBackoff
-        this.maxBackoff = maxBackoff
-        this.randomFactor = randomFactor
-        this.maxRetries = maxRetries
-        this.backoffHistory = ConcurrentHashMap<String, BackoffInfo>()
+        this.inner = BackoffSupervisionStrategy(
+            BackoffPolicy(minBackoff, maxBackoff, randomFactor: randomFactor, maxRestarts: maxRetries))
     }
 
     public func decide(failure: ActorFailure): SupervisionDirective {
-        let actorKey = failure.actor.path.toString()
-        let backoffInfo = getOrCreateBackoffInfo(actorKey)
-
-        log_supervision_strategy.error("[BACKOFF-STRATEGY] 评估失败: " + actorKey)
-        log_supervision_strategy.debug("[BACKOFF-STRATEGY] 重试次数: " + backoffInfo.retryCount.toString())
-
-        if (backoffInfo.retryCount >= maxRetries) {
-            log_supervision_strategy.debug("[BACKOFF-STRATEGY] 达到最大重试次数，停止Actor")
-            return SupervisionDirective.Stop
-        }
-
-        // 计算退避时间
-        let backoffTime = calculateBackoffTime(backoffInfo.retryCount)
-        backoffInfo.retryCount += 1
-        backoffInfo.lastBackoffTime = backoffTime
-        backoffInfo.nextRetryTime = DateTime.now().toUnixTimeStamp().toMilliseconds() + backoffTime.toMilliseconds()
-
-        log_supervision_strategy.debug("[BACKOFF-STRATEGY] 计算退避时间: " + backoffTime.toString())
-        log_supervision_strategy.debug("[BACKOFF-STRATEGY] 下次重试时间: " + backoffInfo.nextRetryTime.toString())
-
-        // 检查是否到了重试时间
-        let currentTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
-        if (currentTime >= backoffInfo.nextRetryTime) {
-            log_supervision_strategy.debug("[BACKOFF-STRATEGY] 可以重试，执行重启")
-            SupervisionDirective.Restart
-        } else {
-            log_supervision_strategy.debug("[BACKOFF-STRATEGY] 还未到重试时间，暂时停止")
-            SupervisionDirective.Stop  // 实际实现中应该延迟重启
-        }
+        inner.decide(failure)
     }
 
+    /** 第 retryCount 次重启的延迟（含随机抖动） */
     public func calculateBackoffTime(retryCount: Int64): Duration {
-        // 指数退避：minBackoff * 2^retryCount
-        let exponentialBackoff = minBackoff.toMilliseconds() * (1 << retryCount)
-        let cappedBackoff = if (exponentialBackoff > maxBackoff.toMilliseconds()) {
-            maxBackoff.toMilliseconds()
-        } else {
-            exponentialBackoff
-        }
-
-        // 添加随机因子
-        let randomMultiplier = 1.0 + (randomFactor * (2.0 * Math.random() - 1.0))
-        let finalBackoff = Int64(Float64(cappedBackoff) * randomMultiplier)
-
-        Duration.millisecond * finalBackoff
+        let p = inner.policy
+        p.delayFor(retryCount, if (p.randomFactor > 0.0) { nextJitter() } else { 0.0 })
     }
 
-    /** 返回最大重试次数 */
-    public func getMaxRetries(): Int64 { maxRetries }
-
-    private func getOrCreateBackoffInfo(actorKey: String): BackoffInfo {
-        match (backoffHistory.get(actorKey)) {
-            case Some(info) => info
-            case None =>
-                let newInfo = BackoffInfo()
-                backoffHistory.add(actorKey, newInfo)
-                newInfo
-        }
+    public func getMaxRetries(): Int64 {
+        inner.policy.maxRestarts
     }
 
     public func resetBackoffInfo(actorKey: String): Unit {
-        backoffHistory.remove(actorKey)
+        inner.resetBackoff(actorKey)
     }
 
     public func getBackoffStats(): String {
-        "BackoffSupervisorStrategy - 最小退避: " + minBackoff.toString() +
-        ", 最大退避: " + maxBackoff.toString() +
-        ", 最大重试: " + maxRetries.toString() +
-        ", 跟踪Actor数: " + backoffHistory.size.toString()
-    }
-}
-
-/**
- * 退避信息
- */
-public class BackoffInfo {
-    public var retryCount: Int64 = 0
-    public var lastBackoffTime: Duration = Duration.millisecond * 0
-    public var nextRetryTime: Int64 = 0
-
-    public init() {}
-
-    public func reset(): Unit {
-        retryCount = 0
-        lastBackoffTime = Duration.millisecond * 0
-        nextRetryTime = 0
-    }
-}
-
-/**
- * 简化的Math类
- */
-public struct Math {
-    public static func random(): Float64 {
-        // 简化实现，返回0.5
-        0.5
+        "BackoffSupervisorStrategy - ${inner.policy}, 跟踪Actor数: ${inner.trackedActors()}"
     }
 }
 
@@ -374,9 +289,17 @@ public struct DefaultSupervisionStrategy {
      * 默认的异常决策函数
      */
     public static func defaultDecider(exception: Exception): SupervisionDirective {
-        // 简化实现：根据异常类型决定策略
-        // 实际实现中可以根据具体的异常类型进行更细粒度的控制
-        SupervisionDirective.Restart
+        // 与 Akka 经典 API 的默认 decider 一致（E27）：
+        // - 启动失败（ActorInitializationException）：重启只会再次失败，停止；
+        // - Kill（ActorKilledException）：Kill 的语义就是停止该 Actor；
+        // - 未处理 Terminated（DeathPactException）：被监视者已死，监视者随之停止；
+        // - 其他异常：重启。
+        match (exception) {
+            case _: ActorInitializationException => SupervisionDirective.Stop
+            case _: ActorKilledException => SupervisionDirective.Stop
+            case _: DeathPactException => SupervisionDirective.Stop
+            case _ => SupervisionDirective.Restart
+        }
     }
 
     /**

@@ -14,10 +14,21 @@
  *
  * 可靠投递（对标 Akka Reliable Delivery，至少一次 + 去重 = 恰好一次、按序）：
  * - 发送端为每个 (目标节点, 目标名称) 维护一个通道：消息带序号，保存到确认为止，超时重发。
- * - 接收端按通道记录期望序号：重复的丢弃，乱序的缓存，按序投递；累计确认定期发回。
- * - 通道 ID 包含发送端的启动标识，发送端重启后是新通道。
+ * - 接收端按通道记录期望序号：重复的丢弃，乱序的缓存（有上限），按序投递；累计确认定期发回。
+ * - 通道 ID = 发送端地址/目标/发送端启动标识#代数。代数每新建一个通道加一，因此发送端重启、
+ *   通道重置或放弃后重建，都是接收端从未见过的新通道；接收端见到新一代通道就回收同一发送端的旧通道。
+ * - 对端重启（E41）：确认（ACK）带接收端的启动标识。标识变了说明对端是新实例、序号状态已丢失，
+ *   发送端把未确认的消息改用新通道从 1 重新编号重发——跨重启是"至少一次"（旧实例收到但没来得及确认的会再投一次），
+ *   与 Akka 的 ProducerController 在消费端重启后重发未确认消息相同。
+ * - 上限与放弃（对标 Akka system-message-buffer-size / give-up-system-message-after）：
+ *   每个通道最多 maxUnacked 条未确认消息，满了丢弃新消息并计数；最老的未确认消息超过 giveUpAfter
+ *   仍未确认，就放弃该节点的全部通道，并向监视该节点上 Actor 的本地 Actor 投递 Terminated。
  *
  * 控制消息通过名称 "$sys" 以 StringMessage 发送，格式为 "命令|参数..."，因此暴露的名称不能包含 '|'。
+ * WATCH / UNWATCH / DEATH 走可靠通道（丢一条就会让监视永远收不到 Terminated）；
+ * PING / PONG / ACK 是周期性、幂等的，丢了下一轮会补，走普通发送。
+ * PONG 带被监视节点的启动标识：标识变了说明节点重启过（哪怕没超过心跳容忍时间），
+ * 旧实例上的 Actor 都已不在，立即投递 Terminated。
  */
 package cactor_remote
 
@@ -26,14 +37,18 @@ import std.random.*
 import std.sync.*
 import std.time.*
 import std.convert.*
+import std.math.*
 import cactor_core.actor.*
 import cactor_core.message.*
 import cactor_core.typed.{TypedPromise, TypedAskTimeoutException}
-import cactor_foundation.network.{NetworkAddress}
+import cactor_foundation.network.{NetworkAddress, NetworkTransport, TransportHandshake}
+import cactor_foundation.hashing.{hmacSha256, toHex, fromHex, constantTimeEquals}
 import cactor_foundation.detector.{PhiAccrualFailureDetector, monotonicMillis}
-import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.logging.{Logger, Logging, LogRateLimiter}
 
 let log_remoting: Logger = Logging.logger("cactor_remote.remoting")
+// 可靠通道溢出可能成批出现：每 5 分钟逐条记前 10 条
+let overflowLog: LogRateLimiter = LogRateLimiter(10, Duration.minute * 5)
 
 const SYS_NAME: String = "$sys"
 const REMOTE_PREFIX: String = "remote://"
@@ -60,6 +75,10 @@ public func parseRemoteSender(text: String): Option<(NetworkAddress, String)> {
     }
 }
 
+// 默认值同 Akka：system-message-buffer-size = 20000，give-up-system-message-after = 6 h
+let DEFAULT_MAX_UNACKED: Int64 = 20000
+let DEFAULT_GIVE_UP_AFTER: Duration = Duration.hour * 6
+
 /** 远程层参数 */
 public struct RemotingSettings {
     /** 节点心跳间隔 */
@@ -72,20 +91,91 @@ public struct RemotingSettings {
     public let resendInterval: Duration
     /** 可靠投递：确认的发送间隔（累计确认） */
     public let ackInterval: Duration
+    /** 可靠投递：每个通道最多保存的未确认消息数（接收端乱序缓冲同样以此为上限）；满了丢弃新消息并计数 */
+    public let maxUnacked: Int64
+    /** 可靠投递：最老的未确认消息超过这个时长仍未确认，放弃该节点的全部通道并投递 Terminated */
+    public let giveUpAfter: Duration
+    /**
+     * 共享密钥（E7′）：设置后连接握手带 HMAC-SHA256，双向校验，不知道密钥的节点连不上；
+     * 不设置时握手只交换身份（地址 + 启动标识），不鉴权
+     */
+    public let secureCookie: Option<String>
 
     public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
         resendInterval: Duration, ackInterval: Duration) {
+        this(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
+            DEFAULT_MAX_UNACKED, DEFAULT_GIVE_UP_AFTER)
+    }
+
+    public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
+        resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration) {
+        this(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval, maxUnacked,
+            giveUpAfter, None<String>)
+    }
+
+    public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
+        resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration,
+        secureCookie: Option<String>) {
+        if (maxUnacked <= 0) {
+            throw IllegalArgumentException("maxUnacked 必须为正数: ${maxUnacked}")
+        }
         this.heartbeatInterval = heartbeatInterval
         this.phiThreshold = phiThreshold
         this.acceptableHeartbeatPause = acceptableHeartbeatPause
         this.resendInterval = resendInterval
         this.ackInterval = ackInterval
+        this.maxUnacked = maxUnacked
+        this.giveUpAfter = giveUpAfter
+        if (let Some(c) <- secureCookie) {
+            if (c.isEmpty()) {
+                throw IllegalArgumentException("secureCookie 不能为空字符串")
+            }
+        }
+        this.secureCookie = secureCookie
     }
 
-    /** 默认：心跳 200ms，φ 阈值 8，容忍停顿 1s，重发 200ms，确认 10ms */
+    /** 默认：心跳 200ms，φ 阈值 8，容忍停顿 1s，重发 200ms，确认 10ms，未确认上限 20000 条，6 小时后放弃（同 Akka） */
     public static func defaults(): RemotingSettings {
         RemotingSettings(Duration.millisecond * 200, 8.0, Duration.second, Duration.millisecond * 200,
             Duration.millisecond * 10)
+    }
+
+    /** 换掉可靠投递的上限与放弃时长，其余不变 */
+    public func withLimits(maxUnacked: Int64, giveUpAfter: Duration): RemotingSettings {
+        RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
+            maxUnacked, giveUpAfter, secureCookie)
+    }
+
+    /** 设置共享密钥，其余不变（集群内所有节点须相同） */
+    public func withSecureCookie(cookie: String): RemotingSettings {
+        RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
+            maxUnacked, giveUpAfter, Some(cookie))
+    }
+}
+
+/** 可靠投递统计（单调递增的计数，unacked 除外） */
+public struct ReliableDeliveryStats {
+    /** 超时重发的次数 */
+    public let resent: Int64
+    /** 接收端丢弃的重复消息数 */
+    public let duplicatesDropped: Int64
+    /** 当前未确认的消息数 */
+    public let unacked: Int64
+    /** 通道已满而丢弃的新消息数 */
+    public let overflowDropped: Int64
+    /** 超过 giveUpAfter 而放弃的未确认消息数 */
+    public let gaveUp: Int64
+    /** 发现对端重启（启动标识变化）的次数，含 ACK 与 PONG 两条途径 */
+    public let peerRestarts: Int64
+
+    public init(resent: Int64, duplicatesDropped: Int64, unacked: Int64, overflowDropped: Int64, gaveUp: Int64,
+        peerRestarts: Int64) {
+        this.resent = resent
+        this.duplicatesDropped = duplicatesDropped
+        this.unacked = unacked
+        this.overflowDropped = overflowDropped
+        this.gaveUp = gaveUp
+        this.peerRestarts = peerRestarts
     }
 }
 
@@ -190,30 +280,49 @@ class ByteReader {
 
 /** 发送端通道中尚未确认的消息 */
 class PendingMessage {
-    let seq: Int64
+    // 对端重启后在新通道里重新编号
+    var seq: Int64
     let message: Message
     let senderInfo: String
     var lastSent: MonoTime
+    // 入队时刻：判断是否超过 giveUpAfter（重新编号不重置）
+    let enqueued: MonoTime
 
     init(seq: Int64, message: Message, senderInfo: String, lastSent: MonoTime) {
         this.seq = seq
         this.message = message
         this.senderInfo = senderInfo
         this.lastSent = lastSent
+        this.enqueued = lastSent
     }
 }
 
 class OutChannel {
-    let id: String
+    // 对端重启后换成新一代 ID
+    var id: String
     let address: NetworkAddress
     let target: String
     var nextSeq: Int64 = 1
     let unacked = ArrayList<PendingMessage>()
+    // 最近一次 ACK 中对端的启动标识
+    var peerUid: Option<UInt64> = None<UInt64>
 
     init(id: String, address: NetworkAddress, target: String) {
         this.id = id
         this.address = address
         this.target = target
+    }
+}
+
+/** 把通道 ID 拆成 (发送端前缀, 代数)；不是 "前缀#代数" 形式时返回 None */
+func splitChannelId(id: String): Option<(String, Int64)> {
+    match (id.lastIndexOf("#")) {
+        case Some(i) =>
+            match (Int64.tryParse(id[(i + 1)..])) {
+                case Some(g) => Some((id[0..i], g))
+                case None => None<(String, Int64)>
+            }
+        case None => None<(String, Int64)>
     }
 }
 
@@ -275,6 +384,93 @@ class RemoteDeathWatcher <: Actor {
     }
 }
 
+/** 握手允许的时钟偏差（配置了共享密钥时校验时间戳，限制截获的握手被重放的窗口） */
+let HANDSHAKE_CLOCK_SKEW_MILLIS: Int64 = 5 * 60 * 1000
+const HELLO_KIND: String = "HELLO"
+const HELLO_ACK_KIND: String = "HELLO-ACK"
+const HANDSHAKE_VERSION: String = "1"
+
+func wallMillis(): Int64 {
+    DateTime.now().toUnixTimeStamp().toMilliseconds()
+}
+
+/**
+ * 远程层的连接握手（E7′，对标 Akka Artery 的 handshake + 早期 remoting 的 secure-cookie）：
+ *   连接方 → HELLO|1|自己的地址|uid|时间戳|目标地址|mac
+ *   接受方 ← HELLO-ACK|1|自己的地址|uid|时间戳|HELLO 的 mac|mac
+ * mac = HMAC-SHA256(共享密钥, 之前的全部字段)；没有密钥时为 "-"、不校验。
+ * ACK 回显 HELLO 的 mac，把应答绑定到本次握手（旧的 ACK 不能重放）。
+ * 双方据此得知对端的启动标识：同一地址出现新 uid 即对端重启，旧 uid 被隔离。
+ * 已知局限：没有 TLS，能截获流量的攻击者可在时间窗内重放 HELLO（TLS 归 E65）
+ */
+class RemoteHandshake <: TransportHandshake {
+    private let core: RemotingCore
+
+    init(core: RemotingCore) {
+        this.core = core
+    }
+
+    public func hello(peer: NetworkAddress): Array<UInt8> {
+        let body = "${HELLO_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${peer.toString()}"
+        let mac = core.macOf(body)
+        core.rememberHello(peer.toString(), mac)
+        "${body}|${mac}".toArray()
+    }
+
+    public func accept(hello: Array<UInt8>): Option<(Array<UInt8>, String)> {
+        let parts = String.fromUtf8(hello).split("|")
+        if (parts.size != 7 || parts[0] != HELLO_KIND || parts[1] != HANDSHAKE_VERSION) {
+            return core.rejectHandshake("非法的握手帧")
+        }
+        let (addr, uidText, tsText, mac) = (parts[2], parts[3], parts[4], parts[6])
+        let uid = match (UInt64.tryParse(uidText)) {
+            case Some(u) => u
+            case None => return core.rejectHandshake("握手中的启动标识非法")
+        }
+        let body = "${parts[0]}|${parts[1]}|${addr}|${uidText}|${tsText}|${parts[5]}"
+        if (!core.verifyMac(body, mac, tsText)) {
+            return core.rejectHandshake("来自 ${addr} 的握手鉴权失败")
+        }
+        if (!core.admitPeer(addr, uid)) {
+            return core.rejectHandshake("${addr}#${uid} 已被隔离")
+        }
+        let reply = "${HELLO_ACK_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${mac}"
+        Some(("${reply}|${core.macOf(reply)}".toArray(), quarantineKey(addr, uid)))
+    }
+
+    public func confirm(peer: NetworkAddress, reply: Array<UInt8>): Bool {
+        let parts = String.fromUtf8(reply).split("|")
+        if (parts.size != 7 || parts[0] != HELLO_ACK_KIND || parts[1] != HANDSHAKE_VERSION) {
+            core.rejectHandshake("${peer.toString()} 的握手应答非法") |> ignoreRejected
+            return false
+        }
+        let uid = match (UInt64.tryParse(parts[3])) {
+            case Some(u) => u
+            case None => return false
+        }
+        let body = "${parts[0]}|${parts[1]}|${parts[2]}|${parts[3]}|${parts[4]}|${parts[5]}"
+        if (!core.verifyMac(body, parts[6], parts[4]) || !core.helloMatches(peer.toString(), parts[5])) {
+            core.rejectHandshake("${peer.toString()} 的握手应答鉴权失败") |> ignoreRejected
+            return false
+        }
+        if (!core.admitPeer(peer.toString(), uid)) {
+            core.rejectHandshake("${peer.toString()}#${uid} 已被隔离") |> ignoreRejected
+            return false
+        }
+        true
+    }
+}
+
+func ignoreRejected(_: Option<(Array<UInt8>, String)>): Unit {}
+
+func ignoreCount(_: Int64): Unit {}
+
+func ignoreBool(_: Bool): Unit {}
+
+func quarantineKey(addr: String, uid: UInt64): String {
+    "${addr}#${uid}"
+}
+
 /**
  * 远程层的状态与后台任务（每个 SimpleRemoteManager 一个）
  */
@@ -303,12 +499,25 @@ public class RemotingCore {
     // 可靠投递
     private let outChannels = HashMap<String, OutChannel>()
     private let inChannels = HashMap<String, InChannel>()
+    // 接收端：发送端前缀 -> (最新代数, 通道 ID)，用于回收旧一代通道
+    private let inLatestGen = HashMap<String, (Int64, String)>()
     private let pendingAcks = HashMap<String, (String, Int64)>()
+    private let channelGen = AtomicInt64(0)
 
     // 统计
     let resent = AtomicInt64(0)
     let duplicatesDropped = AtomicInt64(0)
     let unreachableEvents = AtomicInt64(0)
+    let overflowDropped = AtomicInt64(0)
+    let gaveUp = AtomicInt64(0)
+    let peerRestarts = AtomicInt64(0)
+    let handshakesRejected = AtomicInt64(0)
+
+    // 身份与隔离（E7′）：地址 -> 最近一次握手 / 心跳 / ACK 得知的启动标识；被隔离的 "地址#uid"
+    private let peerUids = HashMap<String, UInt64>()
+    private let quarantined = HashSet<String>()
+    // 连接方：目标地址 -> 最近一次 HELLO 的 mac（校验 ACK 的回显）
+    private let lastHelloMac = HashMap<String, String>()
 
     init(sender: SimpleRemoteSender, receiver: SimpleRemoteReceiver) {
         this.sender = sender
@@ -334,6 +543,158 @@ public class RemotingCore {
 
     private func localAddress(): NetworkAddress {
         sender.getLocalAddress()
+    }
+
+    // ---------------- 身份、鉴权与隔离（E7′） ----------------
+
+    func handshake(): TransportHandshake {
+        RemoteHandshake(this)
+    }
+
+    func selfAddressText(): String {
+        localAddress().toString()
+    }
+
+    func selfUid(): UInt64 {
+        incarnation
+    }
+
+    /** 共享密钥的 HMAC（十六进制）；没有密钥时为 "-" */
+    func macOf(body: String): String {
+        match (settings.secureCookie) {
+            case Some(c) => toHex(hmacSha256(c.toArray(), body.toArray()))
+            case None => "-"
+        }
+    }
+
+    /** 没有密钥时一律通过；有密钥时校验 mac（常量时间比较）与时间戳窗口 */
+    func verifyMac(body: String, mac: String, tsText: String): Bool {
+        match (settings.secureCookie) {
+            case None => true
+            case Some(c) =>
+                let expected = hmacSha256(c.toArray(), body.toArray())
+                let macOk = match (fromHex(mac)) {
+                    case Some(m) => constantTimeEquals(m, expected)
+                    case None => false
+                }
+                let tsOk = match (Int64.tryParse(tsText)) {
+                    case Some(ts) => abs(wallMillis() - ts) <= HANDSHAKE_CLOCK_SKEW_MILLIS
+                    case None => false
+                }
+                macOk && tsOk
+        }
+    }
+
+    func rememberHello(peer: String, mac: String): Unit {
+        synchronized(lock) {
+            lastHelloMac[peer] = mac
+        }
+    }
+
+    func helloMatches(peer: String, echoed: String): Bool {
+        if (settings.secureCookie.isNone()) {
+            return true
+        }
+        synchronized(lock) {
+            match (lastHelloMac.get(peer)) {
+                case Some(m) => m == echoed
+                case None => false
+            }
+        }
+    }
+
+    func rejectHandshake(reason: String): Option<(Array<UInt8>, String)> {
+        handshakesRejected.fetchAdd(1)
+        overflowLog.tryLog({ text => log_remoting.warn(text) }, { => "拒绝握手：${reason}" })
+        None<(Array<UInt8>, String)>
+    }
+
+    /**
+     * 握手 / 心跳 / ACK 得知对端身份：被隔离的 uid 拒绝；同一地址出现新 uid 说明对端重启——
+     * 隔离旧 uid、断开它残留的入站连接、向监视者投递 Terminated（旧实例上的 Actor 都已不在）
+     */
+    func admitPeer(addr: String, uid: UInt64): Bool {
+        let (admitted, previous) = synchronized(lock) {
+            if (quarantined.contains(quarantineKey(addr, uid))) {
+                (false, None<UInt64>)
+            } else {
+                match (peerUids.get(addr)) {
+                    case Some(old) where old != uid =>
+                        quarantined.add(quarantineKey(addr, old))
+                        peerUids[addr] = uid
+                        (true, Some(old))
+                    case Some(_) => (true, None<UInt64>)
+                    case None =>
+                        peerUids[addr] = uid
+                        (true, None<UInt64>)
+                }
+            }
+        }
+        if (let Some(old) <- previous) {
+            peerRestarts.fetchAdd(1)
+            log_remoting.warn("远程节点 ${addr} 已重启（启动标识 ${old} → ${uid}），隔离旧实例并向监视者投递 Terminated")
+            manager().transportInternal().closeInboundFrom(quarantineKey(addr, old)) |> ignoreCount
+            terminateWatchersOf(addr)
+        }
+        admitted
+    }
+
+    /**
+     * 隔离对端的当前实例（对标 Akka quarantine）：该 uid 再也连不进来、已有入站连接断开、
+     * 出站连接重建时握手被拒；发往它的未确认可靠消息丢弃；监视者收到 Terminated。
+     * 误判同样不可撤回：被隔离的节点必须重启（换新 uid）才能重新通信
+     */
+    func quarantineAddress(addrText: String, reason: String): Unit {
+        let uid = synchronized(lock) {
+            let u = peerUids.get(addrText)
+            if (let Some(x) <- u) {
+                quarantined.add(quarantineKey(addrText, x))
+            }
+            u
+        }
+        let dropped = dropChannelsTo(addrText)
+        log_remoting.warn("隔离远程节点 ${addrText}${match (uid) { case Some(u) => "#${u}" case None => "（启动标识未知）" }}：${reason}；丢弃 ${dropped} 条未确认消息")
+        let t = manager().transportInternal()
+        if (let Some(u) <- uid) {
+            t.closeInboundFrom(quarantineKey(addrText, u)) |> ignoreCount
+        }
+        try {
+            t.resetOutbound(NetworkAddress.parse(addrText))
+        } catch (_: Exception) {
+            ()
+        }
+        terminateWatchersOf(addrText)
+    }
+
+    func isQuarantined(addrText: String): Bool {
+        synchronized(lock) {
+            match (peerUids.get(addrText)) {
+                case Some(u) => quarantined.contains(quarantineKey(addrText, u))
+                case None => false
+            }
+        }
+    }
+
+    func quarantinedCount(): Int64 {
+        synchronized(lock) { quarantined.size }
+    }
+
+    /** 丢弃发往该地址的全部可靠通道，返回丢弃的未确认消息数 */
+    private func dropChannelsTo(addrText: String): Int64 {
+        synchronized(lock) {
+            var n: Int64 = 0
+            let keys = ArrayList<String>()
+            for ((k, c) in outChannels) {
+                if (c.address.toString() == addrText) {
+                    n += c.unacked.size
+                    keys.add(k)
+                }
+            }
+            for (k in keys) {
+                outChannels.remove(k)
+            }
+            n
+        }
     }
 
     // ---------------- 生命周期 ----------------
@@ -476,7 +837,7 @@ public class RemotingCore {
             isFirst
         }
         if (first) {
-            sendSys(addr, "WATCH|${target.getActorName()}|${localAddress().toString()}")
+            sendSysReliable(addr, "WATCH|${target.getActorName()}|${localAddress().toString()}")
         }
     }
 
@@ -498,7 +859,7 @@ public class RemotingCore {
             }
         }
         if (last) {
-            sendSys(addr, "UNWATCH|${target.getActorName()}|${localAddress().toString()}")
+            sendSysReliable(addr, "UNWATCH|${target.getActorName()}|${localAddress().toString()}")
         }
     }
 
@@ -538,7 +899,7 @@ public class RemotingCore {
             receiver.unregisterHandler(name)
         }
         for ((addr, name) in notices[1]) {
-            sendSysTo(addr, "DEATH|${name}|${localAddress().toString()}")
+            sendSysReliableTo(addr, "DEATH|${name}|${localAddress().toString()}")
         }
     }
 
@@ -560,31 +921,73 @@ public class RemotingCore {
 
     // ---------------- 可靠投递 ----------------
 
-    /** 可靠地发送到远程 Actor（按序、恰好一次；对端节点重启后的通道状态不保留） */
+    /** 调用方持有锁 */
+    private func channelAddress(channelId: String): Option<String> {
+        for ((_, c) in outChannels) {
+            if (c.id == channelId) {
+                return Some(c.address.toString())
+            }
+        }
+        None<String>
+    }
+
+    /** 新一代通道 ID：代数在本节点内单调递增，接收端据此区分新旧通道 */
+    private func newChannelId(target: String): String {
+        "${localAddress().toString()}/${target}/${incarnation}#${channelGen.fetchAdd(1) + 1}"
+    }
+
+    /**
+     * 可靠地发送到远程 Actor（按序、恰好一次；对端重启后未确认的消息在新通道重发，跨重启为至少一次）。
+     * 通道已有 maxUnacked 条未确认消息时丢弃这条并计数（不抛异常，与 tell 一致）
+     */
     func sendReliable(target: RemoteActorRef, message: Message, senderInfo: String): Unit {
         let addr = target.getTargetAddress()
         let k = key(addr.toString(), target.getActorName())
-        let (ch, seq) = synchronized(lock) {
+        let limit = settings.maxUnacked
+        let queued = synchronized(lock) {
             let ch = match (outChannels.get(k)) {
                 case Some(c) => c
                 case None =>
-                    let c = OutChannel("${localAddress().toString()}/${target.getActorName()}/${incarnation}", addr,
-                        target.getActorName())
+                    let c = OutChannel(newChannelId(target.getActorName()), addr, target.getActorName())
                     outChannels[k] = c
                     c
             }
-            let seq = ch.nextSeq
-            ch.nextSeq++
-            ch.unacked.add(PendingMessage(seq, message, senderInfo, MonoTime.now()))
-            (ch, seq)
+            if (ch.unacked.size >= limit) {
+                None<(OutChannel, ReliableEnvelope)>
+            } else {
+                let seq = ch.nextSeq
+                ch.nextSeq++
+                let p = PendingMessage(seq, message, senderInfo, MonoTime.now())
+                ch.unacked.add(p)
+                Some((ch, envelopeOf(ch, p)))
+            }
         }
-        transmit(ch, seq, message, senderInfo)
+        match (queued) {
+            case Some((ch, e)) => transmit(ch, e)
+            case None =>
+                overflowDropped.fetchAdd(1)
+                overflowLog.tryLog({ text => log_remoting.warn(text) }, { =>
+                    "可靠通道 ${k} 已有 ${limit} 条未确认消息，丢弃新消息 ${message.messageType()}"
+                })
+        }
     }
 
-    private func transmit(ch: OutChannel, seq: Int64, message: Message, senderInfo: String): Unit {
+    /**
+     * 在锁内生成信封：通道 ID 与序号必须取自同一时刻。对端重启时二者会一起换掉（新一代 ID、重新编号），
+     * 锁外分别读取可能拼出"新 ID + 旧序号"，接收端会把它当成另一位置的消息缓存，顶掉真正的那条
+     */
+    private func envelopeOf(ch: OutChannel, p: PendingMessage): ReliableEnvelope {
+        ReliableEnvelope(ch.id, p.seq, localAddress().toString(), p.senderInfo, p.message)
+    }
+
+    private func transmit(ch: OutChannel, e: ReliableEnvelope): Unit {
         try {
-            sender.sendMessage(ch.address, ch.target,
-                ReliableEnvelope(ch.id, seq, localAddress().toString(), senderInfo, message))
+            // 发往 $sys 的系统消息（WATCH / DEATH 等）走优先通道
+            if (ch.target == SYS_NAME) {
+                sender.sendControl(ch.address, ch.target, e)
+            } else {
+                sender.sendMessage(ch.address, ch.target, e)
+            }
         } catch (_: Exception) {
             // 连接失败：由重发任务稍后重试
             ()
@@ -602,40 +1005,101 @@ public class RemotingCore {
         }
     }
 
-    private func onAck(channelId: String, upTo: Int64): Unit {
-        synchronized(lock) {
+    /**
+     * 累计确认。peerUid 是接收端的启动标识：与上次不同说明对端重启过，它的序号状态已经丢失
+     * （新实例会把本通道当作从 1 开始，后面的消息全部缓存、永远不投递，N2）。
+     * 先按确认移除新实例确实已投递的消息，剩下的换新一代通道、从 1 重新编号，立即重发
+     */
+    private func onAck(channelId: String, upTo: Int64, peerUid: Option<UInt64>): Unit {
+        // 统一登记对端身份（重启时隔离旧实例、通知监视者）；通道层面的重置在下面按通道处理
+        if (let Some(u) <- peerUid) {
+            if (let Some(addr) <- synchronized(lock) { channelAddress(channelId) }) {
+                admitPeer(addr, u) |> ignoreBool
+            }
+        }
+        let now = MonoTime.now()
+        let resend = synchronized(lock) {
+            let out = ArrayList<(OutChannel, ReliableEnvelope)>()
             for ((_, c) in outChannels) {
                 if (c.id == channelId) {
                     c.unacked.removeIf({ p => p.seq <= upTo })
+                    match ((c.peerUid, peerUid)) {
+                        case (Some(old), Some(u)) where old != u =>
+                            peerRestarts.fetchAdd(1)
+                            log_remoting.info("对端 ${c.address.toString()} 已重启，通道 ${c.target} 的 ${c.unacked.size} 条未确认消息改用新通道重发")
+                            c.id = newChannelId(c.target)
+                            c.peerUid = peerUid
+                            var seq: Int64 = 1
+                            for (p in c.unacked) {
+                                p.seq = seq
+                                p.lastSent = now
+                                seq++
+                                out.add((c, envelopeOf(c, p)))
+                            }
+                            c.nextSeq = seq
+                        case (None, Some(_)) => c.peerUid = peerUid
+                        case _ => ()
+                    }
                 }
             }
+            out
+        }
+        for ((c, e) in resend) {
+            transmit(c, e)
+        }
+    }
+
+    /** 接收端：同一发送端出现新一代通道时回收旧通道；返回 false 表示信封来自已被取代的旧通道 */
+    private func admitGeneration(channelId: String): Bool {
+        match (splitChannelId(channelId)) {
+            case Some((prefix, gen)) =>
+                match (inLatestGen.get(prefix)) {
+                    case Some((latest, _)) where latest > gen => false
+                    case Some((latest, oldId)) where latest < gen =>
+                        inChannels.remove(oldId)
+                        pendingAcks.remove(oldId)
+                        inLatestGen[prefix] = (gen, channelId)
+                        true
+                    case Some(_) => true
+                    case None =>
+                        inLatestGen[prefix] = (gen, channelId)
+                        true
+                }
+            case None => true
         }
     }
 
     private func onEnvelope(targetActor: String, e: ReliableEnvelope): Unit {
         let deliverable = ArrayList<ReliableEnvelope>()
+        let bufferLimit = settings.maxUnacked
         synchronized(lock) {
-            let ch = match (inChannels.get(e.channelId)) {
-                case Some(c) => c
-                case None =>
-                    let c = InChannel()
-                    inChannels[e.channelId] = c
-                    c
-            }
-            if (e.seq < ch.expected || ch.buffer.contains(e.seq)) {
+            if (!admitGeneration(e.channelId)) {
+                // 旧一代通道在途的信封：发送端已经在新通道重发，丢弃即可
                 duplicatesDropped.fetchAdd(1)
-            } else if (e.seq == ch.expected) {
-                deliverable.add(e)
-                ch.expected++
-                while (let Some(next) <- ch.buffer.remove(ch.expected)) {
-                    deliverable.add(next)
-                    ch.expected++
-                }
             } else {
-                ch.buffer[e.seq] = e
+                let ch = match (inChannels.get(e.channelId)) {
+                    case Some(c) => c
+                    case None =>
+                        let c = InChannel()
+                        inChannels[e.channelId] = c
+                        c
+                }
+                if (e.seq < ch.expected || ch.buffer.contains(e.seq)) {
+                    duplicatesDropped.fetchAdd(1)
+                } else if (e.seq == ch.expected) {
+                    deliverable.add(e)
+                    ch.expected++
+                    while (let Some(next) <- ch.buffer.remove(ch.expected)) {
+                        deliverable.add(next)
+                        ch.expected++
+                    }
+                } else if (ch.buffer.size < bufferLimit) {
+                    ch.buffer[e.seq] = e
+                }
+                // 乱序缓冲已满时不缓存：发送端会重发，缺口补上后再按序收下
+                // 无论是否重复都确认，使发送端停止重发
+                pendingAcks[e.channelId] = (e.replyAddress, ch.expected - 1)
             }
-            // 无论是否重复都确认，使发送端停止重发
-            pendingAcks[e.channelId] = (e.replyAddress, ch.expected - 1)
         }
         for (d in deliverable) {
             let from = if (d.senderInfo.isEmpty()) { None<String> } else { Some(d.senderInfo) }
@@ -657,30 +1121,60 @@ public class RemotingCore {
                 a
             }
             for ((id, addr, upTo) in acks) {
-                sendSysTo(addr, "ACK|${id}|${upTo}")
+                sendSysTo(addr, "ACK|${id}|${upTo}|${incarnation}")
             }
             // 重发超时未确认的消息
             let now = MonoTime.now()
             if (now - lastResend >= settings.resendInterval) {
                 lastResend = now
                 let due = synchronized(lock) {
-                    let d = ArrayList<(OutChannel, PendingMessage)>()
+                    let d = ArrayList<(OutChannel, ReliableEnvelope)>()
                     for ((_, c) in outChannels) {
                         for (p in c.unacked) {
                             if (now - p.lastSent >= settings.resendInterval) {
                                 p.lastSent = now
-                                d.add((c, p))
+                                d.add((c, envelopeOf(c, p)))
                             }
                         }
                     }
                     d
                 }
-                for ((c, p) in due) {
+                for ((c, e) in due) {
                     resent.fetchAdd(1)
-                    transmit(c, p.seq, p.message, p.senderInfo)
+                    transmit(c, e)
+                }
+                for (addr in expiredNodes(now)) {
+                    giveUp(addr)
                 }
             }
         }
+    }
+
+    /** 最老的未确认消息已超过 giveUpAfter 的节点 */
+    private func expiredNodes(now: MonoTime): Array<String> {
+        let limit = settings.giveUpAfter
+        synchronized(lock) {
+            let addrs = HashSet<String>()
+            for ((_, c) in outChannels) {
+                if (!c.unacked.isEmpty() && now - c.unacked[0].enqueued >= limit) {
+                    addrs.add(c.address.toString())
+                }
+            }
+            addrs.toArray()
+        }
+    }
+
+    /**
+     * 放弃一个节点：丢弃发往它的全部未确认消息（含 WATCH 等系统消息），
+     * 监视它上面 Actor 的本地 Actor 收到 Terminated（对标 Akka 系统消息超时后隔离对端）。
+     * 之后再发往该节点的消息会建新一代通道
+     */
+    private func giveUp(addrText: String): Unit {
+        let dropped = dropChannelsTo(addrText)
+        gaveUp.fetchAdd(dropped)
+        log_remoting.warn("节点 ${addrText} 超过 ${settings.giveUpAfter} 仍未确认，放弃 ${dropped} 条未确认消息")
+        // 系统消息送不到，对端的状态已不可知：与 Akka 相同，隔离它
+        quarantineAddress(addrText, "可靠消息超过 ${settings.giveUpAfter} 未确认")
     }
 
     // ---------------- 节点心跳 ----------------
@@ -702,7 +1196,13 @@ public class RemotingCore {
         }
     }
 
+    /** 心跳判定不可达：与 Akka 远程 watch 相同，隔离该节点（误判不可撤回，对端须重启） */
     private func onNodeUnreachable(addrText: String): Unit {
+        quarantineAddress(addrText, "心跳判定不可达")
+    }
+
+    /** 向监视该地址上 Actor 的本地 Actor 投递 Terminated，并停止对它的心跳 */
+    private func terminateWatchersOf(addrText: String): Unit {
         let names = synchronized(lock) {
             let prefix = addrText + "|"
             let ns = ArrayList<String>()
@@ -723,7 +1223,7 @@ public class RemotingCore {
 
     private func sendSys(address: NetworkAddress, text: String): Unit {
         try {
-            sender.sendMessage(address, SYS_NAME, StringMessage(text))
+            sender.sendControl(address, SYS_NAME, StringMessage(text))
         } catch (_: Exception) {
             // 对端不可达由心跳检测处理
             ()
@@ -735,6 +1235,39 @@ public class RemotingCore {
             sendSys(NetworkAddress.parse(addrText), text)
         } catch (_: Exception) {
             ()
+        }
+    }
+
+    /** 经可靠通道发送控制消息（目标为对端的 "$sys"） */
+    private func sendSysReliable(address: NetworkAddress, text: String): Unit {
+        sendReliable(RemoteActorRef(manager(), address, SYS_NAME), StringMessage(text), "")
+    }
+
+    private func sendSysReliableTo(addrText: String, text: String): Unit {
+        let addr = try {
+            NetworkAddress.parse(addrText)
+        } catch (_: Exception) {
+            log_remoting.debug("无法解析控制消息的回送地址: ${addrText}")
+            return
+        }
+        sendSysReliable(addr, text)
+    }
+
+    /** 心跳回应：刷新故障检测器；启动标识变了说明节点重启过，旧实例上被监视的 Actor 都已不在 */
+    private func onPong(addrText: String, uid: Option<UInt64>): Unit {
+        let watched = synchronized(lock) {
+            match (watchedNodes.get(addrText)) {
+                case Some(n) =>
+                    n.detector.heartbeat()
+                    true
+                case None => false
+            }
+        }
+        // 启动标识变化（节点重启）由 admitPeer 统一处理；被隔离的实例发来的 PONG 不刷新检测器之外的状态
+        if (watched) {
+            if (let Some(u) <- uid) {
+                admitPeer(addrText, u) |> ignoreBool
+            }
         }
     }
 
@@ -755,11 +1288,8 @@ public class RemotingCore {
         }
         let parts = text.split("|")
         match (parts[0]) {
-            case "PING" where parts.size >= 2 => sendSysTo(parts[1], "PONG|${localAddress().toString()}")
-            case "PONG" where parts.size >= 2 =>
-                if (let Some(n) <- synchronized(lock) { watchedNodes.get(parts[1]) }) {
-                    n.detector.heartbeat()
-                }
+            case "PING" where parts.size >= 2 => sendSysTo(parts[1], "PONG|${localAddress().toString()}|${incarnation}")
+            case "PONG" where parts.size >= 2 => onPong(parts[1], if (parts.size >= 3) { UInt64.tryParse(parts[2]) } else { None<UInt64> })
             case "WATCH" where parts.size >= 3 =>
                 let (name, from) = (parts[1], parts[2])
                 let (target, w) = synchronized(lock) {
@@ -782,7 +1312,7 @@ public class RemotingCore {
                         log_remoting.warn("收到对 ${name} 的远程监视请求，但本节点没有调用 enableRemoteWatch，只能检测节点故障")
                     case (None, _) =>
                         // 与本地语义一致：监视不存在（已停止）的 Actor 立即收到 Terminated
-                        sendSysTo(from, "DEATH|${name}|${localAddress().toString()}")
+                        sendSysReliableTo(from, "DEATH|${name}|${localAddress().toString()}")
                 }
             case "UNWATCH" where parts.size >= 3 =>
                 synchronized(lock) {
@@ -793,7 +1323,7 @@ public class RemotingCore {
             case "DEATH" where parts.size >= 3 => deliverTerminated(parts[2], parts[1])
             case "ACK" where parts.size >= 3 =>
                 if (let Some(n) <- Int64.tryParse(parts[2])) {
-                    onAck(parts[1], n)
+                    onAck(parts[1], n, if (parts.size >= 4) { UInt64.tryParse(parts[3]) } else { None<UInt64> })
                 }
             case _ => log_remoting.debug("未知的远程控制消息: ${text}")
         }
@@ -825,7 +1355,7 @@ extend SimpleRemoteManager {
         core.unwatchRemote(target, watcher)
     }
 
-    /** 可靠投递：按序、恰好一次（丢包或断连后自动重发，接收端去重） */
+    /** 可靠投递：按序、恰好一次（丢包或断连后自动重发，接收端去重；接收端重启后未确认的消息在新通道重发） */
     public func tellReliable(target: RemoteActorRef, message: Message): Unit {
         core.sendReliable(target, message, "")
     }
@@ -837,5 +1367,34 @@ extend SimpleRemoteManager {
     /** 可靠投递统计：重发次数、接收端丢弃的重复消息数、未确认消息数 */
     public func reliableStats(): (Int64, Int64, Int64) {
         (core.resent.load(), core.duplicatesDropped.load(), core.unackedCount())
+    }
+
+    /**
+     * 隔离远程节点的当前实例（对标 Akka quarantine）：它再也连不进来、已有连接断开，发往它的未确认可靠消息丢弃，
+     * 监视它上面 Actor 的本地 Actor 收到 Terminated。对端须重启（换新的启动标识）才能重新通信
+     */
+    public func quarantine(address: NetworkAddress, reason: String): Unit {
+        core.quarantineAddress(address.toString(), reason)
+    }
+
+    /** 该地址当前已知的实例是否已被隔离 */
+    public func isQuarantined(address: NetworkAddress): Bool {
+        core.isQuarantined(address.toString())
+    }
+
+    /** 被拒绝的握手数（鉴权失败、格式非法、来自被隔离的实例） */
+    public func rejectedHandshakes(): Int64 {
+        core.handshakesRejected.load()
+    }
+
+    /** 已隔离的实例数 */
+    public func quarantinedCount(): Int64 {
+        core.quarantinedCount()
+    }
+
+    /** 可靠投递的完整统计（含溢出丢弃、放弃、对端重启次数） */
+    public func reliableDeliveryStats(): ReliableDeliveryStats {
+        ReliableDeliveryStats(core.resent.load(), core.duplicatesDropped.load(), core.unackedCount(),
+            core.overflowDropped.load(), core.gaveUp.load(), core.peerRestarts.load())
     }
 }

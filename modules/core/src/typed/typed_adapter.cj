@@ -16,7 +16,15 @@ import std.sync.*
 import std.collection.*
 import cactor_core.actor.*
 import cactor_core.message.{Message, MessageResult}
-import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.logging.{Logger, Logging, LogRateLimiter}
+
+// 类型化生命周期信号（PreRestart / PostStop）处理异常的日志（A10：此前静默吞掉）
+let typedLifecycleLog: Logger = Logging.logger("cactor_core.typed.lifecycle")
+
+// 类型化 Actor 收到协议之外的消息：这是编程错误（通常来自 childAs / findActor / lookup 的未检查转换，
+// 或经典 ActorRef 直接 tell 给类型化 Actor），按 WARN 限速记录（每 5 分钟前 10 条），点明原因。
+// 消息本身随后由 Cell 以 UnhandledMessage 交给死信订阅者（T11：此前只加一个计数，静默消失）
+let protocolMismatchLog: LogRateLimiter = LogRateLimiter(10, Duration.minute * 5)
 
 /** 可以取出任意类型载荷的消息（TypedPayloadBox / TypedEnvelope 等载体；用于跨协议投递与测试工具） */
 public interface PayloadCarrier {
@@ -207,12 +215,11 @@ public class TypedHooks {
 }
 
 /**
- * 冷路径桥接（每 Actor 一次，不进热路径）：建类型化上下文、取 watchWith / 超时消息、停止自身。
+ * 冷路径桥接（每 Actor 一次，不进热路径）：建类型化上下文、取超时消息、停止自身。
  * 需要 internal 的 SupervisionRules，因此留在 core；泛型在 core 实例化，但只在建上下文/信号时发生。
  */
 internal abstract class TypedColdHooks {
     public func makeCtx(classic: ActorContext, system: Option<TypedActorSystem>): Any
-    public func terminatedMessage(c: Any, t: TypedTerminated): Any
     public func timeoutMessage(c: Any): Any
     public func stopSelf(c: Any): Unit
 }
@@ -231,14 +238,6 @@ internal class TypedColdHooksImpl<T> <: TypedColdHooks {
 
     public func makeCtx(classic: ActorContext, system: Option<TypedActorSystem>): Any {
         ClassicTypedContext<T>(classic, rules, system)
-    }
-
-    public func terminatedMessage(c: Any, t: TypedTerminated): Any {
-        let cc = (c as ClassicTypedContext<T>).getOrThrow()
-        match (cc.watchMessages.remove(t.ref.path.getPath())) {
-            case Some(m) => m
-            case None => NOT_MATCHED
-        }
     }
 
     public func timeoutMessage(c: Any): Any {
@@ -285,6 +284,30 @@ public struct TypedSpawn {
 
     public static func props<U>(behavior: TypedBehavior<U>, system: Option<TypedActorSystem>, typedProps: TypedProps): Props<Actor> {
         props<U>(behavior, system, typedProps, None<TypedHooks>)
+    }
+
+    /**
+     * 在**调用方包**里构造热路径 hooks（T16）：@Frozen 让函数体随调用方展开，闭包里对 U 的 `as` / 接口调用
+     * 都在调用方包实例化，每条消息不再做运行时类型查找。只有**静态调用**链才有效（用户代码、setup 等 @Frozen 工厂）；
+     * 经接口虚调用（如 ctx.actorOf 的实现）或在 core 的非 @Frozen 泛型代码里调用，等同于 defaultHooks
+     */
+    @Frozen
+    public static func hooksFor<U>(): TypedHooks {
+        let unpack: (Any) -> Any = { a => match (a as U) { case Some(m) => m; case None => NOT_MATCHED } }
+        let onMsg: (Any, Any, Any) -> Any = { b, m, cx =>
+            (b as TypedBehavior<U>).getOrThrow().onMessage((m as U).getOrThrow(), (cx as TypedActorContext<U>).getOrThrow())
+        }
+        let onSig: (Any, Any, Any) -> Any = { b, sg, cx =>
+            (b as TypedBehavior<U>).getOrThrow().onSignal((sg as TypedSignal).getOrThrow(), (cx as TypedActorContext<U>).getOrThrow())
+        }
+        let st: (Any, Any) -> Any = { b, cx =>
+            TypedBehaviors.start<U>((b as TypedBehavior<U>).getOrThrow(), (cx as TypedActorContext<U>).getOrThrow())
+        }
+        let stoppedCb: (Any) -> Option<() -> Unit> = { b =>
+            TypedBehaviors.stoppedCallbackOf<U>((b as TypedBehavior<U>).getOrThrow())
+        }
+        let desc: (Any) -> String = { b => (b as TypedBehavior<U>).getOrThrow().getDescription() }
+        TypedHooks(unpack, onMsg, onSig, st, stoppedCb, desc)
     }
 
     public static func props<U>(behavior: TypedBehavior<U>): Props<Actor> {
@@ -362,7 +385,13 @@ class TypedActorAdapter <: Actor {
         }
         started = true
         let c = ctxFor(context)
-        let result = applyNext(initialAny, c, true)
+        let result = try {
+            applyNext(initialAny, c, true)
+        } catch (e: Exception) {
+            // 异常交给经典监督之前，在本 Actor 线程上快照当前生效的监督层（T9）
+            rules.captureFailure(behaviorAny)
+            throw e
+        }
         match (result) {
             case MessageResult.Stop => cold.stopSelf(c)
             case _ => ()
@@ -370,23 +399,34 @@ class TypedActorAdapter <: Actor {
     }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
-        let c = ctxFor(context)
+        // 启动失败已在 onStarted 里快照（含正在启动的层），不能在这里再覆盖一次
         if (!started) {
             onStarted(context)
         }
+        try {
+            receiveInner(message, context)
+        } catch (e: Exception) {
+            rules.captureFailure(behaviorAny)
+            throw e
+        }
+    }
+
+    private func receiveInner(message: Message, context: ActorContext): MessageResult {
+        let c = ctxFor(context)
         if (stopping) {
             return MessageResult.Unhandled
         }
         match (message) {
             case p: TypedPayloadBox =>
                 deliverAny(p.payload, c)
+            // watchWith 的自定义消息由 Cell 换好、以 TypedPayloadBox 送达；这里只剩未登记消息的 Terminated 信号
             case t: Terminated =>
-                let m = cold.terminatedMessage(c, TypedTerminated(t.actor))
-                if (m is TypedNotMatched) {
-                    applyNext(hooks.onSignal(behaviorAny, TypedTerminated(t.actor), c), c, false)
-                } else {
-                    applyNext(hooks.onMessage(behaviorAny, m, c), c, false)
+                let r = applyNext(hooks.onSignal(behaviorAny, TypedTerminated(t.actor), c), c, false)
+                // 未处理的 Terminated 由 Cell 抛 DeathPactException：同样先快照监督层，规则可以处理它
+                if (let MessageResult.Unhandled <- r) {
+                    rules.captureFailure(behaviorAny)
                 }
+                r
             case _: ReceiveTimeout =>
                 let m = cold.timeoutMessage(c)
                 if (m is TypedNotMatched) {
@@ -404,6 +444,7 @@ class TypedActorAdapter <: Actor {
     private func deliverAny(payload: Any, c: Any): MessageResult {
         let m = hooks.unpack(payload)
         if (m is TypedNotMatched) {
+            protocolMismatchLog.tryLog({ s => typedLifecycleLog.warn(s) }, { => protocolMismatchText(payload) })
             return MessageResult.Unhandled
         }
         applyNext(hooks.onMessage(behaviorAny, m, c), c, false)
@@ -445,7 +486,8 @@ class TypedActorAdapter <: Actor {
             try {
                 hooks.onSignal(behaviorAny, PreRestart(reason), c) |> ignore
             } catch (e: Exception) {
-                hooks.describe(behaviorAny) |> ignore
+                // 不影响重启，但不能静默吞掉（A10）
+                typedLifecycleLog.warn("类型化 Actor 的 PreRestart 信号处理抛出异常（已忽略，继续重启）: ${e}")
             }
         }
     }
@@ -458,7 +500,7 @@ class TypedActorAdapter <: Actor {
                     case None => hooks.onSignal(behaviorAny, PostStop(), c) |> ignore
                 }
             } catch (e: Exception) {
-                ()
+                typedLifecycleLog.warn("类型化 Actor 的 PostStop 信号处理抛出异常（已忽略，继续停止）: ${e}")
             }
         }
     }
@@ -469,7 +511,7 @@ func ignore(_: Any): Unit {}
 /**
  * 用经典上下文实现的类型化上下文（每个 Actor 实例一个，只在 Actor 线程中使用）
  */
-class ClassicTypedContext<T> <: TypedActorContext<T> {
+class ClassicTypedContext<T> <: TypedActorContext<T> & SupervisionHost {
     let classic: ActorContext
     let supervision: SupervisionRules
     let typedSystem: Option<TypedActorSystem>
@@ -477,11 +519,17 @@ class ClassicTypedContext<T> <: TypedActorContext<T> {
     private var timersValue: Option<TypedTimerScheduler<T>> = None<TypedTimerScheduler<T>>
     private var loggerValue: Option<ActorTypedLogger> = None<ActorTypedLogger>
     private var anonymousSeq: Int64 = 0
-    /** watchWith 登记的消息：路径 -> 消息 */
-    let watchMessages = HashMap<String, T>()
     var receiveTimeoutMessage: Option<T> = None<T>
     /** same() 的缓存实例（P2-20）：每 Actor 一个，只在 Actor 线程内使用，消除每消息分配 */
     private var sameBehaviorValue: Option<SameBehavior<T>> = None<SameBehavior<T>>
+
+    public func pushStarting(rules: Array<SupervisionRule>): Unit {
+        supervision.pushStarting(rules)
+    }
+
+    public func popStarting(): Unit {
+        supervision.popStarting()
+    }
 
     init(classic: ActorContext, supervision: SupervisionRules, typedSystem: Option<TypedActorSystem>) {
         this.classic = classic
@@ -528,29 +576,29 @@ class ClassicTypedContext<T> <: TypedActorContext<T> {
 
     // ---------- 子 Actor ----------
 
-    @Frozen
-    public func actorOf<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U> {
-        actorOf<U>(behavior, name, TypedProps())
-    }
-
-    @Frozen
-    public func actorOf<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps): TypedActorRef<U> {
-        // @Frozen：本函数体在调用方（用户）包里展开，桥接闭包里的 `any as U`
-        // 因此是用户包里的具体类型转换（4–10ns），而不是 core 泛型代码里的运行时类型查找
-        let unwrap: (Any) -> Option<U> = { any => any as U }
-        let ref = classic.actorOf(TypedSpawn.props<U>(behavior, typedSystem, props), name)
+    // 三个 actorOf 用接口默认实现，这里只实现创建本身。热路径 hooks 取初始行为携带的那份（T16）：
+    // setup / supervise(setup) 在调用方包里构造好，子 Actor 与顶层 typedActorOf 同样走快路径；
+    // 没有携带时退回 core 内的默认 hooks。此前这里构造了 unwrap 却没传下去，子 Actor 全部走慢路径
+    public func actorOfWithHooks<U>(behavior: TypedBehavior<U>, name: Option<String>, props: TypedProps): TypedActorRef<U> {
+        let childName = match (name) {
+            case Some(n) => n
+            case None =>
+                anonymousSeq++
+                "$t${anonymousSeq}"
+        }
+        let ref = classic.actorOf(TypedSpawn.props<U>(behavior, typedSystem, props, carriedHooksOf(behavior)), childName)
         ClassicTypedRef<U>(ref)
-    }
-
-    public func actorOf<U>(behavior: TypedBehavior<U>): TypedActorRef<U> {
-        anonymousSeq++
-        actorOf<U>(behavior, "$t${anonymousSeq}", TypedProps())
     }
 
     public func stop<U>(child: TypedActorRef<U>): Unit {
         classic.stop(classicOf(child, "stop"))
     }
 
+    /**
+     * 按名字取子 Actor 并当作 TypedActorRef<U>（对应 Akka 的 child(name) + unsafeUpcast）：经典子引用不携带协议类型，
+     * 这里无法在编译期或取引用时检查 U。用错时不会静默：对方收到协议之外的消息会限速 WARN，
+     * 消息以 UnhandledMessage 交给死信订阅者（T11）
+     */
     public func childAs<U>(name: String): Option<TypedActorRef<U>> {
         match (classic.child(name)) {
             case Some(r) => Some<TypedActorRef<U>>(ClassicTypedRef<U>(r))
@@ -574,15 +622,13 @@ class ClassicTypedContext<T> <: TypedActorContext<T> {
     }
 
     public func watchWith<U>(other: TypedActorRef<U>, message: T): Unit {
-        let ref = classicOf(other, "watchWith")
-        watchMessages.add(ref.path.getPath(), message)
-        classic.watch(ref)
+        // 映射保存在 Cell 上（与 Akka 一致）：重启后的新实例收到的仍是 message，
+        // 而不是没有登记的 Terminated 信号（此前保存在本上下文里，重启即丢失，进而触发 DeathPact，T3）
+        classic.watchWith(classicOf(other, "watchWith"), TypedPayloadBox(message))
     }
 
     public func unwatch<U>(other: TypedActorRef<U>): Unit {
-        let ref = classicOf(other, "unwatch")
-        watchMessages.remove(ref.path.getPath())
-        classic.unwatch(ref)
+        classic.unwatch(classicOf(other, "unwatch"))
     }
 
     private func classicOf<U>(ref: TypedActorRef<U>, op: String): ActorRef {
@@ -756,4 +802,18 @@ class ActorTypedLogger <: TypedLogger {
     public func error(message: String): Unit {
         inner.error(message)
     }
+}
+
+/** 协议不符告警的正文（只在配额内拼接） */
+func protocolMismatchText(payload: Any): String {
+    let what = match (payload) {
+        case m: Message => m.messageType()
+        case t: ToString =>
+            let runes = t.toString().toRuneArray()
+            // 按字符截断：按字节切片可能切在多字节字符中间
+            if (runes.size > 120) { "${String(runes[..120])}…" } else { String(runes) }
+        case _ => "（无 toString 的载荷）"
+    }
+    "类型化 Actor 收到协议之外的消息 ${what}，按未处理消息交给死信订阅者。" +
+        "常见原因：childAs / lookup 等未检查的类型转换用错了协议类型，或经典 ActorRef 直接 tell 给了类型化 Actor"
 }

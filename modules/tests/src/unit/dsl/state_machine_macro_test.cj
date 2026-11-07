@@ -222,12 +222,17 @@ public class StateMachineMacroTest {
     public func testNamedGuardExpression(): Unit {
         let rec = EventRecorder()
         let m = CompositeMachine(rec)
-        // 命名守卫放行：Idle -> Working 成功，动作被调用
+        // 命名守卫拒绝：Idle -> Working 在转换表里，被 gateOpen() 拦下，状态不变、动作不执行
+        m.gate = false
+        @Expect(m.transitionTo(WorkflowState.Working), false)
+        @Expect(CompositeMachine.stateName(m.currentState()), "Idle")
+        @Expect(rec.contains("enter-working"), false)
+        // 命名守卫放行：迁移成功，动作被调用
+        m.gate = true
         @Expect(m.transitionTo(WorkflowState.Working), true)
         @Expect(CompositeMachine.stateName(m.currentState()), "Working")
         @Expect(rec.contains("enter-working"), true)
-        // 守卫拒绝：Done -> Idle
-        m.gate = false
+        // 不在转换表里的迁移与守卫无关：Working -> Idle 直接被拒
         @Expect(m.transitionTo(WorkflowState.Idle), false)
         @Expect(CompositeMachine.stateName(m.currentState()), "Working")
     }

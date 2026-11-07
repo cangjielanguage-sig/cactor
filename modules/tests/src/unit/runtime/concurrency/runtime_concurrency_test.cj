@@ -14,6 +14,7 @@ import cactor.api.{CActorSystem, CActorSystemFactory}
 import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}
+import cactor_testkit.{awaitCondition}
 
 class CountingActor <: Actor {
     let counter: AtomicInt64
@@ -87,6 +88,11 @@ public class RuntimeConcurrencyTest {
         for (f in stopFutures) {
             f.get()
         }
+        // 与 Akka 一致（E33）：stop 只发出停止请求，登记与计数在 Actor 真正终止时注销
+        @Expect(awaitCondition(Duration.second * 10, { =>
+            runtime.getUserGuardian().getAllUserActors().size == 0 && runtime.getRuntimeStats().actorCount == 0 &&
+                runtime.getActorRegistry().getTotalActorCount() == 0
+        }), true)
         @Expect(runtime.getUserGuardian().getAllUserActors().size, 0)
         @Expect(runtime.getRuntimeStats().actorCount, 0)
         @Expect(runtime.getActorRegistry().getTotalActorCount(), 0)

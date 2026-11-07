@@ -1,293 +1,140 @@
 /*
- * Copyright (c) 2024. All rights reserved.
- * CActor - Ask模式单元测试
- * Plan20阶段1：Ask模式完善 - 单元测试验证
+ * CActor - 经典 ActorRef 的 ask（E38 收敛后的唯一经典入口：AskInbox）
+ *
+ * ask 只有三个入口，各管一段：
+ *   - 类型化、Actor 外：TypedAsk.ask<Req, Res>(ref, { r => Req(.., r) }, timeout)   —— 见 best02_ask_roundtrip
+ *   - 类型化、Actor 内：ctx.ask(target, factory, timeout) { outcome => ... }        —— 见 best02_ask_roundtrip
+ *   - 经典 ActorRef：AskInbox.ask(target, message).get(timeout)                     —— 本示例
+ *
+ * 经典 ask 不需要目标做任何配合：收件箱就是发送方，目标照常 context.reply(...)。
+ * （旧的 cactor_patterns.ask.Ask 要求目标解包 AskMessage、回 AskResponse，已 @Deprecated，2.0.0 移除。）
+ *
+ * 演示与自检：
+ *   1. 请求-回复：AskInbox.ask(...).get(timeout)
+ *   2. 超时：tryGet(timeout) 返回 None；get(timeout) 抛 TypedAskTimeoutException
+ *   3. 请求消息自带 replyTo（DSL 写法）：askInbox() 填进消息
+ *   4. 多线程并发 ask：每个请求一个收件箱，回复不会串
+ *
+ * 运行：cjpm build && ./target/release/bin/cactor_examples.ask_demo
  */
 package cactor_examples.ask_demo
 
+import std.sync.*
 import std.time.*
+import std.collection.*
 import cactor.api.{CActor}
-import cactor_core.actor.{Actor, ActorRef}
-import cactor_core.message.{Message, MessageResult, StringMessage, PingMessage}
-import cactor_core.context.{ActorContext}
-import cactor_patterns.ask.{Ask, AskMessage, AskResponse, Result, AskFuture}
+import cactor_core.actor.{Actor, ActorContext, ActorRef}
+import cactor_core.message.{Message, MessageResult, StringMessage}
+import cactor_core.dsl.{AskInbox, askInbox}
+import cactor_core.typed.{TypedAskTimeoutException}
 
-/**
- * Ask模式测试Actor
- */
-class AskTestActor <: Actor {
-    private var messageCount: Int64 = 0
-    
+/** 请求消息自带回复地址（DSL 的标准写法） */
+class Square <: Message {
+    let n: Int64
+    let replyTo: ActorRef
+
+    init(n: Int64, replyTo: ActorRef) {
+        this.n = n
+        this.replyTo = replyTo
+    }
+
+    public func messageType(): String {
+        "Square"
+    }
+}
+
+/** 普通经典 Actor：用 context.reply 回复发送方；"silence" 不回复（演示超时） */
+class Calculator <: Actor {
     public prop name: String {
-        get() { "AskTestActor" }
+        get() { "calculator" }
     }
-    
+
     public prop description: String {
-        get() { "Ask模式测试专用Actor" }
+        get() { "calculator" }
     }
-    
+
     public func receive(message: Message, context: ActorContext): MessageResult {
         match (message) {
-            case askMsg: AskMessage =>
-                messageCount += 1
-                let originalMsg = askMsg.getOriginalMessage()
-                let replyTo = askMsg.getReplyTo()
-                
-                // 根据消息内容生成不同的响应
-                let response = match (originalMsg) {
-                    case stringMsg: StringMessage =>
-                        let content = stringMsg.getContent()
-                        if (content == "delay") {
-                            // 模拟延迟响应
-                            sleep(Duration.millisecond * 100)
-                            StringMessage("delayed response")
-                        } else if (content == "error") {
-                            // 模拟错误情况
-                            StringMessage("error response")
-                        } else {
-                            StringMessage("echo: ${content}")
-                        }
-                    case pingMsg: PingMessage =>
-                        StringMessage("pong: ${pingMsg.getId()}")
-                    case _ =>
-                        StringMessage("unknown message")
+            case s: StringMessage =>
+                if (s.getContent() != "silence") {
+                    context.reply(StringMessage(s.getContent().toAsciiUpper()))
                 }
-                
-                // 发送响应
-                let askResponse = AskResponse(askMsg.getRequestId(), response, true)
-                replyTo.tell(askResponse)
-                
-                MessageResult.Handled
-                
-            case _ =>
-                MessageResult.Unhandled
+            case q: Square => q.replyTo << StringMessage("${q.n * q.n}")
+            case _ => return MessageResult.Unhandled
         }
-    }
-    
-    public func preStart(): Unit {
-        // Actor启动
-    }
-    
-    public func postStop(): Unit {
-        // Actor停止
-    }
-    
-    public func getMessageCount(): Int64 {
-        messageCount
+        MessageResult.Handled
     }
 }
 
-/**
- * Ask模式单元测试
- */
-func runAskPatternTests(): Bool {
-    println("🧪 CActor Ask模式单元测试")
-    println("==========================")
-    
-    var allTestsPassed = true
-    
-    // 创建测试环境
-    let system = CActor.system("ask-test-system")
-    let testActor = system.actorOf({ => AskTestActor() }, "ask-test-actor")
-    
-    // 测试1: 基本Ask功能
-    println("📋 测试1: 基本Ask功能")
-    let test1Result = testBasicAsk(testActor)
-    if (test1Result) {
-        println("✅ 测试1通过")
-    } else {
-        println("❌ 测试1失败")
-        allTestsPassed = false
-    }
-    
-    // 测试2: 超时处理
-    println("📋 测试2: 超时处理")
-    let test2Result = testAskTimeout(testActor)
-    if (test2Result) {
-        println("✅ 测试2通过")
-    } else {
-        println("❌ 测试2失败")
-        allTestsPassed = false
-    }
-    
-    // 测试3: 异步回调
-    println("📋 测试3: 异步回调")
-    let test3Result = testAsyncCallback(testActor)
-    if (test3Result) {
-        println("✅ 测试3通过")
-    } else {
-        println("❌ 测试3失败")
-        allTestsPassed = false
-    }
-    
-    // 测试4: 并发Ask请求
-    println("📋 测试4: 并发Ask请求")
-    let test4Result = testConcurrentAsk(testActor)
-    if (test4Result) {
-        println("✅ 测试4通过")
-    } else {
-        println("❌ 测试4失败")
-        allTestsPassed = false
-    }
-    
-    // 测试5: 性能测试
-    println("📋 测试5: 性能测试")
-    let test5Result = testAskPerformance(testActor)
-    if (test5Result) {
-        println("✅ 测试5通过")
-    } else {
-        println("❌ 测试5失败")
-        allTestsPassed = false
-    }
-    
-    // 清理测试环境
-    Ask.shutdown()
-    system.terminate()
-    
-    if (allTestsPassed) {
-        println("🎉 所有Ask模式测试通过!")
-    } else {
-        println("💥 部分Ask模式测试失败!")
-    }
-    
-    return allTestsPassed
-}
-
-/**
- * 测试基本Ask功能
- */
-func testBasicAsk(actor: ActorRef): Bool {
-    try {
-        // 测试字符串消息
-        let future1 = Ask.ask(actor, StringMessage("hello"), Duration.second * 2)
-        let result1 = future1.get()
-        
-        match (result1) {
-            case Result.Success(response) =>
-                match (response) {
-                    case stringMsg: StringMessage =>
-                        if (stringMsg.getContent().contains("echo: hello")) {
-                            return true
-                        }
-                    case _ => return false
-                }
-            case Result.Failure(_) => return false
-        }
-        
-        return false
-    } catch (e: Exception) {
-        println("基本Ask测试异常: ${e.message}")
-        return false
+func textOf(m: Message): String {
+    match (m as StringMessage) {
+        case Some(s) => s.getContent()
+        case None => m.messageType()
     }
 }
 
-/**
- * 测试超时处理
- */
-func testAskTimeout(actor: ActorRef): Bool {
-    try {
-        // 使用极短的超时时间
-        let future = Ask.ask(actor, StringMessage("delay"), Duration.millisecond * 10)
-        let result = future.get()
-        
-        match (result) {
-            case Result.Success(_) =>
-                // 如果收到响应，说明超时机制可能有问题，但也可能是响应太快
-                return true
-            case Result.Failure(error) =>
-                // 期望超时错误
-                return error.message.contains("timeout") || error.message.contains("Timeout")
-        }
-    } catch (e: Exception) {
-        // 异常也算是正确的超时处理
-        return true
-    }
-}
-
-/**
- * 测试异步回调
- */
-func testAsyncCallback(actor: ActorRef): Bool {
-    // 使用同步方式替代异步回调，避免lambda闭包问题
-    try {
-        let future = Ask.ask(actor, StringMessage("async test"), Duration.second * 2)
-        let result = future.await(Duration.second * 2)
-
-        match (result) {
-            case Result.Success(response) =>
-                match (response) {
-                    case stringMsg: StringMessage =>
-                        return stringMsg.getContent().contains("echo: async test")
-                    case _ => return false
-                }
-            case Result.Failure(_) => return false
-        }
-    } catch (e: Exception) {
-        println("异步回调测试异常: ${e.message}")
-        return false
-    }
-}
-
-/**
- * 测试并发Ask请求
- */
-func testConcurrentAsk(actor: ActorRef): Bool {
-    try {
-        let concurrentCount = 10
-        let futures = Array<AskFuture<Message>>(Int64(concurrentCount), { i =>
-            Ask.ask(actor, StringMessage("concurrent-${i}"), Duration.second * 3)
-        })
-        
-        var successCount = 0
-        for (i in 0..Int64(concurrentCount)) {
-            match (futures[i].get()) {
-                case Result.Success(_) => successCount += 1
-                case Result.Failure(_) => ()
-            }
-        }
-        
-        // 至少80%的请求应该成功
-        return successCount >= (concurrentCount * 8 / 10)
-    } catch (e: Exception) {
-        println("并发Ask测试异常: ${e.message}")
-        return false
-    }
-}
-
-/**
- * 测试Ask性能
- */
-func testAskPerformance(actor: ActorRef): Bool {
-    try {
-        let testCount = 100
-        let startTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
-        
-        for (i in 0..Int64(testCount)) {
-            let future = Ask.ask(actor, StringMessage("perf-${i}"), Duration.second * 1)
-            let _ = future.get()
-        }
-        
-        let endTime = DateTime.now().toUnixTimeStamp().toNanoseconds()
-        let totalTime = endTime - startTime
-        let avgTime = totalTime / Int64(testCount)
-        
-        println("Ask性能测试结果:")
-        println("  总时间: ${totalTime} ns")
-        println("  平均时间: ${avgTime} ns/request")
-        println("  吞吐量: ${1000000000 / avgTime} req/s")
-        
-        // 性能要求：平均响应时间小于10ms
-        return avgTime < 10000000  // 10ms in nanoseconds
-    } catch (e: Exception) {
-        println("Ask性能测试异常: ${e.message}")
-        return false
-    }
-}
-
-/**
- * 主函数
- */
 main(): Int64 {
-    let testResult = runAskPatternTests()
-    return if (testResult) { 0 } else { 1 }
+    let system = CActor.system("ask-demo")
+    let calc = system.actorOf({ => Calculator() }, "calculator")
+    // 闭包不能捕获可变局部变量再作为值传递，失败计数用原子量
+    let failures = AtomicInt64(0)
+    let check = { ok: Bool, what: String =>
+        println("${if (ok) { "✓" } else { "✗" }} ${what}")
+        if (!ok) {
+            failures.fetchAdd(1)
+        }
+        ()
+    }
+
+    // 1. 请求-回复
+    let reply = AskInbox.ask(calc, StringMessage("hello")).get(Duration.second * 3)
+    check(textOf(reply) == "HELLO", "AskInbox.ask 收到回复: ${textOf(reply)}")
+
+    // 2. 超时
+    let silent = AskInbox.ask(calc, StringMessage("silence"))
+    check(silent.tryGet(Duration.millisecond * 100).isNone(), "不回复的请求 tryGet 超时返回 None")
+    var timedOut = false
+    try {
+        AskInbox.ask(calc, StringMessage("silence")).get(Duration.millisecond * 100) |> ignoreMsg
+    } catch (e: TypedAskTimeoutException) {
+        timedOut = true
+    }
+    check(timedOut, "get 超时抛 TypedAskTimeoutException")
+
+    // 3. 请求自带 replyTo
+    let inbox = askInbox()
+    calc << Square(12, inbox)
+    check(textOf(inbox.get(Duration.second * 3)) == "144", "replyTo 写法：12² = 144")
+
+    // 4. 多线程并发 ask
+    let threads = 4
+    let perThread = 250
+    let wrong = AtomicInt64(0)
+    let futures = ArrayList<Future<Unit>>()
+    for (t in 0..threads) {
+        futures.add(spawn {
+            for (i in 0..perThread) {
+                let word = "w${t}-${i}"
+                let r = AskInbox.ask(calc, StringMessage(word)).get(Duration.second * 3)
+                if (textOf(r) != word.toAsciiUpper()) {
+                    wrong.fetchAdd(1)
+                }
+            }
+        })
+    }
+    for (f in futures) {
+        f.get()
+    }
+    check(wrong.load() == 0, "${threads} 线程 × ${perThread} 次并发 ask，回复全部对应各自的请求")
+
+    system.terminate()
+    if (failures.load() == 0) {
+        println("ask 示例：通过")
+        0
+    } else {
+        println("ask 示例：${failures.load()} 项失败")
+        1
+    }
 }
+
+func ignoreMsg(_: Message): Unit {}

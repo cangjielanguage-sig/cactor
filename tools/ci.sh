@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # CActor CI 门禁：构建、分层检查、全部测试、可选基准
 #
-#   tools/ci.sh            # build + 分层检查 + 全部测试
-#   tools/ci.sh --bench    # 另外运行基准（需要空闲机器，数字才有意义）
-#   tools/ci.sh --soak [秒] # 另外运行长时间稳定性测试（默认 600 秒）
+#   tools/ci.sh                    # build + 分层检查 + 全部测试 + 示例自检
+#   tools/ci.sh --bench            # 另外运行基准门禁（需要空闲机器，数字才有意义）
+#   tools/ci.sh --soak [秒]         # 另外运行长时间稳定性测试（默认 600 秒）
+#   tools/ci.sh --soak 300 --bench # 参数可组合、顺序任意
+#
+# 环境变量：
+#   CI_TEST_TIMEOUT   单个测试用例的超时（默认 120s）。任何用例死循环 / 死锁都会在该时限内判失败，
+#                     不再把整个门禁卡死（E26：6183072 的 Random 路由死循环曾让 ci.sh 永不结束）。
+#   CI_STEP_TIMEOUT   每个示例 / 演示脚本的超时秒数（默认 300）。
 #
 # 注意：必须在 workspace 根目录执行 cjpm build；`cjpm build -m <模块>` 不继承 workspace 的 -O2，
 # 用它构建出的基准程序会慢 2–3 倍。
@@ -17,6 +23,24 @@ if ! command -v cjpm >/dev/null 2>&1; then
 fi
 
 step() { printf '\n==> %s\n' "$*"; }
+
+# ---- 参数：循环解析，--bench 与 --soak 可同时使用 ----
+RUN_BENCH=0
+SOAK_SECS=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --bench) RUN_BENCH=1; shift ;;
+        --soak)
+            shift
+            if [ $# -gt 0 ] && [[ "$1" =~ ^[0-9]+$ ]]; then SOAK_SECS="$1"; shift; else SOAK_SECS=600; fi ;;
+        *) echo "未知参数: $1"; exit 2 ;;
+    esac
+done
+
+TEST_TIMEOUT="${CI_TEST_TIMEOUT:-120s}"
+STEP_TIMEOUT="${CI_STEP_TIMEOUT:-300}"
+# 示例 / 脚本统一加超时：挂死即失败（timeout 退出码 124），而不是让门禁无限等待
+guard() { timeout --foreground "$STEP_TIMEOUT" "$@"; }
 
 step "构建（workspace，-O2）"
 cjpm build
@@ -39,7 +63,11 @@ log=$(mktemp)
 # 在本机（桌面负载 40–55）上并行跑多个集群用例时，故障检测偶发把节点误判为不可达，
 # 出现 `distinct.size==2` / `localEntityCount()==0` 这类分布断言失败（隔离单跑 10/10 通过）。
 # 串行执行的墙钟时间与并行基本相同（约 2m50s，长等待本来就占主导），因此默认串行。
-if ! cjpm test --parallel 1 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee "$log" | grep -E '^Summary|PASSED:|FAILED:|ERROR:' | tail -4; then
+# env -u CACTOR_LOG_LEVEL：调用方若导出了日志级别（例如 error），日志类用例的 warn 输出会被过滤而误报失败（E26）。
+# --timeout-each：单个用例超时即判失败，死循环不再卡死门禁（E26）。
+# --no-progress：输出写进文件，交互式进度条没有意义；且仓颉 1.2.0 的 std.unittest 进度汇报线程偶发
+# NoneValueException（TestProgressCollector.updateBody），全部用例通过时也让 cjpm test 判失败（第 5 批实测：554/554 通过、门禁仍红）。
+if ! env -u CACTOR_LOG_LEVEL cjpm test --parallel 1 --no-progress --timeout-each="$TEST_TIMEOUT" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee "$log" | grep -E '^Summary|PASSED:|FAILED:|ERROR:' | tail -4; then
     true
 fi
 if grep -qE '\[ (FAILED|ERROR) \] CASE' "$log" || ! grep -q 'cjpm test success' "$log"; then
@@ -49,12 +77,12 @@ if grep -qE '\[ (FAILED|ERROR) \] CASE' "$log" || ! grep -q 'cjpm test success' 
 fi
 
 step "示例自检"
-CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.chat_room
-CACTOR_LOG_LEVEL=error cjHeapSize=4GB ./target/release/bin/cactor_examples.scale_test 50000 child | tail -3
-tools/cluster_demo.sh | tail -2
-tools/cluster_crash_demo.sh | tail -4
+CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.chat_room
+CACTOR_LOG_LEVEL=error cjHeapSize=4GB guard ./target/release/bin/cactor_examples.scale_test 50000 child | tail -3
+guard tools/cluster_demo.sh | tail -2
+guard tools/cluster_crash_demo.sh | tail -4
 # 20 秒稳定性自检：收发零丢失、故障全部重启、子 Actor 全部停止、静止存活堆不增长
-CACTOR_LOG_LEVEL=off ./target/release/bin/cactor_examples.soak_test 20 | tail -5
+CACTOR_LOG_LEVEL=off guard ./target/release/bin/cactor_examples.soak_test 20 | tail -5
 
 step "库代码中不应新增 println（报告类 print*/display*/show* 函数除外）"
 python3 - <<'EOF'
@@ -80,20 +108,16 @@ if bad:
 print('通过')
 EOF
 
-if [[ "${1:-}" == "--soak" ]]; then
-    step "长时间稳定性测试"
-    CACTOR_LOG_LEVEL=off ./target/release/bin/cactor_examples.soak_test "${2:-600}"
+if [ -n "$SOAK_SECS" ]; then
+    step "长时间稳定性测试（${SOAK_SECS} 秒）"
+    CACTOR_LOG_LEVEL=off timeout --foreground "$((SOAK_SECS + 120))" ./target/release/bin/cactor_examples.soak_test "$SOAK_SECS"
 fi
 
-if [[ "${1:-}" == "--bench" ]]; then
+if [ "$RUN_BENCH" = "1" ]; then
     step "基准门禁（bench_gate.sh 决定退出码）"
     # 2026-11-06 修复（E4）：--bench 接入 bench_gate.sh 门禁，由它决定 CI 退出码；
     # 此前只打印数字不判定，门禁形同虚设。
-    if [ -f tools/bench_gate.sh ]; then
-        bash tools/bench_gate.sh
-    else
-        CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.real_benchmark
-    fi
+    bash tools/bench_gate.sh
 fi
 
 step "全部通过"

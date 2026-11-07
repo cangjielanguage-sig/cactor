@@ -1,7 +1,9 @@
 /*
  * Copyright (c) 2024. All rights reserved.
- * CActor - Ask模式改进演示
- * Plan20阶段1：验证Ask模式完善的功能实现
+ * CActor - 旧 Ask 模式（cactor_patterns.ask.Ask，已 @Deprecated，2.0.0 移除）
+ *
+ * 只为已有代码的迁移对照保留：旧 API 要求目标解包 AskMessage、回 AskResponse。
+ * 新代码请看 ask_demo（经典 AskInbox.ask）与 best02_ask_roundtrip（类型化 TypedAsk.ask / ctx.ask）。
  */
 package cactor_examples.ask_pattern_demo
 

@@ -111,29 +111,6 @@ public class StreamSource<T> {
     }
     
     /**
-     * 去重操作 - 简化实现，基于元素位置
-     */
-    public func distinct(): StreamSource<T> {
-        let result = ArrayList<T>()
-        let seen = ArrayList<String>()
-
-        for (element in elements) {
-            // 简化实现：使用索引作为唯一性判断
-            var found = false
-            for (seenItem in seen) {
-                // 简化比较
-                found = true
-                break
-            }
-            if (!found) {
-                seen.add("seen")
-                result.add(element)
-            }
-        }
-        StreamSource<T>(result.toArray(), "${sourceId}.distinct")
-    }
-    
-    /**
      * 折叠操作 - 将所有元素折叠为单个值
      */
     public func fold<U>(zero: U, folder: (U, T) -> U): StreamSource<U> {
@@ -361,10 +338,8 @@ public class StreamGraph<T, R> {
      * 验证流图状态
      */
     private func validateStreamGraph(): Unit {
-        if (source.size() == 0) {
-            throw StreamValidationException("源为空，无法执行流图")
-        }
-
+        // 空源是合法的流（例如 filter 全部过滤掉、Source.empty）：交给 Sink 按自身语义处理
+        // （fold 返回初值、collect 返回空数组、head 返回 None）。此前这里直接抛异常（P9）
         if (sink.getSinkId().size == 0) {
             throw StreamValidationException("汇聚ID为空，流图配置无效")
         }
@@ -659,26 +634,8 @@ public class FlowFactory {
     /**
      * 去重Flow
      */
-    public static func distinct<T>(): StreamFlow<T, T> {
-        StreamFlow<T, T>({ elements =>
-            let result = ArrayList<T>()
-            let seen = ArrayList<String>()
-
-            for (element in elements) {
-                // 简化实现：使用索引作为唯一性判断
-                var found = false
-                for (seenItem in seen) {
-                    // 简化比较
-                    found = true
-                    break
-                }
-                if (!found) {
-                    seen.add("seen")
-                    result.add(element)
-                }
-            }
-            result.toArray()
-        }, "distinct-flow")
+    public static func distinct<T>(): StreamFlow<T, T> where T <: Hashable & Equatable<T> {
+        StreamFlow<T, T>({ elements => distinctElements(elements) }, "distinct-flow")
     }
 
     /**
@@ -983,5 +940,29 @@ public class SimpleMaterializer {
 
         // 简化实现：直接调用流图的run方法
         return graph.run()
+    }
+}
+
+/**
+ * 保序去重（P1 修复）：此前实现只要见过任意元素就判为重复，结果恒为第一个元素。
+ * 去重需要元素可判等、可哈希——用仓颉的约束泛型表达，不满足约束的元素类型在编译期就没有 distinct，
+ * 而不是在运行时给出错误结果。
+ */
+func distinctElements<T>(elements: Array<T>): Array<T> where T <: Hashable & Equatable<T> {
+    let seen = HashSet<T>(elements.size)
+    let result = ArrayList<T>(elements.size)
+    for (e in elements) {
+        // HashSet.add 返回 false 表示已存在
+        if (seen.add(e)) {
+            result.add(e)
+        }
+    }
+    result.toArray()
+}
+
+extend<T> StreamSource<T> where T <: Hashable & Equatable<T> {
+    /** 保序去重：保留每个值第一次出现的位置 */
+    public func distinct(): StreamSource<T> {
+        StreamSource<T>(distinctElements(getElements()), "${getSourceId()}.distinct")
     }
 }

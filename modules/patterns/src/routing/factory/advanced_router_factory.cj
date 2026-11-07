@@ -15,14 +15,13 @@ import cactor_patterns.routing.{
     RandomRoutingStrategy,
     ConsistentHashRoutingStrategy,
     BroadcastRoutingStrategy,
+    SmallestMailboxRoutingStrategy,
     RouterFactory
 }
 import cactor_patterns.routing.advanced.{
     AdvancedRouter,
     AdvancedRoutingStrategyFactory,
     WeightedRoundRobinRoutingStrategy,
-    LeastConnectionsRoutingStrategy,
-    FastestResponseRoutingStrategy,
     FailoverRoutingStrategy,
     ContentBasedRoutingStrategy
 }
@@ -36,8 +35,7 @@ public enum RouterType {
     | ConsistentHash       // 一致性哈希路由
     | Broadcast            // 广播路由
     | WeightedRoundRobin   // 加权轮询路由
-    | LeastConnections     // 最少连接路由
-    | FastestResponse      // 最快响应路由
+    | SmallestMailbox      // 最小邮箱路由（按真实邮箱长度；替代已删除的 LeastConnections / FastestResponse）
     | Failover             // 故障转移路由
     | ContentBased         // 基于内容路由
     | Custom               // 自定义路由
@@ -144,8 +142,7 @@ public class DefaultAdvancedRouterFactory <: AdvancedRouterFactory {
             RouterType.ConsistentHash,
             RouterType.Broadcast,
             RouterType.WeightedRoundRobin,
-            RouterType.LeastConnections,
-            RouterType.FastestResponse,
+            RouterType.SmallestMailbox,
             RouterType.Failover,
             RouterType.ContentBased,
             RouterType.Custom
@@ -245,10 +242,8 @@ public class DefaultAdvancedRouterFactory <: AdvancedRouterFactory {
                 BroadcastRoutingStrategy()
             case RouterType.WeightedRoundRobin =>
                 AdvancedRoutingStrategyFactory.createWeightedRoundRobin(config.weights)
-            case RouterType.LeastConnections =>
-                AdvancedRoutingStrategyFactory.createLeastConnections()
-            case RouterType.FastestResponse =>
-                AdvancedRoutingStrategyFactory.createFastestResponse()
+            case RouterType.SmallestMailbox =>
+                SmallestMailboxRoutingStrategy()
             case RouterType.Failover =>
                 AdvancedRoutingStrategyFactory.createFailover(config.primaryIndex)
             case RouterType.ContentBased =>
@@ -274,7 +269,7 @@ public class DefaultAdvancedRouterFactory <: AdvancedRouterFactory {
         match (scenario) {
             case RoutingScenario.HighThroughput =>
                 RouterConfig(
-                    RouterType.LeastConnections,
+                    RouterType.SmallestMailbox,
                     "${config.name}-high-throughput",
                     "Optimized for high throughput",
                     Array<Int32>(0, { _ => 0 }),
@@ -284,7 +279,7 @@ public class DefaultAdvancedRouterFactory <: AdvancedRouterFactory {
                 )
             case RoutingScenario.LowLatency =>
                 RouterConfig(
-                    RouterType.FastestResponse,
+                    RouterType.SmallestMailbox,
                     "${config.name}-low-latency",
                     "Optimized for low latency",
                     Array<Int32>(0, { _ => 0 }),
@@ -345,8 +340,7 @@ public class DefaultAdvancedRouterFactory <: AdvancedRouterFactory {
             case RouterType.ConsistentHash => "consistenthash"
             case RouterType.Broadcast => "broadcast"
             case RouterType.WeightedRoundRobin => "weightedroundrobin"
-            case RouterType.LeastConnections => "leastconnections"
-            case RouterType.FastestResponse => "fastestresponse"
+            case RouterType.SmallestMailbox => "smallestmailbox"
             case RouterType.Failover => "failover"
             case RouterType.ContentBased => "contentbased"
             case RouterType.Custom => "custom"

@@ -112,16 +112,22 @@ public class SimpleStream<T, R> {
         }
     }
     
+    /**
+     * 在仓颉轻量线程（spawn）上异步执行，立即返回 Future；future.get() / get(timeout) 取结果。
+     * 异常已在 run() 中折叠为 StreamResult.Failure，Future 本身不会以异常结束。
+     */
+    public func runAsync(): Future<StreamResult<R>> {
+        spawn { run() }
+    }
+
+    /**
+     * 兼容旧签名：等待异步执行完成后返回结果。
+     * 此前的实现创建固定名为 "stream-processor" 的 Actor 并再同步执行一次——Sink 被执行两次，
+     * 第二次调用因重名抛异常，且该 Actor 永不停止（P9）。
+     */
+    @Deprecated["请改用 runAsync(): Future<StreamResult<R>>", since: "1.2.0"]
     public func runAsync(actorSystem: CActorSystem): StreamResult<R> {
-        // 创建流处理Actor
-        let streamActor = SimpleStreamActor<T, R>(source, sink)
-        let actorRef = actorSystem.actorOf({ => streamActor }, "stream-processor")
-        
-        // 启动流处理
-        actorRef.tell(StringMessage("start"))
-        
-        // 简化实现：直接返回同步结果
-        run()
+        runAsync().get()
     }
     
     public func getSource(): SimpleSource<T> { source }

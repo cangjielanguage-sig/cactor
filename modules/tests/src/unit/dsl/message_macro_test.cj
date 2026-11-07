@@ -95,6 +95,34 @@ func sampleOrder(): PlaceOrder {
     o
 }
 
+// T13：线上名称与重名检测。两个不同的类故意用同一个线上名称，模拟"不同包里的同名消息类"
+@Message[name = "t13.orders.Ping"]
+class NamedPing <: Message {
+    var n: Int64 = 0
+
+    init(n: Int64) {
+        this.n = n
+    }
+}
+
+@Message[name = "t13.Clash"]
+class ClashA <: Message {
+    var a: String = ""
+
+    init(a: String) {
+        this.a = a
+    }
+}
+
+@Message[name = "t13.Clash"]
+class ClashB <: Message {
+    var b: Int64 = 0
+
+    init(b: Int64) {
+        this.b = b
+    }
+}
+
 @Test
 public class MessageMacroTest {
     @TestCase
@@ -258,5 +286,35 @@ public class MessageMacroTest {
         @Expect(rec.count(o.summary()), 100)
         a.stop()
         b.stop()
+    }
+
+    @TestCase
+    public func explicitWireNameIsUsedForTypeAndRegistry(): Unit {
+        NamedPing.registerCodec()
+        // 同一个类重复注册无害
+        NamedPing.registerCodec()
+        @Expect(NamedPing(1).messageType(), "t13.orders.Ping")
+        @Expect(MessageCodecRegistry.isRegistered("t13.orders.Ping"), true)
+        @Expect(MessageCodecRegistry.isRegistered("NamedPing"), false)
+        let ser = MessageSerializer()
+        let back = (ser.deserialize(ser.serialize(NamedPing(42))) as NamedPing).getOrThrow()
+        @Expect(back.n, 42)
+    }
+
+    @TestCase
+    public func differentClassesWithSameWireNameFailFast(): Unit {
+        ClashA.registerCodec()
+        var clash = ""
+        try {
+            ClashB.registerCodec()
+        } catch (e: IllegalStateException) {
+            clash = e.message
+        }
+        // 修复前：ClashB 静默覆盖 ClashA 的编解码器，远程收到的 ClashA 被解成 ClashB
+        @Expect(clash.contains("t13.Clash"), true)
+        let ser = MessageSerializer()
+        let back = (ser.deserialize(ser.serialize(ClashA("still-a"))) as ClashA).getOrThrow()
+        @Expect(back.a, "still-a")
+        MessageCodecRegistry.unregister("t13.Clash")
     }
 }

@@ -27,15 +27,15 @@
 | 领域 | 状态 | 依据 |
 |---|---|---|
 | 运行时 | ✅ 每个 Actor 一个双缓冲数组邮箱（稳态零分配）；亲和调度 + 侵入式就绪队列 + runNext + 空闲线程捐赠；线程数不超过 cgroup 限额；独立系统消息队列；阻塞调度器；吞吐参数可配置；每 Actor 存活堆 1.0–1.2 KB（5M 规模实测 1072–1182 B） | `runtime/guardian/actor_cell.cj`、`docs/plan/perf20261101.md` |
-| 经典 API 语义（R1） | ✅ 监督树（父停子、Escalate、OneForAll）、watch / Terminated、become、定时器、Stash、接收超时、PoisonPill / Kill、Props 生效、按路径查找、死信订阅 | `semantics_test.cj` 33 个用例 |
-| 类型化 API（R2） | ✅ 运行在经典 Cell 上；setup / receive / supervise / withTimers / withStash / ask / messageAdapter / pipeToSelf / Receptionist（单机）；行为拦截器（`intercept` / `monitor` / `logMessages`） | `typed_semantics_test.cj`、`typed_interceptor.cj` |
+| 经典 API 语义（R1） | ✅ 监督树（父停子、Escalate、OneForAll）、watch / watchWith / Terminated（Terminated 入用户邮箱，先于它发出的消息先到，与 Akka 一致）、协调关闭（Akka 阶段）、become、定时器、Stash、接收超时、PoisonPill / Kill、Props 生效、按路径查找、死信订阅；失败处理与 Akka 对齐（启动失败 / Kill / DeathPact 默认停止、延迟重启挂起、Error 交给监督）；经典与类型化共用的指数退避（E6′）；重启协议与钩子对齐 Akka（preRestart 默认 postStop、postRestart 默认 preStart、preStart 在 Actor 线程执行、等旧子 Actor 全部终止再建新实例、失败待决期间整棵子树暂停，E33）；`system.stop` 立即停止、剩余消息进死信、名字保留到终止，`gracefulStop` 处理完排队消息再停并等待终止（E33）；与 Akka 的逐条对照见 `docs/zh/akka-semantics.md`；路由器 Actor（`Routers.pool` / `group`：保留发送方、摘除已终止目标、管理消息，E37） | `semantics_test.cj` 34 个用例、`failure_semantics/` 13 个、`death_watch/` 7 个、`lifecycle/` 8 个、`patterns/router_actor_test.cj` 6 个用例、`stop_protocol/` 6 个用例 |
+| 类型化 API（R2） | ✅ 运行在经典 Cell 上；setup / receive / supervise / withTimers / withStash / ask / messageAdapter / pipeToSelf / Receptionist（单机，可退订，订阅者停止后自动退订）；类型化路由器（`TypedRouters.pool` / `group`，组路由器跟随 Receptionist，E37）；行为拦截器（`intercept` / `monitor` / `logMessages`）；监督按行为结构由内向外匹配、计数跨重启累计（E36）；未处理 / 协议之外的消息以 `UnhandledMessage` 进死信并限速记日志；`TypedPromise` 组合子（flatMap / recover / sequence）；以 `setup` 开头的子 Actor 走用户包快路径 | `typed_semantics_test.cj`、`typed_interceptor.cj`、`typed_routing/typed_router_test.cj` |
 | DSL | ✅ `@actor`（协议清单编译期核对，`@actorReceive` 为兼容别名）、`@Message`（编解码 + 注册）、`@StateMachine`（转换表 + 穷尽检查）；`Behaviors` 门面、`askInbox`、流管道 `\|>`；`<<` 运算符、时间字面量；占位宏已删除 | `macros/src/`、`core/src/dsl/`、`docs/dsl.md` |
-| 远程 | ✅ 基于 std.net 的 TCP，写线程合并写、批量解析；至多一次投递；远程 ask（`remoting.cj` ask）、远程 watch（WATCH/DEATH 控制消息）；序列化注册与 schema 演进（`remote_semantics` 测试）。🟡 $sys 控制协议尚无鉴权（见 20261106 计划 B1） | `foundation/network/transport.cj`、`remote/remoting.cj` |
-| 持久化 | ✅ 文件/内存事件日志、快照、`EventSourcedActor`；持久化失败上抛不再静默。🟡 三套事件溯源 API 并行待收敛（E8）；CQRS 部分是简化实现 | `persistence/` |
+| 远程 | ✅ 基于 std.net 的 TCP，按目标地址的出站关联：连接与重连在写线程里（指数退避），发送只入队、不阻塞，队列有界、满了丢弃计数，控制消息走优先通道（E40，黑洞节点不拖累健康成员）；写线程合并写、批量解析；至多一次投递；远程 ask（`remoting.cj` ask）、远程 watch（WATCH/UNWATCH/DEATH 走可靠通道，被监视节点重启凭启动标识立即投递 `Terminated`）；可靠投递（按序去重、接收端重启后在新通道重发、未确认上限与超时放弃，E41）；序列化注册与 schema 演进（`remote_semantics` 测试）。🟡 $sys 控制协议尚无鉴权、握手与 quarantine（见 20261106 计划 B1、E7′） | `foundation/network/transport.cj`、`remote/remoting.cj` |
+| 持久化 | ✅ 文件/内存事件日志、快照、`EventSourcedActor`；持久化失败上抛不再静默；`AbstractPersistentActor` 启动与重启时自动恢复，处理器失败不回退已落库序号（E8′ 部分，`unit/persistence/persist_failure_semantics_test.cj`）。🟡 三套事件溯源 API 并行待收敛、Journal v2（CRC、组提交、fsync）未做（E8′）；CQRS 部分是简化实现 | `persistence/` |
 | 集群 | ✅ gossip 成员协议（Phi Accrual 故障检测）、SBR 脑裂处理（keep-majority）、Cluster Singleton、分布式发布订阅（`DistributedPubSub`）、CRDT + Replicator、分片（rendezvous 哈希 + 移交）。🟡 成员协议尚无鉴权（B2）、移交无双阶段（B4） | `cluster/membership/`、`cluster/ddata/` |
 | 流 / 状态机 | 🟠 Streams 有背压策略（Block 策略仍抛异常，见 C7）；XState 有基本状态机，`features` / `enterprise` 是占位 | `streams/core/` |
-| 可观测性 | ✅ 分级日志（`foundation.logging`，默认 WARN，支持结构化字段 / MDC）；Prometheus 文本导出；Timer 指标平均值/时间戳已修复为真实值。🟡 没有追踪 | `runtime/prometheus_metrics.cj`、`foundation/logging/` |
-| 工程 | ✅ `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查、`--bench` 门禁接入 bench_gate）；测试 435 / 435（2026-11-06）；`cactor_testkit`（TestProbe、BehaviorTestKit、ManualTime）；Akka 对比基准 | `tools/`、`bench/` |
+| 可观测性 | ✅ 分级日志（`foundation.logging`，默认 WARN，支持结构化字段 / MDC）；Prometheus 文本导出（每 Actor 计数 64 位，每 Actor 序列默认上限 1000）；Timer 指标平均值/时间戳已修复为真实值；同名指标注册报错。🟡 追踪只有 `foundation.monitoring.Tracer`（W3C 格式 ID），还没有接入消息投递与 ask | `runtime/prometheus_metrics.cj`、`foundation/logging/` |
+| 工程 | ✅ `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查、`--bench` 门禁接入 bench_gate）；测试 590 / 590（2026-11-07 第 9 批，`tools/ci.sh` 单用例超时 120 s）；`cactor_testkit`（TestProbe、BehaviorTestKit、ManualTime）；Akka 对比基准 | `tools/`、`bench/` |
 | HTTP | ✅ 最小可用（ManagementServer：健康检查 + Prometheus 指标，经真实 HTTP）。🟡 Ktor 风格插件体系未开始 | `cactor/api/` |
 
 ### 2.2 性能（同机实测，32 核 Xeon 8582C，详见 20261028-performance.md）
@@ -49,6 +49,7 @@
 | 远程 TCP（回环） | 146–194 k/s（合并写后观察到 405 k/s，未复测） | 135–308 k/s | **需要在空闲机器上复测** |
 
 R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机负载过高（load 30–80）没有得到可信数字。
+2026-11-07 在负载 8.5–9 时与 `6183072` 交替各跑 5 次 `real_benchmark`：工作区单 Actor 中位 3.16 M/s、扇出 6.70 M/s，HEAD 分别为 3.06、6.21 M/s，没有回退；扇出单次波动 4.4–17 M/s，同日 E40（出站关联）之后再测一轮（负载 7.9–9.7）：远程 TCP 中位 36.7 万条/秒（HEAD 33.8 万），扇出中位 9.55 M/s（HEAD 6.78 M/s）；负载 4.8 时远程 TCP 42–50 万条/秒。上表数字待空闲机器与 Akka 同机复测。
 
 ### 2.3 主要问题
 
@@ -62,7 +63,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 2. **同类基础设施各有多套。**
    - 日志 3 套：`foundation.logging`（72 个文件在用）、`foundation.log`（新加，无人使用）、`integration.logging`。
    - 配置 7 个包：`foundation.config`、`foundation.simple_config`、`core.config`、`cactor.config`、`cactor.config.file`、`cactor.api.config`、`integration.configuration`；dispatcher 参数只能用环境变量设置。
-   - ask 多套：`AskPatternManager`、`patterns.ask`、`TypedAskPattern`、`TypedAsk`；经典 ask 仍要求被询问的 Actor 处理 `AskMessage` 信封。
+   - ask 已收敛为三个入口（20261106 计划 E38）：`TypedAsk.ask`（Actor 外）、`ctx.ask`（Actor 内）、`AskInbox.ask`（经典 ActorRef，目标照常 `context.reply`）；`AskPatternManager` / `patterns.ask.Ask` 已 @Deprecated（2.0.0 移除），`TypedAskPattern` 与 patterns 的 `TypedAsk` 已删除。剩余：经典 `ActorSystem.ask` 接口方法随死代码清理删除。
    - 监控 2 套：`foundation.monitoring` 与 `integration.monitoring`。
    - `foundation.plugin`、`foundation.attributes` 已经写好（为 HTTP 计划准备），但还没有任何使用方。
 3. **存在假实现。** `JsonSerializer` 的反序列化固定返回 `"parsed_from_json"`；集群路由、CQRS、streams 中有多处“返回第一个目标 / 虚拟 ActorRef”式的占位逻辑。
@@ -110,9 +111,11 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 - [ ] **Scheduler**（`foundation.scheduler`）：时间轮 + 可注入的 `VirtualClock`；Actor 定时器、typed `scheduleOnce`、接收超时都改用它，不再各自创建 `std.sync.Timer`。验收：定时器精度 ±2 ms；`ManualTime` 下的测试不需要真实等待。
 - [ ] **统一 ask 内核**：一个 Completion 内核；经典 Actor 用 `Request<R>`（不再需要处理 `AskMessage` 信封），类型化 Actor 用 `replyTo`；删除 `AskPatternManager` 等重复实现，`patterns.ask` 只做转调。验收：ask P50 ≤ 6 µs，不倒退。
+  - 进展（20261106 计划 E38）：入口已收敛——经典 `AskInbox.ask` 以收件箱为发送方，不再需要 `AskMessage` 信封；旧入口 @Deprecated / 删除。Completion 内核与 P50 验收未做。
 - [ ] **统一配置**：一套 `Config`，TOML 格式，覆盖顺序为默认值 → 文件 → 环境变量 → `-P` 参数；dispatcher、邮箱、远程参数都能从配置读取；合并现有 7 个配置包。
 - [ ] **邮箱过载策略**：有界邮箱满时可选丢弃（计入死信）、返回失败（`tryTell`）、阻塞发送方（带超时）。
-- [ ] **CoordinatedShutdown 增强**：阶段超时；每个系统一个实例（不再放在静态注册表中）。
+  - 进展：`MailboxOverflow.DropNew / Fail / Block(timeout)` 已有；Block 改为条件变量唤醒，Actor 内发送不等待、按超时计死信（20261106 计划 E39）；默认调度器新增饥饿检测（`CACTOR_STARVATION_WARN_MS`）。`tryTell` 未做。
+- [x] **CoordinatedShutdown 增强**：阶段超时；每个系统一个实例（不再放在静态注册表中）；Akka 阶段顺序，用户 Actor 在 actor-system-terminate 阶段停止（20261106 计划 E34，`lifecycle/coordinated_shutdown_phase_test.cj`）。
 - [ ] **真实 JSON**：新增 `cactor_json`（基于 stdx `json.stream` 或自写流式解析器），删除假的 `JsonSerializer`。验收：通过 JSONTestSuite。此项需要先完成 stdx 接入（`CANGJIE_STDX_PATH`），stdx 只允许 json / http / integration 模块依赖。
 - [ ] **插件内核落地**：`foundation.plugin` 至少有一个真实使用方（例如 Logging 或 Metrics 作为 SystemPlugin），否则推迟到 1.4.0 再合入。
 
@@ -177,7 +180,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 - [ ] 序列化注册表与版本号（与 `@Message` 宏打通），支持 schema 演进。✅ 基础版已落地（`remote` 模块 codec 注册 + 版本拒绝，`schema_evolution_test.cj`）。
 - [x] 远程 `ActorRef` 与本地统一：远程 ask（`remoting.cj` `ask`）；远程 watch（WATCH/DEATH，连接断开时投递 `Terminated`）。
-- [ ] 可靠投递：序号 + 确认 + 重发（对应 Akka Reliable Delivery）。🟡 $sys 已有序号 + ACK 基础（`remoting.cj`），缺重发与去重语义。
+- [x] 可靠投递：序号 + 确认 + 重发（对应 Akka Reliable Delivery）。`tellReliable` 有序号、累计 ACK、重发与去重；接收端重启后未确认消息在新通道重发（跨重启至少一次）；未确认上限 `maxUnacked` 与超时放弃 `giveUpAfter`（E41，`unit/remote_semantics/system_message_reliability_test.cj`）。
 - [ ] 基于 stdx 的 TLS。
 - **验收**：远程吞吐在空闲机器上追平 Akka Artery TCP；随机断连测试下可靠投递不丢消息、不乱序。
 
@@ -188,7 +191,8 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 ### 7.1 集群（R6 第二部分）
 
 - [x] gossip 成员协议（Joining → Up → Leaving → Exiting → Removed），种子节点引导，成员事件订阅；接入已有的 Phi Accrual 故障检测器（`cluster/membership/membership.cj`）。
-- [x] Cluster Singleton（`membership/singleton.cj`）、分布式发布订阅（`membership/pubsub.cj`）、Receptionist 集群版。
+- [x] Cluster Singleton（`membership/singleton.cj`）、分布式发布订阅（`membership/pubsub.cj`）。
+- [ ] Receptionist 集群版（当前 `core/typed/receptionist.cj` 仅单机，20261106 计划 E63）。
 - [x] 脑裂处理（keep-majority，`membership/sbr.cj`）。
 - [ ] 删除或重写现有原型：`cluster_routing.cj`、`failover.cj` 中的占位逻辑。
 - [ ] 成员协议鉴权与 incarnation（20261106 计划 E7/E13）。

@@ -106,6 +106,14 @@ public interface ActorContext {
         throw UnsupportedContextException("unwatch")
     }
 
+    /**
+     * 监视 ref，目标停止时收到 message 而不是 Terminated（对标 Akka context.watchWith）。
+     * 映射保存在 Actor Cell 上，Actor 重启后仍然有效；unwatch 同时取消。
+     */
+    func watchWith(ref: ActorRef, message: Message): Unit {
+        throw UnsupportedContextException("watchWith")
+    }
+
     // ---------- 行为切换 ----------
 
     /** 切换消息处理函数；discardOld = false 时压栈，可用 unbecome 恢复 */

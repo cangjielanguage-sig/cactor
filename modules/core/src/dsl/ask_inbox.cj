@@ -11,10 +11,11 @@
  *   service << Query("今天天气如何", inbox)
  *   let answer = (inbox.get(3.seconds) as Answer).getOrThrow()
  *
- * 与另外两条 ask 主路径的关系（一条主路径，各管一段）：
- *   - 类型化进程外：TypedAsk.ask<Req, Res>(ref, factory, timeout)
- *   - 类型化 Actor 内：ctx.ask(target, factory, timeout) { outcome => ... }
- *   - 经典路径：askInbox()（本文件，零侵入）；patterns 的 Ask 保留兼容
+ * ask 只有三个入口（E38 收敛，各管一段）：
+ *   - 类型化、Actor 外：TypedAsk.ask<Req, Res>(ref, factory, timeout)
+ *   - 类型化、Actor 内：ctx.ask(target, factory, timeout) { outcome => ... }
+ *   - 经典 ActorRef：AskInbox.ask(target, message).get(timeout)，或 askInbox() 填进 replyTo（本文件，零侵入）
+ *   patterns 的 Ask / AskPatternManager（要求目标解包 AskMessage）已 @Deprecated，2.0.0 移除。
  *
  * 只能在 Actor 之外（main、测试线程、"blocking" 调度器上的 Actor）阻塞等待：
  *   默认调度器是亲和调度且没有工作窃取，处理方法里 get(timeout) 会占住工作线程，
@@ -117,6 +118,21 @@ public class AskInbox <: ActorRef {
 
     public func toString(): String {
         actorPath.toString()
+    }
+
+    /**
+     * 经典 ask 的唯一入口（E38，对标 Akka `Patterns.ask`）：以新收件箱为**发送方**投递 message，返回收件箱，
+     * 之后 `get(timeout)` / `tryGet(timeout)` 等第一条回复。目标照常用 `context.reply(...)`（或 sender）回复，
+     * 不需要解包任何包装消息——此前 patterns 的 `Ask.ask` 把请求包成 AskMessage，目标必须配合解包。
+     *
+     *   let answer = AskInbox.ask(service, Query("天气")).get(3.seconds)
+     *
+     * 阻塞等待只能在 Actor 之外（见 get）；Actor 内请用类型化的 ctx.ask，或把回复发回自己
+     */
+    public static func ask(target: ActorRef, message: Message): AskInbox {
+        let inbox = AskInbox()
+        target.tell(message, inbox)
+        inbox
     }
 
     /** 已收到的回复数（测试与诊断用） */

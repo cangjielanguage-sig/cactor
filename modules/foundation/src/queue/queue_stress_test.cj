@@ -5,12 +5,24 @@
 package cactor_foundation.queue
 
 import std.sync.*
+import std.time.*
 import std.collection.*
 import std.unittest.*
 import std.unittest.testmacro.*
 
 // 元素编码：producerId * STRIDE + seq
 let STRIDE: Int64 = 1_000_000
+
+/**
+ * 等待对方时的退避：先原地自旋，连续落空多次后短暂睡眠让出处理器。
+ * 仓颉线程是 M:N 调度，生产者与消费者排在同一处理器上时，纯忙等会让另一方一直得不到运行，
+ * 机器繁忙时测试会永久挂住（sleep(Duration.Zero) 也让不出去，见 docs/plan/20261028-performance.md §4.3）。
+ */
+func backoff(misses: Int64): Unit {
+    if (misses >= 64) {
+        sleep(Duration.microsecond * 20)
+    }
+}
 
 /** 检查结果：每个生产者的序号严格递增且完整 */
 func verifyPerProducer(received: ArrayList<Int64>, producers: Int64, perProducer: Int64): (Int64, Int64) {
@@ -48,17 +60,25 @@ public class QueueStressTest {
         for (p in 0..producers) {
             futures.add(spawn {
                 for (i in 0..perProducer) {
+                    var misses: Int64 = 0
                     while (!q.offer(p * STRIDE + i)) {
                         rejected.fetchAdd(1)
+                        misses++
+                        backoff(misses)
                     }
                 }
             })
         }
         let received = ArrayList<Int64>()
+        var misses: Int64 = 0
         while (received.size < total) {
             match (q.poll()) {
-                case Some(v) => received.add(v)
-                case None => ()
+                case Some(v) =>
+                    received.add(v)
+                    misses = 0
+                case None =>
+                    misses++
+                    backoff(misses)
             }
         }
         for (f in futures) {
@@ -99,21 +119,27 @@ public class QueueStressTest {
             futures.add(spawn {
                 for (i in 0..perProducer) {
                     let v = p * perProducer + i
+                    var misses: Int64 = 0
                     while (!q.enqueue(v)) {
-                        ()
+                        misses++
+                        backoff(misses)
                     }
                 }
             })
         }
         for (_ in 0..consumers) {
             futures.add(spawn {
+                var misses: Int64 = 0
                 while (consumed.load() < total) {
                     match (q.dequeue()) {
                         case Some(v) =>
                             seen[v].fetchAdd(1)
                             sum.fetchAdd(v)
                             consumed.fetchAdd(1)
-                        case None => ()
+                            misses = 0
+                        case None =>
+                            misses++
+                            backoff(misses)
                     }
                 }
             })
@@ -160,13 +186,16 @@ public class QueueStressTest {
         let q = SPSCQueue<Int64>(256)
         let producer = spawn {
             for (i in 0..n) {
+                var misses: Int64 = 0
                 while (!q.offer(i)) {
-                    ()
+                    misses++
+                    backoff(misses)
                 }
             }
         }
         var expected: Int64 = 0
         var outOfOrder: Int64 = 0
+        var misses: Int64 = 0
         while (expected < n) {
             match (q.poll()) {
                 case Some(v) =>
@@ -174,7 +203,10 @@ public class QueueStressTest {
                         outOfOrder++
                     }
                     expected++
-                case None => ()
+                    misses = 0
+                case None =>
+                    misses++
+                    backoff(misses)
             }
         }
         producer.get()

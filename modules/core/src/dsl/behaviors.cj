@@ -27,55 +27,68 @@ import cactor_core.message.MessageResult
 /**
  * 行为工厂门面：DSL 文档与示例统一使用 Behaviors.xxx，
  * TypedBehaviors 保留为底层实现（不再新增第二套语义）。
+ *
+ * 转发到 @Frozen 工厂的方法本身也必须 @Frozen（T16）：否则泛型在本包（core）实例化，
+ * 每次 Behaviors.same<T>() 这类调用都要做运行时类型查找（处理方法每条消息都会调用），门面比直接用 TypedBehaviors 慢
  */
 public struct Behaviors {
     /** 接收消息（可用上下文） */
+    @Frozen
     public static func receive<T>(handler: (TypedActorContext<T>, T) -> TypedBehavior<T>): TypedBehavior<T> {
         TypedBehaviors.receive<T>(handler)
     }
 
     /** 同时提供消息与信号处理函数 */
+    @Frozen
     public static func receive<T>(handler: (TypedActorContext<T>, T) -> TypedBehavior<T>,
         signalHandler: (TypedActorContext<T>, TypedSignal) -> TypedBehavior<T>): TypedBehavior<T> {
         TypedBehaviors.receive<T>(handler, signalHandler)
     }
 
     /** 只关心消息本身 */
+    @Frozen
     public static func receiveMessage<T>(handler: (T) -> TypedBehavior<T>): TypedBehavior<T> {
         TypedBehaviors.receiveMessage<T>(handler)
     }
 
     /** 启动时创建行为（重启会重新执行） */
+    @Frozen
     public static func setup<T>(factory: (TypedActorContext<T>) -> TypedBehavior<T>): TypedBehavior<T> {
         TypedBehaviors.setup<T>(factory)
     }
 
     /** 保持当前行为（等价于 MessageResult.Handled） */
+    @Frozen
     public static func same<T>(): TypedBehavior<T> {
         TypedBehaviors.same<T>()
     }
 
     /** 计为未处理（等价于 MessageResult.Unhandled） */
+    @Frozen
     public static func unhandled<T>(): TypedBehavior<T> {
         TypedBehaviors.unhandled<T>()
     }
 
     /** 停止 Actor（等价于 MessageResult.Stop） */
+    @Frozen
     public static func stopped<T>(): TypedBehavior<T> {
         TypedBehaviors.stopped<T>()
     }
 
     /** 停止 Actor 并在停止后执行 postStop */
+    @Frozen
     public static func stopped<T>(postStop: () -> Unit): TypedBehavior<T> {
         TypedBehaviors.stopped<T>(postStop)
     }
 
     /** 接收并丢弃所有消息 */
+    @Frozen
     public static func ignore<T>(): TypedBehavior<T> {
         TypedBehaviors.ignore<T>()
     }
 
     /** 不处理任何消息 */
+    @Frozen
     public static func empty<T>(): TypedBehavior<T> {
         TypedBehaviors.empty<T>()
     }
@@ -115,6 +128,7 @@ public struct Behaviors {
     }
 
     /** 部分接收 */
+    @Frozen
     public static func receivePartial<T>(p: (T) -> Bool,
         handler: (TypedActorContext<T>, T) -> TypedBehavior<T>): TypedBehavior<T> {
         TypedBehaviors.receivePartial<T>(p, handler)

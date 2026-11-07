@@ -206,8 +206,9 @@ main(args: Array<String>): Int64 {
     for (f in producers) {
         f.get()
     }
-    system.stop(churn)
-    // 等待在途消息与停止中的子 Actor 处理完
+    // gracefulStop：处理完在途消息再停（system.stop 与 Akka 一致是立即停止，剩余消息进死信）
+    system.gracefulStop(churn, Duration.second * 30) |> ignoreStopped
+    // 等待停止中的子 Actor 处理完
     let deadline = MonoTime.now() + Duration.second * 30
     while (MonoTime.now() < deadline &&
         (c.processed.load() < c.sent.load() || c.restarts.load() < c.boomsSent.load() ||
@@ -235,3 +236,5 @@ main(args: Array<String>): Int64 {
     system.terminate()
     if (failures.load() == 0) { 0 } else { 1 }
 }
+
+func ignoreStopped(_: Bool): Unit {}

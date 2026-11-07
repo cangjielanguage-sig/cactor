@@ -68,6 +68,14 @@ public interface ActorRef {
     func pendingCount(): Int64 {
         -1
     }
+
+    /**
+     * 目标是否已确定终止（E25，2026-11-06）：供路由策略跳过已死的目标。
+     * 默认 false 表示"未知或存活"（远程引用等无法本地判定）；本地 Cell 引用返回真实状态。
+     */
+    func isTerminated(): Bool {
+        false
+    }
 }
 
 /**

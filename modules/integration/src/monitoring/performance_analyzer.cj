@@ -9,6 +9,7 @@ import std.sync.*
 import std.time.*
 import std.collection.*
 import std.collection.concurrent.*
+import std.sort.*
 import cactor_core.actor.*
 
 // 性能指标数据
@@ -336,14 +337,17 @@ public class SystemPerformanceAnalyzer {
 }
 
 // 辅助函数：计算百分位数
-func calculatePercentile(values: Array<Float64>, percentile: Float64): Float64 {
+/**
+ * 最近秩法（nearest-rank）百分位：先排序（此前按插入顺序取下标，结果与百分位无关，P15），
+ * 取第 ceil(p × n) 个值
+ */
+public func calculatePercentile(values: Array<Float64>, percentile: Float64): Float64 {
     if (values.size == 0) {
         return 0.0
     }
-    
-    // 简化的百分位计算（实际应该排序）
-    let index = Int64(Float64(values.size) * percentile)
-    let safeIndex = if (index >= values.size) { values.size - 1 } else { index }
-    
-    return values[safeIndex]
+    let sorted = values.clone()
+    sort(sorted)
+    let rank = Int64(Float64(values.size) * percentile + 0.999999999)
+    let index = if (rank <= 0) { 0 } else if (rank > sorted.size) { sorted.size - 1 } else { rank - 1 }
+    sorted[index]
 }

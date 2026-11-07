@@ -7,6 +7,7 @@ package cactor.api.public
 
 import cactor_core.actor.{Actor, Props, PropsFactory}
 import cactor_core.system.{ActorSystem}
+import cactor_runtime.{RuntimeActorSystem}
 
 /**
  * CActor系统工厂
@@ -42,9 +43,8 @@ public struct CActorFactory {
      * @throws Exception 当系统创建失败或名称无效时抛出
      */
     public static func createSystem(name: String): ActorSystem {
-        // 这里需要引用具体的实现类
-        // 暂时返回一个简单的实现
-        throw Exception("Not implemented yet")
+        // E29：此前恒抛 "Not implemented yet"。现在返回以真实运行时实现的系统
+        RuntimeActorSystem(name)
     }
 
     /**
@@ -109,6 +109,7 @@ public class CActorSystemBuilder {
      * @param dispatcher 调度器类型，如"thread-pool"、"work-stealing"等
      * @return 当前构建器实例，支持链式调用
      */
+    @Deprecated["系统级调度器名称尚未接入运行时（计划 E49）；请在 Props 上用 withDispatcher 配置", since: "1.2.0"]
     public func withDispatcher(dispatcher: String): CActorSystemBuilder {
         this.dispatcherType = dispatcher
         this
@@ -120,6 +121,7 @@ public class CActorSystemBuilder {
      * @param mailbox 邮箱类型，如"bounded"、"unbounded"、"priority"等
      * @return 当前构建器实例，支持链式调用
      */
+    @Deprecated["系统级邮箱类型尚未接入运行时（计划 E49）；请在 Props 上用 withMailbox 配置", since: "1.2.0"]
     public func withMailbox(mailbox: String): CActorSystemBuilder {
         this.mailboxType = mailbox
         this

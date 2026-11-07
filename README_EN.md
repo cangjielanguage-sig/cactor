@@ -114,7 +114,7 @@ main() {
 |------|----------------|--------|
 | Actor basics | Actor / ActorRef / ActorSystem, lifecycle hooks, children, `watch`, `become`, timers, stash, receive timeout, lookup by path, dead letters | Usable |
 | Typed actors | `TypedBehaviors`, `TypedActorRef`, ask from actors, `messageAdapter`, `pipeToSelf`, Receptionist, behavior interceptors, modeled after Akka Typed | Usable |
-| Fault tolerance | Supervision trees (OneForOne / OneForAll / Escalate / Backoff), DeathPact, circuit breaker | Usable |
+| Fault tolerance | Supervision trees (OneForOne / OneForAll / Escalate / exponential-backoff restart in both classic and typed APIs), DeathPact, circuit breaker; default strategy matches Akka (initialization failure / Kill / DeathPact stop) | Usable |
 | Patterns | Ask, routing, bounded-mailbox backpressure (drop / fail / block) | Usable |
 | DSL | Enum protocols, `@actorReceive`, duration literals, `<<` | Usable |
 | Testing | `TestProbe`, `BehaviorTestKit`, virtual clock `ManualTime` | Usable |
@@ -244,23 +244,20 @@ import cactor.api.{CActor}
 import cactor_core.actor.{Actor}
 import cactor_core.message.{Message, StringMessage, MessageResult}
 import cactor_core.context.{ActorContext}
-import cactor_patterns.ask.{Ask, AskMessage, AskResponse, Result}
+import cactor_core.dsl.{AskInbox}
+import cactor_core.typed.{TypedAskTimeoutException}
 
+// Classic ask: the AskInbox is the sender, the target just calls context.reply (typed: TypedAsk.ask / ctx.ask)
 class EchoActor <: Actor {
     public prop name: String { get() { "EchoActor" } }
-    public prop description: String { get() { "Echoes Ask requests" } }
+    public prop description: String { get() { "echoes ask requests" } }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
         match (message) {
-            case ask: AskMessage =>
-                let reply = match (ask.getOriginalMessage()) {
-                    case s: StringMessage => StringMessage("echo: ${s.getContent()}")
-                    case _ => StringMessage("unknown")
-                }
-                ask.getReplyTo().tell(AskResponse(ask.getRequestId(), reply, true))
-                MessageResult.Handled
-            case _ => MessageResult.Unhandled
+            case s: StringMessage => context.reply(StringMessage("echo: ${s.getContent()}"))
+            case _ => return MessageResult.Unhandled
         }
+        MessageResult.Handled
     }
 }
 
@@ -268,17 +265,16 @@ main(): Int64 {
     let system = CActor.system("ask-system")
     let echo = system.actorOf({ => EchoActor() }, "echo")
 
-    let future = Ask.ask(echo, StringMessage("hi"), Duration.second * 3)
-    match (future.get()) {
-        case Result.Success(response) =>
-            match (response) {
-                case s: StringMessage => println("Reply: ${s.getContent()}")   // prints: Reply: echo: hi
-                case _ => ()
-            }
-        case Result.Failure(error) => println("Failed: ${error.message}")
+    try {
+        let reply = AskInbox.ask(echo, StringMessage("hi")).get(Duration.second * 3)
+        match (reply) {
+            case s: StringMessage => println("reply: ${s.getContent()}")   // prints: reply: echo: hi
+            case _ => ()
+        }
+    } catch (e: TypedAskTimeoutException) {
+        println("timed out: ${e.message}")
     }
 
-    Ask.shutdown()
     system.terminate()
     return 0
 }
@@ -355,7 +351,7 @@ States are defined by `ActorLifecycleState`; the `preStart`, `postStop`, `preRes
 
 ### Supervision
 
-When an actor fails, its supervision strategy decides what to do: `Resume` (ignore and continue), `Restart`, `Stop`, or `Escalate` (hand the failure to the parent). Built-in strategies include `OneForOneStrategy`, `OneForAllStrategy`, `EscalateStrategy` and the exponential-backoff `BackoffSupervisorStrategy`, all in `cactor_core.supervision`.
+When an actor fails, its supervision strategy decides what to do: `Resume` (ignore and continue), `Restart`, `Stop`, or `Escalate` (hand the failure to the parent). Built-in strategies include `OneForOneStrategy`, `OneForAllStrategy`, `EscalateStrategy` and the exponential-backoff `BackoffSupervisionStrategy(BackoffPolicy(...))` (returns `RestartAfter`; the actor stays suspended during the delay), all in `cactor_core.supervision`. Typed actors use `TypedSupervisorStrategy.restartWithBackoff(min, max, randomFactor)`; both share one backoff algorithm (jitter, automatic reset, restart limit).
 
 ---
 
@@ -451,7 +447,8 @@ Examples live in [`modules/examples/src`](modules/examples/src). After building,
 |---------|-------|
 | [hello_world_demo](modules/examples/src/hello_world_demo/main.cj) | Creating actors and sending messages |
 | [api_demo](modules/examples/src/api_demo/main.cj) | Public API usage |
-| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Ask request-response, timeouts and batch requests |
+| [ask_demo](modules/examples/src/ask_demo/main.cj) | Classic ask (`AskInbox.ask`): request-response, timeouts, replyTo style, concurrent asks from many threads, self-checking |
+| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Legacy ask API (`Ask` / `AskPatternManager`, @Deprecated, removed in 2.0.0) |
 | [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | Typed actor system |
 | [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | Mailbox implementations |
 | [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | Dispatcher implementations |

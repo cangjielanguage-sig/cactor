@@ -5,7 +5,9 @@
  * 1. 收件箱作为普通 ActorRef 参与 `replyTo << 回复`，get 阻塞拿到回复；
  * 2. 超时抛 TypedAskTimeoutException（与 TypedAsk / ctx.ask 共用同一个超时异常）；
  * 3. 真实 Actor 调度路径：@actor 服务收到 Query(replyTo=inbox) 回 Answer，收件箱取到；
- * 4. 每个收件箱路径唯一（equals 按路径判等，连续创建的收件箱不能互相"相等"）。
+ * 4. 每个收件箱路径唯一（equals 按路径判等，连续创建的收件箱不能互相"相等"）；
+ * 5. AskInbox.ask（E38 收敛后的经典入口）：收件箱作为发送方，目标照常 context.reply，不需要配合；
+ *    经路由器转发同样能回到收件箱（E37 透传发送方）。
  */
 package cactor_tests.unit.dsl
 
@@ -16,6 +18,8 @@ import cactor_core.actor.{Actor, ActorContext, ActorRef, PropsFactory}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.dsl.*
 import cactor_core.typed.TypedAskTimeoutException
+import cactor_core.message.StringMessage
+import cactor_patterns.routing.{Routers}
 import cactor_macros.*
 import cactor_testkit.*
 
@@ -170,6 +174,21 @@ public class AskInboxTest {
     }
 
     @TestCase
+    public func askInboxIsTheSenderSoPlainReplyWorks(): Unit {
+        let kit = ActorTestKit("ask-inbox-sender")
+        let echo = kit.actorOf({ => ReplyEcho() }, "echo")
+        @Expect(textOfReply(AskInbox.ask(echo, StringMessage("ping")).get(3.seconds)), "echo:ping")
+        // 经池路由器转发：发送方（收件箱）被保留，回复直接到达
+        let pool = kit.actorOf(Routers.pool(3, PropsFactory.create<Actor>({ => ReplyEcho() })), "pool")
+        for (i in 0..9) {
+            @Expect(textOfReply(AskInbox.ask(pool, StringMessage("p${i}")).get(3.seconds)), "echo:p${i}")
+        }
+        // 不回复：超时
+        @Expect(AskInbox.ask(echo, StringMessage("silence")).tryGet(50.millis).isNone(), true)
+        kit.shutdown()
+    }
+
+    @TestCase
     public func testInboxAskOverRealActorPath(): Unit {
         let kit = ActorTestKit("ask-inbox")
         let service = kit.actorOf({ => InboxService() }, "service")
@@ -179,5 +198,32 @@ public class AskInboxTest {
         let answer = (inbox.get(3.seconds) as InboxAnswer).getOrThrow()
         @Expect(answer.text, "答复：今天天气如何")
         kit.shutdown()
+    }
+}
+
+/** 普通经典 Actor：用 context.reply 回复，不知道 ask 的存在 */
+class ReplyEcho <: Actor {
+    public prop name: String {
+        get() { "reply-echo" }
+    }
+
+    public prop description: String {
+        get() { "reply-echo" }
+    }
+
+    public func receive(message: Message, context: ActorContext): MessageResult {
+        if (let Some(s) <- (message as StringMessage)) {
+            if (s.getContent() != "silence") {
+                context.reply(StringMessage("echo:${s.getContent()}"))
+            }
+        }
+        MessageResult.Handled
+    }
+}
+
+func textOfReply(m: Message): String {
+    match (m as StringMessage) {
+        case Some(s) => s.getContent()
+        case None => m.messageType()
     }
 }

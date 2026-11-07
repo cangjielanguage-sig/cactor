@@ -328,7 +328,37 @@ public class TimerMetric <: Metric {
 }
 
 /**
+ * 同名指标重复注册（P12）：此前后注册的静默覆盖先注册的，先注册方此后的写入全部丢失
+ */
+public class DuplicateMetricException <: Exception {
+    public init(message: String) {
+        super(message)
+    }
+}
+
+func sameMetric(a: Metric, b: Metric): Bool {
+    match ((a as Object, b as Object)) {
+        case (Some(x), Some(y)) => refEq(x, y)
+        case _ => false
+    }
+}
+
+func metricTypeName(t: MetricType): String {
+    match (t) {
+        case MetricType.Counter => "Counter"
+        case MetricType.Gauge => "Gauge"
+        case MetricType.Histogram => "Histogram"
+        case MetricType.Timer => "Timer"
+    }
+}
+
+/**
  * 指标注册表
+ *
+ * - `register`：与 Prometheus 客户端相同，名字已被**另一个**指标实例占用时抛 DuplicateMetricException；
+ *   重复注册同一个实例是幂等的。
+ * - `counter` / `gauge` / `timer`：与 Micrometer 相同的"取或建"，同名同类型返回已有实例，
+ *   同名不同类型抛 DuplicateMetricException。多个 Actor 实例共享同一个指标时用它们。
  */
 public class MetricRegistry {
     private let metrics: HashMap<String, Metric>
@@ -340,12 +370,66 @@ public class MetricRegistry {
     }
 
     /**
-     * 注册指标
+     * 注册指标；名字已被另一个实例占用时抛 DuplicateMetricException
      */
     public func register(metric: Metric): Unit {
-        mutex.lock()
-        metrics[metric.getName()] = metric
-        mutex.unlock()
+        synchronized(mutex) {
+            match (metrics.get(metric.getName())) {
+                case Some(existing) where sameMetric(existing, metric) => ()
+                case Some(existing) => throw DuplicateMetricException(
+                    "指标 ${metric.getName()} 已注册（${metricTypeName(existing.getType())}），不能再注册另一个实例")
+                case None => metrics.add(metric.getName(), metric)
+            }
+        }
+    }
+
+    /** 取或建：同名同类型返回已有实例 */
+    public func counter(name: String): CounterMetric {
+        let m = getOrCreate(name, { => CounterMetric(name) })
+        match (m as CounterMetric) {
+            case Some(c) => c
+            case None => throw typeMismatch(m, MetricType.Counter)
+        }
+    }
+
+    public func gauge(name: String): GaugeMetric {
+        let m = getOrCreate(name, { => GaugeMetric(name) })
+        match (m as GaugeMetric) {
+            case Some(g) => g
+            case None => throw typeMismatch(m, MetricType.Gauge)
+        }
+    }
+
+    public func timer(name: String): TimerMetric {
+        let m = getOrCreate(name, { => TimerMetric(name) })
+        match (m as TimerMetric) {
+            case Some(t) => t
+            case None => throw typeMismatch(m, MetricType.Timer)
+        }
+    }
+
+    private func getOrCreate(name: String, create: () -> Metric): Metric {
+        synchronized(mutex) {
+            match (metrics.get(name)) {
+                case Some(existing) => existing
+                case None =>
+                    let m = create()
+                    metrics.add(name, m)
+                    m
+            }
+        }
+    }
+
+    private func typeMismatch(existing: Metric, wanted: MetricType): DuplicateMetricException {
+        DuplicateMetricException(
+            "指标 ${existing.getName()} 已注册为 ${metricTypeName(existing.getType())}，不能再作为 ${metricTypeName(wanted)} 使用")
+    }
+
+    /** 注销指标；返回是否存在 */
+    public func unregister(name: String): Bool {
+        synchronized(mutex) {
+            metrics.remove(name).isSome()
+        }
     }
 
     /**
@@ -457,33 +541,25 @@ public struct GlobalMetricRegistry {
     }
 
     /**
-     * 便捷方法：注册计数器
+     * 便捷方法：取或建计数器。同名同类型返回已有实例（此前每次新建并覆盖，先拿到的实例写入全部丢失）；
+     * 同名不同类型抛 DuplicateMetricException
      */
     public static func registerCounter(name: String): CounterMetric {
-        let counter = CounterMetric(name)
-        let registry = getInstance()
-        registry.register(counter)
-        counter
+        getInstance().counter(name)
     }
 
     /**
-     * 便捷方法：注册仪表盘
+     * 便捷方法：取或建仪表盘
      */
     public static func registerGauge(name: String): GaugeMetric {
-        let gauge = GaugeMetric(name)
-        let registry = getInstance()
-        registry.register(gauge)
-        gauge
+        getInstance().gauge(name)
     }
 
     /**
-     * 便捷方法：注册计时器
+     * 便捷方法：取或建计时器
      */
     public static func registerTimer(name: String): TimerMetric {
-        let timer = TimerMetric(name)
-        let registry = getInstance()
-        registry.register(timer)
-        timer
+        getInstance().timer(name)
     }
 
     /**

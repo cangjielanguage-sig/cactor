@@ -70,6 +70,19 @@ public class SimpleRemoteSender {
         sentCount.fetchAdd(1)
     }
 
+    /**
+     * 经传输的优先通道发送控制消息（远程层 $sys、集群心跳与 gossip，E40）：
+     * 先于已积压的普通消息写出，大流量下心跳不被拖延成"节点不可达"
+     */
+    public func sendControl(targetAddress: NetworkAddress, targetActor: String, message: Message): Unit {
+        if (!isStarted.load()) {
+            throw IllegalStateException("发送器未启动")
+        }
+        let networkMessage = NetworkMessage(targetActor, message, None<String>)
+        transport.sendPriority(targetAddress, networkMessageSerializer.serialize(networkMessage))
+        sentCount.fetchAdd(1)
+    }
+
     public func getSentCount(): Int64 {
         sentCount.load()
     }
@@ -245,6 +258,8 @@ public class SimpleRemoteManager {
 
     public func start(): Unit {
         if (started.compareAndSwap(false, true)) {
+            // 握手（身份交换 + 可选的共享密钥鉴权，E7′）须在传输开始收发之前装上
+            transport.setHandshake(core.handshake())
             transport.start()
             sender.start()
             receiver.start()
@@ -267,6 +282,11 @@ public class SimpleRemoteManager {
 
     public func sendMessage(targetAddress: NetworkAddress, targetActor: String, message: Message, senderPath: Option<String>): Unit {
         sender.sendMessage(targetAddress, targetActor, message, senderPath)
+    }
+
+    /** 控制消息走优先通道（见 SimpleRemoteSender.sendControl） */
+    public func sendControl(targetAddress: NetworkAddress, targetActor: String, message: Message): Unit {
+        sender.sendControl(targetAddress, targetActor, message)
     }
 
     public func registerHandler(actorName: String, handler: (Message) -> Unit): Unit {
@@ -304,14 +324,20 @@ public class SimpleRemoteManager {
         sender
     }
 
+    /** 远程层内部使用：隔离对端时断开连接 */
+    func transportInternal(): NetworkTransport {
+        transport
+    }
+
     public func getReceiver(): SimpleRemoteReceiver {
         receiver
     }
 }
 
 /**
- * 远程 Actor 引用：tell 通过网络发送到远程节点
- * 网络失败时 tell 抛出异常（调用方可决定重试或记录死信）
+ * 远程 Actor 引用：tell 通过网络发送到远程节点。
+ * 与 Akka 相同，tell 只入队、不阻塞：对端不可达或出站队列满时消息被丢弃并计数（TcpTransport.getDroppedFrames），
+ * 不抛异常；需要送达保证用 SimpleRemoteManager.tellReliable。传输未启动时抛 IllegalStateException
  */
 public class RemoteActorRef <: ActorRef {
     private let manager: SimpleRemoteManager

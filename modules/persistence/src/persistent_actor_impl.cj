@@ -19,13 +19,28 @@ let log_persistent_actor_impl: Logger = Logging.logger("cactor_persistence.persi
  * 持久化操作异常：保存/恢复失败时上抛，调用方（监督策略）据此决定重试或停止，
  * 不再静默丢失数据（2026-11-06）
  */
-public class PersistenceException <: Exception {
+public open class PersistenceException <: Exception {
     public init(message: String, cause: Exception) {
         super(message, cause)
     }
 
     public init(message: String) {
         super(message)
+    }
+}
+
+/**
+ * 事件已经落库、但事件处理器抛了异常（P3）。
+ * 事件是事实：序号不回退，交给监督决定——默认重启，重启后从存储恢复，已落库的事件会被重放。
+ * 与存储写入失败（父类 PersistenceException，序号回退）区分开，调用方可以按类型分别处理
+ */
+public class EventHandlerException <: PersistenceException {
+    /** 已落库的最后一个序号 */
+    public let persistedSequenceNr: Int64
+
+    public init(message: String, persistedSequenceNr: Int64, cause: Exception) {
+        super(message, cause)
+        this.persistedSequenceNr = persistedSequenceNr
     }
 }
 
@@ -38,14 +53,19 @@ public class PersistenceException <: Exception {
  *
  * 语义保证（2026-11-06 修复 B8 后）：
  * - saveSnapshot 保存真实状态数据（非字符串状态需先自行序列化为 String）；
- * - persist/persistAll 失败时上抛 PersistenceException 并回退序号，不再静默丢数据；
- * - 恢复按 sequenceNr 对齐事件存储版本（getHighestSequenceNr），不按数组下标。
+ * - persist/persistAll 写入存储失败时上抛 PersistenceException 并回退序号，不再静默丢数据；
+ * - 已落库后处理器抛异常时上抛 EventHandlerException，序号不回退（对标 Akka：事件已是事实，由监督重启并重放）；
+ * - 恢复按 sequenceNr 对齐事件存储版本（getHighestSequenceNr），不按数组下标；
+ * - preStart 自动恢复（重启后的新实例同样经 postRestart → preStart 恢复，P4）；已手动 startRecovery 的不重复恢复；
+ * - 恢复失败上抛 PersistenceException：在 preStart 中即启动失败，默认监督策略停止该 Actor（对标 Akka onRecoveryFailure）。
  */
 public open class AbstractPersistentActor <: PersistentActor {
     private let eventStore: EnhancedEventStore
     private let snapshotStore: SnapshotStore
     private var lastSequenceNr: Int64
     private var isRecovering: Bool
+    // 已恢复过：preStart 不再重复恢复（测试或调用方可能已手动 startRecovery）
+    private var recovered: Bool = false
     private let pendingEvents: ArrayList<EventPayload>
     private let mutex: Mutex
     
@@ -62,8 +82,18 @@ public open class AbstractPersistentActor <: PersistentActor {
         "default-persistence-id"  // 子类应该重写
     }
 
-    public func onRecoveryCompleted(): Unit {
+    public open func onRecoveryCompleted(): Unit {
         log_persistent_actor_impl.debug("恢复完成")  // 子类可以重写
+    }
+
+    /**
+     * 启动时从存储恢复（P4：此前没有恢复钩子，重启后序号为 0，首次 persist 即与存储冲突、无限重启）。
+     * 子类重写时请调用 super.preStart()
+     */
+    public open func preStart(): Unit {
+        if (!recovered) {
+            startRecovery()
+        }
     }
 
     public prop name: String {
@@ -104,37 +134,39 @@ public open class AbstractPersistentActor <: PersistentActor {
     }
     
     /**
-     * 子类实现业务消息处理
+     * 子类实现业务消息处理（此前未标 open，子类无法重写，基类只能处理内置的持久化消息）
      */
-    public func receiveCommand(message: Message, context: ActorContext): MessageResult {
+    public open func receiveCommand(message: Message, context: ActorContext): MessageResult {
         MessageResult.Unhandled  // 子类应该重写
     }
     
     public func persist(event: EventPayload, handler: (EventPayload) -> Unit): Unit {
-        mutex.lock()
+        // 写入与处理器分两段：只有写入失败才回退序号。处理器失败时事件已经落库，
+        // 回退会让下一次 persist 以已占用的版本号写入、永远冲突（P3）
+        let seq = synchronized(mutex) {
+            let next = lastSequenceNr + 1
+            // Future 必须消费：失败（如版本冲突）时 get() 抛出（2026-11-06 修复：此前丢弃 Future，冲突被静默吞掉）
+            try {
+                eventStore.saveEvents(persistenceId(), [PersistentEvent(persistenceId(), next, event)], next - 1).get()
+            } catch (e: Exception) {
+                log_persistent_actor_impl.error("持久化事件失败: ${e.message}")
+                throw PersistenceException("持久化事件失败: ${e.message}", e)
+            }
+            lastSequenceNr = next
+            next
+        }
+        runHandler(seq, { => handler(event) })
+    }
 
+    /** 事件已落库后调用处理器：异常包装为 EventHandlerException 上抛，序号保持 */
+    private func runHandler(seq: Int64, body: () -> Unit): Unit {
         try {
-            lastSequenceNr += 1
-            let persistentEvent = PersistentEvent(persistenceId(), lastSequenceNr, event)
-
-            // 保存到事件存储：Future 结果必须消费——失败（如版本冲突）时 get() 抛出，
-            // 走下方的失败上抛路径（2026-11-06 修复：此前丢弃 Future，冲突被静默吞掉）
-            let events = [persistentEvent]
-            eventStore.saveEvents(persistenceId(), events, lastSequenceNr - 1).get()
-
-            // 调用处理器
-            handler(event)
-
-            log_persistent_actor_impl.debug("持久化事件: ${persistentEvent.toString()}")
-
+            body()
+        } catch (e: PersistenceException) {
+            throw e
         } catch (e: Exception) {
-            // 2026-11-06 修复：持久化失败必须上抛（此前仅记日志，调用方无感知，静默丢数据）。
-            // 回退序号，保持失败后状态一致，让监督策略决定是重试还是停止。
-            lastSequenceNr -= 1
-            log_persistent_actor_impl.error("持久化事件失败: ${e.message}")
-            throw PersistenceException("持久化事件失败: ${e.message}", e)
-        } finally {
-            mutex.unlock()
+            log_persistent_actor_impl.error("事件 seq=${seq} 已持久化，但处理器失败: ${e.message}")
+            throw EventHandlerException("事件 seq=${seq} 已持久化，但处理器失败: ${e.message}", seq, e)
         }
     }
     
@@ -146,32 +178,27 @@ public open class AbstractPersistentActor <: PersistentActor {
     }
     
     public func persistAll(events: Array<EventPayload>, handler: (EventPayload) -> Unit): Unit {
-        mutex.lock()
-        
-        try {
-            let persistentEvents = Array<PersistentEvent>(events.size, { i =>
-                lastSequenceNr += 1
-                PersistentEvent(persistenceId(), lastSequenceNr, events[i])
-            })
-            
-            // 批量保存
-            eventStore.saveEvents(persistenceId(), persistentEvents, lastSequenceNr - events.size)
-            
-            // 调用处理器
+        if (events.isEmpty()) {
+            return
+        }
+        let last = synchronized(mutex) {
+            let first = lastSequenceNr + 1
+            let batch = Array<PersistentEvent>(events.size, { i => PersistentEvent(persistenceId(), first + i, events[i]) })
+            // 消费 Future（此前未 get()，版本冲突被静默吞掉、序号照样前进）
+            try {
+                eventStore.saveEvents(persistenceId(), batch, first - 1).get()
+            } catch (e: Exception) {
+                log_persistent_actor_impl.error("批量持久化失败: ${e.message}")
+                throw PersistenceException("批量持久化失败: ${e.message}", e)
+            }
+            lastSequenceNr = first + events.size - 1
+            lastSequenceNr
+        }
+        runHandler(last, { =>
             for (event in events) {
                 handler(event)
             }
-            
-            log_persistent_actor_impl.debug("批量持久化 ${events.size} 个事件")
-            
-        } catch (e: Exception) {
-            log_persistent_actor_impl.error("批量持久化失败: ${e.message}")
-            // 2026-11-06 修复：失败上抛，不再静默
-            lastSequenceNr -= events.size
-            throw PersistenceException("批量持久化失败: ${e.message}", e)
-        } finally {
-            mutex.unlock()
-        }
+        })
     }
     
     public func saveSnapshot<T>(snapshot: T): Unit where T <: ToString {
@@ -214,25 +241,28 @@ public open class AbstractPersistentActor <: PersistentActor {
      */
     public func startRecovery(): Unit {
         isRecovering = true
+        recovered = true
         
         log_persistent_actor_impl.debug("${persistenceId()}: 开始恢复...")
         
-        // 首先尝试从快照恢复
-        match (snapshotStore.getLatestSnapshot(persistenceId())) {
-            case Some(snapshot) =>
-                log_persistent_actor_impl.debug("${persistenceId()}: 从快照恢复，序列号=${snapshot.getSequenceNumber()}")
-                onRecoverySnapshot(snapshot)
-                lastSequenceNr = snapshot.getSequenceNumber()
-                
-                // 恢复快照之后的事件
-                recoverEventsAfter(lastSequenceNr)
-                
-            case None =>
-                log_persistent_actor_impl.debug("${persistenceId()}: 从头开始恢复")
-                recoverEventsAfter(0)
+        try {
+            // 首先尝试从快照恢复
+            match (snapshotStore.getLatestSnapshot(persistenceId())) {
+                case Some(snapshot) =>
+                    log_persistent_actor_impl.debug("${persistenceId()}: 从快照恢复，序列号=${snapshot.getSequenceNumber()}")
+                    onRecoverySnapshot(snapshot)
+                    lastSequenceNr = snapshot.getSequenceNumber()
+
+                    // 恢复快照之后的事件
+                    recoverEventsAfter(lastSequenceNr)
+
+                case None =>
+                    log_persistent_actor_impl.debug("${persistenceId()}: 从头开始恢复")
+                    recoverEventsAfter(0)
+            }
+        } finally {
+            isRecovering = false
         }
-        
-        isRecovering = false
         onRecoveryCompleted()
         
         log_persistent_actor_impl.debug("${persistenceId()}: 恢复完成")
@@ -258,7 +288,9 @@ public open class AbstractPersistentActor <: PersistentActor {
             }
             log_persistent_actor_impl.debug("${persistenceId()}: 恢复了 ${events.size} 个事件")
         } catch (e: Exception) {
+            // 恢复失败必须上抛（此前只记日志，Actor 以残缺状态继续运行、后续写入版本错乱）
             log_persistent_actor_impl.error("${persistenceId()}: 恢复事件失败: ${e.message}")
+            throw PersistenceException("${persistenceId()}: 恢复事件失败: ${e.message}", e)
         }
     }
     

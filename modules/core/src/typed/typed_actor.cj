@@ -120,20 +120,30 @@ public interface TypedActorContext<T> {
      * 创建类型化子 Actor（spawn 是仓颉关键字，沿用 actorOf）
      * 名称在兄弟之间唯一，否则抛出 InvalidActorNameException
      */
-    @Frozen
     func actorOf<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U> {
-        throw UnsupportedContextException("actorOf")
+        actorOfWithHooks<U>(behavior, Some(name), TypedProps())
     }
 
     /** 指定调度器 / 邮箱创建子 Actor */
-    @Frozen
     func actorOf<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps): TypedActorRef<U> {
-        throw UnsupportedContextException("actorOf")
+        actorOfWithHooks<U>(behavior, Some(name), props)
     }
 
     /** 创建自动命名的子 Actor */
-    @Frozen
     func actorOf<U>(behavior: TypedBehavior<U>): TypedActorRef<U> {
+        actorOfWithHooks<U>(behavior, None<String>, TypedProps())
+    }
+
+    /**
+     * 子 Actor 创建的实现入口：上下文实现覆写本方法，三个 actorOf 用默认实现。
+     *
+     * 热路径 hooks（T16）：ctx 是接口，actorOf 是虚调用，泛型方法在 core 内实例化——在这里构造的 hooks
+     * 每条消息都要做运行时类型查找（实测子 Actor 吞吐只有顶层 typedActorOf 的 45–70%），@Frozen 对虚调用无效。
+     * 能在调用方包里构造 hooks 的只有静态调用的 @Frozen 工厂：setup / supervise 在构造行为时顺带构造好 hooks，
+     * 实现方用 carriedHooksOf(behavior) 取出。因此子 Actor 的初始行为以 setup（Akka 惯用写法）
+     * 或 supervise(setup(...)) 开头即走快路径；直接传 receive 的子 Actor 退回 core 内的默认 hooks（正确，较慢）
+     */
+    func actorOfWithHooks<U>(behavior: TypedBehavior<U>, name: Option<String>, props: TypedProps): TypedActorRef<U> {
         throw UnsupportedContextException("actorOf")
     }
 
@@ -400,7 +410,9 @@ public struct TypedBehaviors {
     /** Actor 启动时（在 Actor 线程中）用上下文创建真正的行为；重启时会重新执行 */
     @Frozen
     public static func setup<T>(factory: (TypedActorContext<T>) -> TypedBehavior<T>): TypedBehavior<T> {
-        DeferredBehavior<T>(factory)
+        // @Frozen 在调用方包展开：顺带在这里构造热路径 hooks，ctx.actorOf 创建子 Actor 时取用（T16）。
+        // 每次 setup 多 7 个小对象；setup 通常每个 Actor 只构造一次（重启重跑的是工厂，不是 setup 本身）
+        DeferredBehavior<T>(factory, Some(TypedSpawn.hooksFor<T>()))
     }
 
     /** 保持当前行为。每消息场景推荐在处理函数里用 `ctx.same()`（复用每 Actor 缓存实例，零分配，P2-20） */
@@ -608,6 +620,10 @@ internal class SignalBehavior<T> <: SpecialBehavior & TypedBehavior<T> & Startab
         }
     }
 
+    public override func wrappedBehavior(): Option<Any> {
+        Some<Any>(inner)
+    }
+
     public func getDescription(): String {
         "SignalBehavior(${inner.getDescription()})"
     }
@@ -628,11 +644,36 @@ internal abstract class SpecialBehavior {
     static let SUPERVISED: Int64 = 5
     // 实现 StartableBehavior 的组合行为
     static let STARTABLE: Int64 = 6
+    // 运行中的监督包裹层（ActiveSupervision，SupervisedBehavior 启动后的形态）
+    static let ACTIVE_SUPERVISION: Int64 = 7
 
     let specialKind: Int64
 
     init(specialKind: Int64) {
         this.specialKind = specialKind
+    }
+
+    /** 持续包裹内层行为的组合行为返回内层（类型擦除）：失败时沿它收集监督层（冷路径） */
+    public open func wrappedBehavior(): Option<Any> {
+        None<Any>
+    }
+
+    /** 监督包裹层返回本层规则（Array<SupervisionRule>，类型擦除：规则类型是包内的，不能出现在 open 方法签名里） */
+    public open func supervisionLayer(): Option<Any> {
+        None<Any>
+    }
+
+    /** 由 @Frozen 工厂在调用方包里构造的热路径 hooks（setup / supervise 携带，见 TypedActorContext.actorOfWithHooks） */
+    public open func carriedHooks(): Option<TypedHooks> {
+        None<TypedHooks>
+    }
+}
+
+/** 行为携带的调用方包 hooks（没有则 None，创建方退回默认 hooks） */
+func carriedHooksOf(behavior: Any): Option<TypedHooks> {
+    match (behavior) {
+        case s: SpecialBehavior => s.carriedHooks()
+        case _ => None<TypedHooks>
     }
 }
 
@@ -646,10 +687,20 @@ func specialKindOf(b: Any): Int64 {
 /** setup：启动时用上下文创建行为 */
 internal class DeferredBehavior<T> <: SpecialBehavior & TypedBehavior<T> {
     let factory: (TypedActorContext<T>) -> TypedBehavior<T>
+    let hooks: Option<TypedHooks>
 
     public init(factory: (TypedActorContext<T>) -> TypedBehavior<T>) {
+        this(factory, None<TypedHooks>)
+    }
+
+    public init(factory: (TypedActorContext<T>) -> TypedBehavior<T>, hooks: Option<TypedHooks>) {
         super(SpecialBehavior.DEFERRED)
         this.factory = factory
+        this.hooks = hooks
+    }
+
+    public override func carriedHooks(): Option<TypedHooks> {
+        hooks
     }
 
     public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T> {
@@ -777,6 +828,10 @@ internal class TransformBehavior<In, T> <: SpecialBehavior & TypedBehavior<In> &
         }
     }
 
+    public override func wrappedBehavior(): Option<Any> {
+        Some<Any>(inner)
+    }
+
     public func getDescription(): String {
         "TransformBehavior"
     }
@@ -820,6 +875,10 @@ internal class FilterBehavior<In> <: SpecialBehavior & TypedBehavior<In> & Start
         inner.onSignal(signal, context)
     }
 
+    public override func wrappedBehavior(): Option<Any> {
+        Some<Any>(inner)
+    }
+
     public func getDescription(): String {
         "FilterBehavior"
     }
@@ -852,11 +911,24 @@ internal class PartialBehavior<T> <: TypedBehavior<T> {
  * transformMessages 内部行为看到的上下文：除 self / timers / messageAdapter 等与消息类型 T 相关的能力外，
  * 其余全部委托给外层上下文
  */
-internal class TransformContext<In, T> <: TypedActorContext<T> {
+internal class TransformContext<In, T> <: TypedActorContext<T> & SupervisionHost {
     private let underlying: TypedActorContext<In>
 
     public init(underlying: TypedActorContext<In>) {
         this.underlying = underlying
+    }
+
+    // transformMessages 内层的 supervise 登记到外层 Actor 的监督状态（此前内层上下文不是经典上下文，内层 supervise 完全不生效）
+    public func pushStarting(rules: Array<SupervisionRule>): Unit {
+        if (let Some(h) <- supervisionHostOf(underlying)) {
+            h.pushStarting(rules)
+        }
+    }
+
+    public func popStarting(): Unit {
+        if (let Some(h) <- supervisionHostOf(underlying)) {
+            h.popStarting()
+        }
     }
 
     public prop self: TypedActorRef<T> {
@@ -868,9 +940,9 @@ internal class TransformContext<In, T> <: TypedActorContext<T> {
     public func sender(): Option<String> { underlying.sender() }
     public func stopSelf(): Unit { underlying.stopSelf() }
     public func log(): TypedLogger { underlying.log() }
-    public func actorOf<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U> { underlying.actorOf<U>(behavior, name) }
-    public func actorOf<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps): TypedActorRef<U> { underlying.actorOf<U>(behavior, name, props) }
-    public func actorOf<U>(behavior: TypedBehavior<U>): TypedActorRef<U> { underlying.actorOf<U>(behavior) }
+    public func actorOfWithHooks<U>(behavior: TypedBehavior<U>, name: Option<String>, props: TypedProps): TypedActorRef<U> {
+        underlying.actorOfWithHooks<U>(behavior, name, props)
+    }
     public func stop<U>(child: TypedActorRef<U>): Unit { underlying.stop<U>(child) }
     public func childAs<U>(name: String): Option<TypedActorRef<U>> { underlying.childAs<U>(name) }
     public func child(name: String): Option<TypedActorRef<Any>> { underlying.child(name) }

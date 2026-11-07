@@ -8,9 +8,13 @@ package cactor_foundation.monitoring
 
 import std.collection.*
 import std.sync.*
+import std.random.*
 import cactor_foundation.logging.{Logger, Logging}
 
 let log_tracing: Logger = Logging.logger("cactor_foundation.monitoring.tracing")
+
+/** Tracer 默认保留的已完成 span 数 */
+public let DEFAULT_MAX_FINISHED_SPANS: Int64 = 10_000
 
 /**
  * 追踪上下文
@@ -227,13 +231,24 @@ public struct SpanLogWithFields {
 public class Tracer {
     private let serviceName: String
     private let activeSpans: HashMap<String, Span>
-    private let finishedSpans: ArrayList<Span>
+    // 已完成 span 的环形缓冲：超过上限丢弃最旧的（此前无上限，长期运行时内存一直涨）
+    private let finishedSpans: ArrayDeque<Span>
+    private let maxFinishedSpans: Int64
+    private var droppedSpans: Int64 = 0
     private let mutex: Mutex
-    
+
     public init(serviceName: String) {
+        this(serviceName, DEFAULT_MAX_FINISHED_SPANS)
+    }
+
+    public init(serviceName: String, maxFinishedSpans: Int64) {
+        if (maxFinishedSpans <= 0) {
+            throw IllegalArgumentException("maxFinishedSpans 必须为正数: ${maxFinishedSpans}")
+        }
         this.serviceName = serviceName
         this.activeSpans = HashMap<String, Span>()
-        this.finishedSpans = ArrayList<Span>()
+        this.finishedSpans = ArrayDeque<Span>()
+        this.maxFinishedSpans = maxFinishedSpans
         this.mutex = Mutex()
     }
     
@@ -271,52 +286,61 @@ public class Tracer {
      */
     public func finishSpan(span: Span): Unit {
         span.finish()
-        
-        mutex.lock()
-        activeSpans.remove(span.spanId)
-        finishedSpans.add(span)
-        mutex.unlock()
+        synchronized(mutex) {
+            activeSpans.remove(span.spanId)
+            finishedSpans.addLast(span)
+            while (finishedSpans.size > maxFinishedSpans) {
+                finishedSpans.removeFirst()
+                droppedSpans++
+            }
+        }
     }
-    
+
     /**
-     * 获取活跃跨度数量
+     * 获取活跃跨度数量（此前恒返回 5）
      */
     public func getActiveSpanCount(): Int32 {
-        mutex.lock()
-        let count: Int32 = 5  // 简化实现
-        mutex.unlock()
-        count
+        synchronized(mutex) {
+            Int32(activeSpans.size)
+        }
     }
-    
+
     /**
-     * 获取已完成跨度数量
+     * 获取保留中的已完成跨度数量（此前恒返回 10）
      */
     public func getFinishedSpanCount(): Int32 {
-        mutex.lock()
-        let count: Int32 = 10  // 简化实现
-        mutex.unlock()
-        count
+        synchronized(mutex) {
+            Int32(finishedSpans.size)
+        }
     }
-    
+
+    /** 因超过保留上限而丢弃的已完成跨度数 */
+    public func getDroppedSpanCount(): Int64 {
+        synchronized(mutex) {
+            droppedSpans
+        }
+    }
+
     /**
      * 清理已完成的跨度
      */
     public func clearFinishedSpans(): Unit {
-        mutex.lock()
-        finishedSpans.clear()
-        mutex.unlock()
+        synchronized(mutex) {
+            finishedSpans.clear()
+        }
     }
-    
+
     /**
      * 打印追踪统计
      */
     public func printTracingStats(): Unit {
-        mutex.lock()
+        let (active, finished) = synchronized(mutex) {
+            (activeSpans.size, finishedSpans.size)
+        }
         println("📈 追踪统计:")
         println("   服务名称: ${serviceName}")
-        println("   活跃跨度: ${getActiveSpanCount()}")
-        println("   已完成跨度: ${finishedSpans.size}")
-        mutex.unlock()
+        println("   活跃跨度: ${active}")
+        println("   已完成跨度: ${finished}")
     }
 }
 
@@ -367,16 +391,42 @@ public struct GlobalTracer {
     }
 }
 
-/**
- * 生成追踪ID
- */
-func generateTraceId(): String {
-    "trace-${getCurrentTimeMillis()}"
+// W3C Trace Context 格式的 ID（P11）：此前用 "trace-<毫秒>"，同一毫秒内开始的 span 共用同一 ID，
+// activeSpans 按 spanId 存放时互相覆盖。现在 traceId 为 128 位、spanId 为 64 位随机数，小写十六进制，不全为 0。
+let idRandom: Random = Random()
+let idLock: Mutex = Mutex()
+let HEX_DIGITS: Array<UInt8> = "0123456789abcdef".toArray()
+
+func nextNonZero64(): UInt64 {
+    synchronized(idLock) {
+        var v = idRandom.nextUInt64()
+        while (v == 0) {
+            v = idRandom.nextUInt64()
+        }
+        v
+    }
+}
+
+func hex64(v: UInt64): String {
+    let out = Array<UInt8>(16, repeat: 0)
+    var x = v
+    for (i in 0..16) {
+        out[15 - i] = HEX_DIGITS[Int64(x & 0xF)]
+        x = x >> 4
+    }
+    String.fromUtf8(out)
 }
 
 /**
- * 生成跨度ID
+ * 生成追踪 ID：128 位随机数，32 个小写十六进制字符（W3C traceparent 的 trace-id）
  */
-func generateSpanId(): String {
-    "span-${getCurrentTimeMillis()}"
+public func generateTraceId(): String {
+    hex64(nextNonZero64()) + hex64(nextNonZero64())
+}
+
+/**
+ * 生成跨度 ID：64 位随机数，16 个小写十六进制字符（W3C traceparent 的 parent-id）
+ */
+public func generateSpanId(): String {
+    hex64(nextNonZero64())
 }

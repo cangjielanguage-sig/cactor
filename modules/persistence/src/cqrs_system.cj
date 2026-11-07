@@ -207,7 +207,9 @@ public class CQRSBus {
     private let eventStore: EnhancedEventStore
     private let readModels: HashMap<String, ReadModel>
     private let mutex: Mutex
-    
+    // 聚合工厂：按聚合 id 创建初始聚合，再重放该聚合的事件得到当前状态（未登记时处理器拿到 None）
+    private var aggregateFactory: Option<(String) -> AggregateRoot> = None
+
     public init(eventStore: EnhancedEventStore) {
         this.commandHandlers = HashMap<String, CommandHandler>()
         this.queryHandlers = HashMap<String, QueryHandler>()
@@ -230,6 +232,13 @@ public class CQRSBus {
         log_cqrs_system.debug("注册查询处理器: ${queryType}")
     }
     
+    /** 登记聚合工厂：sendCommand 会用它创建初始聚合并重放已存事件，处理器拿到的是当前状态 */
+    public func registerAggregateFactory(factory: (String) -> AggregateRoot): Unit {
+        synchronized(mutex) {
+            aggregateFactory = Some(factory)
+        }
+    }
+
     public func registerReadModel(modelId: String, readModel: ReadModel): Unit {
         mutex.lock()
         readModels[modelId] = readModel
@@ -245,24 +254,24 @@ public class CQRSBus {
         match (handler) {
             case Some(h) =>
                 try {
-                    // 加载聚合根（简化实现）
-                    let aggregate: Option<AggregateRoot> = None
-                    
-                    // 处理命令
+                    let aggregateId = command.getAggregateId()
+                    // 当前版本 = 已存最高序号。此前恒以 0 为期望版本、序号从 1 开始：同一聚合的第二条命令
+                    // 必被存储以版本冲突拒绝，而 Future 被丢弃、读模型照样更新，调用方拿到"成功"（P2）
+                    let currentSeq = eventStore.getHighestSequenceNr(aggregateId).get()
+                    let aggregate = loadAggregate(aggregateId, currentSeq)
+
                     let events = h.handle(command, aggregate)
-                    
-                    // 保存事件
+
                     if (events.size > 0) {
                         let persistentEvents = Array<PersistentEvent>(events.size, { i =>
-                            PersistentEvent(command.getAggregateId(), i + 1, events[i])
+                            PersistentEvent(aggregateId, currentSeq + i + 1, events[i])
                         })
-                        
-                        eventStore.saveEvents(command.getAggregateId(), persistentEvents, 0)
-                        
-                        // 更新读模型
+                        // 乐观并发：期望版本为读取时的最高序号，并发写同一聚合时后到者被拒绝。
+                        // 必须等待写入结果——写入失败时既不能更新读模型，也不能向调用方报告成功
+                        eventStore.saveEvents(aggregateId, persistentEvents, currentSeq).get()
                         updateReadModels(persistentEvents)
                     }
-                    
+
                     CompletedFuture<Unit>(())
 
                 } catch (e: Exception) {
@@ -271,6 +280,22 @@ public class CQRSBus {
 
             case None =>
                 FailedFuture<Unit>(Exception("未找到命令处理器: ${command.getCommandType()}"))
+        }
+    }
+
+    /** 用聚合工厂创建初始聚合并按序号重放已存事件；未登记工厂或聚合尚无事件时返回 None/初始聚合 */
+    private func loadAggregate(aggregateId: String, currentSeq: Int64): Option<AggregateRoot> {
+        let factory = synchronized(mutex) { aggregateFactory }
+        match (factory) {
+            case Some(create) =>
+                var aggregate = create(aggregateId)
+                if (currentSeq > 0) {
+                    for (e in eventStore.loadEventStream(aggregateId, 1, currentSeq).get()) {
+                        aggregate = aggregate.applyEvent(e.payload)
+                    }
+                }
+                Some(aggregate)
+            case None => None
         }
     }
     

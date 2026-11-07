@@ -17,6 +17,11 @@
  *     func onXxx(msg: T)                       （Unit 返回，视为 Handled）
  *     func onXxx(msg: T, ctx: ActorContext)    （Unit 返回，视为 Handled）
  *     func onXxx(msg: T, ctx: ActorContext): MessageResult
+ * - 不是处理方法的 onXxx（T13）：首参是 ActorContext 的方法（生命周期钩子 onStarted(context)）、static 方法，宏跳过；
+ *   此前 onStarted 被当成"处理 ActorContext 类型消息"的处理器生成分支。
+ * - 分派顺序：按声明顺序，但兜底类型（Message / Any）的处理方法总是排在最后（T13）：
+ *   此前写在前面的 onAny(m: Message) 会吞掉之后所有具体类型的处理方法。
+ *   其他父子类型宏无法判断（宏看不到类型层次），请把子类型的处理方法写在父类型前面。
  * - 自动生成：按类型分派的 receive、缺省的 name / description。
  * - MessageResult / Unhandled 语义与手写 receive 完全一致（等价性测试保证）。
  */
@@ -63,6 +68,8 @@ func transformActor(attr: Tokens, input: Tokens, macroName: String): Tokens {
     let className = cls.identifier.value
     let actorAttr = parseActorAttr(attr, className, macroName)
     var arms = quote()
+    // 兜底类型（Message / Any）的分支，最后拼到 arms 之后
+    var catchAllArms = quote()
     var handlerCount = 0
     let handlers = ArrayList<HandlerInfo>()
     let seenTypes = ArrayList<String>()
@@ -75,10 +82,11 @@ func transformActor(attr: Tokens, input: Tokens, macroName: String): Tokens {
                 if (fname == "receive") {
                     throw ASTException("${macroName}: ${className} 已经定义了 receive（宏会生成，请删除或改名）")
                 }
-                if (fname.startsWith("on") && fname.size > 2 && f.funcParams.size >= 1) {
+                if (fname.startsWith("on") && fname.size > 2 && f.funcParams.size >= 1 && !isLifecycleOrStatic(f)) {
                     checkHandlerSignature(f, className, macroName)
                     let t = f.funcParams[0].paramType
                     let typeName = normalizeTypeName(t.toTokens().toString())
+                    let catchAll = typeName == "Message" || typeName == "Any"
                     for (seen in seenTypes) {
                         if (seen == typeName) {
                             throw ASTException("${macroName}: ${className} 中有多个处理 ${typeName} 的方法（${fname}），后一个永远不会被调用")
@@ -96,26 +104,29 @@ func transformActor(attr: Tokens, input: Tokens, macroName: String): Tokens {
                             isResult = true
                         }
                     } catch (e: Exception) { }
-                    if (f.funcParams.size == 1) {
+                    let arm = if (f.funcParams.size == 1) {
                         if (isResult) {
-                            arms = quote($arms
-                                case m: $t => this.$id(m)
+                            quote(case m: $t => this.$id(m)
                             )
                         } else {
-                            arms = quote($arms
-                                case m: $t => this.$id(m); MessageResult.Handled
+                            quote(case m: $t => this.$id(m); MessageResult.Handled
                             )
                         }
                     } else {
                         if (isResult) {
-                            arms = quote($arms
-                                case m: $t => this.$id(m, context)
+                            quote(case m: $t => this.$id(m, context)
                             )
                         } else {
-                            arms = quote($arms
-                                case m: $t => this.$id(m, context); MessageResult.Handled
+                            quote(case m: $t => this.$id(m, context); MessageResult.Handled
                             )
                         }
+                    }
+                    if (catchAll) {
+                        catchAllArms = quote($catchAllArms
+                            $arm)
+                    } else {
+                        arms = quote($arms
+                            $arm)
                     }
                     handlerCount++
                 }
@@ -140,6 +151,7 @@ func transformActor(attr: Tokens, input: Tokens, macroName: String): Tokens {
         public func receive(message: Message, context: ActorContext): MessageResult {
             match (message) {
                 $arms
+                $catchAllArms
                 case _ => MessageResult.Unhandled
             }
         }
@@ -229,5 +241,22 @@ func checkHandlerSignature(f: FuncDecl, className: String, macroName: String): U
         if (ctxType != "ActorContext") {
             fail("${macroName}: ${className}.${fname} 第二个参数必须是 ActorContext，实际是 ${ctxType}", fname)
         }
+    }
+}
+
+/**
+ * 不是消息处理方法的 onXxx：首参类型是 ActorContext（生命周期钩子，如 onStarted(context)），或 static 方法
+ */
+func isLifecycleOrStatic(f: FuncDecl): Bool {
+    for (m in f.modifiers) {
+        if (m.keyword.kind == TokenKind.STATIC) {
+            return true
+        }
+    }
+    try {
+        normalizeTypeName(f.funcParams[0].paramType.toTokens().toString()) == "ActorContext"
+    } catch (e: Exception) {
+        // 首参没写类型：交给 checkHandlerSignature 报错
+        false
     }
 }

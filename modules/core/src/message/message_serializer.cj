@@ -312,17 +312,41 @@ public interface MessageCodec {
  */
 public class MessageCodecRegistry {
     private static let codecs: HashMap<String, MessageCodec> = HashMap<String, MessageCodec>()
+    // 由 @Message 生成的 registerCodec 登记的"所属消息类"标识（每个类一个静态对象）
+    private static let owners: HashMap<String, Object> = HashMap<String, Object>()
     private static let lock: Mutex = Mutex()
 
+    /** 注册（或显式替换）编解码器：同名已存在时覆盖——用于手写编解码器与模式演进（换版本） */
     public static func register(messageType: String, codec: MessageCodec): Unit {
         synchronized(lock) {
             codecs[messageType] = codec
+            owners.remove(messageType)
+        }
+    }
+
+    /**
+     * @Message 生成的 registerCodec 使用的入口（T13）：owner 是消息类自己的静态对象，同一个类重复注册无害；
+     * 另一个类已用同一个名字注册时立即抛 IllegalStateException。
+     * 此前按简单类名注册、后注册者静默覆盖：不同包里同名的消息类会互相顶掉，远程收到的消息被解成另一个类
+     */
+    public static func register(messageType: String, codec: MessageCodec, owner: Object): Unit {
+        synchronized(lock) {
+            if (let Some(existing) <- owners.get(messageType)) {
+                if (!refEq(existing, owner)) {
+                    throw IllegalStateException(
+                        "消息名 ${messageType} 已被另一个 @Message 类注册：不同包里有同名的消息类。" +
+                        "请用 @Message[name = \"包名.${messageType}\"] 给其中一个指定唯一的线上名称")
+                }
+            }
+            codecs[messageType] = codec
+            owners[messageType] = owner
         }
     }
 
     public static func unregister(messageType: String): Unit {
         synchronized(lock) {
             codecs.remove(messageType)
+            owners.remove(messageType)
         }
     }
 

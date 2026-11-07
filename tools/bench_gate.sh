@@ -12,9 +12,16 @@
 # 静止的 CI 机器可把阈值收紧到 10 并将采样次数设为 1。
 # 内存（heap_bytes_per_actor）最稳定，不受负载影响（GC region 粒度噪声约 ±15%）。
 #
-# 前置：workspace 根目录已 cjpm build；仓颉环境已 source envsetup.sh；需要 jq。
+# 前置：workspace 根目录已 cjpm build；需要 jq（仓颉环境未 source 时脚本自动 source）。
 set -u
 cd "$(dirname "$0")/.."
+
+# 自带仓颉环境（与 ci.sh 一致）：否则在未 source envsetup.sh 的 shell 里，每个可执行程序都因
+# 找不到 libcangjie-runtime.so 以 127 退出，整张矩阵全红（E26）
+if ! command -v cjpm >/dev/null 2>&1; then
+    # shellcheck disable=SC1091
+    source "${CANGJIE_HOME:-$HOME/.cangjie/1.2.0/cangjie}/envsetup.sh" >/dev/null
+fi
 
 THRESHOLD="${1:-25}"
 REPEATS="${2:-3}"
@@ -27,13 +34,24 @@ command -v jq >/dev/null 2>&1 || { echo "需要 jq"; exit 2; }
 
 base() { jq -r "$1" "$BASELINE"; }
 
-# best <方向> <值列表>：higher 取最大，lower 取最小
+# best <方向> <值列表>：higher 取最大，lower 取最小。
+# 只在数值样本中取最优：空样本（运行崩溃 / 输出缺行）不能参与排序——
+# 此前 sort 把空串排在最前，lower 方向取到空串误报"未取得实测值"，higher 方向则把崩溃静默吞掉（E26）。
+# 崩溃本身由 ran() 按退出码判失败。
 best() {
     local dir="$1"; shift
     if [ "$dir" = "higher" ]; then
-        printf '%s\n' "$@" | sort -g | tail -1
+        printf '%s\n' "$@" | grep -E '^[0-9]+(\.[0-9]+)?$' | sort -g | tail -1
     else
-        printf '%s\n' "$@" | sort -g | head -1
+        printf '%s\n' "$@" | grep -E '^[0-9]+(\.[0-9]+)?$' | sort -g | head -1
+    fi
+}
+
+# ran <名称> <退出码>：基准进程非 0 退出（崩溃、超时 124、OOM）即判门禁失败
+ran() {
+    if [ "$2" -ne 0 ]; then
+        echo "✗ $1 运行失败（退出码 $2）"
+        FAIL=1
     fi
 }
 
@@ -69,6 +87,7 @@ CREATE_LIST=(); DRAIN_LIST=(); STOP_LIST=(); HEAP_LIST=()
 for _ in $(seq "$REPEATS"); do
     OUT=$(cjHeapSize=8GB CACTOR_LOG_LEVEL=error timeout 300 \
         "$BIN/cactor_examples.scale_test" 1000000 child 2>&1)
+    ran "scale_test" $?
     CREATE_LIST+=("$(echo "$OUT" | grep -oE '创建：[0-9]+ ms' | grep -oE '[0-9]+')")
     DRAIN_LIST+=("$(echo "$OUT" | grep -oE '每个处理一条消息：[0-9]+ ms' | grep -oE '[0-9]+')")
     STOP_LIST+=("$(echo "$OUT" | grep -oE '停止：[0-9]+ ms' | grep -oE '[0-9]+')")
@@ -84,7 +103,8 @@ check "每 Actor 存活堆 (B)"    "$(best lower "${HEAP_LIST[@]}")"    "$(base 
 echo "--- real_benchmark T4 ---"
 M1_LIST=(); M2_LIST=(); M6_LIST=(); M7_LIST=(); P50_LIST=(); P99_LIST=()
 for _ in $(seq "$REPEATS"); do
-    OUT=$(CACTOR_DISPATCHER_THREADS=4 CACTOR_LOG_LEVEL=error "$BIN/cactor_examples.real_benchmark" 2 2>&1)
+    OUT=$(CACTOR_DISPATCHER_THREADS=4 CACTOR_LOG_LEVEL=error timeout 600 "$BIN/cactor_examples.real_benchmark" 2 2>&1)
+    ran "real_benchmark" $?
     M1_LIST+=("$(echo "$OUT" | grep '^\[1\]' | tail -1 | grep -oE '[0-9]+ msg/s' | grep -oE '[0-9]+' | head -1)")
     M2_LIST+=("$(echo "$OUT" | grep '^\[2\]' | tail -1 | grep -oE '[0-9]+ msg/s' | grep -oE '[0-9]+' | head -1)")
     M6_LIST+=("$(echo "$OUT" | grep '^\[6\]' | tail -1 | grep -oE '[0-9]+ msg/s' | grep -oE '[0-9]+' | head -1)")
@@ -105,6 +125,7 @@ LP50_LIST=(); LP99_LIST=()
 for _ in $(seq "$REPEATS"); do
     OUT=$(cjHeapSize=8GB CACTOR_LOG_LEVEL=error timeout 300 \
         "$BIN/cactor_examples.scale_latency" 1000000 2>&1)
+    ran "scale_latency" $?
     LP50_LIST+=("$(echo "$OUT" | grep -oE 'P50=[0-9.]+' | head -1 | cut -d= -f2)")
     LP99_LIST+=("$(echo "$OUT" | grep -oE 'P99=[0-9.]+' | head -1 | cut -d= -f2)")
 done

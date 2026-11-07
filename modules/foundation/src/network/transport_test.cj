@@ -191,21 +191,23 @@ public class TransportTest {
     }
 
     @TestCase
-    func tcpSendToClosedPortFails(): Unit {
+    func tcpSendToClosedPortDropsWithoutThrowing(): Unit {
         let probe = TcpTransport(NetworkAddress("127.0.0.1", 0))
         probe.start()
         let deadPort = probe.getLocalAddress().port
         probe.stop()
         let client = TcpTransport(NetworkAddress("127.0.0.1", 0), Duration.millisecond * 500)
         client.start()
-        var failed = false
+        // E40：send 只入队，连接失败在写线程里发生，帧被丢弃并计数，不抛异常（与 Akka 的 tell 一致）
+        var threw = false
         try {
             client.send(NetworkAddress("127.0.0.1", deadPort), bytesOf("x"))
         } catch (_: Exception) {
-            failed = true
+            threw = true
         }
-        @Expect(failed, true)
-        @Expect(client.getSendFailures(), 1)
+        @Expect(threw, false)
+        @Expect(waitUntil(Duration.second * 5, { => client.getSendFailures() == 1 }), true)
+        @Expect(client.getConnectFailures() >= 1, true)
         client.stop()
         // 未启动时发送直接失败
         @ExpectThrows[IllegalStateException](client.send(NetworkAddress("127.0.0.1", deadPort), bytesOf("x")))

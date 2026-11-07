@@ -242,6 +242,61 @@ class CounterBox {
 
 // ---------- 测试 ----------
 
+// ---------- T13：生命周期钩子不是处理方法；兜底处理方法排在最后 ----------
+
+// 兜底的 onAny 故意写在最前面：修复前它生成的第一个分支吞掉所有消息，onInc / onDone 永远不会被调用。
+// cases 清单之外的 onStarted(context) 是生命周期钩子：修复前被当成"处理 ActorContext 的方法"，协议核对直接编译失败
+@actor
+class CatchAllFirst <: Actor {
+    let rec: EventRecorder
+
+    init(rec: EventRecorder) { this.rec = rec }
+
+    func onAny(m: Message) {
+        rec.record("any:${m.messageType()}")
+    }
+
+    func onInc(m: Inc) {
+        rec.record("inc:${m.n}")
+    }
+
+    func onDone(m: Done, ctx: ActorContext): MessageResult {
+        rec.record("done")
+        MessageResult.Stop
+    }
+
+    public func onStarted(context: ActorContext): Unit {
+        rec.record("started")
+    }
+
+    public func postStop(): Unit {
+        rec.record("stopped")
+    }
+}
+
+@actor[cases = [Inc, Done]]
+class LifecycleWithCases <: Actor {
+    let rec: EventRecorder
+
+    init(rec: EventRecorder) { this.rec = rec }
+
+    public func onStarted(context: ActorContext): Unit {
+        rec.record("started")
+    }
+
+    func onInc(m: Inc) {
+        rec.record("inc:${m.n}")
+    }
+
+    func onDone(m: Done, ctx: ActorContext): MessageResult {
+        MessageResult.Stop
+    }
+
+    public func postStop(): Unit {
+        rec.record("stopped")
+    }
+}
+
 @Test
 public class ActorMacroEquivTest {
     @TestCase
@@ -390,5 +445,32 @@ public class ActorMacroEquivTest {
     public func testDurationAndSendRegression(): Unit {
         @Expect(100.millis, Duration.millisecond * 100)
         @Expect(3.seconds, Duration.second * 3)
+    }
+
+    @TestCase
+    public func catchAllHandlerDoesNotShadowSpecificOnes(): Unit {
+        let kit = ActorTestKit("catch-all-last")
+        let rec = EventRecorder()
+        let a = kit.actorOf({ => CatchAllFirst(rec) }, "catch-all")
+        a << Inc(7) << StringMessage("x") << Done()
+        @Expect(rec.await("stopped", 3.seconds), true)
+        @Expect(rec.contains("inc:7"), true)
+        @Expect(rec.contains("any:${StringMessage("x").messageType()}"), true)
+        @Expect(rec.contains("any:Inc"), false)
+        @Expect(rec.contains("done"), true)
+        // 生命周期钩子照常执行一次，没有被当成消息处理方法
+        @Expect(rec.count("started"), 1)
+        kit.shutdown()
+    }
+
+    @TestCase
+    public func lifecycleHookIsNotCountedAsHandler(): Unit {
+        let kit = ActorTestKit("lifecycle-cases")
+        let rec = EventRecorder()
+        let a = kit.actorOf({ => LifecycleWithCases(rec) }, "lc")
+        a << Inc(1) << Done()
+        @Expect(rec.await("stopped", 3.seconds), true)
+        @Expect(rec.snapshot(), ["started", "inc:1", "stopped"])
+        kit.shutdown()
     }
 }

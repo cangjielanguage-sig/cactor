@@ -73,15 +73,21 @@ let SCHED_CLEAR_MASK: Int64 = -2
 // 可用 CACTOR_INLINE_STOP_LIMIT 覆盖（设为 0 则总是并行，设为很大则总是内联），便于对照实测。
 let INLINE_STOP_LIMIT: Int64 = envInt("CACTOR_INLINE_STOP_LIMIT", 4096, 0)
 
-// 诊断计数器位域（P1-5）：processed / deadLetters / restarts / unhandled 各占 16 位。
-// 四个独立原子对象每个约 46 字节，合并后每 Actor 省下约 138 字节；
-// 16 位封顶（65535），诊断计数不需要无界精度。每次 fetchAdd 一个"预先移位好的增量"，
-// 各字段相互独立（只要不越过 65535，就不会进位污染相邻字段）。
-let CTR_FIELD_MASK: Int64 = 0xFFFF
-let CTR_PROCESSED_SHIFT: Int64 = 0
-let CTR_DEADLETTER_SHIFT: Int64 = 16
-let CTR_RESTART_SHIFT: Int64 = 32
-let CTR_UNHANDLED_SHIFT: Int64 = 48
+// BATCH_BIT（R15）：父 Actor 正在"合批停止"子树。此前是父的懒分配 Option<AtomicInt64> 字段，
+// 子 Actor 在自己的线程里读它，与父的首次写入并发——多字 Option 可能读到撕裂值。
+// 改为父调度字上的一位：父先写好计数（stoppingChildrenValue），再 fetchOr 置位发布；子看到该位后才读计数。
+let BATCH_BIT: Int64 = 32
+let BATCH_CLEAR_MASK: Int64 = -33
+// CHILDREN_BIT（R8）：子 Actor 表已分配。lookup / liveCells 在别的线程读子表，先看到该位再读字段（同 SYS_BIT 的发布方式）
+let CHILDREN_BIT: Int64 = 64
+// STATS_BIT（R19）：异常计数（死信 / 重启 / 未处理）已分配，见 CellMailbox.anomalies
+let STATS_BIT: Int64 = 128
+// PAUSE_BIT（E33）：上层 Actor 失败待决，本 Actor 随之暂停处理用户消息（Akka faultSuspend 的 suspendChildren）。
+// 与自身失败的 STATE_SUSPENDED 分开记：自身失败由父的决定解除，随父暂停由父恢复解除，两者互不覆盖——
+// 否则父恢复时会把一个尚未得到决定的失败子 Actor 提前放行。
+// 只在本 Cell 线程处理系统消息时改写；与其他线程的调度位共用一个原子字，所以用 fetchOr / fetchAnd
+let PAUSE_BIT: Int64 = 256
+let PAUSE_CLEAR_MASK: Int64 = -257
 
 /** 标记 Actor 调度线程：系统终止时据此判断调用方是否就在某个 Actor 中 */
 let actorThreadFlag: ThreadLocal<Bool> = ThreadLocal<Bool>()
@@ -100,7 +106,13 @@ class SysTerminate <: SysMsg {}
 /** 创建后的第一条系统消息：在 Cell 线程中调用 Actor.onStarted */
 class SysStarted <: SysMsg {}
 
+/** 父 Actor 对本 Actor 失败的决定：恢复 */
 class SysResume <: SysMsg {}
+
+/** 父 Actor 进入 / 离开"失败待决"：整棵子树随之暂停 / 继续处理用户消息（E33） */
+class SysParentSuspend <: SysMsg {}
+
+class SysParentResume <: SysMsg {}
 
 class SysRecreate <: SysMsg {
     let cause: Exception
@@ -138,6 +150,37 @@ class SysChildTerminated <: SysMsg {
 
 /** 停止合批（P5-2）：一批子 Actor 全部终止的汇总信号（替代每子一条 SysChildTerminated） */
 class SysChildrenTerminated <: SysMsg {}
+
+/**
+ * 本 Actor 发起的死亡监视（冷数据，首次 watch 时才分配；多数 Actor 用不到，不占 Cell 字段）。
+ *
+ * 与 Akka 的 DeathWatch 相同（E32）：
+ * - 目标死亡时 Terminated 入**用户邮箱**队尾，而不是在系统消息处理中直接调用 receive——
+ *   目标死前发来的消息已经在邮箱里，必然先于 Terminated 被处理（R6）；
+ * - 入队后尚未处理时 unwatch，该 Terminated 被丢弃（queued）；
+ * - watchWith 的自定义消息保存在 Cell 上，重启后的新实例收到的仍是它（T3）。
+ */
+class WatchingState {
+    let targets = HashMap<String, SimpleUserActorRef>(4)
+    // watchWith 登记的自定义消息（按目标路径）
+    let messages = HashMap<String, Message>()
+    // 已入队、尚未处理的 Terminated：目标与（取出时替换成的）自定义消息
+    let queued = ArrayList<(SimpleUserActorRef, Option<Message>)>()
+
+    /** 取出并移除 target 的待处理记录；没有（已 unwatch 或不是 DeathWatch 产生的）返回 None */
+    func takeQueued(target: SimpleUserActorRef): Option<Option<Message>> {
+        var i: Int64 = 0
+        while (i < queued.size) {
+            let (t, m) = queued[i]
+            if (refEq(t, target)) {
+                queued.remove(at: i)
+                return Some(m)
+            }
+            i++
+        }
+        None
+    }
+}
 
 class SysReceiveTimeout <: SysMsg {
     let generation: Int64
@@ -249,6 +292,99 @@ let EMPTY_SENDER_REFS: Array<Option<ActorRef>> = Array<Option<ActorRef>>()
  * 8 字段 + 锁），交替 A/B 实测 [1] 13M → 4.3M、[6] 62M → 30M msg/s，吞吐损失过半，
  * 故回退为 class。空 class 对象实测约 38 B，与本类字段合计的间接层开销远小于此损失。
  */
+/** 父 Actor 的子表与它的锁（R8）：只为有子 Actor 的 Cell 分配 */
+class ChildTable {
+    let map = HashMap<String, SimpleUserActorRef>(4)
+    let lock = Mutex()
+    // 重启等待旧子 Actor 终止期间保存重启原因（只在父线程访问）。放在这里而不是 Cell 上：
+    // 只有有子 Actor 的 Actor 才会进入等待，叶 Actor 不为它多付一个字段
+    var recreateCause: Option<Exception> = None<Exception>
+}
+
+/**
+ * 异常计数（R19）：此前与已处理数共用一个 64 位字、各占 16 位，在 65535 饱和后却仍按 counter 导出
+ * （rate() 变成 0）；死信由多个发送方并发自增，"先读后加"的饱和判断有竞态，会进位污染相邻的重启计数。
+ * 现在各自 64 位、只对出过异常的 Actor 分配
+ */
+class CellAnomalies {
+    let deadLetters = AtomicInt64(0)
+    let restarts = AtomicInt64(0)
+    let unhandled = AtomicInt64(0)
+    // 最近一次**实际**完成重启（新实例创建好）的单调时刻，相对 MONO_EPOCH 的纳秒；0 = 从未重启。
+    // 退避监督据此计算"重启后稳定运行了多久"：此前用"失败时刻 + 退避延迟"估算，定时器或调度一晚到，
+    // 估算的运行时长就虚增，计数被误清零，maxRestarts 永远到不了（负载下无限重启）。
+    // 父 Actor 在自己的线程读它（子的失败决策），所以用原子量
+    let lastRestartNanos = AtomicInt64(0)
+}
+
+// Block 等待的分段长度：目标停止时没有人归还占位，等待者靠分段超时发现并放弃
+let BLOCK_RECHECK: Duration = Duration.millisecond * 50
+
+/**
+ * 有界邮箱的占位（只有 MAILBOX_BOUNDED 的 Actor 分配）：计数 + Block 策略的等待者。
+ * 唤醒协议：等待者先 waiters+1 再尝试占位，接收方先归还占位再读 waiters（都是 seq_cst 原子量）——
+ * 两者至少有一方看到对方：要么等待者占位成功，要么接收方看到 waiters>0 去唤醒；
+ * 唤醒在锁内，等待者从"占位失败"到 wait 也一直持锁，所以不会漏掉
+ */
+class BoundedSlots {
+    let count = AtomicInt64(0)
+    let waiters = AtomicInt64(0)
+    private let lock = Mutex()
+    private let cond: Condition
+    private let warnedOnWorker = AtomicBool(false)
+
+    init() {
+        this.cond = synchronized(lock) { lock.condition() }
+    }
+
+    func signal(): Unit {
+        synchronized(lock) {
+            cond.notify()
+        }
+    }
+
+    /** 等到占到一个位置（true）、超时或 Actor 停止（false） */
+    func awaitSlot(capacity: Int64, timeout: Duration, stopped: () -> Bool): Bool {
+        let deadline = MonoTime.now() + timeout
+        waiters.fetchAdd(1)
+        try {
+            synchronized(lock) {
+                while (!stopped()) {
+                    if (count.fetchAdd(1) < capacity) {
+                        return true
+                    }
+                    count.fetchAdd(-1)
+                    let remaining = deadline - MonoTime.now()
+                    if (remaining <= Duration.Zero) {
+                        return false
+                    }
+                    // 分段等待：Actor 停止时没有人归还占位，靠这一段超时重新检查
+                    cond.wait(timeout: if (remaining < BLOCK_RECHECK) { remaining } else { BLOCK_RECHECK })
+                }
+                false
+            }
+        } finally {
+            waiters.fetchAdd(-1)
+        }
+    }
+
+    /** 每个邮箱只告警一次：说明为什么没有等待 */
+    func warnBlockedOnWorker(path: String): Unit {
+        if (warnedOnWorker.compareAndSwap(false, true)) {
+            cellLog.warn("Actor ${path} 的有界邮箱已满（Block 策略），发送方在 Actor 处理方法内：不等待，按超时计死信。" +
+                "Actor 之间的背压请用 ask / 确认消息实现，Block 只适用于 Actor 之外的生产者（main、外部线程、blocking 调度器）")
+        }
+    }
+}
+
+/** 单调时钟的固定基点：把 MonoTime 存成原子 Int64 用 */
+let MONO_EPOCH: MonoTime = MonoTime.now()
+
+func monoNanos(): Int64 {
+    let n = (MonoTime.now() - MONO_EPOCH).toNanoseconds()
+    if (n <= 0) { 1 } else { n }
+}
+
 class CellMailbox {
     // 初始容量 4：多数 Actor 每条消息处理完即空（drain 场景），数组越小、长期占用越少；
     // 突发按 2× 增长，超过 MAILBOX_RETAIN_CAPACITY 的大缓冲在换批时丢弃
@@ -289,9 +425,49 @@ class CellMailbox {
     // 系统消息栈（P1-17）：首次收到系统消息时在锁内分配，SYS_BIT 置位后发布。
     // 从未收到系统消息的 Actor（常见叶 Actor）不占这个原子对象（约 55 B）。
     private var sysHeadValue: Option<AtomicOptionReference<SysNode>> = None<AtomicOptionReference<SysNode>>
+    // 异常计数（R19）：绝大多数 Actor 永远为 0，按需分配；可能由任意线程首次触发（死信来自发送方），
+    // 因此在邮箱锁内分配、经 STATS_BIT 发布
+    private var anomalyValue: Option<CellAnomalies> = None<CellAnomalies>
 
     init(state: AtomicInt64) {
         this.state = state
+    }
+
+    func anomalies(): CellAnomalies {
+        if ((state.load() & STATS_BIT) != 0) {
+            return anomalyValue.getOrThrow()
+        }
+        lockBox()
+        try {
+            match (anomalyValue) {
+                case Some(a) => a
+                case None =>
+                    let a = CellAnomalies()
+                    anomalyValue = Some(a)
+                    state.fetchOr(STATS_BIT)
+                    a
+            }
+        } finally {
+            unlockBox()
+        }
+    }
+
+    /** 读取方：没有发布过就是全 0 */
+    func anomaliesIfAny(): Option<CellAnomalies> {
+        if ((state.load() & STATS_BIT) == 0) {
+            return None<CellAnomalies>
+        }
+        anomalyValue
+    }
+
+    /** 调度权持有者在释放调度位之前调用：出队缓冲里是否还有没处理的消息（dr* 只属于持有者） */
+    func ownerBacklog(): Bool {
+        drIndex < drCount
+    }
+
+    /** 释放调度位之后可以安全调用：只读原子提示位 */
+    func incomingHint(): Bool {
+        (state.load() & INCOMING_BIT) != 0
     }
 
     private func lockBox(): Unit {
@@ -383,15 +559,21 @@ class CellMailbox {
                     state.fetchOr(SYS_BIT)
                     h
             }
-            // 邮箱锁已把并发推送串行化，这里不需要 CAS 重试循环：一次 load + swap 即可
-            let cur = head.load()
-            if (let Some(c) <- cur) {
-                if (refEq(c, SYS_CLOSED)) {
-                    return false
+            // 必须用 CAS：邮箱锁只串行化"推送方之间"，消费方 takeSystemMessages 的 swap 不持锁。
+            // 若用 load + swap，消费方在两步之间取走 cur，随后 swap 会把已取走的节点重新挂回栈上，
+            // 同一条系统消息被处理两次（R4：监督指令重复执行、ReceiveTimeout 定时链倍增）。
+            while (true) {
+                let cur = head.load()
+                if (let Some(c) <- cur) {
+                    if (refEq(c, SYS_CLOSED)) {
+                        return false
+                    }
+                }
+                if (head.compareAndSwap(cur, SysNode(message, cur))) {
+                    return true
                 }
             }
-            head.swap(SysNode(message, cur))
-            return true
+            return false
         } finally {
             unlockBox()
         }
@@ -583,6 +765,9 @@ let STATE_RUNNING: Int64 = 0
 let STATE_SUSPENDED: Int64 = 1
 let STATE_TERMINATING: Int64 = 2
 let STATE_TERMINATED: Int64 = 3
+// 重启中（E33）：旧实例已 preRestart、子 Actor 已收到停止请求，等它们全部终止后才创建新实例（Akka faultRecreate）。
+// 期间不处理用户消息；此前不等就立即建新实例，新旧子 Actor 同名并存，旧子 Actor 还可能在处理消息
+let STATE_RECREATING: Int64 = 4
 
 let MAILBOX_UNBOUNDED: Int64 = 0
 let MAILBOX_BOUNDED: Int64 = 1
@@ -618,7 +803,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     private let capacity: Int64
     private let overflow: MailboxOverflow
     // 仅 MAILBOX_BOUNDED 使用：懒分配，无界/优先级邮箱（绝大多数 Actor）不占这个原子对象
-    private var boundedCountValue: Option<AtomicInt64> = None<AtomicInt64>
+    private var boundedCountValue: Option<BoundedSlots> = None<BoundedSlots>
     private let priorityMailboxValue: Option<PriorityCellMailbox>
     // 只在 mailboxKind == MAILBOX_PRIORITY 时使用
     private prop priorityMailbox: PriorityCellMailbox {
@@ -639,39 +824,32 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     // 丢失唤醒论证：提示位与 SCHED_BIT 同字，发送方"锁内入队/置提示 → 读置 SCHED"、
     // 消费方"清 SCHED → 读提示"，两读在同一原子字的总序上，任一交错不会双丢。
     private let schedState: AtomicInt64
-    // 诊断计数器合并为一个位域原子字（见文件头的 CTR_* 定义与 P1-5）
-    private let counters: AtomicInt64
+    // 已处理消息数（R19）：64 位，不再在 65535 饱和。死信 / 重启 / 未处理是异常计数，按需分配在邮箱里
+    private let processedCount: AtomicInt64
 
     // ---- 只在 Cell 线程内访问 ----
     private var state: Int64 = STATE_RUNNING
     // 以下容器按需分配：没有子 Actor / 不监视别人 / 没有 stash 的 Actor 不再各自分配一个空容器
     // （实测空的 HashMap 约 280 字节、空的 ArrayList 约 96 字节，六个容器合计约 944 字节，
     //   而绝大多数 Actor 从不使用它们）
-    private var childMapValue: Option<HashMap<String, SimpleUserActorRef>> = None<HashMap<String, SimpleUserActorRef>>
+    // 子 Actor 表（R8）：只有父线程写，写时持表锁；lookup / liveCells 从别的线程持表锁读。首次分配后经 CHILDREN_BIT 发布
+    private var childTableValue: Option<ChildTable> = None<ChildTable>
     private var anonymousSeq: Int64 = 0
-    // 停止合批（P5-2）：父进入"停止整棵子树"时把子数记入 stoppingChildren 并置 childBatchStopping；
+    // 停止合批（P5-2）：父进入"停止整棵子树"时把子数记入 stoppingChildren 并置 BATCH_BIT；
     // 每个子终止恰好把计数减 1，减到 0 的那一方让父收尾。这样百万子 Actor 不必各发一条
     // SysChildTerminated 在父的 sysHead 上做百万次 CAS 争用与百万次 childMap.remove。
-    // 懒分配：只有真正进入"停止有子 Actor 的子树"时才创建这两个原子对象，
-    // 叶 Actor（绝大多数）不为它们付费。childBatchStopping 用 AtomicInt64（0/1）而非 AtomicBool，
-    // 与 stoppingChildren 同生命周期，避免多一个对象。
+    // 懒分配：只有真正进入"停止有子 Actor 的子树"时才创建计数对象，叶 Actor（绝大多数）不为它付费。
+    // 只有父写一次（置 BATCH_BIT 之前）；子看到 BATCH_BIT 之后才读
     private var stoppingChildrenValue: Option<AtomicInt64> = None<AtomicInt64>
-    private var childBatchStoppingValue: Option<AtomicInt64> = None<AtomicInt64>
     private prop stoppingChildren: AtomicInt64 {
         get() { stoppingChildrenValue.getOrThrow() }
     }
-    private prop childBatchStopping: AtomicInt64 {
-        get() { childBatchStoppingValue.getOrThrow() }
-    }
-    /** 子侧读父的合批标志：父未分配即视为未合批（返回 false） */
+    /** 子侧读父的合批标志：只读原子调度字（R15） */
     private func batchStopping(): Bool {
-        match (childBatchStoppingValue) {
-            case Some(f) => f.load() != 0
-            case None => false
-        }
+        (schedState.load() & BATCH_BIT) != 0
     }
     private var watchersValue: Option<ArrayList<SimpleUserActorRef>> = None<ArrayList<SimpleUserActorRef>>
-    private var watchingValue: Option<HashMap<String, SimpleUserActorRef>> = None<HashMap<String, SimpleUserActorRef>>
+    private var watchingValue: Option<WatchingState> = None<WatchingState>
     private var behaviorsValue: Option<ArrayList<Receive>> = None<ArrayList<Receive>>
     private var stashBufferValue: Option<ArrayList<Envelope>> = None<ArrayList<Envelope>>
     private var unstashedValue: Option<ArrayList<Envelope>> = None<ArrayList<Envelope>>
@@ -686,22 +864,55 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     // ---- 按需容器的访问器 ----
     // 只读：没有容器时返回共享的空容器（只读，不会被修改）
+    // 父线程自己读子表不需要加锁：唯一的写者就是它自己
     private func childMap(): HashMap<String, SimpleUserActorRef> {
-        match (childMapValue) {
-            case Some(m) => m
+        match (childTableValue) {
+            case Some(t) => t.map
             case None => EMPTY_CHILD_MAP
         }
     }
 
-    // 写：首次写入时才分配真实容器
-    private func childMapMut(): HashMap<String, SimpleUserActorRef> {
-        match (childMapValue) {
-            case Some(m) => m
+    // 写：首次写入时才分配真实容器，赋值后置 CHILDREN_BIT 发布给其他线程
+    private func childTable(): ChildTable {
+        match (childTableValue) {
+            case Some(t) => t
             case None =>
-                let m = HashMap<String, SimpleUserActorRef>(4)
-                childMapValue = Some(m)
-                m
+                let t = ChildTable()
+                childTableValue = Some(t)
+                schedState.fetchOr(CHILDREN_BIT)
+                t
         }
+    }
+
+    private func childPut(name: String, child: SimpleUserActorRef): Unit {
+        let t = childTable()
+        synchronized(t.lock) {
+            t.map.add(name, child)
+        }
+    }
+
+    private func childRemove(name: String): Unit {
+        if (let Some(t) <- childTableValue) {
+            synchronized(t.lock) {
+                t.map.remove(name)
+            }
+        }
+    }
+
+    private func childClear(): Unit {
+        if (let Some(t) <- childTableValue) {
+            synchronized(t.lock) {
+                t.map.clear()
+            }
+        }
+    }
+
+    /** 其他线程读子表：先确认已发布，再持表锁读 */
+    private func publishedChildTable(): Option<ChildTable> {
+        if ((schedState.load() & CHILDREN_BIT) == 0) {
+            return None<ChildTable>
+        }
+        childTableValue
     }
 
     private func watchers(): ArrayList<SimpleUserActorRef> {
@@ -723,18 +934,22 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     private func watching(): HashMap<String, SimpleUserActorRef> {
         match (watchingValue) {
-            case Some(m) => m
+            case Some(w) => w.targets
             case None => EMPTY_WATCHING
         }
     }
 
     private func watchingMut(): HashMap<String, SimpleUserActorRef> {
+        watchState().targets
+    }
+
+    private func watchState(): WatchingState {
         match (watchingValue) {
-            case Some(m) => m
+            case Some(w) => w
             case None =>
-                let m = HashMap<String, SimpleUserActorRef>(4)
-                watchingValue = Some(m)
-                m
+                let w = WatchingState()
+                watchingValue = Some(w)
+                w
         }
     }
 
@@ -828,9 +1043,9 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         this.capacity = props.getMailboxCapacity()
         this.overflow = props.getMailboxOverflow()
-        this.boundedCountValue = if (mailboxKind == MAILBOX_BOUNDED) { Some(AtomicInt64(0)) } else { None<AtomicInt64> }
+        this.boundedCountValue = if (mailboxKind == MAILBOX_BOUNDED) { Some(BoundedSlots()) } else { None<BoundedSlots> }
         this.priorityMailboxValue = if (mailboxKind == MAILBOX_PRIORITY) { Some(PriorityCellMailbox()) } else { None<PriorityCellMailbox> }
-        this.counters = AtomicInt64(0)
+        this.processedCount = AtomicInt64(0)
     }
 
     // 完整路径按需拼接：顶层 = "/user/<名字>"，子 Actor = 父路径 + "/" + 名字。
@@ -920,37 +1135,68 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         trySchedule()
     }
 
-    /** 有界邮箱的占位计数（仅 MAILBOX_BOUNDED 会调用，此时必然已分配） */
-    private prop boundedCount: AtomicInt64 {
-        get() { boundedCountValue.getOrThrow() }
+    /**
+     * 运行时自己生成、发给本 Actor 的用户消息（如 DeathWatch 的 Terminated）：
+     * 不受有界邮箱容量限制——邮箱满时丢掉 Terminated 会让监视者永远不知道目标已死。
+     */
+    private func enqueueGenerated(message: Message): Unit {
+        if (mailboxKind != MAILBOX_BOUNDED) {
+            enqueue(message, None<String>, None<ActorRef>)
+            return
+        }
+        if ((schedState.load() & TERM_BIT) != 0) {
+            deadLetter(message)
+            return
+        }
+        boundedCount.fetchAdd(1)
+        if (!mailbox.add(message, None<String>, None<ActorRef>)) {
+            boundedCount.fetchAdd(-1)
+            deadLetter(message)
+            return
+        }
+        trySchedule()
     }
 
-    /** 有界邮箱占位；Block 策略下等待空位直到超时 */
+    /** 有界邮箱的占位计数（仅 MAILBOX_BOUNDED 会调用，此时必然已分配） */
+    private prop boundedCount: AtomicInt64 {
+        get() { boundedCountValue.getOrThrow().count }
+    }
+
+    /**
+     * 有界邮箱占位。Block 策略（E39）：
+     * - 在亲和工作线程上（发送方是默认调度器上的 Actor）**不等待**，直接按超时处理（DropNew 计死信）：
+     *   等待会占住工作线程，接收方若亲和到同一线程就互相等到超时，期间该线程上的其他 Actor 全部停摆；
+     * - 其他线程（main、外部生产者、blocking 调度器）在条件变量上等待，接收方每出队一条、有等待者时唤醒一个，
+     *   不再"让出 64 次后每 50µs 醒一次"地轮询。
+     */
     private func reserveSlot(): Bool {
-        if (boundedCount.fetchAdd(1) < capacity) {
+        let slots = boundedCountValue.getOrThrow()
+        if (slots.count.fetchAdd(1) < capacity) {
             return true
         }
-        boundedCount.fetchAdd(-1)
+        slots.count.fetchAdd(-1)
         match (overflow) {
             case MailboxOverflow.Block(timeout) =>
-                let deadline = MonoTime.now() + timeout
-                var spins: Int64 = 0
-                while (MonoTime.now() < deadline && (schedState.load() & TERM_BIT) == 0) {
-                    if (boundedCount.fetchAdd(1) < capacity) {
-                        return true
-                    }
-                    boundedCount.fetchAdd(-1)
-                    spins++
-                    // 先让出处理器，之后短暂休眠，避免空转占用 CPU
-                    sleep(if (spins < 64) { Duration.Zero } else { Duration.microsecond * 50 })
+                if (isAffinityWorkerThread()) {
+                    slots.warnBlockedOnWorker(fullPath())
+                    return false
                 }
-                false
+                slots.awaitSlot(capacity, timeout, { => (schedState.load() & TERM_BIT) != 0 })
             case _ => false
         }
     }
 
+    /** 出队一条后归还占位；有发送方在等空位时唤醒一个 */
+    private func releaseSlot(): Unit {
+        let slots = boundedCountValue.getOrThrow()
+        slots.count.fetchAdd(-1)
+        if (slots.waiters.load() > 0) {
+            slots.signal()
+        }
+    }
+
     func deadLetter(message: Message): Unit {
-        this.incCounter(CTR_DEADLETTER_SHIFT)
+        mailbox.anomalies().deadLetters.fetchAdd(1)
         guardian.publishDeadLetter(message, fullPath())
     }
 
@@ -1012,27 +1258,17 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     // ---------------- 诊断 ----------------
 
-    /** 位域计数器自增：字段饱和于 65535，不越过则不污染相邻字段 */
-    private func incCounter(shift: Int64): Unit {
-        let w = counters.load()
-        let field = (w >> shift) & CTR_FIELD_MASK
-        if (field < CTR_FIELD_MASK) {
-            counters.fetchAdd(1 << shift)
-        }
-    }
-
-    private func readCounter(shift: Int64): Int64 {
-        (counters.load() >> shift) & CTR_FIELD_MASK
-    }
-
-    /** 已处理的消息数 */
+    /** 已处理的消息数（64 位单调计数） */
     public func processed(): Int64 {
-        this.readCounter(CTR_PROCESSED_SHIFT)
+        processedCount.load()
     }
 
     /** 被丢弃的消息数（停止后收到、有界邮箱已满等） */
     public func deadLetters(): Int64 {
-        this.readCounter(CTR_DEADLETTER_SHIFT)
+        match (mailbox.anomaliesIfAny()) {
+            case Some(a) => a.deadLetters.load()
+            case None => 0
+        }
     }
 
     /** 邮箱中待处理的消息数 */
@@ -1051,12 +1287,37 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     /** 被监督重启的次数 */
     public func restarts(): Int64 {
-        this.readCounter(CTR_RESTART_SHIFT)
+        match (mailbox.anomaliesIfAny()) {
+            case Some(a) => a.restarts.load()
+            case None => 0
+        }
+    }
+
+    /** 最近一次实际完成重启的时刻；从未重启返回 None。可从任意线程调用 */
+    func lastRestartTime(): Option<MonoTime> {
+        match (mailbox.anomaliesIfAny()) {
+            case Some(a) =>
+                let n = a.lastRestartNanos.load()
+                if (n > 0) {
+                    Some(MONO_EPOCH + Duration.nanosecond * n)
+                } else {
+                    None<MonoTime>
+                }
+            case None => None<MonoTime>
+        }
+    }
+
+    /** 交给监督策略的失败信息：带上实际重启时刻（退避据此判断重启后稳定运行了多久） */
+    func failureInfo(cause: Exception): ActorFailure {
+        ActorFailure(this, cause, 1, lastRestartAt: lastRestartTime())
     }
 
     /** receive 返回 Unhandled 的次数 */
     public func unhandled(): Int64 {
-        this.readCounter(CTR_UNHANDLED_SHIFT)
+        match (mailbox.anomaliesIfAny()) {
+            case Some(a) => a.unhandled.load()
+            case None => 0
+        }
     }
 
     /** Actor 是否已完全停止 */
@@ -1090,6 +1351,23 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
     }
 
+    private func ownedMailboxBacklog(): Bool {
+        if (mailboxKind == MAILBOX_PRIORITY) {
+            false
+        } else {
+            mailbox.ownerBacklog()
+        }
+    }
+
+    /** 优先级邮箱的计数本身是原子量；普通邮箱只看 incoming 提示位 */
+    private func incomingAfterRelease(): Bool {
+        if (mailboxKind == MAILBOX_PRIORITY) {
+            priorityMailbox.nonEmpty()
+        } else {
+            mailbox.incomingHint()
+        }
+    }
+
     private func userNonEmpty(): Bool {
         if (mailboxKind == MAILBOX_PRIORITY) {
             priorityMailbox.nonEmpty()
@@ -1102,21 +1380,42 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         unstashIndex < unstashed().size
     }
 
-    /** 由调度器工作线程调用 */
+    /**
+     * 由调度器工作线程调用。
+     *
+     * 释放调度权放在 finally 里（R5）：消息循环中任何逃逸的异常或 Error 都不能让 SCHED_BIT 永远置位——
+     * 那样该 Actor 再也不会被调度（不处理消息、不计死信，terminateAll 只能等到超时）。
+     */
     func run(): Unit {
+        try {
+            runLoop()
+        } catch (e: Exception) {
+            cellLog.error("Actor ${fullPath()} 消息循环异常（已隔离，继续调度）: ${e}")
+        } catch (e: Error) {
+            cellLog.error("Actor ${fullPath()} 消息循环发生 Error（已隔离，继续调度）: ${e}")
+        } finally {
+            releaseAndReschedule()
+        }
+    }
+
+    private func runLoop(): Unit {
         let throughput = executor.throughput()
         var count: Int64 = 0
         // 首次运行先执行 onStarted（P1-17：替代 SysStarted 系统消息）。热路径上只多一次共享读。
-        if ((schedState.load() & START_BIT) != 0) {
+        let s0 = schedState.load()
+        if ((s0 & START_BIT) != 0) {
             if ((schedState.fetchAnd(START_CLEAR_MASK) & START_BIT) != 0 && state == STATE_RUNNING) {
-                startInstance()
+                startInstance(true)
             }
         }
+        // PAUSE_BIT 只在本线程处理系统消息时改变：入口读一次，处理完系统消息再读，消息循环里不再逐条读原子量
+        var paused = (s0 & PAUSE_BIT) != 0
         while (true) {
             if (hasSystemMessages()) {
                 processSystemMessages()
+                paused = pausedByParent()
             }
-            if (state != STATE_RUNNING || count >= throughput) {
+            if (state != STATE_RUNNING || paused || count >= throughput) {
                 break
             }
             if (hasUnstashed()) {
@@ -1141,7 +1440,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 match (mailbox.poll()) {
                     case Some(message) =>
                         if (mailboxKind == MAILBOX_BOUNDED) {
-                            boundedCount.fetchAdd(-1)
+                            releaseSlot()
                         }
                         invoke(message, mailbox.lastSender, mailbox.lastSenderRef)
                         count++
@@ -1149,10 +1448,19 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 }
             }
         }
+    }
+
+    private func releaseAndReschedule(): Unit {
+        // R15：state、unstash 游标、邮箱出队缓冲只属于调度权持有者，必须在释放调度位**之前**读——
+        // 释放后下一个持有者可能已在另一线程改写它们（unstashedValue 是多字 Option，跨线程读可能撕裂）。
+        // 这些快照之后不会被别人改变出"需要我们再调度"的结果：改变它们的只能是下一个持有者，由它自己负责。
+        // 随父暂停时不算"可运行"：否则邮箱有积压就会反复自我调度、空转
+        let running = state == STATE_RUNNING && !pausedByParent()
+        let ownedWork = running && (hasUnstashed() || ownedMailboxBacklog())
         // 释放调度权（清位0）后再检查一次，防止与并发 tell 之间丢失唤醒：
-        // 清位与随后的计数检查在同一原子字上顺序一致，发送方"计数++ 后置位"不会落空
+        // 清位与随后的提示位检查在同一原子字上顺序一致，发送方"入队置提示后置位"不会落空。释放后只读原子量
         schedState.fetchAnd(SCHED_CLEAR_MASK)
-        if (hasSystemMessages() || (state == STATE_RUNNING && (userNonEmpty() || hasUnstashed()))) {
+        if (ownedWork || hasSystemMessages() || (running && incomingAfterRelease())) {
             // 同 trySchedule：单次 fetchOr 选举，不重试（理由见 trySchedule 注释）
             if ((schedState.fetchOr(SCHED_BIT) & SCHED_BIT) == 0) {
                 // 运行结束时一定在某个工作线程上：留在本线程，排到队尾（先轮到其他 Actor）
@@ -1182,23 +1490,41 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 payload = te.payload
                 currentMessage = Some(payload)
             case _: PoisonPill =>
-                this.incCounter(CTR_PROCESSED_SHIFT)
+                processedCount.fetchAdd(1)
                 clearCurrent()
                 initiateTerminate()
                 return
             case _: StopMessage =>
                 // system.stop：在已入队的消息之后停止，不交给用户的 receive
-                this.incCounter(CTR_PROCESSED_SHIFT)
+                processedCount.fetchAdd(1)
                 clearCurrent()
                 initiateTerminate()
                 return
             case _: Kill =>
-                this.incCounter(CTR_PROCESSED_SHIFT)
+                processedCount.fetchAdd(1)
                 clearCurrent()
                 handleFailure(ActorKilledException(fullPath()))
                 return
+            case t: Terminated =>
+                // DeathWatch 产生的 Terminated：入队后已 unwatch 的丢弃；watchWith 的换成自定义消息（与 Akka receivedTerminated 相同）。
+                // 远程 watch 投递的 Terminated 目标不是本地 Cell，原样交给 receive
+                if (let Some(dead) <- (t.actor as SimpleUserActorRef)) {
+                    let entry: Option<Option<Message>> = match (watchingValue) {
+                        case Some(w) => w.takeQueued(dead)
+                        case None => None
+                    }
+                    match (entry) {
+                        case Some(Some(custom)) =>
+                            payload = custom
+                            currentMessage = Some(custom)
+                        case Some(None) => ()
+                        case None =>
+                            clearCurrent()
+                            return
+                    }
+                }
             case restart: RestartMessage =>
-                // 兼容旧路径：guardian.restartChild / BackoffSupervisor 通过邮箱请求重启
+                // 兼容旧路径：guardian.restartChild 通过邮箱请求重启
                 clearCurrent()
                 doRestart(restart.getReason())
                 return
@@ -1213,20 +1539,26 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             match (result) {
                 case MessageResult.Handled => ()
                 case MessageResult.Unhandled =>
-                    this.incCounter(CTR_UNHANDLED_SHIFT)
+                    mailbox.anomalies().unhandled.fetchAdd(1)
                     if (payload is Terminated) {
                         // 与 Akka 一致：监视者不处理 Terminated 视为失败
                         let t = (payload as Terminated).getOrThrow()
                         throw DeathPactException(t.actor.path.toString())
                     }
+                    // 与 Akka 一致：未处理的消息以 UnhandledMessage 交给死信订阅者并限速记日志
+                    // （此前只加一个计数，类型化 Actor 收到协议之外的消息也同样静默消失，T11）
+                    guardian.publishUnhandled(payload, fullPath())
                 case MessageResult.Stop => initiateTerminate()
                 case MessageResult.Restart => handleFailure(RestartRequestedException())
                 case MessageResult.Escalate => handleFailure(EscalateRequestedException())
             }
         } catch (e: Exception) {
             handleFailure(e)
+        } catch (e: Error) {
+            // 用户代码中的 Error（如递归过深的 StackOverflowError）按失败交给监督，不杀死工作线程
+            handleFailure(ActorErrorException(fullPath(), e))
         }
-        this.incCounter(CTR_PROCESSED_SHIFT)
+        processedCount.fetchAdd(1)
         match (timeoutStateValue) {
             case Some(t) =>
                 if (t.value > Duration.Zero && !(payload is NotInfluenceReceiveTimeout)) {
@@ -1251,8 +1583,9 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         match (parentCell) {
             case Some(parent) =>
-                // 子 Actor：挂起，等待父 Actor 的决定
-                state = STATE_SUSPENDED
+                // 子 Actor：挂起（连同整棵子树），等待父 Actor 的决定。
+                // 先发暂停、再上报：父的决定（及之后的恢复）一定排在子树收到暂停之后
+                suspendSelf()
                 parent.sendSystem(SysChildFailed(this, cause))
             case None =>
                 // 顶层 Actor：由用户 Guardian 在本 Cell 内同步决定
@@ -1262,13 +1595,20 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     /** 父 Actor 处理子 Actor 的失败（在父 Actor 的 Cell 线程中执行） */
     private func handleChildFailed(child: SimpleUserActorRef, cause: Exception): Unit {
+        // 自己正在重启或停止：子 Actor 都已收到停止请求，它们的失败不再处理
+        if (state == STATE_RECREATING || state == STATE_TERMINATING || state == STATE_TERMINATED) {
+            return
+        }
         match (childMap().get(child.getName())) {
             case Some(c) where refEq(c, child) => ()
             case _ => return // 已经停止或已被替换
         }
-        let strategy: SupervisionStrategy = child.childStrategy ?? (actor.supervisorStrategy() ?? guardian.defaultStrategy())
+        // 取策略与决策都可能执行用户代码（覆写的 supervisorStrategy / decider），异常一律按 Stop 处理，
+        // 不能让它逃出系统消息处理（否则调度位无法释放，见 run() 的 finally）
+        var strategy: SupervisionStrategy = guardian.defaultStrategy()
         let directive = try {
-            strategy.decide(ActorFailure(child, cause, 1))
+            strategy = child.childStrategy ?? (actor.supervisorStrategy() ?? guardian.defaultStrategy())
+            strategy.decide(child.failureInfo(cause))
         } catch (e: Exception) {
             cellLog.error("监督策略执行异常，停止子 Actor ${child.fullPath()}: ${e}")
             SupervisionDirective.Stop
@@ -1296,9 +1636,46 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                     t.sendSystem(SysTerminate())
                 }
             case SupervisionDirective.Escalate =>
-                // 父 Actor 自身以同样的原因失败，交给它的父 Actor 处理
+                // 父 Actor 自身以同样的原因失败，交给它的父 Actor 处理：先挂起自己（子树随之暂停，含肇事者），
+                // 再解除肇事者自身的失败挂起——之后它随本 Actor 的结局恢复 / 重启 / 停止
+                // （Akka 恢复时把 causedByFailure 交给肇事者，效果相同）。顺序不能反：反过来肇事者可能在两条
+                // 系统消息之间处理用户消息
                 handleFailure(cause)
+                child.sendSystem(SysResume())
         }
+    }
+
+    // ---------------- 子树暂停（E33，对标 Akka faultSuspend / faultResume） ----------------
+
+    private func pausedByParent(): Bool {
+        (schedState.load() & PAUSE_BIT) != 0
+    }
+
+    /** 子 Actor 是否应暂停：自身失败待决，或自身随上层暂停（RECREATING / 停止中的子 Actor 正在被停止，不必通知） */
+    private func childrenShouldPause(): Bool {
+        state == STATE_SUSPENDED || (state == STATE_RUNNING && pausedByParent())
+    }
+
+    /** 状态改变后，"子树是否应暂停"若随之改变，通知全部子 Actor（它们各自再向下传递） */
+    private func afterPauseChange(before: Bool): Unit {
+        let after = childrenShouldPause()
+        if (before == after) {
+            return
+        }
+        for (c in childMap().values()) {
+            if (after) {
+                c.sendSystem(SysParentSuspend())
+            } else {
+                c.sendSystem(SysParentResume())
+            }
+        }
+    }
+
+    /** 因自身失败挂起（等待监督决定） */
+    private func suspendSelf(): Unit {
+        let before = childrenShouldPause()
+        state = STATE_SUSPENDED
+        afterPauseChange(before)
     }
 
     /** 延迟后在目标 Actor 的系统栈上投递 SysRecreate（Backoff 监督用） */
@@ -1312,18 +1689,16 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         })
     }
 
-    /** 重启：旧实例 preRestart → 停止子 Actor、取消定时器 → 用工厂创建新实例 → postRestart */
+    /**
+     * 重启（对标 Akka faultRecreate）：旧实例 preRestart（默认 postStop）→ 取消定时器 → 停止全部子 Actor
+     * → **等它们全部终止**（STATE_RECREATING）→ 用工厂创建新实例 → postRestart（默认 preStart）→ onStarted
+     */
     private func doRestart(reason: Exception): Unit {
         try {
             actor.preRestart(reason)
         } catch (e: Exception) {
             cellLog.warn("Actor ${fullPath()} preRestart 失败: ${e}")
         }
-        // 与 Akka 默认 preRestart 一致：重启时停止全部子 Actor
-        for (c in childMap().values()) {
-            c.sendSystem(SysTerminate())
-        }
-        childMapMut().clear()
         timersImpl().cancelAll()
         cancelReceiveTimeoutInternal()
         behaviorsMut().clear()
@@ -1331,11 +1706,33 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (stashBuffer().size > 0) {
             unstashAllInternal()
         }
+        let kids = childMap().values().toArray()
+        if (kids.isEmpty()) {
+            finishRecreate(reason)
+            return
+        }
+        // 先 unwatch、再停止全部子 Actor。不 unwatch 的话，旧子的 Terminated 会投给新实例
+        // （新实例没有登记过它，类型化 Actor 由此触发 DeathPact，T3）
+        for (c in kids) {
+            unwatchTarget(c)
+            c.sendSystem(SysTerminate())
+        }
+        state = STATE_RECREATING
+        childTable().recreateCause = Some(reason)
+    }
+
+    /** 旧子 Actor 已全部终止（或本来就没有）：创建新实例 */
+    private func finishRecreate(reason: Exception): Unit {
+        if (let Some(t) <- childTableValue) {
+            t.recreateCause = None<Exception>
+        }
         try {
             let fresh = actorFactory()
             actor = fresh
             fresh.postRestart(reason)
-            this.incCounter(CTR_RESTART_SHIFT)
+            let stats = mailbox.anomalies()
+            stats.restarts.fetchAdd(1)
+            stats.lastRestartNanos.store(monoNanos())
             state = STATE_RUNNING
         } catch (e: Exception) {
             // 无法重建实例时停止该 Actor，避免继续用损坏的状态处理消息
@@ -1343,21 +1740,51 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             initiateTerminate()
             return
         }
-        startInstance()
+        // 新实例的 preStart 已由 postRestart（默认实现）调用，这里只执行 onStarted
+        startInstance(false)
     }
 
-    /** 在 Cell 线程中调用 onStarted；失败按普通失败交给监督 */
-    private func startInstance(): Unit {
+    /**
+     * 在 Cell 线程中调用 onStarted；失败包成 ActorInitializationException 交给监督。
+     * 默认策略对它返回 Stop（与 Akka 相同）；类型化监督会解开后按原异常匹配规则。
+     */
+    private func startInstance(initial: Bool): Unit {
         try {
+            // preStart 在 Cell 线程执行（E33，对标 Akka）：此前在创建方线程同步调用，与 Actor 自己的线程并发，
+            // 抛出的异常也直接从 actorOf 抛给创建方。现在失败与 onStarted 一样包成 ActorInitializationException 交给监督
+            if (initial) {
+                actor.preStart()
+            }
             actor.onStarted(contextImpl())
-        } catch (e: Exception) {
+        } catch (e: ActorInitializationException) {
             handleFailure(e)
+        } catch (e: Exception) {
+            handleFailure(ActorInitializationException(fullPath(), e))
+        } catch (e: Error) {
+            handleFailure(ActorInitializationException(fullPath(), ActorErrorException(fullPath(), e)))
         }
     }
 
-    /** 供顶层监督（用户 Guardian）调用 */
-    func restartInCell(reason: Exception): Unit {
-        doRestart(reason)
+    /**
+     * 供顶层监督（用户 Guardian）在本 Cell 线程内调用：先挂起，再经系统队列重启（E27）。
+     *
+     * 与子 Actor 的路径（父 Actor 投递 SysRecreate）一致，重启永远发生在本 Cell 线程的系统消息处理中：
+     * - 不再在失败处理的调用栈里同步 doRestart——启动恒失败时那会同栈无限递归直到 StackOverflowError；
+     * - delay > 0（Backoff）时挂起期间不处理用户消息，到期由定时器线程只投递 SysRecreate，
+     *   不触碰 Cell 状态；若此间 Actor 已停止，SysRecreate 走死亡后规则被忽略，不会"复活"。
+     */
+    func restartInCell(reason: Exception, delay: Duration): Unit {
+        if (state == STATE_TERMINATING || state == STATE_TERMINATED) {
+            return
+        }
+        // 退避期间子树同样暂停（它们将随重启被停止，不应继续处理消息）
+        suspendSelf()
+        scheduleRecreate(this, reason, delay)
+    }
+
+    /** 供不在本 Cell 线程上的调用方请求重启：只投递系统消息，不修改 Cell 状态 */
+    func requestRestart(reason: Exception, delay: Duration): Unit {
+        scheduleRecreate(this, reason, delay)
     }
 
     /** 供顶层监督调用：停止（会先停止子 Actor） */
@@ -1379,17 +1806,29 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case _: SysTerminate => initiateTerminate()
             case _: SysStarted =>
                 if (state == STATE_RUNNING) {
-                    startInstance()
+                    startInstance(true)
                 }
             case _: SysResume =>
+                // 自身失败得到 Resume：子树是否继续还取决于上层是否仍暂停（afterPauseChange 判断）。
+                // 此前直接向子 Actor 转发 SysResume，会把"失败后尚未得到决定"的子 Actor 提前放行
                 if (state == STATE_SUSPENDED) {
+                    let before = childrenShouldPause()
                     state = STATE_RUNNING
-                    for (c in childMap().values()) {
-                        c.sendSystem(SysResume())
-                    }
+                    afterPauseChange(before)
                 }
-            case r: SysRecreate =>
+            case _: SysParentSuspend =>
                 if (state != STATE_TERMINATING && state != STATE_TERMINATED) {
+                    let before = childrenShouldPause()
+                    schedState.fetchOr(PAUSE_BIT)
+                    afterPauseChange(before)
+                }
+            case _: SysParentResume =>
+                let before = childrenShouldPause()
+                schedState.fetchAnd(PAUSE_CLEAR_MASK)
+                afterPauseChange(before)
+            case r: SysRecreate =>
+                // 已在重启中（等待旧子 Actor 终止）时再来的重启请求合并到这一次
+                if (state != STATE_TERMINATING && state != STATE_TERMINATED && state != STATE_RECREATING) {
                     doRestart(r.cause)
                 }
             case w: SysWatch => addWatcher(w.watcher)
@@ -1399,8 +1838,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             case t: SysChildTerminated => onChildTerminated(t.child)
             case _: SysChildrenTerminated =>
                 // 停止合批：整批子 Actor 已终止，直接收尾（childMap 一并丢弃）
-                if (let Some(f) <- childBatchStoppingValue) { f.store(0) }
-                childMapMut().clear()
+                schedState.fetchAnd(BATCH_CLEAR_MASK)
+                childClear()
                 if (state == STATE_TERMINATING) {
                     finishTerminate()
                 }
@@ -1411,6 +1850,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     private func addWatcher(watcher: SimpleUserActorRef): Unit {
         if (refEq(watcher, this)) {
+            return
+        }
+        // 同一批系统消息里 SysTerminate 排在 SysWatch 之前时，处理到这里本 Actor 已经终止、
+        // 监视者列表也已通知并清空：此时登记会让监视者永远收不到 Terminated（R20），按"死亡后"规则立即通知
+        if (state == STATE_TERMINATED) {
+            watcher.sendSystem(SysDeathNotification(this))
             return
         }
         for (w in watchers()) {
@@ -1433,6 +1878,13 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     private func onDeathNotification(dead: SimpleUserActorRef): Unit {
+        // 本 Actor 正在停止（停止合批）：子 Actor 的终止只由合批计数统计——子要么自己原子递减，
+        // 要么发旧式 SysChildTerminated 由 onChildTerminated 补递减，二者恰好一次。
+        // 死亡通知若再走 onChildTerminated，被监视的子会被扣两次，父在其余子仍存活时就 postStop（R3）。
+        // 停止中的 Actor 也不再投递 Terminated，watching 由 finishTerminate 统一清理。
+        if (state == STATE_TERMINATING) {
+            return
+        }
         // 自己的子 Actor：先释放名称再投递 Terminated（与 Akka 相同），
         // 这样 Terminated 处理中可以立即用同一名称重建子 Actor（例如分片实体钝化后重建）
         onChildTerminated(dead)
@@ -1444,18 +1896,17 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (state == STATE_TERMINATING || state == STATE_TERMINATED) {
             return
         }
-        if (state == STATE_SUSPENDED) {
-            // 挂起期间暂存，恢复后再处理
-            unstashedMut().add(Envelope(Terminated(dead), None<String>, None<ActorRef>))
-            return
-        }
-        invoke(Terminated(dead), None<String>, None<ActorRef>)
+        // 入用户邮箱队尾（R6）：dead 死前发给本 Actor 的消息已在邮箱里，因此先于 Terminated 被处理。
+        // 挂起期间用户邮箱不处理，恢复后自然按序处理，不需要另外暂存
+        let ws = watchState()
+        ws.queued.add((dead, ws.messages.remove(dead.fullPath())))
+        enqueueGenerated(Terminated(dead))
     }
 
     private func onChildTerminated(child: SimpleUserActorRef): Unit {
         let existed = match (childMap().get(child.getName())) {
             case Some(c) where refEq(c, child) =>
-                childMapMut().remove(child.getName())
+                childRemove(child.getName())
                 true
             case _ => false
         }
@@ -1463,13 +1914,27 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             finishTerminate()
             return
         }
+        // 重启等待中：最后一个旧子 Actor 终止后创建新实例
+        if (existed && state == STATE_RECREATING && childMap().size == 0) {
+            state = STATE_SUSPENDED
+            match (childTableValue) {
+                case Some(t) =>
+                    match (t.recreateCause) {
+                        case Some(cause) => finishRecreate(cause)
+                        case None => finishRecreate(IllegalStateException("重启原因丢失"))
+                    }
+                case None => ()
+            }
+            return
+        }
         // 合批兜底：父已进入合批、但该子在此之前就自行终止（发的是旧式 SysChildTerminated，
         // 未递减计数）。它在初始化子数时已被计入，这里补一次递减，否则计数永远到不了 0。
-        // 每个子只会走两条路径之一（旧式消息 或 原子递减），不会重复扣减。
+        // 每个子只会走两条路径之一（旧式消息 或 原子递减）；TERMINATING 期间的死亡通知
+        // 不进入本函数（见 onDeathNotification），因此不会重复扣减。
         if (existed && state == STATE_TERMINATING && batchStopping()) {
             if (stoppingChildren.fetchAdd(-1) <= 1) {
-                if (let Some(f) <- childBatchStoppingValue) { f.store(0) }
-                childMapMut().clear()
+                schedState.fetchAnd(BATCH_CLEAR_MASK)
+                childClear()
                 finishTerminate()
             }
         }
@@ -1499,11 +1964,9 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             if (stoppingChildrenValue.isNone()) {
                 stoppingChildrenValue = Some(AtomicInt64(0))
             }
-            if (childBatchStoppingValue.isNone()) {
-                childBatchStoppingValue = Some(AtomicInt64(0))
-            }
+            // 发布顺序：先写计数，再置 BATCH_BIT（seq_cst RMW）；子看到该位后读计数，能看到上面的写
             stoppingChildren.store(childMap().size)
-            childBatchStopping.store(1)
+            schedState.fetchOr(BATCH_BIT)
             let kids = childMap()
             // 小子树：父线程内联领养（省每子一次调度入队+唤醒，短突发最快）；
             // 大子树：交给各子自己的亲和 worker 并行处理（sendSystem 进的是每个子自己的系统队列）。
@@ -1677,6 +2140,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (generation != s.generation || s.value <= Duration.Zero || state != STATE_RUNNING) {
             return
         }
+        // 随上层暂停：不执行用户代码，稍后再查（不能直接返回，否则恢复后接收超时再也不会触发）
+        if (pausedByParent()) {
+            scheduleReceiveTimeoutCheck(s.value)
+            return
+        }
         let elapsed = MonoTime.now() - s.lastActivity
         if (elapsed >= s.value) {
             invoke(ReceiveTimeout(), None<String>, None<ActorRef>)
@@ -1748,7 +2216,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             throw InvalidActorNameException("子 Actor 名称已存在: ${fullPath()}/${name}")
         }
         let child = guardian.createCell(props, name, Some(this))
-        childMapMut().add(name, child)
+        childPut(name, child)
+        // 暂停中创建的子 Actor 一出生就随之暂停（Akka makeChild 按父的挂起计数挂起新子）：
+        // 例如上层失败待决时本 Actor 重启，新实例在 onStarted 里建的子 Actor。暂停在引用交给调用方之前发出
+        if (childrenShouldPause()) {
+            child.sendSystem(SysParentSuspend())
+        }
         child
     }
 
@@ -1757,17 +2230,31 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         spawnChild(PropsFactory.create<Actor>(creator), "$${anonymousSeq}")
     }
 
+    /** 子 Actor 快照；可从任意线程调用（R8：此前跨线程无锁遍历父的 HashMap，与父的增删并发） */
     func childrenInternal(): Array<ActorRef> {
-        let result = ArrayList<ActorRef>()
-        for (c in childMap().values()) {
-            result.add(c)
+        match (publishedChildTable()) {
+            case Some(t) =>
+                synchronized(t.lock) {
+                    let result = ArrayList<ActorRef>(t.map.size)
+                    for (c in t.map.values()) {
+                        result.add(c)
+                    }
+                    result.toArray()
+                }
+            case None => Array<ActorRef>()
         }
-        result.toArray()
     }
 
+    /** 按名字取子 Actor；可从任意线程调用 */
     func childInternal(name: String): Option<ActorRef> {
-        match (childMap().get(name)) {
-            case Some(c) => Some<ActorRef>(c)
+        match (publishedChildTable()) {
+            case Some(t) =>
+                synchronized(t.lock) {
+                    match (t.map.get(name)) {
+                        case Some(c) => Some<ActorRef>(c)
+                        case None => None<ActorRef>
+                    }
+                }
             case None => None<ActorRef>
         }
     }
@@ -1793,24 +2280,51 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     func watchInternal(ref: ActorRef): Unit {
-        let target = asLocalCell(ref, "watch")
+        watchTarget(asLocalCell(ref, "watch"))
+    }
+
+    private func watchTarget(target: SimpleUserActorRef): Unit {
         if (refEq(target, this)) {
             return
         }
-        if (!watching().contains(target.fullPath())) {
-            watchingMut().add(target.fullPath(), target)
-            target.sendSystem(SysWatch(this))
+        match (watching().get(target.fullPath())) {
+            case Some(w) where refEq(w, target) => ()
+            // 同路径的旧目标（已死或正在死，例如重启后同名重建的子 Actor）：换成新目标（R18）。
+            // 此前按路径判重会跳过新目标，旧目标的 Terminated 反而投给了新实例
+            case _ =>
+                watchingMut()[target.fullPath()] = target
+                target.sendSystem(SysWatch(this))
         }
     }
 
+    /** watchWith：目标死亡时收到 message 而不是 Terminated（与 Akka 相同；映射保存在 Cell，重启后仍有效） */
+    func watchWithInternal(ref: ActorRef, message: Message): Unit {
+        let target = asLocalCell(ref, "watchWith")
+        if (refEq(target, this)) {
+            return
+        }
+        watchState().messages[target.fullPath()] = message
+        watchTarget(target)
+    }
+
     func unwatchInternal(ref: ActorRef): Unit {
-        let target = asLocalCell(ref, "unwatch")
-        match (watching().get(target.fullPath())) {
+        unwatchTarget(asLocalCell(ref, "unwatch"))
+    }
+
+    private func unwatchTarget(target: SimpleUserActorRef): Unit {
+        let ws = match (watchingValue) {
+            case Some(w) => w
+            case None => return
+        }
+        match (ws.targets.get(target.fullPath())) {
             case Some(w) where refEq(w, target) =>
-                watchingMut().remove(target.fullPath())
+                ws.targets.remove(target.fullPath())
+                ws.messages.remove(target.fullPath())
                 target.sendSystem(SysUnwatch(this))
             case _ => ()
         }
+        // 已入队尚未处理的 Terminated 一并作废（取出时被丢弃）
+        let _ = ws.takeQueued(target)
     }
 
     private func asLocalCell(ref: ActorRef, op: String): SimpleUserActorRef {
@@ -1840,7 +2354,14 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     func stashInternal(): Unit {
         match (currentMessage) {
-            case Some(m) => stashBufferMut().add(Envelope(m, currentSender, currentSenderRef))
+            case Some(m) =>
+                // 暂存的 Terminated 出队时已注销了待处理记录：重新登记，否则 unstash 后会被当作"已 unwatch"丢弃（与 Akka 相同）
+                if (let Some(t) <- (m as Terminated)) {
+                    if (let Some(dead) <- (t.actor as SimpleUserActorRef)) {
+                        watchState().queued.add((dead, None<Message>))
+                    }
+                }
+                stashBufferMut().add(Envelope(m, currentSender, currentSenderRef))
             case None => throw IllegalStateException("stash 只能在处理消息时调用")
         }
     }
@@ -1963,6 +2484,10 @@ public class CellContext <: ActorContext {
 
     public func unwatch(ref: ActorRef): Unit {
         cell.unwatchInternal(ref)
+    }
+
+    public func watchWith(ref: ActorRef, message: Message): Unit {
+        cell.watchWithInternal(ref, message)
     }
 
     public func become(behavior: Receive, discardOld: Bool): Unit {
@@ -2141,6 +2666,9 @@ public abstract class RunLink {
 
 class RunStub <: RunLink {}
 
+/** 工作线程尚未运行过任何 Cell 时 currentRun 的占位 */
+let NO_RUN: RunStub = RunStub()
+
 /**
  * 侵入式 MPSC 队列（Vyukov）：多个生产者 add，只有所属工作线程 remove
  */
@@ -2258,6 +2786,9 @@ class DispatcherWorker {
     let runNextSlot: AtomicOptionReference<SimpleUserActorRef> = AtomicOptionReference<SimpleUserActorRef>()
     // 空闲、等待别的线程捐赠 Cell；由本线程置位，由本线程或捐赠方用 CAS 清除（各自负责把 hungryCount 减一）
     let hungry: AtomicBool = AtomicBool(false)
+    // 正在（或最近一次）运行的 Cell：饥饿检测线程据此报告是哪个 Actor 占住了本线程（E39）。
+    // 每次运行一次原子写，不按消息计；是否"正在运行"由 executed 是否推进、是否空闲判断
+    let currentRun: AtomicReference<RunLink> = AtomicReference<RunLink>(NO_RUN)
     private var runNextStreak: Int64 = 0
     // 空闲时观察到的别的线程的执行计数与开始观察的时刻（下标同 dispatcher.allWorkers()，只由本线程读写）
     private var seenExecuted: Array<Int64> = Array<Int64>()
@@ -2372,10 +2903,14 @@ class DispatcherWorker {
 
     private func runCell(cell: SimpleUserActorRef): Unit {
         donateIfHungry()
+        currentRun.store(cell)
         try {
             cell.run()
         } catch (e: Exception) {
             cellLog.error("Actor Cell 执行异常: ${e}")
+        } catch (e: Error) {
+            // 工作线程绑定着一条运行队列，线程退出等于让亲和到它的所有 Actor 失联：Error 也必须兜住
+            cellLog.error("Actor Cell 执行发生 Error: ${e}")
         }
         executed.fetchAdd(1)
     }
@@ -2522,6 +3057,10 @@ public class ActorCellDispatcher <: CellExecutor {
     // 否则 14 个空闲线程每 250µs 全量扫一遍所有 worker，是跨核读风暴，
     // 还会偷走忙线程正在热的 Cell（实测扇出 T14 3.0M vs T4 11.7M 的主因）
     let runNextPending: AtomicInt64 = AtomicInt64(0)
+    // 饥饿检测（E39）：某个工作线程卡在同一次 Cell 运行里超过阈值的次数，与最近一次的报告
+    let starvationCount: AtomicInt64 = AtomicInt64(0)
+    private let starvationLock: Mutex = Mutex()
+    private var lastStarvationValue: Option<String> = None<String>
     // 仓颉线程 id → 工作线程下标（见 currentWorker）；启动时写一次，在 ready 置位前发布
     private var workerIds: Array<Int64> = Array<Int64>()
     private var workerSlots: Array<Int64> = Array<Int64>()
@@ -2665,10 +3204,83 @@ public class ActorCellDispatcher <: CellExecutor {
             workerSlots = slots
             workerIds = ids
             ready.store(true)
+            let warnMs = envInt("CACTOR_STARVATION_WARN_MS", 1000, 0)
+            if (warnMs > 0) {
+                let me = this
+                spawn {
+                    me.watchStarvation(Duration.millisecond * warnMs)
+                }
+            }
         } else {
             while (!ready.load()) {
                 sleep(Duration.Zero)
             }
+        }
+    }
+
+    /**
+     * 饥饿检测线程（E39，同 Akka 的 starvation detector）：周期性查看每个工作线程的执行计数，
+     * 不空闲、计数却超过 threshold 没有推进 = 卡在同一次 Cell 运行里（处理方法在阻塞或长时间计算）。
+     * 亲和到该线程的其他 Actor 这段时间都得不到运行，所以每次卡住告警一次并点名占住线程的 Actor。
+     * 热路径上只有 runCell 的一次原子写；检测线程每 threshold/4（10–250ms）醒一次
+     */
+    private func watchStarvation(threshold: Duration): Unit {
+        let ws = workers
+        var interval = threshold / 4
+        if (interval < Duration.millisecond * 10) {
+            interval = Duration.millisecond * 10
+        }
+        if (interval > Duration.millisecond * 250) {
+            interval = Duration.millisecond * 250
+        }
+        let seen = Array<Int64>(ws.size, repeat: -1)
+        let since = Array<MonoTime>(ws.size, repeat: MonoTime.now())
+        let warned = Array<Int64>(ws.size, repeat: -1)
+        while (true) {
+            sleep(interval)
+            let now = MonoTime.now()
+            for (i in 0..ws.size) {
+                let w = ws[i]
+                let executed = w.executed.load()
+                // 空闲（举手等捐赠、或已休眠）不算卡住；计数推进说明运行正常
+                if (executed != seen[i] || w.hungry.load() || w.sleeping.load()) {
+                    seen[i] = executed
+                    since[i] = now
+                    continue
+                }
+                let stuck = now - since[i]
+                if (stuck >= threshold && warned[i] != executed) {
+                    warned[i] = executed
+                    reportStarvation(i, w, stuck)
+                }
+            }
+        }
+    }
+
+    private func reportStarvation(index: Int64, w: DispatcherWorker, stuck: Duration): Unit {
+        let path = match (w.currentRun.load() as SimpleUserActorRef) {
+            case Some(c) => c.fullPath()
+            case None => "(未知)"
+        }
+        synchronized(starvationLock) {
+            lastStarvationValue = Some(path)
+        }
+        starvationCount.fetchAdd(1)
+        cellLog.warn("工作线程 #${index} 卡在 Actor ${path} 的一次运行里已 ${stuck.toMilliseconds()} ms，" +
+            "亲和到该线程的其他 Actor 都在等待。阻塞调用（IO、sleep、同步等待 ask / Future）请放到 blocking 调度器" +
+            "（Props.withDispatcher(\"blocking\") / TypedProps 的 dispatcher），或改用 pipeToSelf 异步接收结果；" +
+            "阈值由 CACTOR_STARVATION_WARN_MS 设置（0 关闭）")
+    }
+
+    /** 饥饿告警次数（默认调度器；E39） */
+    public static func starvationWarningCount(): Int64 {
+        defaultInstance.starvationCount.load()
+    }
+
+    /** 最近一次饥饿告警点名的 Actor 路径 */
+    public static func lastStarvationPath(): Option<String> {
+        synchronized(defaultInstance.starvationLock) {
+            defaultInstance.lastStarvationValue
         }
     }
 
@@ -2714,8 +3326,11 @@ public class ActorCellDispatcher <: CellExecutor {
 /**
  * 阻塞调度器：所有工作线程共享一个就绪队列（谁空闲谁取），
  * 某个 Actor 在 receive 中阻塞时，只占用一个线程，不影响默认调度器上的 Actor。
- * 初始线程数默认 16（CACTOR_BLOCKING_THREADS）；阻塞的 Actor 超过线程数时按需扩容，
+ * 初始线程数默认 16（CACTOR_BLOCKING_THREADS）；没有空闲线程可接手新任务时按需扩容，
  * 上限 CACTOR_BLOCKING_THREADS_MAX（默认 64），避免后来的 Actor 无限期排队。
+ *
+ * 扩容依据是"空闲线程数"而不是"线程总数"（E39，R16）：此前条件是排队数 > 线程总数，
+ * 16 个线程全被阻塞的 Actor 占住时第 17 个任务的排队数只有 1，永远不扩容，只能无限期等待。
  */
 class BlockingCellExecutor <: CellExecutor {
     private let lock = Mutex()
@@ -2723,10 +3338,11 @@ class BlockingCellExecutor <: CellExecutor {
     private let queue = ArrayList<SimpleUserActorRef>()
     private var head: Int64 = 0
     private let started = AtomicBool(false)
-    private let threads = AtomicInt64(0)
     // 已启动的工作线程数（按需扩容时用 CAS 递增，避免多个线程同时扩容）
     private let workers = AtomicInt64(0)
     private let maxWorkers: Int64
+    // 正在 take() 中等待任务的空闲线程数（只在 lock 内读写）
+    private var idle: Int64 = 0
 
     init() {
         this.cond = synchronized(lock) { lock.condition() }
@@ -2746,18 +3362,19 @@ class BlockingCellExecutor <: CellExecutor {
         if (!started.load()) {
             ensureStarted()
         }
-        var pending: Int64 = 0
-        synchronized(lock) {
+        let starved = synchronized(lock) {
             queue.add(cell)
-            pending = queue.size - head
             cond.notify()
+            // 排队任务多于空闲线程：其余线程都在执行（可能正被阻塞），新任务没人接
+            queue.size - head > idle
         }
-        // 排队任务多于工作线程数（说明线程都被阻塞中的 Actor 占住）时按需扩容
-        let w = workers.load()
-        if (pending > w && w < maxWorkers && workers.compareAndSwap(w, w + 1)) {
-            spawn {
-                markActorThread()
-                workerLoop()
+        if (starved) {
+            let w = workers.load()
+            if (w < maxWorkers && workers.compareAndSwap(w, w + 1)) {
+                spawn {
+                    markActorThread()
+                    workerLoop()
+                }
             }
         }
     }
@@ -2769,7 +3386,6 @@ class BlockingCellExecutor <: CellExecutor {
     private func ensureStarted(): Unit {
         if (started.compareAndSwap(false, true)) {
             let n = envInt("CACTOR_BLOCKING_THREADS", 16, 1)
-            threads.store(n)
             workers.store(n)
             for (_ in 0..n) {
                 spawn {
@@ -2787,7 +3403,9 @@ class BlockingCellExecutor <: CellExecutor {
                     queue.clear()
                     head = 0
                 }
+                idle++
                 cond.wait()
+                idle--
             }
             let c = queue[head]
             head++
@@ -2814,11 +3432,14 @@ class BlockingCellExecutor <: CellExecutor {
                 cell.run()
             } catch (e: Exception) {
                 cellLog.error("阻塞调度器执行异常: ${e}")
+            } catch (e: Error) {
+                cellLog.error("阻塞调度器执行发生 Error: ${e}")
             }
         }
     }
 
+    /** 当前工作线程数（含按需扩容的线程） */
     func workerCount(): Int64 {
-        threads.load()
+        workers.load()
     }
 }

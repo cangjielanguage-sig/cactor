@@ -367,8 +367,9 @@ class JobMachine {
 ]
 class WorkflowMachine {
     // 访问子状态机：sub<状态名>()，子机的迁移/守卫/动作照常用
+    // 状态枚举默认没有实现 ==，比较状态用 stateName
     public func checkSub(): Bool {
-        subWorking().currentState() == JobMachine.initialState
+        JobMachine.stateName(subWorking().currentState()) == "Idle"
     }
 }
 ```

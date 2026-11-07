@@ -178,10 +178,13 @@ public class AskFuture<T> {
 }
 
 /**
- * Ask模式管理器
+ * Ask模式管理器（E38 起废弃：要求目标解包 AskMessage 并回 AskResponse，与普通 Actor 的回复方式不兼容）
  */
+@Deprecated["经典 ask 请改用 cactor_core.dsl.AskInbox.ask(target, message).get(timeout)（目标照常 context.reply，无需解包 AskMessage）；类型化用 TypedAsk.ask / ctx.ask。将在 2.0.0 移除", since: "1.3.0"]
 public class AskPatternManager {
     private let pendingRequests: ConcurrentHashMap<String, AskFuture<Message>>
+    // 每个请求的超时定时器（收到回复时取消）
+    private let timeoutTimers: ConcurrentHashMap<String, Timer>
     private let requestCounter: AtomicInt64
     private let defaultTimeout: Duration
     private let cleanupInterval: Duration
@@ -193,6 +196,7 @@ public class AskPatternManager {
         this.stopLock = Mutex()
         this.stopCond = synchronized(stopLock) { stopLock.condition() }
         this.pendingRequests = ConcurrentHashMap<String, AskFuture<Message>>()
+        this.timeoutTimers = ConcurrentHashMap<String, Timer>()
         this.requestCounter = AtomicInt64(0)
         this.defaultTimeout = defaultTimeout
         this.cleanupInterval = Duration.second * 30
@@ -224,7 +228,11 @@ public class AskPatternManager {
         let future = AskFuture<Message>(requestId, timeout)
         
         pendingRequests[requestId] = future
-        
+        // 每个请求自带一次性定时器，按自己的时限准时超时（E38，T8）。
+        // 此前只靠 30 s 一次的清理循环：1 s 超时最多晚 30 s 才回调；未调用 start() 时永不超时
+        let manager = this
+        timeoutTimers[requestId] = Timer.once(timeout, { => manager.expire(requestId) })
+
         // 创建临时Actor来接收响应
         let replyTo = createReplyActor(requestId)
         let askMessage = AskMessage(requestId, message, replyTo)
@@ -235,9 +243,21 @@ public class AskPatternManager {
         return future
     }
 
+    /** 超时到期：请求仍未完成则以 AskTimeoutException 结束 */
+    private func expire(requestId: String): Unit {
+        timeoutTimers.remove(requestId)
+        match (pendingRequests.remove(requestId)) {
+            case Some(future) => future.completeWithError(AskTimeoutException(requestId, future.getTimeout()))
+            case None => ()
+        }
+    }
+
     public func handleResponse(response: AskResponse): Unit {
         let requestId = response.getRequestId()
-        
+        if (let Some(t) <- timeoutTimers.remove(requestId)) {
+            t.cancel()
+        }
+
         match (pendingRequests.remove(requestId)) {
             case Some(future) => 
                 if (response.isSuccess()) {

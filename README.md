@@ -116,7 +116,7 @@ main() {
 |------|------|------|
 | Actor 基础 | Actor / ActorRef / ActorSystem、生命周期回调、子 Actor、`watch`、`become`、定时器、Stash、接收超时、按路径查找、死信 | 可用 |
 | 类型化 Actor | `TypedBehaviors`、`TypedActorRef`、Actor 内 ask、`messageAdapter`、`pipeToSelf`、Receptionist、行为拦截器，参考 Akka Typed | 可用 |
-| 容错 | 监督树（OneForOne / OneForAll / Escalate / Backoff）、DeathPact、断路器 | 可用 |
+| 容错 | 监督树（OneForOne / OneForAll / Escalate / 指数退避重启，经典与类型化 API 均支持）、DeathPact、断路器；默认策略与 Akka 一致（启动失败 / Kill / DeathPact 停止） | 可用 |
 | 通用模式 | Ask、消息路由、有界邮箱背压（丢弃 / 失败 / 阻塞） | 可用 |
 | DSL | `@actor[cases/protocol]`、`@Message`、`@StateMachine`、`Behaviors`、流管道、时间字面量、`<<` | 可用 |
 | 测试 | `TestProbe`、`BehaviorTestKit`、虚拟时钟 `ManualTime` | 可用 |
@@ -246,23 +246,20 @@ import cactor.api.{CActor}
 import cactor_core.actor.{Actor}
 import cactor_core.message.{Message, StringMessage, MessageResult}
 import cactor_core.context.{ActorContext}
-import cactor_patterns.ask.{Ask, AskMessage, AskResponse, Result}
+import cactor_core.dsl.{AskInbox}
+import cactor_core.typed.{TypedAskTimeoutException}
 
+// 经典 ask：AskInbox 就是发送方，目标照常 context.reply（类型化用 TypedAsk.ask / ctx.ask）
 class EchoActor <: Actor {
     public prop name: String { get() { "EchoActor" } }
-    public prop description: String { get() { "回显 Ask 请求" } }
+    public prop description: String { get() { "回显 ask 请求" } }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
         match (message) {
-            case ask: AskMessage =>
-                let reply = match (ask.getOriginalMessage()) {
-                    case s: StringMessage => StringMessage("echo: ${s.getContent()}")
-                    case _ => StringMessage("unknown")
-                }
-                ask.getReplyTo().tell(AskResponse(ask.getRequestId(), reply, true))
-                MessageResult.Handled
-            case _ => MessageResult.Unhandled
+            case s: StringMessage => context.reply(StringMessage("echo: ${s.getContent()}"))
+            case _ => return MessageResult.Unhandled
         }
+        MessageResult.Handled
     }
 }
 
@@ -270,17 +267,16 @@ main(): Int64 {
     let system = CActor.system("ask-system")
     let echo = system.actorOf({ => EchoActor() }, "echo")
 
-    let future = Ask.ask(echo, StringMessage("hi"), Duration.second * 3)
-    match (future.get()) {
-        case Result.Success(response) =>
-            match (response) {
-                case s: StringMessage => println("响应: ${s.getContent()}")   // 输出：响应: echo: hi
-                case _ => ()
-            }
-        case Result.Failure(error) => println("失败: ${error.message}")
+    try {
+        let reply = AskInbox.ask(echo, StringMessage("hi")).get(Duration.second * 3)
+        match (reply) {
+            case s: StringMessage => println("响应: ${s.getContent()}")   // 输出：响应: echo: hi
+            case _ => ()
+        }
+    } catch (e: TypedAskTimeoutException) {
+        println("超时: ${e.message}")
     }
 
-    Ask.shutdown()
     system.terminate()
     return 0
 }
@@ -357,7 +353,7 @@ Actor 是并发计算的基本单元，每个 Actor 包含：
 
 ### 监督
 
-Actor 失败时，由监督策略决定如何处理：`Resume`（忽略并继续）、`Restart`（重启）、`Stop`（停止）或 `Escalate`（交给上级）。内置策略包括 `OneForOneStrategy`、`OneForAllStrategy`、`EscalateStrategy` 和带指数退避的 `BackoffSupervisorStrategy`，位于 `cactor_core.supervision`。
+Actor 失败时，由监督策略决定如何处理：`Resume`（忽略并继续）、`Restart`（重启）、`Stop`（停止）或 `Escalate`（交给上级）。内置策略包括 `OneForOneStrategy`、`OneForAllStrategy`、`EscalateStrategy` 和带指数退避的 `BackoffSupervisionStrategy(BackoffPolicy(...))`（返回 `RestartAfter`，延迟期间挂起 Actor），位于 `cactor_core.supervision`。类型化 API 用 `TypedSupervisorStrategy.restartWithBackoff(min, max, randomFactor)`，两者共用同一套退避算法（抖动、自动复位、次数上限）。
 
 ---
 
@@ -452,7 +448,8 @@ cactor_macros 是独立的宏模块；cactor_tests 和 cactor_examples 位于最
 |------|------|
 | [hello_world_demo](modules/examples/src/hello_world_demo/main.cj) | Actor 创建与消息发送 |
 | [api_demo](modules/examples/src/api_demo/main.cj) | 对外 API 用法 |
-| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | Ask 请求-响应、超时与批量请求 |
+| [ask_demo](modules/examples/src/ask_demo/main.cj) | 经典 ask（`AskInbox.ask`）：请求-响应、超时、replyTo 写法、多线程并发 ask，带自检 |
+| [ask_pattern_demo](modules/examples/src/ask_pattern_demo/main.cj) | 旧 ask API（`Ask` / `AskPatternManager`，已 @Deprecated，2.0.0 移除） |
 | [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | 类型化 Actor 系统 |
 | [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | 不同 mailbox 实现 |
 | [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | 不同 dispatcher 实现 |

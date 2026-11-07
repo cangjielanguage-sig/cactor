@@ -65,7 +65,8 @@ public class StashOverflowException <: Exception {
 public class TypedStashBuffer<T> {
     private let capacityValue: Int64
     private let context: TypedActorContext<T>
-    private let buffer = ArrayList<T>()
+    // 双端队列：unstash 逐条出队（ArrayList.remove(at: 0) 每次整体前移，大缓冲区是 O(n²)）
+    private let buffer = ArrayDeque<T>()
 
     public init(capacity: Int64, context: TypedActorContext<T>) {
         if (capacity <= 0) {
@@ -80,7 +81,7 @@ public class TypedStashBuffer<T> {
         if (buffer.size >= capacityValue) {
             throw StashOverflowException("stash 已满（容量 ${capacityValue}）")
         }
-        buffer.add(message)
+        buffer.addLast(message)
     }
 
     public func size(): Int64 {
@@ -111,20 +112,28 @@ public class TypedStashBuffer<T> {
     }
 
     /**
-     * 用 behavior 按原顺序处理全部暂存消息，返回处理后的行为。
-     * 处理过程中再次 stash 的消息保留在缓冲区中；行为变为 stopped 时剩余消息被丢弃。
+     * 用 behavior 按原顺序处理调用时已暂存的全部消息，返回处理后的行为。
+     * 处理过程中再次 stash 的消息排在缓冲区末尾、本次不处理；行为变为 stopped 时剩余消息留在缓冲区。
      */
     public func unstashAll(behavior: TypedBehavior<T>): TypedBehavior<T> {
-        let messages = buffer.toArray()
-        buffer.clear()
-        TypedBehaviors.interpretAll(behavior, messages, context)
+        unstash(behavior, buffer.size)
     }
 
-    /** 只取出前 n 条处理 */
+    /**
+     * 取出前 n 条依次处理。逐条出队（与 Akka 相同，T10）：处理某条时抛出异常，
+     * 它和之前的消息已离开缓冲区，其余未处理的消息仍在缓冲区里——此前先清空再处理，Resume 后剩余消息全部丢失。
+     */
     public func unstash(behavior: TypedBehavior<T>, n: Int64): TypedBehavior<T> {
         let count = if (n < buffer.size) { n } else { buffer.size }
-        let messages = Array<T>(count, { i => buffer[i] })
-        buffer.remove(0..count)
-        TypedBehaviors.interpretAll(behavior, messages, context)
+        var current = TypedBehaviors.start(behavior, context)
+        var i: Int64 = 0
+        while (i < count && !TypedBehaviors.isStopped(current)) {
+            match (buffer.removeFirst()) {
+                case Some(m) => current = TypedBehaviors.canonicalize(current.onMessage(m, context), current, context)
+                case None => break
+            }
+            i++
+        }
+        current
     }
 }

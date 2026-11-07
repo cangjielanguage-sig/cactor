@@ -19,6 +19,7 @@ CActor 是一个高性能 Actor 模型实现库，为仓颉语言提供简洁、
 11. [路由模式](#11-路由模式)
 12. [测试框架](#12-测试框架)
 13. [类型安全 Actor](#13-类型安全-actor)
+14. [远程可靠投递与持久化失败语义](#14-远程可靠投递与持久化失败语义)
 
 ---
 
@@ -260,7 +261,26 @@ public func getRuntime(): CActorRuntime
  * 获取系统启动时间戳
  */
 public func getStartTime(): Int64
+
+/**
+ * 停止 Actor（对标 Akka system.stop）：处理完当前消息即停，邮箱中剩余消息计为死信，子 Actor 先停；
+ * 名字保留到真正终止（终止前同名 actorOf 报"名称已存在"）。顶层与子 Actor 都适用
+ */
+public func stop(actorRef: ActorRef): Unit
+
+/**
+ * 处理完已入队的消息后停止，并等待终止（对标 Akka Patterns.gracefulStop，发 PoisonPill）：
+ * 返回 true 表示已终止且名字已释放，超时返回 false。会阻塞，只能在 Actor 之外调用
+ */
+public func gracefulStop(actorRef: ActorRef, timeout: Duration): Bool
+
+/** 死信：投递失败的消息，以及包装成 UnhandledMessage 的未处理消息（用 `is UnhandledMessage` 区分） */
+public func subscribeDeadLetters(listener: (Message, String) -> Unit): Unit
+public func deadLetterCount(): Int64
+public func unhandledCount(): Int64
 ```
+
+与 Akka 的逐条语义对照见 [akka-semantics.md](akka-semantics.md)。
 
 ### 使用示例
 
@@ -529,15 +549,14 @@ public interface Actor {
     func postStop(): Unit
 
     /**
-     * Actor 重启前的操作
-     * 默认调用 preStop()
+     * 重启前在旧实例上调用。默认调用 postStop()（与 Akka 相同）。
+     * 之后运行时停止全部子 Actor，等它们全部终止后才创建新实例
      * @param reason 重启原因（异常）
      */
     func preRestart(reason: Exception): Unit
 
     /**
-     * Actor 重启后的操作
-     * 默认调用 postStart()
+     * 重启后在新实例上调用（onStarted 之前）。默认调用 preStart()（与 Akka 相同）
      * @param reason 重启原因（异常）
      */
     func postRestart(reason: Exception): Unit
@@ -1204,6 +1223,30 @@ let actor = system.actorOfConfigured(
 
 Ask 模式提供请求-响应式的消息交互，参考 Akka 的 Ask 模式设计。
 
+### 推荐入口（E38 收敛后只有三个）
+
+| 场景 | 写法 |
+|---|---|
+| 类型化，Actor 之外 | `TypedAsk.ask<Req, Res>(ref, { replyTo => Req(.., replyTo) }, timeout)` → `TypedPromise<Res>` |
+| 类型化，Actor 之内 | `ctx.ask(target, factory, timeout) { outcome => ... }`（结果作为消息回到本 Actor，不阻塞） |
+| 经典 `ActorRef` | `AskInbox.ask(target, message).get(timeout)`（`cactor_core.dsl`；收件箱就是发送方，目标照常 `context.reply`） |
+
+```cangjie
+import cactor_core.dsl.{AskInbox}
+
+let answer = AskInbox.ask(service, Query("天气")).get(3.seconds)       // 超时抛 TypedAskTimeoutException
+let maybe = AskInbox.ask(service, Query("天气")).tryGet(100.millis)    // 超时返回 None
+```
+
+阻塞等待（`get` / `tryGet` / `TypedPromise.get`）只能在 Actor 之外；在默认调度器的工作线程上调用会立即抛
+`IllegalStateException`。`TypedPromise` 可非阻塞组合：`map` / `flatMap` / `recover` / `recoverWith`，
+`TypedPromises.successful` / `failed` / `sequence`。
+
+### 旧入口（@Deprecated，2.0.0 移除）
+
+下面的 `cactor_patterns.ask.Ask` / `AskPatternManager` 要求目标 Actor 解包 `AskMessage`、回复 `AskResponse`，
+自 1.3.0 起标记 @Deprecated；恒以超时结束的 `TypedAskPattern` 与 patterns 的 `TypedAsk` 已删除。
+
 ### 包引入
 
 ```cangjie
@@ -1369,12 +1412,20 @@ public enum CircuitBreakerState {
 
 ```cangjie
 public struct CircuitBreakerConfig {
-    public let failureThreshold: Int64   // 触发断路的失败次数
-    public let successThreshold: Int64   // 半开状态下恢复所需的成功次数
-    public let timeout: Duration         // 单次操作超时时间
+    public let failureThreshold: Int32   // 触发断路的**连续**失败次数
+    public let successThreshold: Int32   // 半开状态下恢复所需的试探成功次数
+    public let timeout: Duration         // callTimeout：调用耗时超过它按失败计；为 0 时不检查
     public let resetTimeout: Duration    // 从 Open 转换到 HalfOpen 的等待时间
 }
 ```
+
+### 状态机（与 Akka CircuitBreaker 一致）
+
+- **Closed**：计连续失败，任何一次成功清零；达到 `failureThreshold` 转 Open。
+- **Open**：调用直接抛 `CircuitBreakerOpenException`；开启满 `resetTimeout` 后 `getState()` 即返回 HalfOpen。
+- **HalfOpen**：同一时刻只放行一个试探调用，其余快速失败；试探成功累计到 `successThreshold` 转 Closed，
+  试探失败立即回到 Open 并重新计时。
+- 调用耗时超过 `timeout` 时抛 `CircuitBreakerTimeoutException` 并计一次失败（结果被丢弃，同 Akka `withSyncCircuitBreaker`）。
 
 ### CircuitBreaker 接口
 
@@ -1413,12 +1464,16 @@ public interface CircuitBreaker<T> {
 ```cangjie
 public class BasicCircuitBreaker<T> <: CircuitBreaker<T> {
     public init(config: CircuitBreakerConfig)
+    // clock 返回单调毫秒数；测试注入虚拟时钟即可确定性地驱动 Open → HalfOpen
+    public init(config: CircuitBreakerConfig, clock: () -> Int64)
 
     public func execute(operation: () -> T): T
     public func getState(): CircuitBreakerState
-    public func getStats(): CircuitBreakerStats
+    public func getStats(): CircuitBreakerStats   // failureCount / successCount 为累计次数
     public func reset(): Unit
     public func trip(): Unit
+    public func succeed(): Unit   // 手动记一次成功（结果不经 execute 时使用）
+    public func fail(): Unit      // 手动记一次失败；HalfOpen 时立即回到 Open
 }
 ```
 
@@ -1681,6 +1736,49 @@ controller.reset()
 
 路由模式提供消息负载均衡功能，支持多种路由策略。
 
+**推荐用法：路由器 Actor**（对标 Akka `Routers.pool` / `Routers.group`）。路由器本身是 Actor：
+转发时保留原发送方（目标 `context.reply` 直接回到原发送方）；watch 全部目标，目标终止后摘除，
+池路由器的目标全部终止后自行停止。
+
+```cangjie
+import cactor_patterns.routing.*
+
+// 池：创建 4 个 Worker 子 Actor，按用户 id 一致性哈希
+let workers = system.actorOf(Routers.pool(4, { => Worker() },
+    ConsistentHashRoutingStrategy({ m: Message => userIdOf(m) })), "workers")
+workers.tell(Job(1), self)           // Worker 里 context.reply(...) 直接回到 self
+workers << Broadcast(Reload())       // 发给全部 Worker
+workers << AdjustPoolSize(2)         // 扩容 2 个；负数缩容
+workers.tell(GetRoutees(), self)     // 回复 Routees(当前目标)
+
+// 组：目标是已存在的 Actor（路由器只 watch，不管理其生命周期）
+let group = system.actorOf(Routers.group([a, b, c]), "group")
+```
+
+| 工厂 | 说明 |
+|---|---|
+| `Routers.pool(n, props)` / `pool(n, props, strategy)` / `pool(n, creator, strategy)` | 池路由器，默认轮询 |
+| `Routers.group(refs)` / `group(refs, strategy)` | 组路由器，默认轮询 |
+
+管理消息：`Broadcast(message)`、`GetRoutees` → `Routees`、`AddRoutee(ref)`、`RemoveRoutee(ref)`（池目标一并停止）、
+`AdjustPoolSize(change)`。没有目标时消息记为未处理。
+
+**类型化路由器**（`cactor_core.typed`，对标 Akka Typed `Routers`）：路由器就是一个 `TypedBehavior<T>`。
+
+```cangjie
+let pool = TypedRouters.pool<Job>(4, worker(),
+    TypedRouting<Job>().consistentHashing({ j => j.userId }).withBroadcastPredicate({ j => j.isReload }))
+let workers = ctx.actorOf(pool, "workers")
+
+// 组：路由到 Receptionist 中登记为 key 的全部实例；实例停止后自动注销、立即生效；路由器停止时退订
+let group = ctx.actorOf(TypedRouters.group<Job>(WorkerKey), "worker-group")
+```
+
+`TypedRouting<T>` 是不可变配置：`roundRobin()`（默认）、`random()`、`consistentHashing(keyOf)`、
+`withBroadcastPredicate(p)`、`withRouteeProps(props)`。
+
+下面的 `BasicRouter` / `RouterActorRef` 是不经过 Actor 的路由对象：不 watch 目标，适合目标生命周期由调用方自行管理的场景。
+
 ### 包引入
 
 ```cangjie
@@ -1845,6 +1943,7 @@ public class RouterActorRef <: ActorRef {
     public prop path: ActorPath
     public func tell(message: Message): Unit
     public func tell(message: Message, sender: Option<String>): Unit
+    public func tell(message: Message, sender: ActorRef): Unit   // 保留发送方转发
     public func equals(other: ActorRef): Bool
     public func hashCode(): Int32
     public func getRouter(): Router
@@ -2166,6 +2265,66 @@ selection.tell(Ping())
 let normalRef = system.unwrapTypedActor(typedActor)
 let typedRef = system.wrapAsTypedActor<Ping>(normalRef, "wrapped")
 ```
+
+### 类型化语义要点（与 Akka Typed 对齐）
+
+- **监督按行为结构匹配**：`supervise(b).onFailure(...)` 包住的行为在处理中换成新行为后仍在这一层内；
+  嵌套时**由内向外**匹配，内层规则优先；`withLimit` / 退避的计数按规则在行为中的位置累计，跨重启保留
+  （`setup { supervise(...).withLimit(n, within) }` 的上限照常生效）。`transformMessages` 内部的 supervise 同样生效。
+- **未处理消息**：处理方法返回 `unhandled()`、或收到协议之外的消息（`childAs` / lookup 用错了协议类型）时，
+  消息以 `UnhandledMessage(message, recipient)` 交给 `subscribeDeadLetters` 的订阅者，`unhandledCount()` 计数，
+  并按限速记日志（每 5 分钟前 10 条，`CACTOR_LOG_DEAD_LETTERS` 调整）。
+- **子 Actor 的快路径**：`ctx.actorOf` 是接口虚调用，`@Frozen` 无法在调用方包里实例化；子 Actor 的初始行为以
+  `setup { ... }`（或 `supervise(setup { ... })`）开头时，由 `setup` 在调用方包里构造热路径桥接，
+  吞吐与顶层 `typedActorOf` 接近（`typed_spawn_bench` 实测约 84%，直接传 `receive` 约 45%）。
+
+
+
+---
+
+## 14. 远程可靠投递与持久化失败语义
+
+与 Akka 的逐条对照见 [akka-semantics.md](akka-semantics.md) 第 9、10 节。
+
+### 远程（`cactor_remote`）
+
+```cangjie
+import cactor_remote.*
+
+let node = SimpleRemoteManager(NetworkAddress("127.0.0.1", 2552), TransportProtocol.TCP)
+// 心跳 200ms、φ 阈值 8、容忍停顿 1s、重发 200ms、确认 10ms；可靠投递上限与放弃时长另设
+node.configure(RemotingSettings.defaults().withLimits(5000, Duration.minute * 10))
+node.start()
+
+let sink = node.remoteActorOf(peerAddress, "sink")
+node.tellReliable(sink, StringMessage("order-1"))   // 按序、去重；对端重启后在新通道重发
+node.watchRemote(sink, localWatcher)                // 目标停止、节点不可达或重启时收到 Terminated
+
+let stats = node.reliableDeliveryStats()
+// stats.resent / duplicatesDropped / unacked / overflowDropped / gaveUp / peerRestarts
+```
+
+| API | 说明 |
+|---|---|
+| `RemotingSettings(heartbeat, phi, pause, resend, ack[, maxUnacked, giveUpAfter])` | 五参构造的上限与放弃时长取默认值 20000 条、6 小时（同 Akka） |
+| `settings.withLimits(maxUnacked, giveUpAfter)` | 只换可靠投递的上限与放弃时长 |
+| `tellReliable(target, message[, sender])` | 通道已有 `maxUnacked` 条未确认消息时丢弃这条并计入 `overflowDropped`，不抛异常 |
+| `reliableDeliveryStats(): ReliableDeliveryStats` | 完整统计；旧的 `reliableStats()` 三元组保留 |
+
+- `tell` / `sendMessage` 只入出站队列、不阻塞：连接与重连在该地址的写线程里进行；对端不可达或队列满（64 MB）时丢弃并计数
+  （`TcpTransport.getDroppedFrames()`），不抛异常。控制消息用 `sendControl(addr, actor, message)` 走优先通道。
+- 对端重启后，未确认的消息在新通道重发：跨重启是**至少一次**。
+- 最老的未确认消息超过 `giveUpAfter`：放弃发往该节点的全部消息（计入 `gaveUp`），监视该节点上 Actor 的本地 Actor 收到 `Terminated`。
+
+### 持久化（`AbstractPersistentActor`）
+
+| 情形 | 行为 |
+|---|---|
+| 启动 / 重启 | `preStart` 自动恢复（快照 + 之后的事件）；重写 `preStart` 时调用 `super.preStart()` |
+| 写入存储失败（如版本冲突） | 抛 `PersistenceException`，序号回退 |
+| 已落库后处理器抛异常 | 抛 `EventHandlerException`（`PersistenceException` 子类，带 `persistedSequenceNr`），序号**不**回退；默认监督重启后重放该事件 |
+| `persistAll` | 等存储确认；冲突抛 `PersistenceException` |
+| 恢复失败 | 抛 `PersistenceException`；在 `preStart` 中即为启动失败，默认停止 |
 
 ---
 

@@ -4,7 +4,8 @@
  * - ServiceKey<T>：服务标识，类型参数保证 find 得到的引用协议正确
  * - register / deregister：登记 / 注销服务实例；实例停止后自动注销（通过一个监视者 Actor）
  * - find：查询当前实例列表
- * - subscribe：订阅变化，立即收到一次当前列表，之后每次变化都会收到新的 Listing
+ * - subscribe：订阅变化，立即收到一次当前列表，之后每次变化都会收到新的 Listing；
+ *   返回 ReceptionistSubscription，可 unsubscribe；以 Actor 订阅时订阅者停止后自动退订（T12）
  *
  * 本实现是单节点的；集群版本见计划 R6。
  */
@@ -61,6 +62,30 @@ class ServiceEntry {
     }
 }
 
+/** 订阅句柄：传给 Receptionist.unsubscribe 取消订阅 */
+public class ReceptionistSubscription {
+    let id: Int64
+    let keyId: String
+
+    init(id: Int64, keyId: String) {
+        this.id = id
+        this.keyId = keyId
+    }
+}
+
+class SubscriberEntry {
+    let id: Int64
+    // 以 Actor 订阅时为订阅者路径：它停止后自动退订；回调订阅为 None，只能显式 unsubscribe
+    let ownerPath: Option<String>
+    let fn: () -> Unit
+
+    init(id: Int64, ownerPath: Option<String>, fn: () -> Unit) {
+        this.id = id
+        this.ownerPath = ownerPath
+        this.fn = fn
+    }
+}
+
 class ReceptionistWatch <: Message {
     let target: ActorRef
 
@@ -108,8 +133,9 @@ class ReceptionistWatcher <: Actor {
 public class Receptionist {
     private let lock = Mutex()
     private let entries = ArrayList<ServiceEntry>()
-    // keyId -> 订阅者通知函数（在锁外调用）
-    private let subscribers = HashMap<String, ArrayList<() -> Unit>>()
+    // keyId -> 订阅者（通知函数在锁外调用）
+    private let subscribers = HashMap<String, ArrayList<SubscriberEntry>>()
+    private var nextSubscriptionId: Int64 = 0
     private var watcher: Option<ActorRef> = None<ActorRef>
 
     /**
@@ -172,25 +198,65 @@ public class Receptionist {
         Listing<T>(key, refs.toArray())
     }
 
-    /** 订阅：立即收到当前列表，之后每次变化都会收到 */
-    public func subscribe<T>(key: ServiceKey<T>, subscriber: TypedActorRef<Listing<T>>): Unit {
-        subscribe<T>(key, { listing: Listing<T> => subscriber.tell(listing) })
-    }
-
-    /** 以回调方式订阅（回调可能在任意线程执行） */
-    public func subscribe<T>(key: ServiceKey<T>, callback: (Listing<T>) -> Unit): Unit {
-        let me = this
-        let fn = { => callback(me.find<T>(key)) }
-        synchronized(lock) {
-            match (subscribers.get(key.id)) {
-                case Some(list) => list.add(fn)
-                case None =>
-                    let list = ArrayList<() -> Unit>()
-                    list.add(fn)
-                    subscribers.add(key.id, list)
+    /**
+     * 订阅：立即收到当前列表，之后每次变化都会收到。
+     * 订阅者停止后自动退订（此前订阅永不移除，停止的订阅者仍被反复通知、闭包一直被持有，T12）
+     */
+    public func subscribe<T>(key: ServiceKey<T>, subscriber: TypedActorRef<Listing<T>>): ReceptionistSubscription {
+        let sub = addSubscriber<T>(key, Some(subscriber.pathString()), { listing: Listing<T> => subscriber.tell(listing) })
+        if (let Some(w) <- watcher) {
+            if (let Some(c) <- subscriber.toClassic()) {
+                w.tell(ReceptionistWatch(c))
             }
         }
+        sub
+    }
+
+    /** 以回调方式订阅（回调可能在任意线程执行）；不再需要时调用 unsubscribe */
+    public func subscribe<T>(key: ServiceKey<T>, callback: (Listing<T>) -> Unit): ReceptionistSubscription {
+        addSubscriber<T>(key, None<String>, callback)
+    }
+
+    /** 取消订阅；返回订阅是否仍然存在 */
+    public func unsubscribe(subscription: ReceptionistSubscription): Bool {
+        synchronized(lock) {
+            match (subscribers.get(subscription.keyId)) {
+                case Some(list) =>
+                    let before = list.size
+                    list.removeIf({ e => e.id == subscription.id })
+                    list.size != before
+                case None => false
+            }
+        }
+    }
+
+    /** 某个服务当前的订阅数 */
+    public func subscriberCount<T>(key: ServiceKey<T>): Int64 {
+        synchronized(lock) {
+            match (subscribers.get(key.id)) {
+                case Some(list) => list.size
+                case None => 0
+            }
+        }
+    }
+
+    private func addSubscriber<T>(key: ServiceKey<T>, ownerPath: Option<String>, callback: (Listing<T>) -> Unit): ReceptionistSubscription {
+        let me = this
+        let fn = { => callback(me.find<T>(key)) }
+        let sub = synchronized(lock) {
+            nextSubscriptionId++
+            let entry = SubscriberEntry(nextSubscriptionId, ownerPath, fn)
+            match (subscribers.get(key.id)) {
+                case Some(list) => list.add(entry)
+                case None =>
+                    let list = ArrayList<SubscriberEntry>()
+                    list.add(entry)
+                    subscribers.add(key.id, list)
+            }
+            ReceptionistSubscription(nextSubscriptionId, key.id)
+        }
         fn()
+        sub
     }
 
     /** 已登记的实例总数 */
@@ -200,7 +266,7 @@ public class Receptionist {
         }
     }
 
-    /** 实例停止：注销其全部服务 */
+    /** 实例停止：注销其全部服务，并移除它作为订阅者的全部订阅 */
     func removeAll(path: String): Unit {
         let keys = synchronized(lock) {
             let ks = HashSet<String>()
@@ -210,6 +276,9 @@ public class Receptionist {
                 }
             }
             entries.removeIf({ e => e.path == path })
+            for ((_, list) in subscribers) {
+                list.removeIf({ e => e.ownerPath == Some(path) })
+            }
             ks.toArray()
         }
         for (k in keys) {
@@ -220,7 +289,7 @@ public class Receptionist {
     private func notify(keyId: String): Unit {
         let fns = synchronized(lock) {
             match (subscribers.get(keyId)) {
-                case Some(list) => list.toArray()
+                case Some(list) => Array<() -> Unit>(list.size, { i => list[i].fn })
                 case None => Array<() -> Unit>()
             }
         }

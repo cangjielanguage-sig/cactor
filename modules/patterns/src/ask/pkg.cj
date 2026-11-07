@@ -9,4 +9,4 @@ package cactor_patterns.ask
 // 由于在同一个包中，可以直接访问
 
 // 类型安全Ask模式相关类会自动导出（public类）
-// TypedAskPattern, TypedAskFuture, TypedResult, TypedAsk
+// TypedAskFuture, TypedResult（TypedAskPattern / TypedAsk 是恒超时的模拟实现，E38 删除）

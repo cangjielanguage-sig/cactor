@@ -4,6 +4,10 @@
  *
  * 生成：messageType()、二进制编解码 writeMessageFields / init(reader)、registerCodec()。
  *
+ * 线上名称（messageType 与编解码器注册名）默认是简单类名；@Message[name = "orders.PlaceOrder"] 可指定。
+ * registerCodec 带上本类的静态标识：不同的类用同一个名称注册时立即抛 IllegalStateException（T13），
+ * 此前后注册者静默覆盖，不同包里的同名消息类会互相顶掉。
+ *
  * 支持的字段类型（P2 增强后）：
  *   String、Int64、Float64、Bool
  *   Array<String>、Array<Int64>、Array<Float64>、Array<Bool>
@@ -18,12 +22,48 @@ import std.ast.*
 import std.collection.*
 
 public macro Message(input: Tokens): Tokens {
+    transformMessage(quote(), input)
+}
+
+/** @Message[name = "orders.PlaceOrder"]：指定线上名称（messageType 与编解码器注册名），用于消除不同包同名类的冲突 */
+public macro Message(attr: Tokens, input: Tokens): Tokens {
+    transformMessage(attr, input)
+}
+
+/** 解析 name = "..."；空属性返回 None */
+func parseMessageName(attr: Tokens, className: String): Option<String> {
+    let tokens = ArrayList<Token>()
+    for (t in attr) {
+        if (t.kind != TokenKind.NL) {
+            tokens.add(t)
+        }
+    }
+    if (tokens.size == 0) {
+        return None<String>
+    }
+    if (tokens.size != 3 || tokens[0].kind != TokenKind.IDENTIFIER || tokens[0].value != "name" ||
+        tokens[1].kind != TokenKind.ASSIGN || tokens[2].kind != TokenKind.STRING_LITERAL) {
+        throw ASTException("@Message: ${className} 的属性只支持 name = \"线上名称\"")
+    }
+    var v = tokens[2].value
+    if (v.size >= 2 && v.startsWith("\"") && v.endsWith("\"")) {
+        v = v[1..v.size - 1]
+    }
+    if (v.isEmpty()) {
+        throw ASTException("@Message: ${className} 的 name 不能为空")
+    }
+    Some(v)
+}
+
+func transformMessage(attr: Tokens, input: Tokens): Tokens {
     let decl = parseDecl(input)
     let cls = match (decl) {
         case c: ClassDecl => c
         case _ => throw ASTException("@Message 只能用于 class")
     }
     let className = cls.identifier.value
+    // 线上名称：默认简单类名；不同包有同名消息类时用 @Message[name = "..."] 区分（注册时会检测冲突）
+    let wireName = parseMessageName(attr, className) ?? className
     // 没有泛型参数时访问 genericParam 会抛异常
     let isGeneric = try {
         cls.genericParam.parameters.size > 0
@@ -48,7 +88,7 @@ public macro Message(input: Tokens): Tokens {
     for (d in cls.body.decls) {
         match (d) {
             case f: FuncDecl where f.identifier.value == "messageType" =>
-                throw ASTException("@Message: ${className} 不能手写 messageType()，宏会生成为 \"${className}\"")
+                throw ASTException("@Message: ${className} 不能手写 messageType()，宏会生成为 \"${wireName}\"")
             case v: VarDecl =>
                 var isStatic = false
                 for (m in v.modifiers) {
@@ -116,7 +156,7 @@ public macro Message(input: Tokens): Tokens {
     let ds = cls.body.decls
     ds.add(parseDecl(quote(
         public func messageType(): String {
-            $(className)
+            $(wireName)
         }
     )))
     ds.add(parseDecl(quote(
@@ -129,9 +169,14 @@ public macro Message(input: Tokens): Tokens {
             $reads
         }
     )))
+    // 每个消息类一个静态对象作为注册的"所属类"标识：同一个类重复注册无害，
+    // 另一个类（例如别的包里的同名类）用同一个线上名称注册时立即报错，而不是静默覆盖（T13）
+    ds.add(parseDecl(quote(
+        private static let __messageCodecOwner: Object = Object()
+    )))
     ds.add(parseDecl(quote(
         public static func registerCodec(): Unit {
-            MessageCodecRegistry.register($(className), $codecId())
+            MessageCodecRegistry.register($(wireName), $codecId(), __messageCodecOwner)
         }
     )))
     cls.body.decls = ds
@@ -141,7 +186,7 @@ public macro Message(input: Tokens): Tokens {
                 let w = MessageFieldWriter()
                 match (message as $classId) {
                     case Some(m) => m.writeMessageFields(w)
-                    case None => throw SerializationException("${message.messageType()} 不是 " + $(className))
+                    case None => throw SerializationException("${message.messageType()} 不是 " + $(wireName))
                 }
                 w.toArray()
             }

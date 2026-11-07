@@ -70,16 +70,16 @@ public interface Actor {
     func receive(message: Message, context: ActorContext): MessageResult
 
     /**
-     * Actor启动前的初始化操作
-     * 在Actor开始处理消息之前调用
+     * 启动时在 Actor 自己的线程中、onStarted 与第一条消息之前调用（与 Akka 相同）。
+     * 抛出异常视为启动失败（ActorInitializationException），默认监督策略停止该 Actor。
+     * 重启后的新实例由 postRestart 的默认实现调用它
      */
     func preStart(): Unit {
         // 默认空实现
     }
 
     /**
-     * Actor启动后的操作
-     * 在Actor开始处理消息后调用
+     * 历史遗留钩子：运行时从不调用它（postRestart 的默认实现此前调用它，E33 起改为 preStart）
      */
     func postStart(): Unit {
         // 默认空实现
@@ -102,19 +102,18 @@ public interface Actor {
     }
 
     /**
-     * Actor重启前的操作
-     * 当Actor因异常需要重启时调用
+     * 重启前在旧实例上调用。默认与 Akka 相同：调用 postStop() 释放旧实例的资源。
+     * 之后运行时停止全部子 Actor，并等它们全部终止后才创建新实例
      */
     func preRestart(reason: Exception): Unit {
-        preStop()
+        postStop()
     }
 
     /**
-     * Actor重启后的操作
-     * 当Actor重启完成后调用
+     * 重启后在新实例上调用（onStarted 之前）。默认与 Akka 相同：调用 preStart()
      */
     func postRestart(reason: Exception): Unit {
-        postStart()
+        preStart()
     }
 
     /**
@@ -239,7 +238,11 @@ public enum MailboxOverflow {
     | DropNew
     /** 丢弃新消息并向发送方抛出 MailboxFullException */
     | Fail
-    /** 发送方等待空位，最多等待给定时长；超时后按 DropNew 处理。不要在同一调度器的 Actor 之间使用，以免占住工作线程 */
+    /**
+     * 发送方等待空位（条件变量，接收方出队时唤醒），最多等待给定时长；超时后按 DropNew 处理。
+     * 只对 Actor 之外的生产者（main、外部线程、blocking 调度器上的 Actor）生效：在默认调度器的 Actor 里发送时
+     * 不等待、直接按超时处理并告警一次——等待会占住工作线程，接收方若在同一线程上就是死锁（E39）
+     */
     | Block(Duration)
 }
 

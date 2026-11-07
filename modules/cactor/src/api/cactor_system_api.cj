@@ -129,10 +129,20 @@ public class CActorSystem {
     }
 
     /**
-     * 停止顶层 Actor：已入队的消息处理完后停止，其子 Actor 会先被停止
+     * 停止 Actor（对标 Akka `system.stop`）：处理完当前消息即停，邮箱中剩余的消息计为死信，子 Actor 先于它停止；
+     * 名字保留到真正终止，终止前同名 actorOf 报"名称已存在"。顶层与子 Actor 都适用。
+     * 需要"处理完已排队的消息再停"请用 gracefulStop（或发 PoisonPill）
      */
     public func stop(actorRef: ActorRef): Unit {
         runtime.stop(actorRef)
+    }
+
+    /**
+     * 处理完已入队的消息后停止，并等待终止（对标 Akka `Patterns.gracefulStop`）：
+     * 返回 true 表示已终止且名字已释放，超时返回 false。会阻塞，只能在 Actor 之外调用
+     */
+    public func gracefulStop(actorRef: ActorRef, timeout: Duration): Bool {
+        runtime.gracefulStop(actorRef, timeout)
     }
 
     /**
@@ -143,8 +153,9 @@ public class CActorSystem {
     }
 
     /**
-     * 订阅死信：投递失败的消息（目标已停止、有界邮箱已满、回复对象不存在等）
-     * 回调参数为消息和原目标路径；回调在发送方线程上执行，应尽快返回
+     * 订阅死信：投递失败的消息（目标已停止、有界邮箱已满、回复对象不存在等），
+     * 以及包装成 UnhandledMessage 的未处理消息（对标 Akka AllDeadLetters；用 `is UnhandledMessage` 区分）。
+     * 回调参数为消息和原目标路径；回调在发送方（或处理方）线程上执行，应尽快返回
      */
     public func subscribeDeadLetters(listener: (Message, String) -> Unit): Unit {
         runtime.subscribeDeadLetters(listener)
@@ -153,6 +164,14 @@ public class CActorSystem {
     /** 系统内累计的死信数 */
     public func deadLetterCount(): Int64 {
         runtime.deadLetterCount()
+    }
+
+    /**
+     * 系统内累计的未处理消息数（receive 返回 Unhandled、类型化 Actor 收到协议之外的消息；不含死信）。
+     * 每条未处理消息同时以 UnhandledMessage 交给 subscribeDeadLetters 的订阅者（对标 Akka AllDeadLetters）
+     */
+    public func unhandledCount(): Int64 {
+        runtime.unhandledCount()
     }
 
     /**
@@ -175,6 +194,13 @@ public class CActorSystem {
      */
     public func metricsText(perActor: Bool): String {
         runtime.prometheusMetrics(perActor)
+    }
+
+    /**
+     * @param maxActorSeries 每 Actor 指标最多覆盖的 Actor 数（标签基数上限，默认 DEFAULT_MAX_ACTOR_SERIES）
+     */
+    public func metricsText(perActor: Bool, maxActorSeries: Int64): String {
+        runtime.prometheusMetrics(perActor, maxActorSeries)
     }
 
     // ========== 类型安全Actor支持 ==========

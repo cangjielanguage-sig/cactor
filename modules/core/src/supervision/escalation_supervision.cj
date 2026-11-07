@@ -200,6 +200,7 @@ public class EscalationInfo {
     private let lastEscalationTime: AtomicInt64
     private let firstFailureTime: AtomicInt64
     private let failures: ArrayList<ActorFailure>
+    private let failuresLock = Mutex()
     
     public init(actor: ActorRef) {
         this.actor = actor
@@ -212,16 +213,15 @@ public class EscalationInfo {
     
     public func recordFailure(failure: ActorFailure): Unit {
         failureCount.fetchAdd(1)
-        
-        if (firstFailureTime.load() == 0) {
-            firstFailureTime.store(DateTime.now().toUnixTimeStamp().toMilliseconds())
-        }
-        
-        failures.add(failure)
-        
-        // 限制历史记录大小
-        if (failures.size > 100) {
-            failures.remove(0..1)  // 移除第一个元素，使用Range
+        // CAS：并发记录时窗口起点只设置一次（v1 A3）
+        firstFailureTime.compareAndSwap(0, DateTime.now().toUnixTimeStamp().toMilliseconds()) |> ignoreSwap
+        // failures 是普通 ArrayList，并发 add 会损坏内部数组
+        synchronized(failuresLock) {
+            failures.add(failure)
+            // 限制历史记录大小
+            if (failures.size > 100) {
+                failures.remove(0..1)
+            }
         }
     }
     
@@ -253,7 +253,9 @@ public class EscalationInfo {
         escalationCount.store(0)
         lastEscalationTime.store(0)
         firstFailureTime.store(0)
-        failures.clear()
+        synchronized(failuresLock) {
+            failures.clear()
+        }
     }
     
     public func getStats(): EscalationStats {

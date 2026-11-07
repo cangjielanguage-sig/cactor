@@ -18,9 +18,11 @@ import cactor_patterns.routing.{
     RandomRoutingStrategy,
     ConsistentHashRoutingStrategy,
     BroadcastRoutingStrategy,
-    RouterFactory
+    RouterFactory,
+    forwardTo
 }
 import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.hashing.{stableHash64, rendezvousIndex}
 
 let log_advanced_routing: Logger = Logging.logger("cactor_patterns.routing.advanced.advanced_routing")
 
@@ -36,22 +38,6 @@ public class AdvancedRoutingStrategyFactory {
      */
     public static func createWeightedRoundRobin(weights: Array<Int32>): WeightedRoundRobinRoutingStrategy {
         WeightedRoundRobinRoutingStrategy(weights)
-    }
-    
-    /**
-     * 创建最少连接路由策略
-     * 选择当前处理消息最少的Actor
-     */
-    public static func createLeastConnections(): LeastConnectionsRoutingStrategy {
-        LeastConnectionsRoutingStrategy()
-    }
-    
-    /**
-     * 创建响应时间路由策略
-     * 选择平均响应时间最短的Actor
-     */
-    public static func createFastestResponse(): FastestResponseRoutingStrategy {
-        FastestResponseRoutingStrategy()
     }
     
     /**
@@ -77,266 +63,72 @@ public class AdvancedRoutingStrategyFactory {
  */
 public class WeightedRoundRobinRoutingStrategy <: RoutingStrategy {
     private let weights: Array<Int32>
-    private let currentWeights: Array<AtomicInt32>
-    private let totalWeight: Int32
-    private let mutex: Mutex
-    
+    // 平滑加权轮询（nginx smooth WRR）的当前权重；按 routees 下标对齐，长度随 routees 变化
+    private let current = ArrayList<Int64>()
+    private let mutex = Mutex()
+
+    /**
+     * weights[i] 是第 i 个 routee 的权重；routee 多于权重时，多出的按权重 1 参与（不会被排除），
+     * 权重多于 routee 时多余权重忽略。负权重按 0 处理（不被选中）。
+     */
     public init(weights: Array<Int32>) {
         this.weights = weights
-        this.mutex = Mutex()
-        
-        // 计算总权重
-        var total: Int32 = 0
-        for (weight in weights) {
-            total += weight
-        }
-        this.totalWeight = total
-        
-        // 初始化当前权重
-        this.currentWeights = Array<AtomicInt32>(Int64(weights.size), { i =>
-            AtomicInt32(weights[i])
-        })
     }
-    
-    public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef> {
-        if (routees.size == 0 || weights.size == 0) {
-            return None
-        }
 
-        mutex.lock()
-        try {
-            // E9（2026-11-06）修复 C13：routees 与 weights 长度不一致时按较小值截断
-            // 会把部分 routee 永远排除在路由之外（静默丢流量）；改为直接拒绝构造期
-            // 之外的不一致——这里选择以 routees 数量为准、多余权重忽略并告警一次，
-            // 但 routees 多于 weights 时必须在 weights 覆盖范围内选择，绝不越界。
-            if (Int64(weights.size) < Int64(routees.size)) {
-                log_advanced_routing.error(
-                    "WeightedRoundRobin: routees(${routees.size}) 多于 weights(${weights.size})，超出部分不会被路由")
-            }
-            var selectedIndex: Int64 = -1
-            var maxWeight: Int32 = -1
-
-            // 找到当前权重最大的Actor（只在两者交集内，避免越界）
-            let maxIndex = if (Int64(routees.size) < Int64(weights.size)) { Int64(routees.size) } else { Int64(weights.size) }
-            for (i in 0..maxIndex) {
-                let currentWeight = currentWeights[i].load()
-                if (currentWeight > maxWeight) {
-                    maxWeight = currentWeight
-                    selectedIndex = i
-                }
-            }
-            
-            if (selectedIndex >= 0) {
-                // 减少选中Actor的当前权重
-                currentWeights[selectedIndex].fetchSub(totalWeight)
-                
-                // 增加所有Actor的当前权重
-                for (i in 0..currentWeights.size) {
-                    currentWeights[i].fetchAdd(weights[i])
-                }
-                
-                return Some(routees[selectedIndex])
-            }
-            
-            return None
-        } finally {
-            mutex.unlock()
+    private func weightOf(i: Int64): Int64 {
+        if (i < weights.size) {
+            let w = Int64(weights[i])
+            if (w > 0) { w } else { 0 }
+        } else {
+            1
         }
     }
-}
 
-/**
- * 最少连接路由策略
- * 选择当前处理消息最少的Actor
- */
-public class LeastConnectionsRoutingStrategy <: RoutingStrategy {
-    private let connectionCounts: HashMap<String, AtomicInt32>
-    private let mutex: Mutex
-    
-    public init() {
-        this.connectionCounts = HashMap<String, AtomicInt32>()
-        this.mutex = Mutex()
-    }
-    
+    /**
+     * 平滑加权轮询：每次给每个存活目标加上自身权重，选当前值最大的，再从它身上减去总权重。
+     * 结果序列在任意窗口内都按权重比例交错（权重 5:1:1 时为 a a b a c a a，而不是 a×5 连发），
+     * 且只要存在正权重就必然选出一个目标（E25：此前 routees 少于 weights 时权重和失衡，永久返回 None）。
+     */
     public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef> {
         if (routees.size == 0) {
             return None
         }
-        
-        mutex.lock()
-        try {
-            var selectedActor: Option<ActorRef> = None
-            var minConnections: Int32 = 2147483647  // Int32.MAX_VALUE
-
-            for (routee in routees) {
-                let actorKey = routee.path.toString()
-                let connections = match (connectionCounts.get(actorKey)) {
-                    case Some(counter) => counter.load()
-                    case None =>
-                        let newCounter = AtomicInt32(0)
-                        connectionCounts.add(actorKey, newCounter)
-                        Int32(0)
+        synchronized(mutex) {
+            while (current.size < routees.size) {
+                current.add(0)
+            }
+            while (current.size > routees.size) {
+                current.remove(at: current.size - 1)
+            }
+            var total: Int64 = 0
+            var best: Int64 = -1
+            for (i in 0..routees.size) {
+                if (routees[i].isTerminated()) {
+                    continue
                 }
-                
-                if (connections < minConnections) {
-                    minConnections = connections
-                    selectedActor = Some(routee)
+                let w = weightOf(i)
+                if (w == 0) {
+                    continue
+                }
+                current[i] += w
+                total += w
+                if (best < 0 || current[i] > current[best]) {
+                    best = i
                 }
             }
-            
-            // 增加选中Actor的连接计数
-            match (selectedActor) {
-                case Some(actor) =>
-                    let actorKey = actor.path.toString()
-                    match (connectionCounts.get(actorKey)) {
-                        case Some(counter) => counter.fetchAdd(1)
-                        case None => ()
-                    }
-                case None => ()
+            if (best < 0) {
+                // 没有正权重的存活目标：退回第一个（由死信统计暴露配置问题），不返回 None 丢消息
+                return Some(routees[0])
             }
-            
-            return selectedActor
-        } finally {
-            mutex.unlock()
-        }
-    }
-    
-    /**
-     * 减少Actor的连接计数（消息处理完成时调用）
-     */
-    public func decreaseConnections(actor: ActorRef): Unit {
-        mutex.lock()
-        try {
-            let actorKey = actor.path.toString()
-            match (connectionCounts.get(actorKey)) {
-                case Some(counter) => 
-                    if (counter.load() > 0) {
-                        counter.fetchSub(1)
-                    }
-                case None => ()
-            }
-        } finally {
-            mutex.unlock()
+            current[best] -= total
+            Some(routees[best])
         }
     }
 }
 
-/**
- * 最快响应路由策略
- * 选择平均响应时间最短的Actor
- */
-public class FastestResponseRoutingStrategy <: RoutingStrategy {
-    private let responseTimes: HashMap<String, ResponseTimeTracker>
-    private let mutex: Mutex
-    
-    public init() {
-        this.responseTimes = HashMap<String, ResponseTimeTracker>()
-        this.mutex = Mutex()
-    }
-    
-    public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef> {
-        if (routees.size == 0) {
-            return None
-        }
-        
-        mutex.lock()
-        try {
-            var selectedActor: Option<ActorRef> = None
-            var minResponseTime: Float64 = 1000000.0  // 很大的初始值
-            
-            for (routee in routees) {
-                let actorKey = routee.path.toString()
-                let avgResponseTime = match (responseTimes.get(actorKey)) {
-                    case Some(tracker) => tracker.getAverageResponseTime()
-                    case None => 
-                        let newTracker = ResponseTimeTracker()
-                        responseTimes.add(actorKey, newTracker)
-                        100.0  // 默认响应时间
-                }
-                
-                if (avgResponseTime < minResponseTime) {
-                    minResponseTime = avgResponseTime
-                    selectedActor = Some(routee)
-                }
-            }
-            
-            return selectedActor
-        } finally {
-            mutex.unlock()
-        }
-    }
-    
-    /**
-     * 记录Actor的响应时间
-     */
-    public func recordResponseTime(actor: ActorRef, responseTime: Duration): Unit {
-        mutex.lock()
-        try {
-            let actorKey = actor.path.toString()
-            match (responseTimes.get(actorKey)) {
-                case Some(tracker) => 
-                    tracker.recordResponseTime(responseTime.toMilliseconds())
-                case None => 
-                    let newTracker = ResponseTimeTracker()
-                    newTracker.recordResponseTime(responseTime.toMilliseconds())
-                    responseTimes.add(actorKey, newTracker)
-            }
-        } finally {
-            mutex.unlock()
-        }
-    }
-}
-
-/**
- * 响应时间跟踪器
- */
-public class ResponseTimeTracker {
-    private let totalResponseTime: AtomicInt64
-    private let requestCount: AtomicInt64
-    private let recentTimes: ArrayList<Int64>
-    private let maxRecentCount: Int32
-    
-    public init() {
-        this.totalResponseTime = AtomicInt64(0)
-        this.requestCount = AtomicInt64(0)
-        this.recentTimes = ArrayList<Int64>()
-        this.maxRecentCount = 100  // 保留最近100次的响应时间
-    }
-    
-    public func recordResponseTime(responseTimeMs: Int64): Unit {
-        totalResponseTime.fetchAdd(responseTimeMs)
-        requestCount.fetchAdd(1)
-        
-        // 保留最近的响应时间
-        recentTimes.add(responseTimeMs)
-        if (recentTimes.size > Int64(maxRecentCount)) {
-            recentTimes.remove(0..1)
-        }
-    }
-    
-    public func getAverageResponseTime(): Float64 {
-        let count = requestCount.load()
-        if (count == 0) {
-            return 100.0  // 默认值
-        }
-        
-        let total = totalResponseTime.load()
-        Float64(total) / Float64(count)
-    }
-    
-    public func getRecentAverageResponseTime(): Float64 {
-        if (recentTimes.isEmpty()) {
-            return 100.0
-        }
-        
-        var total: Int64 = 0
-        for (time in recentTimes) {
-            total += time
-        }
-        
-        Float64(total) / Float64(recentTimes.size)
-    }
-}
+// LeastConnections / FastestResponse 已删除（E37）：两者依赖调用方手动回报"处理完成"和"响应耗时"，
+// 没有任何调用方这样做——LeastConnections 的计数只增不减，退化为一直选同一个；FastestResponse 永远按默认 100ms 比较。
+// 需要按负载分配请用 SmallestMailboxRoutingStrategy（真实邮箱长度），或 Routers.pool 路由器 Actor。
 
 /**
  * 故障转移路由策略
@@ -446,10 +238,9 @@ public class ContentBasedRoutingStrategy <: RoutingStrategy {
                 case None => ()
             }
 
-            // 没有预定义规则，使用内容哈希
-            let hash = content.hashCode()
-            let index = Int64(hash) % Int64(routees.size)
-            return Some(routees[index])
+            // 没有预定义规则：按内容做 Rendezvous 哈希（稳定、非负下标，目标增减只迁移 1/n 的内容键）
+            let candidates = Array<UInt64>(routees.size, { i => stableHash64(routees[i].path.toString()) })
+            return Some(routees[rendezvousIndex(stableHash64(content), candidates)])
         } finally {
             mutex.unlock()
         }
@@ -500,8 +291,11 @@ public class AdvancedRouter <: Router {
     }
 
     public func route(message: Message): Unit {
-        let startTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
+        route(message, None<ActorRef>)
+    }
 
+    /** 携带发送方路由（E37）：目标用 context.reply 回复时直接回到原发送方 */
+    public func route(message: Message, sender: Option<ActorRef>): Unit {
         mutex.lock()
         let routeeArray = routees.toArray()
         mutex.unlock()
@@ -517,23 +311,16 @@ public class AdvancedRouter <: Router {
 
         // 特殊处理广播策略
         match (strategy) {
-            case broadcast: BroadcastRoutingStrategy =>
-                broadcast.broadcast(healthyRoutees, message)
+            case _: BroadcastRoutingStrategy =>
+                for (r in healthyRoutees) {
+                    forwardTo(r, message, sender)
+                }
                 routingMetrics.recordSuccessfulRoute(Int32(healthyRoutees.size))
             case _ =>
                 match (strategy.selectRoutee(healthyRoutees, message)) {
                     case Some(routee) =>
-                        routee.tell(message)
+                        forwardTo(routee, message, sender)
                         routingMetrics.recordSuccessfulRoute(1)
-
-                        // 记录响应时间（如果是FastestResponseStrategy）
-                        match (strategy) {
-                            case fastestResponse: FastestResponseRoutingStrategy =>
-                                let endTime = DateTime.now().toUnixTimeStamp().toMilliseconds()
-                                let responseTime = Duration.millisecond * (endTime - startTime)
-                                fastestResponse.recordResponseTime(routee, responseTime)
-                            case _ => ()
-                        }
                     case None =>
                         routingMetrics.recordFailedRoute("no_routee_selected")
                         log_advanced_routing.warn("警告: 没有选中路由目标")

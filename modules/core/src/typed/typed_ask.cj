@@ -9,7 +9,7 @@ package cactor_core.typed
 import std.time.*
 import std.sync.*
 import std.collection.*
-import cactor_core.actor.{ActorRef, ActorPath}
+import cactor_core.actor.{ActorRef, ActorPath, isAffinityWorkerThread}
 import cactor_core.message.{Message}
 
 /** 异步结果：成功或失败 */
@@ -71,6 +71,11 @@ public class TypedPromise<T> <: TypedFuture<T> {
         complete(AskOutcome<T>.Failed(cause))
     }
 
+    /** 以给定结果完成（成功或失败）；已完成过返回 false */
+    public func tryComplete(outcome: AskOutcome<T>): Bool {
+        complete(outcome)
+    }
+
     private func complete(outcome: AskOutcome<T>): Bool {
         let pending = synchronized(lock) {
             if (outcomeValue.isSome()) {
@@ -110,7 +115,12 @@ public class TypedPromise<T> <: TypedFuture<T> {
         }
     }
 
+    /**
+     * 未完成时阻塞等待。在亲和调度线程（Actor 的处理方法）里阻塞等待会卡住同线程上的全部 Actor，
+     * 被等的 Actor 恰好在同一线程时就是死锁，因此直接报错（T15）；已完成的结果任何线程都可以取。
+     */
     public func get(): T {
+        checkMayBlock()
         let o = synchronized(lock) {
             while (outcomeValue.isNone()) {
                 cond.wait()
@@ -121,6 +131,7 @@ public class TypedPromise<T> <: TypedFuture<T> {
     }
 
     public func get(timeout: Duration): T {
+        checkMayBlock()
         let deadline = MonoTime.now() + timeout
         let o = synchronized(lock) {
             while (outcomeValue.isNone()) {
@@ -133,6 +144,14 @@ public class TypedPromise<T> <: TypedFuture<T> {
             outcomeValue.getOrThrow()
         }
         unwrap(o)
+    }
+
+    private func checkMayBlock(): Unit {
+        if (isAffinityWorkerThread() && synchronized(lock) { outcomeValue.isNone() }) {
+            throw IllegalStateException(
+                "不能在 Actor 处理方法内阻塞等待 TypedPromise：会占住亲和调度线程，被等的 Actor 若在同一线程上就是死锁。" +
+                "请用 ctx.ask / pipeToSelf 在处理方法里接收结果，或让该 Actor 使用 blocking 调度器")
+        }
     }
 
     private func unwrap(o: AskOutcome<T>): T {
@@ -178,6 +197,127 @@ public class TypedPromise<T> <: TypedFuture<T> {
             ()
         })
         p
+    }
+
+    /**
+     * 串联下一个异步步骤（对标 Future.flatMap）：成功时 f 返回下一个 Promise，它的结果就是整条链的结果；
+     * 本步失败或 f 抛异常时整条链以该异常失败。全程不阻塞，可以在 Actor 内组合（结果用 pipeToSelf 送回）
+     */
+    public func flatMap<R>(f: (T) -> TypedPromise<R>): TypedPromise<R> {
+        let p = TypedPromise<R>()
+        onComplete({ o =>
+            match (o) {
+                case Replied(v) =>
+                    try {
+                        f(v).onComplete({ r => p.tryComplete(r) |> ignoreCompleted })
+                    } catch (e: Exception) {
+                        p.tryFailure(e) |> ignoreCompleted
+                    }
+                case Failed(e) => p.tryFailure(e) |> ignoreCompleted
+            }
+            ()
+        })
+        p
+    }
+
+    /** 失败时用 f 给出替代值（对标 Future.recover）；成功原样传递，f 抛异常则以该异常失败 */
+    public func recover(f: (Exception) -> T): TypedPromise<T> {
+        let p = TypedPromise<T>()
+        onComplete({ o =>
+            match (o) {
+                case Replied(v) => p.trySuccess(v) |> ignoreCompleted
+                case Failed(e) =>
+                    try {
+                        p.trySuccess(f(e)) |> ignoreCompleted
+                    } catch (e2: Exception) {
+                        p.tryFailure(e2) |> ignoreCompleted
+                    }
+            }
+            ()
+        })
+        p
+    }
+
+    /** 失败时换成另一个异步步骤（对标 Future.recoverWith），例如超时后改问备用服务 */
+    public func recoverWith(f: (Exception) -> TypedPromise<T>): TypedPromise<T> {
+        let p = TypedPromise<T>()
+        onComplete({ o =>
+            match (o) {
+                case Replied(v) => p.trySuccess(v) |> ignoreCompleted
+                case Failed(e) =>
+                    try {
+                        f(e).onComplete({ r => p.tryComplete(r) |> ignoreCompleted })
+                    } catch (e2: Exception) {
+                        p.tryFailure(e2) |> ignoreCompleted
+                    }
+            }
+            ()
+        })
+        p
+    }
+}
+
+func ignoreCompleted(_: Bool): Unit {}
+
+/** sequence 的汇总状态：各结果按下标落位，剩余数归零时完成 */
+class SequenceState<T> {
+    let lock = Mutex()
+    let slots: Array<Option<T>>
+    var remaining: Int64
+
+    init(n: Int64) {
+        this.slots = Array<Option<T>>(n, repeat: None<T>)
+        this.remaining = n
+    }
+}
+
+/**
+ * Promise 组合子（对标 Future.successful / failed / sequence）
+ */
+public struct TypedPromises {
+    /** 已成功完成的 Promise */
+    public static func successful<T>(value: T): TypedPromise<T> {
+        let p = TypedPromise<T>()
+        p.trySuccess(value) |> ignoreCompleted
+        p
+    }
+
+    /** 已失败的 Promise */
+    public static func failed<T>(cause: Exception): TypedPromise<T> {
+        let p = TypedPromise<T>()
+        p.tryFailure(cause) |> ignoreCompleted
+        p
+    }
+
+    /**
+     * 全部成功时按**输入顺序**给出结果数组（与完成先后无关）；任一失败立即以它失败，不等其余
+     * （对标 Future.sequence）。空数组立即以空数组成功
+     */
+    public static func sequence<T>(promises: Array<TypedPromise<T>>): TypedPromise<Array<T>> {
+        let result = TypedPromise<Array<T>>()
+        let n = promises.size
+        if (n == 0) {
+            result.trySuccess(Array<T>()) |> ignoreCompleted
+            return result
+        }
+        let state = SequenceState<T>(n)
+        for (i in 0..n) {
+            promises[i].onComplete({ o =>
+                match (o) {
+                    case Failed(e) => result.tryFailure(e) |> ignoreCompleted
+                    case Replied(v) =>
+                        let done = synchronized(state.lock) {
+                            state.slots[i] = Some(v)
+                            state.remaining--
+                            state.remaining == 0
+                        }
+                        if (done) {
+                            result.trySuccess(Array<T>(n, { k => state.slots[k].getOrThrow() })) |> ignoreCompleted
+                        }
+                }
+            })
+        }
+        result
     }
 }
 

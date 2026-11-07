@@ -42,7 +42,8 @@ public class CircuitBreakerSupervisionStrategy <: SupervisionStrategy {
                 // 半开状态，谨慎处理
                 let directive = baseStrategy.decide(failure)
                 match (directive) {
-                    case SupervisionDirective.Restart =>
+                    // RestartAfter（例如基础策略是退避策略）同样是重启，半开状态下也不能放行（R14）
+                    case SupervisionDirective.Restart | SupervisionDirective.RestartAfter(_) =>
                         // 记录失败到断路器
                         recordFailureToCircuitBreaker(circuitBreaker)
                         SupervisionDirective.Stop  // 半开状态下失败直接停止
@@ -77,13 +78,8 @@ public class CircuitBreakerSupervisionStrategy <: SupervisionStrategy {
     }
     
     private func recordFailureToCircuitBreaker(circuitBreaker: BasicCircuitBreaker<Unit>): Unit {
-        try {
-            circuitBreaker.execute({ =>
-                throw Exception("Actor failure")
-            })
-        } catch (e: Exception) {
-            // 预期的异常，用于记录失败
-        }
+        // 直接记失败（此前借 execute 抛异常来记，断路器开启时 execute 先被拒绝，失败根本没记上）
+        circuitBreaker.fail()
     }
     
     /**
@@ -92,12 +88,7 @@ public class CircuitBreakerSupervisionStrategy <: SupervisionStrategy {
     public func recordSuccess(actor: ActorRef): Unit {
         let actorKey = actor.path.toString()
         match (circuitBreakers.get(actorKey)) {
-            case Some(breaker) =>
-                try {
-                    breaker.execute({ => () })  // 成功操作
-                } catch (e: Exception) {
-                    // 忽略
-                }
+            case Some(breaker) => breaker.succeed()
             case None => ()
         }
     }

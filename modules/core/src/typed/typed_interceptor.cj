@@ -100,6 +100,10 @@ internal class InterceptBehavior<T> <: SpecialBehavior & TypedBehavior<T> & Star
         }
     }
 
+    public override func wrappedBehavior(): Option<Any> {
+        Some<Any>(inner)
+    }
+
     public func getDescription(): String {
         "Intercept(${inner.getDescription()})"
     }

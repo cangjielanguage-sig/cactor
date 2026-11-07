@@ -41,10 +41,15 @@ macros 为独立宏模块，仅被 examples 使用
   根据 `onXxx(msg[, ctx])` 方法生成 `receive`；同一类型两个处理方法会编译期报错。
   宏只能用于 class，且不能手写 `receive`。
 - **监督**：`TypedBehaviors.supervise(b).onFailure(strategy)`，策略
-  `restart / resume / stop / backoff`，`.withLimit(n, within)`；未处理的 `TypedTerminated` 即 DeathPact。
+  `restart / resume / stop`，`.withLimit(n, within)`；未处理的 `TypedTerminated` 即 DeathPact。
+  退避：类型化 `TypedSupervisorStrategy.restartWithBackoff(min, max, randomFactor)`，
+  经典 `BackoffSupervisionStrategy(BackoffPolicy(...))`，两者共用 `BackoffPolicy` 算法（返回 `RestartAfter`，延迟期间挂起）。
+  经典默认策略与 Akka 一致：启动失败 / Kill / DeathPact → Stop，其余异常 → Restart。
 - **经典 Actor**（`modules/core/src/actor/`）仍受支持，但新代码请用类型化 API。
 - **测试**（`modules/testkit/`）：`TestInbox<T>` / `TestProbe`、`BehaviorTestKit`（Effect 断言）、
-  `ManualTime` 虚拟时钟。测试代码不要 sleep 等真实时间，用 ManualTime。
+  `ManualTime` 虚拟时钟。同步行为测试用 BehaviorTestKit + ManualTime；
+  涉及真实运行时的测试用 `awaitCondition` / `TestProbe` 等待条件，不要 sleep 固定时长
+  （ManualTime 目前驱动不了真实调度器，见计划 E52）。
 
 ## 代码风格（docs/CODE_STYLE_GUIDE.md）
 

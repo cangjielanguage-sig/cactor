@@ -3,8 +3,8 @@
  * Foundation Layer - 网络传输层
  * 基于 std.net 的 TCP / UDP 字节传输
  *
- * TCP：长度前缀分帧（4 字节大端长度 + 负载），每个入站连接一个读协程，
- *      出站连接按目标地址复用，写入按连接加锁，失败时重连重试一次
+ * TCP：长度前缀分帧（4 字节大端长度 + 负载），每个入站连接一个读协程；
+ *      出站按目标地址建关联（OutboundConnection），连接、重连、写入都在关联的写线程里，send 只入队、永不阻塞
  * UDP：一条消息一个数据报（最大 64KB）
  */
 package cactor_foundation.network
@@ -15,7 +15,7 @@ import std.time.*
 import std.convert.*
 import std.collection.*
 import std.math.*
-import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.logging.{Logger, Logging, LogRateLimiter}
 
 let log_transport: Logger = Logging.logger("cactor_foundation.network.transport")
 
@@ -76,6 +76,42 @@ public enum TransportProtocol {
 }
 
 /**
+ * 连接握手（E7′）：远程层据此交换身份（地址 + 启动标识）并做共享密钥鉴权
+ */
+public interface TransportHandshake {
+    /** 连接方：连上 peer 后发出的第一帧 */
+    func hello(peer: NetworkAddress): Array<UInt8>
+
+    /** 接受方：校验第一帧；接受时返回 (应答帧, 对端标识)，拒绝返回 None（连接被断开） */
+    func accept(hello: Array<UInt8>): Option<(Array<UInt8>, String)>
+
+    /** 连接方：校验应答帧；返回 false 时断开，本批帧按连接失败丢弃 */
+    func confirm(peer: NetworkAddress, reply: Array<UInt8>): Bool
+}
+
+/** 握手帧的长度上限：握手只有一行文本，防止未鉴权的对端用超大长度字段耗尽内存 */
+public let MAX_HANDSHAKE_FRAME: Int64 = 4096
+/** 接受方等待第一帧的时限：防止不发握手的连接一直占着读协程 */
+public let HANDSHAKE_READ_TIMEOUT: Duration = Duration.second * 5
+
+/** 从 reader 读一帧（限长）；对端关闭或长度非法返回 None */
+func readFrameLimited(reader: FrameReader, maxLen: Int64): Option<Array<UInt8>> {
+    let header = Array<UInt8>(4, repeat: 0)
+    if (!reader.readFully(header)) {
+        return None<Array<UInt8>>
+    }
+    let len = decodeLength(header)
+    if (len < 0 || len > maxLen) {
+        return None<Array<UInt8>>
+    }
+    let payload = Array<UInt8>(len, repeat: 0)
+    if (len > 0 && !reader.readFully(payload)) {
+        return None<Array<UInt8>>
+    }
+    Some(payload)
+}
+
+/**
  * 网络传输接口
  */
 public interface NetworkTransport {
@@ -85,11 +121,36 @@ public interface NetworkTransport {
     /** 停止监听并关闭所有连接 */
     func stop(): Unit
 
-    /** 发送一条完整消息；失败时抛出异常 */
+    /**
+     * 发送一条完整消息。TCP 实现只入队、不阻塞：对端不可达或队列满时丢弃并计数，不抛异常；
+     * 传输未启动、消息超过帧上限时抛异常
+     */
     func send(address: NetworkAddress, data: Array<UInt8>): Unit
+
+    /**
+     * 经优先通道发送（控制消息：心跳、gossip、远程层的 $sys）。
+     * 默认等同 send；TCP 实现中优先于已积压的普通数据写出（E40）
+     */
+    func sendPriority(address: NetworkAddress, data: Array<UInt8>): Unit {
+        send(address, data)
+    }
 
     /** 设置收到完整消息时的回调 */
     func setDataHandler(handler: (Array<UInt8>) -> Unit): Unit
+
+    /**
+     * 设置连接握手（E7′）：连接方连上后先发 hello、读应答并 confirm；接受方先读第一帧 accept，
+     * 不通过就断开，帧不会交给数据回调。须在 start 之前设置。默认实现忽略（不支持握手的传输）
+     */
+    func setHandshake(handshake: TransportHandshake): Unit {}
+
+    /** 断开握手时登记为 peerKey 的全部入站连接（隔离对端用），返回断开的连接数 */
+    func closeInboundFrom(peerKey: String): Int64 {
+        0
+    }
+
+    /** 关闭发往该地址的出站连接，下次发送重新连接并握手 */
+    func resetOutbound(address: NetworkAddress): Unit {}
 
     /** 实际监听地址（绑定端口 0 时返回系统分配的端口） */
     func getLocalAddress(): NetworkAddress
@@ -133,30 +194,95 @@ class ByteBuffer {
     }
 }
 
-/** 单个连接允许积压的最大字节数，超过后发送方阻塞等待（背压） */
+/** 单个目标地址允许积压的普通数据上限，超过后丢弃新帧并计数（不阻塞发送方） */
 public let MAX_PENDING_BYTES: Int64 = 64 * 1024 * 1024
+/** 单个目标地址允许积压的控制数据上限（优先通道） */
+public let MAX_CONTROL_PENDING_BYTES: Int64 = 4 * 1024 * 1024
+/** 普通数据每次 write 的上限：两段之间先写控制帧，控制消息最多等一段 */
+let WRITE_CHUNK_BYTES: Int64 = 256 * 1024
+/** 连接失败后的退避：100 ms 起翻倍，封顶 5 s，连上后复位 */
+let RECONNECT_BACKOFF_MIN: Duration = Duration.millisecond * 100
+let RECONNECT_BACKOFF_MAX: Duration = Duration.second * 5
+/** 没有连接、也没有待发数据超过这个时长，关联退出并从传输中移除（防止伪造或失效地址堆积写线程） */
+let IDLE_RETIRE_AFTER: Duration = Duration.second * 10
+
+// 丢帧可能成批出现：每 5 分钟逐条记前 10 条
+let dropLog: LogRateLimiter = LogRateLimiter(10, Duration.minute * 5)
+
+/** 关联的统计，由 TcpTransport 持有、各关联共享 */
+class TransportCounters {
+    let framesDropped = AtomicInt64(0)
+    let connectFailures = AtomicInt64(0)
+    let writes = AtomicInt64(0)
+    // 出站握手失败（对端应答不通过或超时）
+    let handshakeFailures = AtomicInt64(0)
+    // 入站握手被拒绝（第一帧不通过、超时或非法）
+    let handshakeRejected = AtomicInt64(0)
+}
+
+/** 入队结果 */
+enum Enqueued {
+    | Accepted
+    | Dropped
+    | Retired
+}
+
+/** 写线程取批次的结果 */
+enum Taken {
+    | Batch(FrameQueue, FrameQueue)
+    | Idle
+    | Exit
+}
+
+/** 一组已编码的帧：字节缓冲 + 帧数（连接失败时按帧计丢弃） */
+class FrameQueue {
+    var buf: ByteBuffer
+    var frames: Int64 = 0
+
+    init(capacity: Int64) {
+        this.buf = ByteBuffer(capacity)
+    }
+}
 
 /**
- * 出站连接：独立写线程 + 合并写（对应 Akka Artery 的出站流）
+ * 出站关联：一个目标地址一个，对标 Akka Artery 的 Association（N1 / E40）。
  *
- * 发送方只把帧追加到 pending 缓冲区并唤醒写线程；写线程每次把积累的全部帧一次 write 出去。
- * 发送方比网络快时自动合并成大块写，系统调用次数随负载下降；积压超过 MAX_PENDING_BYTES 时发送方阻塞。
- * 写失败后连接标记为失败，之后的 send 抛出异常，由传输层丢弃连接并重连。
+ * - 发送方只把帧追加到队列并唤醒写线程，**从不做网络操作、从不阻塞**：
+ *   连接、重连、写入都在关联自己的写线程里完成。黑洞节点只拖住它自己的写线程。
+ * - 两条队列：控制帧（优先通道，远程层 $sys、集群心跳与 gossip）与普通帧。
+ *   写线程先写控制帧；普通数据按 WRITE_CHUNK_BYTES 分段写，段间再检查控制队列。
+ * - 队列有界：超过上限丢弃新帧并计数（与 Akka 出站队列满时丢弃一致）。
+ * - 连接失败：本批帧丢弃并计数（至多一次；需要可靠的由远程层的可靠投递重发），按指数退避重连。
+ * - 没有连接且空闲超过 idleRetireAfter：写线程退出、关联从传输中移除，下次发送重新建立。
+ * - 写失败：关闭连接，下一批重新连接（对端重启后自动恢复）。
  */
 class OutboundConnection {
-    let socket: TcpSocket
+    let address: NetworkAddress
+    private let connectTimeout: Duration
+    private let idleRetireAfter: Duration
+    private let counters: TransportCounters
+    private let onRetire: (OutboundConnection) -> Unit
+    private let handshakeOf: () -> Option<TransportHandshake>
     private let lock: Mutex = Mutex()
     private let cond: Condition
-    private var pending: ByteBuffer = ByteBuffer(64 * 1024)
-    private var spare: ByteBuffer = ByteBuffer(64 * 1024)
+    private var control: FrameQueue = FrameQueue(4 * 1024)
+    private var controlSpare: FrameQueue = FrameQueue(4 * 1024)
+    private var pending: FrameQueue = FrameQueue(64 * 1024)
+    private var pendingSpare: FrameQueue = FrameQueue(64 * 1024)
+    private var socket: Option<TcpSocket> = None<TcpSocket>
     private var closed: Bool = false
-    private var failure: Option<Exception> = None<Exception>
+    private var retired: Bool = false
+    private var writerDone: Bool = false
     private var writerWaiting: Bool = false
-    private var senderWaiting: Bool = false
-    let writes: AtomicInt64 = AtomicInt64(0)
 
-    init(socket: TcpSocket) {
-        this.socket = socket
+    init(address: NetworkAddress, connectTimeout: Duration, idleRetireAfter: Duration, counters: TransportCounters,
+        onRetire: (OutboundConnection) -> Unit, handshakeOf: () -> Option<TransportHandshake>) {
+        this.address = address
+        this.connectTimeout = connectTimeout
+        this.idleRetireAfter = idleRetireAfter
+        this.counters = counters
+        this.onRetire = onRetire
+        this.handshakeOf = handshakeOf
         this.cond = synchronized(lock) { lock.condition() }
     }
 
@@ -166,79 +292,298 @@ class OutboundConnection {
         }
     }
 
-    /** 追加一帧；连接已失败或关闭时抛出异常 */
-    func send(frame: Array<UInt8>): Unit {
+    /** 追加一帧（不阻塞）；Retired 表示关联已退出，调用方应换一个新关联 */
+    func enqueue(frame: Array<UInt8>, priority: Bool): Enqueued {
         synchronized(lock) {
-            while (pending.size >= MAX_PENDING_BYTES && !closed && failure.isNone()) {
-                senderWaiting = true
-                cond.wait(timeout: Duration.millisecond * 100)
-            }
-            if (let Some(e) <- failure) {
-                throw e
+            if (retired) {
+                return Enqueued.Retired
             }
             if (closed) {
-                throw IllegalStateException("连接已关闭")
+                return Enqueued.Dropped
             }
-            pending.append(frame)
+            let q = if (priority) { control } else { pending }
+            let limit = if (priority) { MAX_CONTROL_PENDING_BYTES } else { MAX_PENDING_BYTES }
+            if (q.buf.size + frame.size > limit) {
+                return Enqueued.Dropped
+            }
+            q.buf.append(frame)
+            q.frames++
             if (writerWaiting) {
                 cond.notifyAll()
             }
+            Enqueued.Accepted
         }
     }
 
-    /** 关闭：先等待已积压的数据写出（最多 1 秒），再关闭 socket */
+    /** 关闭：已连接时等积压写出（最多 1 秒），再关闭 socket；未连接时直接丢弃积压 */
     func close(): Unit {
         let deadline = MonoTime.now() + Duration.second
-        synchronized(lock) {
+        let s = synchronized(lock) {
             closed = true
             cond.notifyAll()
-            while ((pending.size > 0 || spare.size > 0) && failure.isNone() && MonoTime.now() < deadline) {
+            while (!writerDone && MonoTime.now() < deadline) {
                 cond.wait(timeout: Duration.millisecond * 10)
             }
+            socket
         }
-        try {
-            socket.close()
-        } catch (_: Exception) {
-            ()
+        if (let Some(sock) <- s) {
+            closeQuietly({ => sock.close() })
         }
+    }
+
+    private func dropFrames(n: Int64, reason: String): Unit {
+        if (n > 0) {
+            counters.framesDropped.fetchAdd(n)
+            dropLog.tryLog({ text => log_transport.warn(text) }, { => "发往 ${address.toString()} 的 ${n} 帧被丢弃：${reason}" })
+        }
+    }
+
+    /**
+     * 取走两条队列中的全部帧；没有数据时等待。
+     * 没有连接时最多等 idleRetireAfter，超时返回 Idle（写线程据此退出）；已关闭且无数据返回 Exit
+     */
+    private func takeBatch(): Taken {
+        let idleDeadline = MonoTime.now() + idleRetireAfter
+        synchronized(lock) {
+            while (control.frames == 0 && pending.frames == 0 && !closed) {
+                if (socket.isNone() && MonoTime.now() >= idleDeadline) {
+                    return Taken.Idle
+                }
+                writerWaiting = true
+                cond.wait(timeout: Duration.millisecond * 100)
+                writerWaiting = false
+            }
+            if (control.frames == 0 && pending.frames == 0) {
+                return Taken.Exit
+            }
+            if (closed && socket.isNone()) {
+                // 关闭时还没连上：不再为这批数据去连接
+                let n = control.frames + pending.frames
+                control.buf.clear()
+                control.frames = 0
+                pending.buf.clear()
+                pending.frames = 0
+                dropFrames(n, "传输已关闭")
+                return Taken.Exit
+            }
+            let c = control
+            control = controlSpare
+            controlSpare = c
+            let p = pending
+            pending = pendingSpare
+            pendingSpare = p
+            Taken.Batch(c, p)
+        }
+    }
+
+    /** 取走控制队列（分段写普通数据时插队用） */
+    private func takeControl(): Option<FrameQueue> {
+        synchronized(lock) {
+            if (control.frames == 0) {
+                return None<FrameQueue>
+            }
+            // controlSpare 此时一定为空：上一批控制帧已写完并清空
+            let c = control
+            control = controlSpare
+            controlSpare = c
+            Some(c)
+        }
+    }
+
+    private func release(q: FrameQueue): Unit {
+        synchronized(lock) {
+            q.buf.clear()
+            q.frames = 0
+        }
+    }
+
+    /** 退避等待：新数据不提前结束等待（留到下一次连接尝试），只有关闭会提前结束 */
+    private func backoffWait(d: Duration): Unit {
+        let deadline = MonoTime.now() + d
+        synchronized(lock) {
+            while (!closed) {
+                let remaining = deadline - MonoTime.now()
+                if (remaining <= Duration.Zero) {
+                    break
+                }
+                cond.wait(timeout: remaining)
+            }
+        }
+    }
+
+    /** 空闲且没有连接：退出并从传输中移除（入队与退出在同一把锁下互斥，不会丢帧） */
+    private func tryRetire(): Bool {
+        let ok = synchronized(lock) {
+            if (control.frames == 0 && pending.frames == 0) {
+                retired = true
+                true
+            } else {
+                false
+            }
+        }
+        if (ok) {
+            onRetire(this)
+        }
+        ok
+    }
+
+    private func connect(): Bool {
+        let s = try {
+            let sock = TcpSocket(address.host, UInt16(address.port))
+            sock.connect(timeout: connectTimeout)
+            sock.noDelay = true
+            sock
+        } catch (e: Exception) {
+            counters.connectFailures.fetchAdd(1)
+            log_transport.debug("连接 ${address.toString()} 失败: ${e.message}")
+            return false
+        }
+        if (let Some(h) <- handshakeOf()) {
+            // 握手：先发 hello，再在 connectTimeout 内读对端应答并校验（双向鉴权）
+            let ok = try {
+                s.write(encodeFrame(h.hello(address)))
+                s.readTimeout = connectTimeout
+                let reply = readFrameLimited(FrameReader(s), MAX_HANDSHAKE_FRAME)
+                s.readTimeout = None
+                match (reply) {
+                    case Some(r) => h.confirm(address, r)
+                    case None => false
+                }
+            } catch (e: Exception) {
+                log_transport.debug("与 ${address.toString()} 握手失败: ${e.message}")
+                false
+            }
+            if (!ok) {
+                counters.handshakeFailures.fetchAdd(1)
+                closeQuietly({ => s.close() })
+                return false
+            }
+        }
+        synchronized(lock) {
+            socket = Some(s)
+        }
+        true
+    }
+
+    private func disconnect(): Unit {
+        let s = synchronized(lock) {
+            let old = socket
+            socket = None<TcpSocket>
+            old
+        }
+        if (let Some(sock) <- s) {
+            closeQuietly({ => sock.close() })
+        }
+    }
+
+    private func writeAll(q: FrameQueue): Bool {
+        if (q.frames == 0) {
+            return true
+        }
+        let sock = synchronized(lock) { socket }
+        match (sock) {
+            case Some(s) =>
+                try {
+                    s.write(q.buf.data[0..q.buf.size])
+                    counters.writes.fetchAdd(1)
+                    true
+                } catch (e: Exception) {
+                    log_transport.debug("写 ${address.toString()} 失败: ${e}")
+                    false
+                }
+            case None => false
+        }
+    }
+
+    /** 从 offset 起累计整帧，直到不少于 WRITE_CHUNK_BYTES 或缓冲区末尾，返回段尾（必为帧边界） */
+    private static func frameBoundary(buf: ByteBuffer, offset: Int64): Int64 {
+        let d = buf.data
+        var pos = offset
+        while (pos < buf.size && pos - offset < WRITE_CHUNK_BYTES) {
+            let len = (Int64(d[pos]) << 24) | (Int64(d[pos + 1]) << 16) | (Int64(d[pos + 2]) << 8) | Int64(d[pos + 3])
+            pos += 4 + len
+        }
+        pos
+    }
+
+    /** 普通数据分段写（段在帧边界上），段间先写控制帧 */
+    private func writeChunked(p: FrameQueue): Bool {
+        let sock = synchronized(lock) { socket }
+        let s = match (sock) {
+            case Some(x) => x
+            case None => return false
+        }
+        var offset: Int64 = 0
+        while (offset < p.buf.size) {
+            // 段必须落在帧边界上：控制帧会插在两段之间，切在帧中间会破坏帧流
+            let end = frameBoundary(p.buf, offset)
+            try {
+                s.write(p.buf.data[offset..end])
+                counters.writes.fetchAdd(1)
+            } catch (e: Exception) {
+                log_transport.debug("写 ${address.toString()} 失败: ${e}")
+                return false
+            }
+            offset = end
+            if (offset < p.buf.size) {
+                if (let Some(c) <- takeControl()) {
+                    let ok = writeAll(c)
+                    let n = c.frames
+                    release(c)
+                    if (!ok) {
+                        dropFrames(n, "写入失败")
+                        return false
+                    }
+                }
+            }
+        }
+        true
     }
 
     private func writerLoop(): Unit {
-        while (true) {
-            let batch = synchronized(lock) {
-                while (pending.size == 0 && !closed) {
-                    writerWaiting = true
-                    cond.wait(timeout: Duration.millisecond * 100)
-                    writerWaiting = false
+        var backoff = RECONNECT_BACKOFF_MIN
+        try {
+            while (true) {
+                let (c, p) = match (takeBatch()) {
+                    case Batch(cq, pq) => (cq, pq)
+                    case Idle =>
+                        if (tryRetire()) {
+                            break
+                        }
+                        continue
+                    case Exit => break
                 }
-                if (pending.size == 0) {
-                    // 已关闭且没有剩余数据
-                    return
+                let connected = synchronized(lock) { socket.isSome() }
+                if (!connected && !connect()) {
+                    dropFrames(c.frames + p.frames, "连接失败")
+                    release(c)
+                    release(p)
+                    backoffWait(backoff)
+                    backoff = if (backoff * 2 > RECONNECT_BACKOFF_MAX) { RECONNECT_BACKOFF_MAX } else { backoff * 2 }
+                    continue
                 }
-                let b = pending
-                pending = spare
-                spare = b
-                if (senderWaiting) {
-                    senderWaiting = false
-                    cond.notifyAll()
+                backoff = RECONNECT_BACKOFF_MIN
+                // 先写控制帧并立即归还（分段写普通帧时插队的控制帧要用这块备用缓冲），再分段写普通帧
+                let okControl = writeAll(c)
+                let controlFrames = c.frames
+                release(c)
+                let okPending = okControl && writeChunked(p)
+                if (!okControl || !okPending) {
+                    // 写失败：对端多半已关闭（重启），丢弃本批，下一批重新连接
+                    dropFrames(if (okControl) { p.frames } else { controlFrames + p.frames }, "写入失败")
+                    disconnect()
                 }
-                b
+                release(p)
             }
-            try {
-                socket.write(batch.data[0..batch.size])
-                writes.fetchAdd(1)
-            } catch (e: Exception) {
-                synchronized(lock) {
-                    failure = Some(e)
-                    closed = true
-                    cond.notifyAll()
-                }
-                return
-            } finally {
-                synchronized(lock) {
-                    batch.clear()
-                    cond.notifyAll()
-                }
+        } finally {
+            let wasClosed = synchronized(lock) {
+                writerDone = true
+                cond.notifyAll()
+                closed
+            }
+            // close() 只等 1 秒：写线程若当时正卡在 connect，连上后由这里关闭
+            if (wasClosed) {
+                disconnect()
             }
         }
     }
@@ -297,12 +642,17 @@ public class TcpTransport <: NetworkTransport {
     private var server: Option<TcpServerSocket>
     private let outbound: HashMap<String, OutboundConnection>
     private let inbound: ArrayList<TcpSocket>
+    // 握手通过的入站连接：(连接, 对端标识)，隔离对端时按标识断开
+    private let inboundPeers: ArrayList<(TcpSocket, String)> = ArrayList<(TcpSocket, String)>()
+    private var handshake: Option<TransportHandshake> = None<TransportHandshake>
     private let connectTimeout: Duration
+    // 包内可调（测试用）：没有连接的空闲关联多久后退出
+    var idleRetireAfter: Duration = IDLE_RETIRE_AFTER
 
     // 统计
     private let framesSent: AtomicInt64 = AtomicInt64(0)
     private let framesReceived: AtomicInt64 = AtomicInt64(0)
-    private let sendFailures: AtomicInt64 = AtomicInt64(0)
+    private let counters: TransportCounters = TransportCounters()
 
     public init(localAddress: NetworkAddress) {
         this(localAddress, Duration.second * 3)
@@ -365,7 +715,20 @@ public class TcpTransport <: NetworkTransport {
         }
     }
 
+    /**
+     * 入队发送（不阻塞、不做网络操作）：对端不可达、连接失败或队列满时丢弃并计数，不抛异常。
+     * 传输未启动、消息超过帧上限时抛异常（调用方的编程错误）
+     */
     public func send(address: NetworkAddress, data: Array<UInt8>): Unit {
+        enqueue(address, data, false)
+    }
+
+    /** 优先通道：先于已积压的普通数据写出 */
+    public func sendPriority(address: NetworkAddress, data: Array<UInt8>): Unit {
+        enqueue(address, data, true)
+    }
+
+    private func enqueue(address: NetworkAddress, data: Array<UInt8>, priority: Bool): Unit {
         if (!isRunning.load()) {
             throw IllegalStateException("TCP 传输未启动")
         }
@@ -373,20 +736,22 @@ public class TcpTransport <: NetworkTransport {
             throw IllegalArgumentException("消息过大: ${data.size} 字节，上限 ${MAX_FRAME_SIZE}")
         }
         let frame = encodeFrame(data)
-        try {
-            writeFrame(address, frame)
-        } catch (e: Exception) {
-            // 连接可能已被对端关闭：丢弃后重连重试一次
-            dropConnection(address)
-            try {
-                writeFrame(address, frame)
-            } catch (e2: Exception) {
-                sendFailures.fetchAdd(1)
-                dropConnection(address)
-                throw e2
+        // 关联可能恰好因长期连不上而退出：换一个新关联再试一次
+        for (_ in 0..2) {
+            match (association(address).enqueue(frame, priority)) {
+                case Enqueued.Accepted =>
+                    framesSent.fetchAdd(1)
+                    return
+                case Enqueued.Dropped =>
+                    counters.framesDropped.fetchAdd(1)
+                    dropLog.tryLog({ text => log_transport.warn(text) }, { =>
+                        "发往 ${address.toString()} 的队列已满（${if (priority) { "控制" } else { "普通" }}），丢弃 1 帧"
+                    })
+                    return
+                case Enqueued.Retired => ()
             }
         }
-        framesSent.fetchAdd(1)
+        counters.framesDropped.fetchAdd(1)
     }
 
     public func setDataHandler(handler: (Array<UInt8>) -> Unit): Unit {
@@ -394,6 +759,48 @@ public class TcpTransport <: NetworkTransport {
             dataHandler = Some(handler)
         }
     }
+
+    public func setHandshake(handshake: TransportHandshake): Unit {
+        synchronized(mutex) {
+            this.handshake = Some(handshake)
+        }
+    }
+
+    private func currentHandshake(): Option<TransportHandshake> {
+        synchronized(mutex) { handshake }
+    }
+
+    public func closeInboundFrom(peerKey: String): Int64 {
+        let victims = synchronized(mutex) {
+            let v = ArrayList<TcpSocket>()
+            for ((sock, key) in inboundPeers) {
+                if (key == peerKey) {
+                    v.add(sock)
+                }
+            }
+            inboundPeers.removeIf({ p => p[1] == peerKey })
+            v
+        }
+        for (sock in victims) {
+            closeQuietly({ => sock.close() })
+        }
+        victims.size
+    }
+
+    public func resetOutbound(address: NetworkAddress): Unit {
+        let removed = synchronized(mutex) { outbound.remove(address.toString()) }
+        if (let Some(c) <- removed) {
+            spawn {
+                c.close()
+            }
+        }
+    }
+
+    /** 出站握手失败次数（对端应答不通过或超时） */
+    public func getHandshakeFailures(): Int64 { counters.handshakeFailures.load() }
+
+    /** 入站握手被拒绝的连接数 */
+    public func getRejectedHandshakes(): Int64 { counters.handshakeRejected.load() }
 
     public func getLocalAddress(): NetworkAddress {
         NetworkAddress(requestedAddress.host, boundPort)
@@ -403,56 +810,62 @@ public class TcpTransport <: NetworkTransport {
         isRunning.load()
     }
 
+    /** 已入队的帧数（含之后因连接失败被丢弃的） */
     public func getFramesSent(): Int64 { framesSent.load() }
 
     public func getFramesReceived(): Int64 { framesReceived.load() }
 
-    public func getSendFailures(): Int64 { sendFailures.load() }
+    /** 没能写出的帧数：队列满、连接失败、写失败、关闭时未连上（E40 起 send 不再抛异常，失败都计在这里） */
+    public func getSendFailures(): Int64 { counters.framesDropped.load() }
 
-    private func writeFrame(address: NetworkAddress, frame: Array<UInt8>): Unit {
-        getOrConnect(address).send(frame)
+    /** 同 getSendFailures */
+    public func getDroppedFrames(): Int64 { counters.framesDropped.load() }
+
+    /** 连接失败次数（每次尝试计一次，含退避后的重试） */
+    public func getConnectFailures(): Int64 { counters.connectFailures.load() }
+
+    /** 当前的出站关联数（长期连不上且没有新数据的关联会自动退出） */
+    public func getAssociationCount(): Int64 {
+        synchronized(mutex) { outbound.size }
     }
 
     /** 实际执行的 write 系统调用次数（与 getFramesSent 对比可看出合并效果） */
     public func getSocketWrites(): Int64 {
-        let conns = synchronized(mutex) { outbound.values().toArray() }
-        var total: Int64 = 0
-        for (c in conns) {
-            total += c.writes.load()
-        }
-        total
+        counters.writes.load()
     }
 
-    private func getOrConnect(address: NetworkAddress): OutboundConnection {
+    /** 取或建目标地址的关联：只操作内存，不做网络操作 */
+    private func association(address: NetworkAddress): OutboundConnection {
         let key = address.toString()
-        if (let Some(c) <- synchronized(mutex) { outbound.get(key) }) {
-            return c
-        }
-        let socket = TcpSocket(address.host, UInt16(address.port))
-        socket.connect(timeout: connectTimeout)
-        socket.noDelay = true
-        let conn = OutboundConnection(socket)
-        let winner = synchronized(mutex) {
+        let me = this
+        let (conn, created) = synchronized(mutex) {
+            // 与 stop() 的"清空关联表"互斥：停止之后不再建新关联（否则写线程泄漏）
+            if (!isRunning.load()) {
+                throw IllegalStateException("TCP 传输未启动")
+            }
             match (outbound.get(key)) {
-                case Some(existing) => existing
+                case Some(existing) => (existing, false)
                 case None =>
-                    outbound.add(key, conn)
-                    conn
+                    let c = OutboundConnection(address, connectTimeout, idleRetireAfter, counters, { retired => me.removeAssociation(retired) },
+                        { => me.currentHandshake() })
+                    outbound.add(key, c)
+                    (c, true)
             }
         }
-        if (refEq(winner, conn)) {
+        if (created) {
             conn.startWriter()
-        } else {
-            // 其他线程已建立连接，关闭多余的连接
-            closeQuietly({ => socket.close() })
         }
-        return winner
+        conn
     }
 
-    private func dropConnection(address: NetworkAddress): Unit {
-        let removed = synchronized(mutex) { outbound.remove(address.toString()) }
-        if (let Some(c) <- removed) {
-            closeQuietly({ => c.close() })
+    private func removeAssociation(conn: OutboundConnection): Unit {
+        synchronized(mutex) {
+            let key = conn.address.toString()
+            if (let Some(current) <- outbound.get(key)) {
+                if (refEq(current, conn)) {
+                    outbound.remove(key)
+                }
+            }
         }
     }
 
@@ -478,6 +891,16 @@ public class TcpTransport <: NetworkTransport {
     private func readLoop(client: TcpSocket): Unit {
         let header = Array<UInt8>(4, repeat: 0)
         let reader = FrameReader(client)
+        if (let Some(h) <- currentHandshake()) {
+            if (!acceptHandshake(client, reader, h)) {
+                counters.handshakeRejected.fetchAdd(1)
+                synchronized(mutex) {
+                    inbound.removeIf({ c => refEq(c, client) })
+                }
+                closeQuietly({ => client.close() })
+                return
+            }
+        }
         try {
             while (isRunning.load()) {
                 if (!reader.readFully(header)) {
@@ -506,7 +929,35 @@ public class TcpTransport <: NetworkTransport {
             // 对端断开或传输已停止
             ()
         }
+        synchronized(mutex) {
+            inbound.removeIf({ c => refEq(c, client) })
+            inboundPeers.removeIf({ p => refEq(p[0], client) })
+        }
         closeQuietly({ => client.close() })
+    }
+
+    /** 入站握手：限时读第一帧交给 accept，通过则回应答帧并登记对端标识 */
+    private func acceptHandshake(client: TcpSocket, reader: FrameReader, h: TransportHandshake): Bool {
+        try {
+            client.readTimeout = HANDSHAKE_READ_TIMEOUT
+            let accepted = match (readFrameLimited(reader, MAX_HANDSHAKE_FRAME)) {
+                case Some(first) => h.accept(first)
+                case None => None<(Array<UInt8>, String)>
+            }
+            client.readTimeout = None
+            match (accepted) {
+                case Some((reply, peerKey)) =>
+                    client.write(encodeFrame(reply))
+                    synchronized(mutex) {
+                        inboundPeers.add((client, peerKey))
+                    }
+                    true
+                case None => false
+            }
+        } catch (e: Exception) {
+            log_transport.debug("入站握手失败: ${e.message}")
+            false
+        }
     }
 }
 

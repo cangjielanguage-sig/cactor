@@ -247,163 +247,214 @@ public class LogNotificationChannel <: NotificationChannel {
     }
 }
 
+/** AlertManager 默认保留的历史告警条数 */
+public let DEFAULT_MAX_ALERT_HISTORY: Int64 = 1000
+
 /**
  * 告警管理器
+ *
+ * - 规则告警去重（P11）：同一条规则已有活跃告警时不再重复触发、重复通知；
+ *   规则条件不再成立时自动解决该告警（与 Prometheus Alertmanager 的 firing → resolved 相同）。
+ * - 通知在锁外发送，单个渠道抛异常只记日志：此前在锁内 send 且没有 finally，渠道一抛异常锁就永远不释放。
+ * - 历史告警有上限，超过丢弃最旧的。
  */
 public class AlertManager {
     private let rules: ArrayList<AlertRule>
     private let activeAlerts: HashMap<String, AlertEvent>
+    // 规则名 → 该规则当前活跃告警的 id
+    private let firingRules: HashMap<String, String>
     private let channels: ArrayList<NotificationChannel>
-    private let alertHistory: ArrayList<AlertEvent>
+    private let alertHistory: ArrayDeque<AlertEvent>
+    private let maxHistory: Int64
     private let mutex: Mutex
-    
+
     public init() {
+        this(DEFAULT_MAX_ALERT_HISTORY)
+    }
+
+    public init(maxHistory: Int64) {
+        if (maxHistory <= 0) {
+            throw IllegalArgumentException("maxHistory 必须为正数: ${maxHistory}")
+        }
         this.rules = ArrayList<AlertRule>()
         this.activeAlerts = HashMap<String, AlertEvent>()
+        this.firingRules = HashMap<String, String>()
         this.channels = ArrayList<NotificationChannel>()
-        this.alertHistory = ArrayList<AlertEvent>()
+        this.alertHistory = ArrayDeque<AlertEvent>()
+        this.maxHistory = maxHistory
         this.mutex = Mutex()
     }
-    
+
     /**
      * 添加告警规则
      */
     public func addRule(rule: AlertRule): Unit {
-        mutex.lock()
-        rules.add(rule)
-        mutex.unlock()
+        synchronized(mutex) {
+            rules.add(rule)
+        }
     }
-    
+
     /**
      * 添加通知渠道
      */
     public func addChannel(channel: NotificationChannel): Unit {
-        mutex.lock()
-        channels.add(channel)
-        mutex.unlock()
+        synchronized(mutex) {
+            channels.add(channel)
+        }
     }
-    
+
     /**
-     * 评估指标并触发告警
+     * 评估指标：条件成立且该规则没有活跃告警时触发；条件不成立且有活跃告警时自动解决
      */
     public func evaluateMetric(metricName: String, value: Float64): Unit {
-        mutex.lock()
-        
-        for (rule in rules) {
-            if (rule.metricName == metricName && rule.evaluate(value)) {
-                let alert = AlertEvent.create(rule.name, rule.level, rule.message)
-                activeAlerts[alert.id] = alert
-                alertHistory.add(alert)
-                
-                // 发送通知
-                for (channel in channels) {
-                    if (channel.isEnabled()) {
-                        channel.send(alert)
+        let outgoing = ArrayList<AlertEvent>()
+        let targets = synchronized(mutex) {
+            for (rule in rules) {
+                if (rule.metricName != metricName) {
+                    continue
+                }
+                let firing = firingRules.get(rule.name)
+                if (rule.evaluate(value)) {
+                    if (firing.isNone()) {
+                        let alert = AlertEvent.create(rule.name, rule.level, rule.message)
+                        activeAlerts[alert.id] = alert
+                        firingRules[rule.name] = alert.id
+                        remember(alert)
+                        outgoing.add(alert)
+                    }
+                } else if (let Some(id) <- firing) {
+                    if (let Some(resolved) <- resolveLocked(id)) {
+                        outgoing.add(resolved)
                     }
                 }
             }
+            channels.toArray()
         }
-        
-        mutex.unlock()
+        notify(targets, outgoing)
     }
-    
+
     /**
-     * 手动触发告警
+     * 手动触发告警（不去重：每次调用都是一次独立事件）
      */
     public func triggerAlert(name: String, level: AlertLevel, message: String): Unit {
-        mutex.lock()
-        
         let alert = AlertEvent.create(name, level, message)
-        activeAlerts[alert.id] = alert
-        alertHistory.add(alert)
-        
-        // 发送通知
-        for (channel in channels) {
-            if (channel.isEnabled()) {
-                channel.send(alert)
-            }
+        let targets = synchronized(mutex) {
+            activeAlerts[alert.id] = alert
+            remember(alert)
+            channels.toArray()
         }
-        
-        mutex.unlock()
+        notify(targets, [alert])
     }
-    
+
     /**
      * 解决告警
      */
     public func resolveAlert(alertId: String): Bool {
-        mutex.lock()
-        
-        let result = match (activeAlerts.get(alertId)) {
-            case Some(alert) =>
-                let resolvedAlert = alert.resolve()
-                activeAlerts.remove(alertId)
-                alertHistory.add(resolvedAlert)
-                
-                // 发送解决通知
-                for (channel in channels) {
-                    if (channel.isEnabled()) {
-                        channel.send(resolvedAlert)
-                    }
-                }
+        let (targets, resolved) = synchronized(mutex) {
+            (channels.toArray(), resolveLocked(alertId))
+        }
+        match (resolved) {
+            case Some(r) =>
+                notify(targets, [r])
                 true
             case None => false
         }
-        
-        mutex.unlock()
-        result
     }
-    
+
+    /** 调用方持有 mutex */
+    private func resolveLocked(alertId: String): Option<AlertEvent> {
+        match (activeAlerts.remove(alertId)) {
+            case Some(alert) =>
+                let resolved = alert.resolve()
+                if (let Some(id) <- firingRules.get(alert.name)) {
+                    if (id == alertId) {
+                        firingRules.remove(alert.name)
+                    }
+                }
+                remember(resolved)
+                Some(resolved)
+            case None => None<AlertEvent>
+        }
+    }
+
+    /** 调用方持有 mutex */
+    private func remember(alert: AlertEvent): Unit {
+        alertHistory.addLast(alert)
+        while (alertHistory.size > maxHistory) {
+            alertHistory.removeFirst()
+        }
+    }
+
+    /** 锁外发送；单个渠道失败不影响其他渠道 */
+    private func notify(targets: Array<NotificationChannel>, alerts: Collection<AlertEvent>): Unit {
+        for (alert in alerts) {
+            for (channel in targets) {
+                try {
+                    if (channel.isEnabled()) {
+                        channel.send(alert)
+                    }
+                } catch (e: Exception) {
+                    log_alerting.warn("告警渠道 ${channel.getName()} 发送失败: ${e}")
+                }
+            }
+        }
+    }
+
     /**
      * 获取活跃告警数量
      */
     public func getActiveAlertCount(): Int32 {
-        mutex.lock()
-        // 2026-11-06 修复：此前恒返回 5，改为真实活跃告警数量
-        let count: Int32 = Int32(activeAlerts.size)
-        mutex.unlock()
-        count
+        synchronized(mutex) {
+            Int32(activeAlerts.size)
+        }
     }
 
     /**
-     * 获取规则数量
+     * 获取规则数量（此前恒返回 3）
      */
     public func getRuleCount(): Int32 {
-        mutex.lock()
-        let count: Int32 = 3  // 简化实现
-        mutex.unlock()
-        count
+        synchronized(mutex) {
+            Int32(rules.size)
+        }
     }
 
     /**
-     * 获取通知渠道数量
+     * 获取通知渠道数量（此前恒返回 2）
      */
     public func getChannelCount(): Int32 {
-        mutex.lock()
-        let count: Int32 = 2  // 简化实现
-        mutex.unlock()
-        count
+        synchronized(mutex) {
+            Int32(channels.size)
+        }
     }
-    
+
+    /** 保留中的历史告警条数（含已解决） */
+    public func getHistorySize(): Int64 {
+        synchronized(mutex) {
+            alertHistory.size
+        }
+    }
+
     /**
      * 打印告警统计
      */
     public func printAlertStats(): Unit {
-        mutex.lock()
+        let (r, a, c, h) = synchronized(mutex) {
+            (rules.size, activeAlerts.size, channels.size, alertHistory.size)
+        }
         println("📊 告警统计:")
-        println("   告警规则: ${rules.size}")
-        println("   活跃告警: ${activeAlerts.size}")
-        println("   通知渠道: ${channels.size}")
-        println("   历史告警: ${alertHistory.size}")
-        mutex.unlock()
+        println("   告警规则: ${r}")
+        println("   活跃告警: ${a}")
+        println("   通知渠道: ${c}")
+        println("   历史告警: ${h}")
     }
-    
+
     /**
      * 清理历史告警
      */
     public func clearHistory(): Unit {
-        mutex.lock()
-        alertHistory.clear()
-        mutex.unlock()
+        synchronized(mutex) {
+            alertHistory.clear()
+        }
     }
 }
 
@@ -462,5 +513,6 @@ public struct GlobalAlertManager {
  * 生成告警ID
  */
 func generateAlertId(): String {
-    "alert-${getCurrentTimeMillis()}"
+    // 此前为 "alert-<毫秒>"：同一毫秒内的两条告警 id 相同，activeAlerts 中后者覆盖前者
+    "alert-${generateSpanId()}"
 }

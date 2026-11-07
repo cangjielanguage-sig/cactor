@@ -47,23 +47,13 @@ public class StreamPipelineTest {
 
     @TestCase
     public func testPipelineMatchesChainedOnEmptySource(): Unit {
-        // 链式 run() 对空源抛 StreamProcessingException；管道写法必须给出同样的结果，而不是绕过校验
+        // 空源是合法的流（filter 全部过滤掉、Source.empty）：链式 run() 与管道写法都交给 Sink 处理，结果一致
         let empty = StreamSource<Int64>(Array<Int64>(), "empty")
         let sink = StreamSink<Int64, Int64>({ elements => Int64(elements.size) }, "count")
-        var chainedFailed = false
-        try {
-            empty.to(sink).run()
-        } catch (e: StreamProcessingException) {
-            chainedFailed = true
-        }
-        var pipedFailed = false
-        try {
-            empty |> to(sink)
-        } catch (e: StreamProcessingException) {
-            pipedFailed = true
-        }
-        @Expect(chainedFailed, true)
-        @Expect(pipedFailed, chainedFailed)
+        let chained = empty.to(sink).run()
+        let piped = empty |> to(sink)
+        @Expect(chained, 0)
+        @Expect(piped, chained)
     }
 
     @TestCase

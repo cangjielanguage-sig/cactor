@@ -556,9 +556,11 @@ class ClusterDaemon <: Actor {
             return
         }
         try {
-            remote.remoteActorOf(NetworkAddress.parse(to), "cluster").tell(StringMessage(text))
+            // 成员协议（JOIN / GOSSIP / HB / HBR）走优先通道；发送只入队、不阻塞（E40）：
+            // 此前同步 connect，黑洞一个地址就让守护 Actor 每次发送卡 3–6 s，心跳停发、健康节点被误判（N1）
+            remote.sendControl(NetworkAddress.parse(to), "cluster", StringMessage(text))
         } catch (_: Exception) {
-            // 目标暂不可达：心跳会判定不可达，gossip 下一轮重试
+            // 地址非法或传输已停止：心跳会判定不可达，gossip 下一轮重试
         }
     }
 

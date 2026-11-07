@@ -132,10 +132,16 @@ public class Gauge {
 }
 
 /**
- * 直方图指标
+ * 直方图指标，语义与 Prometheus 直方图一致（P15）：
+ * - 桶上界 buckets 必须严格递增；观测值落入第一个 `value <= 上界` 的桶，大于全部上界的计入隐含的 +Inf 桶
+ *   （此前直接丢弃，计数与 _count 对不上）；
+ * - `getCumulativeCount(i)` / `toPrometheus()` 输出累积计数（le 桶包含所有更小的桶），最后一个 `le="+Inf"` 等于 _count。
+ *   `getBucketCount(i)` 仍是单桶计数。
+ * 求和以千分之一为单位存成整数，避免浮点原子累加。
  */
 public class Histogram {
     private let buckets: Array<Int64>
+    // counts[buckets.size] 是 +Inf 桶
     private let counts: Array<AtomicInt64>
     private let totalCount: AtomicInt64
     private let totalSum: AtomicInt64  // 使用整数表示，实际值需要除以1000
@@ -143,8 +149,13 @@ public class Histogram {
     private let tags: HashMap<String, String>
 
     public init(name: String, buckets: Array<Int64>, tags: HashMap<String, String>) {
+        for (i in 1..buckets.size) {
+            if (buckets[i] <= buckets[i - 1]) {
+                throw IllegalArgumentException("直方图 ${name} 的桶上界必须严格递增: ${buckets}")
+            }
+        }
         this.buckets = buckets
-        this.counts = Array<AtomicInt64>(buckets.size, { _ => AtomicInt64(0) })
+        this.counts = Array<AtomicInt64>(buckets.size + 1, { _ => AtomicInt64(0) })
         this.totalCount = AtomicInt64(0)
         this.totalSum = AtomicInt64(0)
         this.name = name
@@ -152,25 +163,21 @@ public class Histogram {
     }
 
     public init(name: String, buckets: Array<Int64>) {
-        this.buckets = buckets
-        this.counts = Array<AtomicInt64>(buckets.size, { _ => AtomicInt64(0) })
-        this.totalCount = AtomicInt64(0)
-        this.totalSum = AtomicInt64(0)
-        this.name = name
-        this.tags = HashMap<String, String>()
+        this(name, buckets, HashMap<String, String>())
     }
 
     public func observe(value: Float64): Unit {
         let intValue = Int64(value * 1000.0)
         totalCount.fetchAdd(1)
         totalSum.fetchAdd(intValue)
-
+        var idx = buckets.size
         for (i in 0..buckets.size) {
             if (intValue <= buckets[i] * 1000) {
-                counts[i].fetchAdd(1)
+                idx = i
                 break
             }
         }
+        counts[idx].fetchAdd(1)
     }
 
     public func getCount(): Int64 {
@@ -189,12 +196,49 @@ public class Histogram {
         Float64(totalSum.load()) / (Float64(count) * 1000.0)
     }
 
+    /** 单桶计数；bucketIndex == 桶数时为 +Inf 桶（大于全部上界的观测） */
     public func getBucketCount(bucketIndex: Int64): Int64 {
-        if (bucketIndex >= 0 && bucketIndex < Int64(counts.size)) {
+        if (bucketIndex >= 0 && bucketIndex < counts.size) {
             counts[bucketIndex].load()
         } else {
             0
         }
+    }
+
+    /** 累积计数：上界 <= buckets[bucketIndex] 的观测总数；bucketIndex == 桶数时为 +Inf，等于全部观测数 */
+    public func getCumulativeCount(bucketIndex: Int64): Int64 {
+        if (bucketIndex < 0) {
+            return 0
+        }
+        let last = if (bucketIndex < counts.size) { bucketIndex } else { counts.size - 1 }
+        var total: Int64 = 0
+        for (i in 0..=last) {
+            total += counts[i].load()
+        }
+        total
+    }
+
+    public func getBuckets(): Array<Int64> {
+        buckets
+    }
+
+    /**
+     * Prometheus 文本格式（exposition format 0.0.4）：累积的 `_bucket{le=...}`、`le="+Inf"`、`_sum`、`_count`。
+     * 先读取各桶再推导 +Inf 与 _count，保证同一次输出内部一致（+Inf == _count，桶单调不减）
+     */
+    public func toPrometheus(metricName: String): String {
+        let sb = StringBuilder()
+        sb.append("# TYPE ${metricName} histogram\n")
+        var cumulative: Int64 = 0
+        for (i in 0..buckets.size) {
+            cumulative += counts[i].load()
+            sb.append("${metricName}_bucket{le=\"${buckets[i]}\"} ${cumulative}\n")
+        }
+        cumulative += counts[buckets.size].load()
+        sb.append("${metricName}_bucket{le=\"+Inf\"} ${cumulative}\n")
+        sb.append("${metricName}_sum ${getSum()}\n")
+        sb.append("${metricName}_count ${cumulative}\n")
+        sb.toString()
     }
 
     public func getName(): String {

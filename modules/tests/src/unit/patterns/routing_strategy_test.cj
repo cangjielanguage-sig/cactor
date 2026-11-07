@@ -1,23 +1,24 @@
 /*
- * CActor - E9 验收测试（docs/plan/20261106.md 阶段二）
- * 路由器修真：
- * - Random：并发 selectRoutee 无丢更新（CAS 推进 LCG），索引恒非负
+ * CActor - 路由策略语义测试
+ * - Random：并发 selectRoutee 无丢更新（CAS 推进 Lehmer 状态）、首次调用不死循环、索引恒非负
  * - RoundRobin：游标溢出为负后仍取模归正，无负索引
- * - SmallestMailbox：真实比较 pendingCount，选排队最少的目标
- * - WeightedRoundRobin：routees 多于 weights 时告警且不越界
+ * - SmallestMailbox：真实比较 pendingCount，选排队最少的存活目标（跳过已终止目标）
+ * - WeightedRoundRobin：平滑加权轮询；routee 与权重数量不一致时永不返回 None
+ * - ConsistentHash：Rendezvous 哈希，同键稳定、目标增减只迁移被移除目标上的键、跳过已终止目标
  */
 package cactor_tests.unit.patterns
 
 import std.unittest.*
 import std.unittest.testmacro.*
 import std.sync.*
+import std.time.*
 import std.collection.*
 import std.convert.*
 import cactor_core.message.{Message}
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_patterns.routing.{
     RoutingStrategy, RoundRobinRoutingStrategy, RandomRoutingStrategy,
-    SmallestMailboxRoutingStrategy, RouterFactory
+    SmallestMailboxRoutingStrategy, ConsistentHashRoutingStrategy, RouterFactory
 }
 import cactor_patterns.routing.advanced.{WeightedRoundRobinRoutingStrategy}
 
@@ -25,13 +26,21 @@ import cactor_patterns.routing.advanced.{WeightedRoundRobinRoutingStrategy}
 class CountingRoutee <: ActorRef {
     private let p: ActorPath
     private let pendingValue: Int64
+    private let dead: Bool
     public let received: AtomicInt64
 
     init(pth: String, pendingValue: Int64) {
+        this(pth, pendingValue, false)
+    }
+
+    init(pth: String, pendingValue: Int64, dead: Bool) {
         this.p = ActorPath("sys", pth)
         this.pendingValue = pendingValue
+        this.dead = dead
         this.received = AtomicInt64(0)
     }
+
+    public func isTerminated(): Bool { dead }
 
     public prop path: ActorPath { get() { p } }
     public func tell(message: Message): Unit { received.fetchAdd(1) }
@@ -208,4 +217,133 @@ func testWeightedRoundRobinDistribution() {
     // 权重 3:1 → c0 ≈ 300, c1 ≈ 100
     @Assert(c0.load() > 250)
     @Assert(c1.load() > 50 && c1.load() < 200)
+}
+
+class KeyMsg <: Message {
+    let key: String
+    init(key: String) { this.key = key }
+    public func messageType(): String { "KeyMsg" }
+}
+
+func keyOf(m: Message): String {
+    match (m) {
+        case k: KeyMsg => k.key
+        case _ => ""
+    }
+}
+
+@Test
+func testWeightedRoundRobinFewerRouteesThanWeights() {
+    // 修复前：routees(2) < weights(3) 时权重和失衡，几轮后永久返回 None（消息全丢）
+    let s = WeightedRoundRobinRoutingStrategy([1, 1, 8])
+    let routees = Array<ActorRef>(2, { i => CountingRoutee("/f${i}", -1) })
+    let c0 = AtomicInt64(0)
+    let c1 = AtomicInt64(0)
+    for (_ in 0..1000) {
+        match (s.selectRoutee(routees, msg9())) {
+            case Some(p) => recordIf(c0, c1, p.path.toString().endsWith("f0"))
+            case None => @Assert(false)
+        }
+    }
+    // 两个目标权重都是 1：严格交替
+    @Assert(c0.load(), 500)
+    @Assert(c1.load(), 500)
+}
+
+@Test
+func testWeightedRoundRobinIsSmooth() {
+    // 平滑加权轮询：权重 5:1:1 时每 7 次选择恰好 a×5、b×1、c×1，且 a 不会连续出现 5 次
+    let s = WeightedRoundRobinRoutingStrategy([5, 1, 1])
+    let routees = Array<ActorRef>(3, { i => CountingRoutee("/s${i}", -1) })
+    for (_ in 0..10) {
+        let window = ArrayList<Int64>()
+        for (_ in 0..7) {
+            window.add(idxOf(s.selectRoutee(routees, msg9()).getOrThrow()))
+        }
+        var a = 0
+        var maxRun = 0
+        var run = 0
+        for (i in window) {
+            if (i == 0) {
+                a++
+                run++
+                if (run > maxRun) { maxRun = run }
+            } else {
+                run = 0
+            }
+        }
+        @Assert(a, 5)
+        @Assert(maxRun <= 2)
+    }
+}
+
+@Test
+func testSmallestMailboxSkipsTerminatedRoutees() {
+    // 已终止目标的邮箱计数恒为 0，修复前总被选中（流量变死信）
+    let s = SmallestMailboxRoutingStrategy()
+    let dead = CountingRoutee("/m0", 0, true)
+    let busy = CountingRoutee("/m1", 7)
+    let idle = CountingRoutee("/m2", 3)
+    let routees: Array<ActorRef> = [dead, busy, idle]
+    for (_ in 0..100) {
+        @Assert(idxOf(s.selectRoutee(routees, msg9()).getOrThrow()), 2)
+    }
+    // 全部无法查询负载（-1）时轮询存活目标
+    let unknown: Array<ActorRef> = [CountingRoutee("/u0", -1, true), CountingRoutee("/u1", -1), CountingRoutee("/u2", -1)]
+    for (_ in 0..100) {
+        @Assert(idxOf(s.selectRoutee(unknown, msg9()).getOrThrow()) != 0)
+    }
+}
+
+@Test
+func testConsistentHashIsStableAndRemapsMinimally() {
+    let s = ConsistentHashRoutingStrategy({ m => keyOf(m) })
+    let five = Array<ActorRef>(5, { i => CountingRoutee("/h${i}", -1) })
+    let before = HashMap<String, Int64>()
+    for (k in 0..2000) {
+        let key = "user-${k}"
+        let idx = idxOf(s.selectRoutee(five, KeyMsg(key)).getOrThrow())
+        // 同一个键反复选择结果不变
+        @Assert(idxOf(s.selectRoutee(five, KeyMsg(key)).getOrThrow()), idx)
+        before[key] = idx
+    }
+    // 每个目标都分到了键（分布不坍缩）
+    for (i in 0..5) {
+        var n = 0
+        for ((_, v) in before) {
+            if (v == i) { n++ }
+        }
+        @Assert(n > 250)
+    }
+    // 移除目标 2：原本不在目标 2 上的键一个都不迁移（取模做不到这一点）
+    let four: Array<ActorRef> = [five[0], five[1], five[3], five[4]]
+    for ((key, old) in before) {
+        let now = idxOf(s.selectRoutee(four, KeyMsg(key)).getOrThrow())
+        if (old != 2) {
+            @Assert(now, old)
+        } else {
+            @Assert(now != 2)
+        }
+    }
+}
+
+@Test
+func testConsistentHashSkipsTerminatedRoutees() {
+    let s = ConsistentHashRoutingStrategy({ m => keyOf(m) })
+    let routees: Array<ActorRef> = [CountingRoutee("/t0", -1), CountingRoutee("/t1", -1, true), CountingRoutee("/t2", -1)]
+    for (k in 0..500) {
+        @Assert(idxOf(s.selectRoutee(routees, KeyMsg("k${k}")).getOrThrow()) != 1)
+    }
+}
+
+@Test
+func testRandomStrategyFirstCallReturnsPromptly() {
+    // 修复前：种子 > 2^31 而 CAS 期望值被掩码，首次调用即死循环（整个 CI 卡死）
+    let s = RandomRoutingStrategy()
+    let routees = Array<ActorRef>(3, { i => CountingRoutee("/r${i}", -1) })
+    let f = spawn { s.selectRoutee(routees, msg9()) }
+    match (f.get(Duration.second * 5)) {
+        case Some(_) => ()
+        case None => @Assert(false)
+    }
 }

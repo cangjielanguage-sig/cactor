@@ -28,7 +28,7 @@ import cactor_core.actor.{Actor, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage, PingMessage, PongMessage}
 import cactor_core.context.{ActorContext}
 import cactor_core.typed.*
-import cactor_patterns.ask.{AskPatternManager, AskMessage, AskResponse}
+import cactor_core.dsl.{AskInbox}
 import cactor_foundation.network.{NetworkAddress, TransportProtocol}
 import cactor_remote.{SimpleRemoteManager}
 
@@ -76,16 +76,13 @@ class PingActor <: Actor {
     }
 }
 
+// 经典 ask（E38）：AskInbox.ask 以收件箱为发送方，目标照常 context.reply，不再解包 AskMessage
 class EchoActor <: Actor {
     public prop name: String { get() { "EchoActor" } }
     public prop description: String { get() { "echo" } }
     public func receive(message: Message, context: ActorContext): MessageResult {
-        match (message) {
-            case ask: AskMessage =>
-                ask.getReplyTo().tell(AskResponse(ask.getRequestId(), ask.getOriginalMessage(), true))
-                MessageResult.Handled
-            case _ => MessageResult.Unhandled
-        }
+        context.reply(message)
+        MessageResult.Handled
     }
 }
 
@@ -187,11 +184,10 @@ func benchPingPong(system: CActorSystem, rounds: Int64): Unit {
 
 func benchAsk(system: CActorSystem, rounds: Int64): Unit {
     let echo = system.actorOf({ => EchoActor() }, "echo")
-    let manager = AskPatternManager(Duration.second * 5)
     let samples = ArrayList<Int64>()
     for (i in 0..rounds) {
         let t0 = MonoTime.now()
-        manager.ask(echo, StringMessage("q")).get()
+        AskInbox.ask(echo, StringMessage("q")).get(Duration.second * 5) |> ignoreReply
         if (i >= rounds / 10) {
             samples.add((MonoTime.now() - t0).toNanoseconds())
         }
@@ -572,3 +568,5 @@ main(): Int64 {
     benchRemote(200_000)
     return 0
 }
+
+func ignoreReply(_: Message): Unit {}

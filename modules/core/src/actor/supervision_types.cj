@@ -36,12 +36,18 @@ public struct ActorFailure {
     public let cause: Exception
     public let timestamp: Int64
     public let failureCount: Int64
+    /**
+     * 该 Actor 最近一次**实际**完成重启的时刻（运行时填写；从未重启或调用方不知道时为 None）。
+     * 退避监督用它计算"重启后稳定运行了多久"，不受定时器 / 调度晚到的影响
+     */
+    public let lastRestartAt: Option<MonoTime>
 
-    public init(actor: ActorRef, cause: Exception, failureCount: Int64) {
+    public init(actor: ActorRef, cause: Exception, failureCount: Int64, lastRestartAt!: Option<MonoTime> = None) {
         this.actor = actor
         this.cause = cause
         this.timestamp = DateTime.now().toUnixTimeStamp().toMilliseconds()
         this.failureCount = failureCount
+        this.lastRestartAt = lastRestartAt
     }
 }
 

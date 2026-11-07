@@ -269,7 +269,8 @@ public class ActorSemanticsTest {
     }
 
     @TestCase
-    public func killTriggersSupervisionRestart(): Unit {
+    public func killStopsActorByDefault(): Unit {
+        // 与 Akka 一致（E27）：Kill 产生 ActorKilledException，默认策略对它返回 Stop，Kill 之后的消息进死信
         let kit = ActorTestKit("sem-kill")
         let rec = EventRecorder()
         let probe = kit.createTestProbe()
@@ -282,7 +283,28 @@ public class ActorSemanticsTest {
         a << Cmd("x") << Cmd("y")
         @Expect(probe.receiveN(2, T).size, 2)
         a << Kill() << Cmd("z")
-        // 重启后状态清零
+        @Expect(rec.await("a:postStop", T), true)
+        probe.expectNoMsg(Duration.millisecond * 200)
+        @Expect(rec.count("a:preRestart"), 0)
+        kit.shutdown()
+    }
+
+    @TestCase
+    public func killRestartsWhenStrategySaysSo(): Unit {
+        // 自定义策略仍可选择重启被 Kill 的 Actor：重启后状态清零
+        let kit = ActorTestKit("sem-kill-restart")
+        let rec = EventRecorder()
+        let probe = kit.createTestProbe()
+        let pr = probe.ref
+        let props = PropsFactory.create<Actor>({ => Probeable("a", rec, { self, m, _ =>
+            self.state++
+            pr.tell(Num(self.state))
+            handled()
+        }) }).withSupervisorStrategy(OneForOneStrategy(10, Duration.minute, { _ => SupervisionDirective.Restart }))
+        let a = kit.actorOf(props, "a")
+        a << Cmd("x") << Cmd("y")
+        @Expect(probe.receiveN(2, T).size, 2)
+        a << Kill() << Cmd("z")
         @Expect(probe.expectMsgType<Num>().value, 1)
         @Expect(rec.count("a:preRestart"), 1)
         @Expect(rec.count("a:postRestart"), 1)
@@ -367,7 +389,7 @@ public class ActorSemanticsTest {
 
     @TestCase
     public func unhandledTerminatedIsDeathPact(): Unit {
-        // 监视者不处理 Terminated（返回 Unhandled）→ DeathPactException → 默认策略重启监视者
+        // 监视者不处理 Terminated（返回 Unhandled）→ DeathPactException → 默认策略停止监视者（与 Akka 一致，E27）
         let kit = ActorTestKit("sem-deathpact")
         let rec = EventRecorder()
         let target = kit.actorOf({ => Probeable("t", rec, { _, _, _ => handled() }) }, "t")
@@ -380,9 +402,11 @@ public class ActorSemanticsTest {
             }
         }) }, "w")
         watcher << Cmd("watch")
+        @Expect(awaitCondition(T, { => rec.contains("t:preStart") }), true)
         sleep(Duration.millisecond * 50)
         target << PoisonPill()
-        @Expect(rec.await("w:postRestart", T), true)
+        @Expect(rec.await("w:postStop", T), true)
+        @Expect(rec.count("w:postRestart"), 0)
         kit.shutdown()
     }
 

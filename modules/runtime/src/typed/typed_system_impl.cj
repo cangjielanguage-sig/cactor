@@ -98,7 +98,7 @@ public class TypedActorSystemImpl <: TypedActorSystem {
                 case None =>
                     let rt = runtime
                     let r = Receptionist(Some<(() -> Actor) -> ActorRef>({ creator =>
-                        rt.actorOf(PropsFactory.create<Actor>(creator), "receptionist")
+                        spawnInternalActor(rt, creator, "$receptionist")
                     }))
                     receptionistValue = Some(r)
                     r
@@ -184,4 +184,27 @@ class LookupTypedSelection<T> <: TypedActorSelection<T> {
     public func pathString(): String {
         path
     }
+}
+
+/**
+ * 创建运行时内部使用的顶层 Actor（如 Receptionist 的监视者）。
+ *
+ * 用 "$" 前缀（Akka 约定的系统生成名，用户通常不会用）；万一已被占用就加序号重试，
+ * 不会因为用户恰好有一个同名 Actor 而让 receptionist() 抛异常（T12）。
+ * 名称冲突时运行时抛的是普通 Exception，无法按类型区分，所以对任何失败都换名重试，最后一次的异常原样抛出
+ */
+func spawnInternalActor(rt: CActorRuntime, creator: () -> Actor, base: String): ActorRef {
+    var attempt = 0
+    while (true) {
+        let name = if (attempt == 0) { base } else { "${base}-${attempt}" }
+        try {
+            return rt.actorOf(PropsFactory.create<Actor>(creator), name)
+        } catch (e: Exception) {
+            attempt++
+            if (attempt >= 16) {
+                throw e
+            }
+        }
+    }
+    throw IllegalStateException("unreachable")
 }
