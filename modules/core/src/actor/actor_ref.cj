@@ -60,6 +60,14 @@ public interface ActorRef {
         tell(message)
         this
     }
+
+    /**
+     * 邮箱中待处理的消息数（E9，2026-11-06）：供 SmallestMailbox 等路由策略真实比较负载。
+     * 默认 -1 表示"无法查询"（远程引用、路由器包装等），策略应把它视为最坏值并做均衡近似。
+     */
+    func pendingCount(): Int64 {
+        -1
+    }
 }
 
 /**

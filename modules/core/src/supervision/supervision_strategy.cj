@@ -488,6 +488,8 @@ public class BasicSupervisor <: Supervisor {
             case SupervisionDirective.Restart =>
                 // 重启Actor - 简化实现
                 log_supervision_strategy.error("重启Actor: ${failure.actor.path.toString()}")
+            case SupervisionDirective.RestartAfter(delay) =>
+                log_supervision_strategy.error("${delay.toMilliseconds()}ms 后重启Actor: ${failure.actor.path.toString()}")
             case SupervisionDirective.Stop =>
                 // 停止Actor
                 log_supervision_strategy.error("停止Actor: ${failure.actor.path.toString()}")

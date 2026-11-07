@@ -358,7 +358,8 @@ public class AlertManager {
      */
     public func getActiveAlertCount(): Int32 {
         mutex.lock()
-        let count: Int32 = 5  // 简化实现
+        // 2026-11-06 修复：此前恒返回 5，改为真实活跃告警数量
+        let count: Int32 = Int32(activeAlerts.size)
         mutex.unlock()
         count
     }

@@ -17,6 +17,15 @@ public enum SupervisionDirective {
     | Restart     // 重启Actor
     | Stop        // 停止Actor
     | Escalate    // 将失败上报给上级监督者
+    | RestartAfter(Duration)  // 延迟重启（E6，2026-11-06）：等待指定时长后重启
+
+    /** RestartAfter 携带的延迟；其他指令返回 None */
+    public func restartDelay(): Option<Duration> {
+        match (this) {
+            case RestartAfter(d) => Some(d)
+            case _ => None<Duration>
+        }
+    }
 }
 
 /**

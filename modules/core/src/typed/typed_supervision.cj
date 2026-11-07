@@ -55,6 +55,7 @@ public class TypedSupervisorStrategy {
             case SupervisionDirective.Resume => "resume"
             case SupervisionDirective.Stop => "stop"
             case SupervisionDirective.Escalate => "escalate"
+            case SupervisionDirective.RestartAfter(d) => "restart-after(${d.toMilliseconds()}ms)"
         }
         if (maxRestarts >= 0) {
             "${name}(limit=${maxRestarts}, within=${within})"

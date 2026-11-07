@@ -7,6 +7,7 @@ package cactor_persistence
 
 import std.collection.*
 import std.sync.*
+import std.convert.*
 import cactor_core.actor.{ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.context.{ActorContext}
@@ -29,7 +30,16 @@ public class PersistenceException <: Exception {
 }
 
 /**
- * 持久化Actor基类
+ * 持久化Actor基类（E3 处置说明，见 docs/plan/20261106.md B8/E3）
+ *
+ * ⚠️ 使用须知：本类是 persistence 模块三套并行事件溯源 API 之一，**新代码请优先使用
+ * EventStore + EventSourcedActor**（event_store.cj / event_sourced_actor.cj），那是 E8
+ * 持久化收敛后的主路径。本类保留是为了编译兼容，后续版本将标记 @Deprecated。
+ *
+ * 语义保证（2026-11-06 修复 B8 后）：
+ * - saveSnapshot 保存真实状态数据（非字符串状态需先自行序列化为 String）；
+ * - persist/persistAll 失败时上抛 PersistenceException 并回退序号，不再静默丢数据；
+ * - 恢复按 sequenceNr 对齐事件存储版本（getHighestSequenceNr），不按数组下标。
  */
 public open class AbstractPersistentActor <: PersistentActor {
     private let eventStore: EnhancedEventStore
@@ -107,9 +117,10 @@ public open class AbstractPersistentActor <: PersistentActor {
             lastSequenceNr += 1
             let persistentEvent = PersistentEvent(persistenceId(), lastSequenceNr, event)
 
-            // 保存到事件存储
+            // 保存到事件存储：Future 结果必须消费——失败（如版本冲突）时 get() 抛出，
+            // 走下方的失败上抛路径（2026-11-06 修复：此前丢弃 Future，冲突被静默吞掉）
             let events = [persistentEvent]
-            eventStore.saveEvents(persistenceId(), events, lastSequenceNr - 1)
+            eventStore.saveEvents(persistenceId(), events, lastSequenceNr - 1).get()
 
             // 调用处理器
             handler(event)
@@ -417,8 +428,8 @@ public class PersistentCounterActor <: PersistentActor {
     
     public func onRecoverySnapshot(snapshot: Snapshot): Unit {
         try {
-            // 简化的字符串转换
-            count = 42  // 简化实现
+            // 从快照携带的真实状态数据恢复计数（2026-11-06 修复：此前恒置 42）
+            count = Int32.parse(snapshot.getStateData())
             log_persistent_actor_impl.debug("从快照恢复计数: ${count}")
         } catch (e: Exception) {
             log_persistent_actor_impl.error("恢复快照失败: ${e.message}")

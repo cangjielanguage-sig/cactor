@@ -1044,6 +1044,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
     }
 
+    /** ActorRef.pendingCount：SmallestMailbox 路由策略用（E9，2026-11-06） */
+    public func pendingCount(): Int64 {
+        pending()
+    }
+
     /** 被监督重启的次数 */
     public func restarts(): Int64 {
         this.readCounter(CTR_RESTART_SHIFT)
@@ -1280,6 +1285,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 for (t in targets) {
                     t.sendSystem(SysRecreate(cause))
                 }
+            case SupervisionDirective.RestartAfter(delay) =>
+                // E6（2026-11-06）：Backoff 监督的真实延迟重启——延迟后投递 SysRecreate，
+                // 不再"算好延迟只打日志就立即重启"
+                for (t in targets) {
+                    scheduleRecreate(t, cause, delay)
+                }
             case SupervisionDirective.Stop =>
                 for (t in targets) {
                     t.sendSystem(SysTerminate())
@@ -1288,6 +1299,17 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 // 父 Actor 自身以同样的原因失败，交给它的父 Actor 处理
                 handleFailure(cause)
         }
+    }
+
+    /** 延迟后在目标 Actor 的系统栈上投递 SysRecreate（Backoff 监督用） */
+    private func scheduleRecreate(target: SimpleUserActorRef, cause: Exception, delay: Duration): Unit {
+        if (delay.toNanoseconds() <= 0) {
+            target.sendSystem(SysRecreate(cause))
+            return
+        }
+        Timer.once(delay, { =>
+            target.sendSystem(SysRecreate(cause))
+        })
     }
 
     /** 重启：旧实例 preRestart → 停止子 Actor、取消定时器 → 用工厂创建新实例 → postRestart */
@@ -1869,6 +1891,7 @@ func directiveName(d: SupervisionDirective): String {
     match (d) {
         case SupervisionDirective.Resume => "Resume"
         case SupervisionDirective.Restart => "Restart"
+        case SupervisionDirective.RestartAfter(delay) => "RestartAfter(${delay.toMilliseconds()}ms)"
         case SupervisionDirective.Stop => "Stop"
         case SupervisionDirective.Escalate => "Escalate"
     }

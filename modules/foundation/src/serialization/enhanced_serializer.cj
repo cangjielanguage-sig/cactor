@@ -7,6 +7,7 @@
 package cactor_foundation.serialization
 
 import std.collection.*
+import std.time.*
 
 /**
  * 序列化版本信息
@@ -629,6 +630,7 @@ func bytesToString(data: Array<UInt8>): String {
  * 获取当前时间纳秒
  */
 func getCurrentTimeNanos(): Int64 {
-    // 简化实现：返回固定时间戳
-    1642694400000000000  // 2022-01-20 12:00:00 UTC in nanoseconds
+    // 2026-11-06 修复：此前恒返回 2022 年固定时间戳，序列化帧里的时间戳全是错的
+    let now = DateTime.now()
+    now.toUnixTimeStamp().toMilliseconds() * 1_000_000
 }

@@ -181,15 +181,20 @@ func testRecoveryFromSnapshotCarriesRealData() {
 func testPersistFailureThrowsAndRollsBackSeq() {
     let ss = MemorySnapshotStore()
     let es = MemoryEnhancedEventStore()
-    // 先预置 "fail-1" 的事件流版本为 1，
-    // 使新 Actor 从 seq=0 persist 时 expectedVersion=0 与存储版本 1 冲突 → 失败
+    // 预置 "fail-1" 到版本 1，让 Actor 恢复到 seq=1
     es.saveEvents("fail-1",
         [PersistentEvent("fail-1", 1, SimpleEventPayload("e1", "d1"))], 0).get()
 
     let a = ProbePersistentActor("fail-1", es, ss)
     a.startRecovery()
-    // 修复前：persist 失败仅记日志不抛出；修复后必须上抛 PersistenceException
+    @Assert(a.getLastSequenceNr() == 1)
+
+    // 恢复后外部写入把事件流推进到版本 2，本地视图落后 → persist 的
+    // expectedVersion=1 与存储版本 2 冲突。
+    // 修复前：persist 丢弃 saveEvents 的 Future，冲突被静默吞掉；修复后必须上抛。
+    es.saveEvents("fail-1",
+        [PersistentEvent("fail-1", 2, SimpleEventPayload("e1ext", "d1"))], 1).get()
     @ExpectThrows[PersistenceException](a.persist(SimpleEventPayload("e2", "d2"), { _ => () }))
     // 序号必须回退，保持状态一致（失败的事件不占号）
-    @Assert(a.getLastSequenceNr() == 0)
+    @Assert(a.getLastSequenceNr() == 1)
 }

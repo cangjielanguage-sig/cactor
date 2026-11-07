@@ -373,6 +373,12 @@ public class SupervisionManager {
                 updateFailureCount(actorRef, currentTime)
                 incrementRestartCount(actorRef)
                 
+            case SupervisionDirective.RestartAfter(_) =>
+                // 延迟重启（Backoff 监督）与 Restart 同样计入
+                totalRestarts.fetchAdd(1)
+                updateFailureCount(actorRef, currentTime)
+                incrementRestartCount(actorRef)
+                
             case SupervisionDirective.Stop =>
                 // 停止Actor
                 updateSupervisionState(actorRef, SupervisionState.Critical)

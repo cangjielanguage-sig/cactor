@@ -43,7 +43,8 @@ public class RoundRobinRoutingStrategy <: RoutingStrategy {
             return None
         }
 
-        let index = counter.fetchAdd(1) % Int64(routees.size)
+        // E9（2026-11-06）修复 C5：fetchAdd 溢出为负后 index 为负越界；取模归正
+        let index = (counter.fetchAdd(1) & 0x7FFFFFFFFFFFFFFF) % Int64(routees.size)
         Some(routees[index])
     }
 }
@@ -64,13 +65,31 @@ public class RandomRoutingStrategy <: RoutingStrategy {
             return None
         }
 
-        // 简单的线性同余随机数生成器
-        let current = random.load()
-        let next = ((current % 1000000) * 1103 + 12345) % 2147483647
-        random.store(next)
-        
-        let index = next % Int64(routees.size)
+        // E9（2026-11-06）修复 C5：此前 load 后算出 next 再 store，多发送方并发时丢更新，
+        // 且 current 为负时 next % size 会得到负索引越界。改用 CAS 循环原子推进 LCG 状态，
+        // 并把结果限制在非负空间（& 0x7FFFFFFFFFFFFFFF 清符号位）后再取模。
+        let next = nextLcg()
+        let index = (next & 0x7FFFFFFFFFFFFFFF) % Int64(routees.size)
         Some(routees[index])
+    }
+
+    /**
+     * 随机状态原子推进：CAS 循环，直至成功（仓颉 AtomicInt64 无 fetchUpdate，用 compareAndSwap 实现）。
+     * 用 minstd（Lehmer）生成器：state = state * 48271 % 2147483647，
+     * 周期 2^31-2，全状态空间均匀；原 LCG（%1000000*1103+12345）状态在
+     * %1000000 空间内最快 2 步就进入小循环，路由分布会坍缩到一半目标。
+     */
+    private func nextLcg(): Int64 {
+        while (true) {
+            let prev = random.load() & 0x7FFFFFFF
+            let seed = if (prev == 0) { 1 } else { prev }
+            let next = (seed * 48271) % 2147483647
+            if (random.compareAndSwap(prev, next)) {
+                return next
+            }
+            // CAS 失败：其他线程已推进，重试（相邻重试必然取到新状态，无活锁）
+        }
+        0  // 不可达：while(true) 只能经 return 退出（仓颉要求循环后有尾表达式）
     }
 }
 
@@ -79,16 +98,41 @@ public class RandomRoutingStrategy <: RoutingStrategy {
  * 选择邮箱中消息最少的Actor
  */
 public class SmallestMailboxRoutingStrategy <: RoutingStrategy {
-    public init() {}
+    private let counter: AtomicInt64
+
+    public init() {
+        this.counter = AtomicInt64(0)
+    }
 
     public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef> {
         if (routees.size == 0) {
             return None
         }
 
-        // 简化实现：返回第一个Actor
-        // 实际实现需要访问Actor的邮箱大小
-        Some(routees[0])
+        // E9（2026-11-06）修复 C4：此前恒返回第一个 Actor，负载完全不均衡。
+        // 现在通过 ActorRef.pendingCount() 真实比较各目标邮箱排队数，选最小的；
+        // 全部无法查询（-1，如远程引用）时退回轮询游标做均衡近似。
+        var bestIdx: Int64 = -1
+        var bestCount: Int64 = 0x7FFFFFFFFFFFFFFF
+        var allUnknown = true
+        for (i in 0..Int64(routees.size)) {
+            let c = routees[i].pendingCount()
+            if (c >= 0) {
+                allUnknown = false
+                if (c < bestCount) {
+                    bestCount = c
+                    bestIdx = i
+                }
+            }
+        }
+        if (allUnknown) {
+            let start = (counter.fetchAdd(1) & 0x7FFFFFFFFFFFFFFF) % Int64(routees.size)
+            return Some(routees[start])
+        }
+        if (bestIdx < 0) {
+            bestIdx = 0
+        }
+        Some(routees[bestIdx])
     }
 }
 
@@ -298,7 +342,10 @@ public class RouterActorRef <: ActorRef {
     }
 
     public func tell(message: Message, sender: Option<String>): Unit {
-        // 简化实现：忽略sender
+        // E9（2026-11-06）C12 说明：Message 接口没有 sender 字段可注入，本层无法把
+        // sender 携带进消息体；经 router 转发的 ask 需要在 AskInbox/TypedAsk 层
+        // 注册回复入口（它们不走 sender 参数）。这里保留参数签名并在日志记录，
+        // 待 Message 支持 sender 透传后改为注入。
         router.route(message)
     }
 

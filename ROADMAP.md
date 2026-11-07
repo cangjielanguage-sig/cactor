@@ -20,23 +20,23 @@
 
 ---
 
-## 2. 现状（2026-10-28 核对）
+## 2. 现状（2026-11-06 核对，上一轮核对 2026-10-28）
 
 ### 2.1 已经可用的能力
 
 | 领域 | 状态 | 依据 |
 |---|---|---|
-| 运行时 | ✅ 每个 Actor 一个双缓冲数组邮箱（稳态零分配）；亲和调度 + 侵入式就绪队列 + runNext + 空闲线程捐赠；线程数不超过 cgroup 限额；独立系统消息队列；阻塞调度器；吞吐参数可配置 | `runtime/guardian/actor_cell.cj` |
+| 运行时 | ✅ 每个 Actor 一个双缓冲数组邮箱（稳态零分配）；亲和调度 + 侵入式就绪队列 + runNext + 空闲线程捐赠；线程数不超过 cgroup 限额；独立系统消息队列；阻塞调度器；吞吐参数可配置；每 Actor 存活堆 1.0–1.2 KB（5M 规模实测 1072–1182 B） | `runtime/guardian/actor_cell.cj`、`docs/plan/perf20261101.md` |
 | 经典 API 语义（R1） | ✅ 监督树（父停子、Escalate、OneForAll）、watch / Terminated、become、定时器、Stash、接收超时、PoisonPill / Kill、Props 生效、按路径查找、死信订阅 | `semantics_test.cj` 33 个用例 |
-| 类型化 API（R2） | ✅ 运行在经典 Cell 上；setup / receive / supervise / withTimers / withStash / ask / messageAdapter / pipeToSelf / Receptionist（单机） | `typed_semantics_test.cj` 28 个用例 |
+| 类型化 API（R2） | ✅ 运行在经典 Cell 上；setup / receive / supervise / withTimers / withStash / ask / messageAdapter / pipeToSelf / Receptionist（单机）；行为拦截器（`intercept` / `monitor` / `logMessages`） | `typed_semantics_test.cj`、`typed_interceptor.cj` |
 | DSL | ✅ `@actor`（协议清单编译期核对，`@actorReceive` 为兼容别名）、`@Message`（编解码 + 注册）、`@StateMachine`（转换表 + 穷尽检查）；`Behaviors` 门面、`askInbox`、流管道 `\|>`；`<<` 运算符、时间字面量；占位宏已删除 | `macros/src/`、`core/src/dsl/`、`docs/dsl.md` |
-| 远程 | 🟡 基于 std.net 的 TCP，写线程合并写、批量解析；至多一次投递；没有远程 ask / watch、序列化注册和版本 | `foundation/network/transport.cj`、`remote/simple_remote.cj` |
-| 持久化 | 🟡 文件事件日志、快照、`EventSourcedActor`；没有存储插件接口；CQRS 部分是简化实现 | `persistence/` |
-| 集群 | 🟠 Phi Accrual 故障检测器和 5 种 CRDT 真实可用；成员协议、Singleton 都没有；分片和集群路由是原型（如轮询“总是选择第一个目标”） | `cluster/detector`、`cluster/ddata`、`cluster_routing.cj` |
-| 流 / 状态机 | 🟠 Streams 是对内存数组的同步处理，没有背压和异步边界；XState 有基本状态机，`features` / `enterprise` 是占位 | `streams/core/simple_stream_api.cj` |
-| 可观测性 | 🟡 分级日志（`foundation.logging`，默认 WARN）；Prometheus 文本导出；没有追踪 | `runtime/prometheus_metrics.cj` |
-| 工程 | 🟡 `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查），2026-10-28 在 `d652d59` 上全部通过，测试 250 / 250；`cactor_testkit`（TestProbe 等）；Akka 对比基准 | `tools/`、`bench/` |
-| HTTP | ❌ 没有任何 HTTP 代码，也没有引入 stdx | — |
+| 远程 | ✅ 基于 std.net 的 TCP，写线程合并写、批量解析；至多一次投递；远程 ask（`remoting.cj` ask）、远程 watch（WATCH/DEATH 控制消息）；序列化注册与 schema 演进（`remote_semantics` 测试）。🟡 $sys 控制协议尚无鉴权（见 20261106 计划 B1） | `foundation/network/transport.cj`、`remote/remoting.cj` |
+| 持久化 | ✅ 文件/内存事件日志、快照、`EventSourcedActor`；持久化失败上抛不再静默。🟡 三套事件溯源 API 并行待收敛（E8）；CQRS 部分是简化实现 | `persistence/` |
+| 集群 | ✅ gossip 成员协议（Phi Accrual 故障检测）、SBR 脑裂处理（keep-majority）、Cluster Singleton、分布式发布订阅（`DistributedPubSub`）、CRDT + Replicator、分片（rendezvous 哈希 + 移交）。🟡 成员协议尚无鉴权（B2）、移交无双阶段（B4） | `cluster/membership/`、`cluster/ddata/` |
+| 流 / 状态机 | 🟠 Streams 有背压策略（Block 策略仍抛异常，见 C7）；XState 有基本状态机，`features` / `enterprise` 是占位 | `streams/core/` |
+| 可观测性 | ✅ 分级日志（`foundation.logging`，默认 WARN，支持结构化字段 / MDC）；Prometheus 文本导出；Timer 指标平均值/时间戳已修复为真实值。🟡 没有追踪 | `runtime/prometheus_metrics.cj`、`foundation/logging/` |
+| 工程 | ✅ `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查、`--bench` 门禁接入 bench_gate）；测试 435 / 435（2026-11-06）；`cactor_testkit`（TestProbe、BehaviorTestKit、ManualTime）；Akka 对比基准 | `tools/`、`bench/` |
+| HTTP | ✅ 最小可用（ManagementServer：健康检查 + Prometheus 指标，经真实 HTTP）。🟡 Ktor 风格插件体系未开始 | `cactor/api/` |
 
 ### 2.2 性能（同机实测，32 核 Xeon 8582C，详见 20261028-performance.md）
 
@@ -143,7 +143,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 - [ ] 创建与通信收敛为 `spawn` / `props` / `<<` / `ask`；`TypedBehavior` 构建器。
 - [x] `@actor` 宏（在 `@actorReceive` 基础上，同一消息类型多个处理方法、协议清单漏处理/漂移时编译期报错）；`@Message` 宏（生成 `messageType`、编解码器并自动注册）。删除其余原样返回输入的宏。
 - [ ] `testActorSystem`（`cactor_testkit`）。
-- [ ] 类型化 API 补齐：行为拦截器（Interceptor）；Akka Typed 聊天室示例。
+- [x] 类型化 API 补齐：行为拦截器（`TypedBehaviors.intercept` / `monitor` / `logMessages`，`typed_interceptor.cj`）；Akka Typed 聊天室示例（`examples.chat_room`）。
 - **验收**：hello world、计数器、请求-应答示例的代码行数比 1.2.0 减少 ≥ 40%；文档给出“经典写法 / DSL 写法”对照。
 
 ### 5.2 HTTP 服务端核心（P3）
@@ -175,9 +175,9 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 ### 6.2 远程（R6 第一部分）
 
-- [ ] 序列化注册表与版本号（与 `@Message` 宏打通），支持 schema 演进。
-- [ ] 远程 `ActorRef` 与本地统一：远程 ask；远程 watch（连接断开时投递 `Terminated`）。
-- [ ] 可靠投递：序号 + 确认 + 重发（对应 Akka Reliable Delivery）。
+- [ ] 序列化注册表与版本号（与 `@Message` 宏打通），支持 schema 演进。✅ 基础版已落地（`remote` 模块 codec 注册 + 版本拒绝，`schema_evolution_test.cj`）。
+- [x] 远程 `ActorRef` 与本地统一：远程 ask（`remoting.cj` `ask`）；远程 watch（WATCH/DEATH，连接断开时投递 `Terminated`）。
+- [ ] 可靠投递：序号 + 确认 + 重发（对应 Akka Reliable Delivery）。🟡 $sys 已有序号 + ACK 基础（`remoting.cj`），缺重发与去重语义。
 - [ ] 基于 stdx 的 TLS。
 - **验收**：远程吞吐在空闲机器上追平 Akka Artery TCP；随机断连测试下可靠投递不丢消息、不乱序。
 
@@ -187,11 +187,12 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 ### 7.1 集群（R6 第二部分）
 
-- [ ] gossip 成员协议（Joining → Up → Leaving → Exiting → Removed），种子节点引导，成员事件订阅；接入已有的 Phi Accrual 故障检测器。
-- [ ] Cluster Singleton、分布式发布订阅、Receptionist 集群版。
-- [ ] 脑裂处理（先实现 keep-majority）。
+- [x] gossip 成员协议（Joining → Up → Leaving → Exiting → Removed），种子节点引导，成员事件订阅；接入已有的 Phi Accrual 故障检测器（`cluster/membership/membership.cj`）。
+- [x] Cluster Singleton（`membership/singleton.cj`）、分布式发布订阅（`membership/pubsub.cj`）、Receptionist 集群版。
+- [x] 脑裂处理（keep-majority，`membership/sbr.cj`）。
 - [ ] 删除或重写现有原型：`cluster_routing.cj`、`failover.cj` 中的占位逻辑。
-- **验收**：本机 3 节点集群测试：加入、离开、杀掉一个节点后 Singleton 切换。
+- [ ] 成员协议鉴权与 incarnation（20261106 计划 E7/E13）。
+- **验收**：本机 3 节点集群测试：加入、离开、杀掉一个节点后 Singleton 切换（已有测试覆盖）。
 
 ### 7.2 HTTP 生产化（P6–P9）
 

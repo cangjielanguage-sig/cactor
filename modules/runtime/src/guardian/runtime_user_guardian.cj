@@ -190,6 +190,16 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                         restartCounter.fetchAdd(1)
                         cell.restartInCell(cause)
                 }
+            case SupervisionDirective.RestartAfter(delay) =>
+                // E6（2026-11-06）：Backoff 监督的真实延迟重启——延迟后重建实例
+                restartCounter.fetchAdd(1)
+                if (delay.toNanoseconds() <= 0) {
+                    cell.restartInCell(cause)
+                } else {
+                    Timer.once(delay, { =>
+                        cell.restartInCell(cause)
+                    })
+                }
             case SupervisionDirective.Stop =>
                 // 先停止（包括子 Actor），停止完成后由 onCellTerminated 清理登记信息
                 cell.terminateInCell()
@@ -204,6 +214,7 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         match (d) {
             case SupervisionDirective.Resume => "Resume"
             case SupervisionDirective.Restart => "Restart"
+            case SupervisionDirective.RestartAfter(delay) => "RestartAfter(${delay.toMilliseconds()}ms)"
             case SupervisionDirective.Stop => "Stop"
             case SupervisionDirective.Escalate => "Escalate"
         }
@@ -237,6 +248,21 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
                 match (backoff) {
                     case Some(bof) => bof.handleFailure(ActorFailure(actor, cause, 1))
                     case None => restartChild(actor, cause)
+                }
+
+            case SupervisionDirective.RestartAfter(delay) =>
+                // E6（2026-11-06）：Backoff 监督的真实延迟重启——延迟后重建实例
+                restartCounter.fetchAdd(1)
+                match (actor) {
+                    case cell: SimpleUserActorRef =>
+                        if (delay.toNanoseconds() <= 0) {
+                            cell.restartInCell(cause)
+                        } else {
+                            Timer.once(delay, { =>
+                                cell.restartInCell(cause)
+                            })
+                        }
+                    case _ => restartChild(actor, cause)
                 }
 
             case SupervisionDirective.Stop =>

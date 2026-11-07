@@ -7,6 +7,17 @@
 
 ## [未发布]
 
+### ✨ 新增（此前已实现但未记录，2026-11-06 补记 E5）
+- **集群 gossip 成员协议**：Joining → Up → Leaving → Exiting → Removed 状态机、种子节点引导、
+  成员事件订阅、Phi Accrual 故障检测接入、gossip 收敛与可达性表传播（`cluster/membership/membership.cj`）
+- **脑裂处理（SBR）**：keep-majority 策略，不可达视图稳定后按多数派决定自我下行（`cluster/membership/sbr.cj`）
+- **Cluster Singleton**：主节点上唯一实例、主切换后迁移（`cluster/membership/singleton.cj`）
+- **分布式发布订阅（DistributedPubSub）**：按 topic 的集群范围发布，经 gossip 成员视图路由（`cluster/membership/pubsub.cj`）
+- **远程 ask / 远程 watch**：`RemoteRemoting.ask`（超时 Promise）、WATCH/DEATH 控制消息（连接断开投递 Terminated）、
+  序号 + ACK 基础（`remote/remoting.cj`）
+- **行为拦截器（Typed Behaviors）**：`TypedBehaviors.intercept` / `monitor` / `logMessages`（`core/typed/typed_interceptor.cj`）
+- **序列化注册与 schema 演进（基础版）**：远程 codec 注册表 + 版本号，旧版本数据可读、更新版本明确拒绝（`schema_evolution_test.cj`）
+
 ### ⚡ 性能（与 protoactor-go 对比，详见 docs/plan/20261031-protoactor-performance.md）
 - **多线程吞吐不再随线程数下降**：`invoke` 不再对每条消息做 `message is AutoReceivedMessage`，改为直接匹配 5 种控制消息类。
   仓颉判断"别的包里的类是否实现某接口"在多线程并发时互相阻塞（4 线程每次约 1µs），用户消息总是命中这条慢路径。

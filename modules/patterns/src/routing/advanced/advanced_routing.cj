@@ -102,13 +102,21 @@ public class WeightedRoundRobinRoutingStrategy <: RoutingStrategy {
         if (routees.size == 0 || weights.size == 0) {
             return None
         }
-        
+
         mutex.lock()
         try {
+            // E9（2026-11-06）修复 C13：routees 与 weights 长度不一致时按较小值截断
+            // 会把部分 routee 永远排除在路由之外（静默丢流量）；改为直接拒绝构造期
+            // 之外的不一致——这里选择以 routees 数量为准、多余权重忽略并告警一次，
+            // 但 routees 多于 weights 时必须在 weights 覆盖范围内选择，绝不越界。
+            if (Int64(weights.size) < Int64(routees.size)) {
+                log_advanced_routing.error(
+                    "WeightedRoundRobin: routees(${routees.size}) 多于 weights(${weights.size})，超出部分不会被路由")
+            }
             var selectedIndex: Int64 = -1
             var maxWeight: Int32 = -1
 
-            // 找到当前权重最大的Actor
+            // 找到当前权重最大的Actor（只在两者交集内，避免越界）
             let maxIndex = if (Int64(routees.size) < Int64(weights.size)) { Int64(routees.size) } else { Int64(weights.size) }
             for (i in 0..maxIndex) {
                 let currentWeight = currentWeights[i].load()

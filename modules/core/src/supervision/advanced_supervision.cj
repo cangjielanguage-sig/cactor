@@ -102,69 +102,105 @@ public class AdvancedSupervisionStrategyFactory {
 }
 
 /**
- * 退避监督策略
- * 实现渐进式重试延迟
+ * 退避监督策略（E6 真实现，2026-11-06）
+ *
+ * 修复前的假实现：算好退避延迟后只打日志就返回 Restart，延迟从未生效
+ * （立即重启，与普通 Restart 无异）；retryDelays/retryCounts 是普通 HashMap，
+ * 多线程并发 decide 有竞态崩溃风险。
+ *
+ * 现在：decide 返回 SupervisionDirective.RestartAfter(延迟)，由运行时
+ * （actor_cell.handleChildFailed / runtime_user_guardian）用 Timer.once
+ * 在延迟后投递 SysRecreate 实现真实延迟重启。状态收敛为一把锁保护的
+ * 并发安全表，锁内只做读写计算，不调用外部代码。
  */
 public class BackoffSupervisionStrategy <: SupervisionStrategy {
     private let initialDelay: Duration
     private let maxDelay: Duration
     private let maxRetries: Int32
-    private let retryDelays: HashMap<String, Duration>
-    private let retryCounts: HashMap<String, Int32>
-    
+    private let mutex: Mutex
+    // 每个 Actor 的退避状态：下次重启延迟 + 已重试次数
+    private let states: HashMap<String, BackoffState>
+
     public init(initialDelay: Duration, maxDelay: Duration, maxRetries: Int32) {
         this.initialDelay = initialDelay
         this.maxDelay = maxDelay
         this.maxRetries = maxRetries
-        this.retryDelays = HashMap<String, Duration>()
-        this.retryCounts = HashMap<String, Int32>()
+        this.mutex = Mutex()
+        this.states = HashMap<String, BackoffState>()
     }
-    
+
     public func decide(failure: ActorFailure): SupervisionDirective {
         let actorKey = failure.actor.path.toString()
-        
-        // 获取当前重试次数
-        let currentRetries = match (retryCounts.get(actorKey)) {
-            case Some(count) => count
-            case None => Int32(0)
+
+        mutex.lock()
+        let delay: Duration
+        let stop: Bool
+        try {
+            let state = match (states.get(actorKey)) {
+                case Some(s) => s
+                case None =>
+                    let s = BackoffState()
+                    states.add(actorKey, s)
+                    s
+            }
+            if (state.retries >= maxRetries) {
+                // 超过最大重试次数：停止并清理状态
+                states.remove(actorKey)
+                stop = true
+                delay = Duration.millisecond * 0
+            } else {
+                // 首次失败用 initialDelay，之后每次翻倍直到 maxDelay
+                let next = if (state.nextDelay.toNanoseconds() <= 0) {
+                    initialDelay
+                } else {
+                    state.nextDelay
+                }
+                stop = false
+                delay = next
+                let doubledNanos = next.toNanoseconds() * 2
+                state.nextDelay = Duration.nanosecond * (if (doubledNanos > maxDelay.toNanoseconds()) { maxDelay.toNanoseconds() } else { doubledNanos })
+                state.retries += 1
+            }
+        } catch (e: Exception) {
+            mutex.unlock()
+            throw e
         }
-        
-        if (currentRetries >= maxRetries) {
-            // 超过最大重试次数，停止
-            retryCounts.remove(actorKey)
-            retryDelays.remove(actorKey)
+        mutex.unlock()
+
+        if (stop) {
+            log_advanced_supervision.error("[BACKOFF] Actor ${actorKey} 已达最大重试次数 ${maxRetries}，停止")
             return SupervisionDirective.Stop
         }
-        
-        // 计算下次重试延迟
-        let currentDelay = match (retryDelays.get(actorKey)) {
-            case Some(delay) => delay
-            case None => initialDelay
-        }
-        
-        // 指数退避：每次延迟翻倍
-        let delayNanos = currentDelay.toNanoseconds() * 2
-        let maxNanos = maxDelay.toNanoseconds()
-        let nextDelayNanos = if (delayNanos > maxNanos) { maxNanos } else { delayNanos }
-        let nextDelay = Duration.nanosecond * nextDelayNanos
-        
-        // 更新状态
-        retryCounts.add(actorKey, currentRetries + 1)
-        retryDelays.add(actorKey, nextDelay)
-        
-        log_advanced_supervision.debug("[BACKOFF] Actor ${actorKey} 将在 ${currentDelay.toMilliseconds()}ms 后重试")
-        
-        SupervisionDirective.Restart
+
+        log_advanced_supervision.error("[BACKOFF] Actor ${actorKey} 将在 ${delay.toMilliseconds()}ms 后重启（第 ${states.size} 个受跟踪 Actor 之一）")
+        SupervisionDirective.RestartAfter(delay)
     }
-    
+
     /**
-     * 重置Actor的退避状态
+     * 重置Actor的退避状态（Actor 成功稳定运行后由外部调用）
      */
     public func resetBackoff(actor: ActorRef): Unit {
         let actorKey = actor.path.toString()
-        retryCounts.remove(actorKey)
-        retryDelays.remove(actorKey)
+        mutex.lock()
+        states.remove(actorKey)
+        mutex.unlock()
     }
+
+    /** 当前受跟踪的 Actor 数（测试用） */
+    public func trackedActors(): Int64 {
+        mutex.lock()
+        let n = states.size
+        mutex.unlock()
+        n
+    }
+}
+
+/** 单个 Actor 的退避状态（只在 BackoffSupervisionStrategy 的锁内访问） */
+class BackoffState {
+    var nextDelay: Duration = Duration.millisecond * 0
+    var retries: Int32 = 0
+
+    init() {}
 }
 
 /**
@@ -321,6 +357,8 @@ public class AdvancedSupervisor <: Supervisor {
                 log_advanced_supervision.error("[SUPERVISION] 恢复Actor: ${failure.actor.path.toString()}")
             case SupervisionDirective.Restart =>
                 log_advanced_supervision.error("[SUPERVISION] 重启Actor: ${failure.actor.path.toString()}")
+            case SupervisionDirective.RestartAfter(delay) =>
+                log_advanced_supervision.error("[SUPERVISION] ${delay.toMilliseconds()}ms 后重启Actor: ${failure.actor.path.toString()}")
             case SupervisionDirective.Stop =>
                 log_advanced_supervision.error("[SUPERVISION] 停止Actor: ${failure.actor.path.toString()}")
                 removeChild(failure.actor)
@@ -393,6 +431,7 @@ public class SupervisionMetrics {
         match (directive) {
             case SupervisionDirective.Resume => resumeCount.fetchAdd(1)
             case SupervisionDirective.Restart => restartCount.fetchAdd(1)
+            case SupervisionDirective.RestartAfter(_) => restartCount.fetchAdd(1)
             case SupervisionDirective.Stop => stopCount.fetchAdd(1)
             case SupervisionDirective.Escalate => escalateCount.fetchAdd(1)
         }
