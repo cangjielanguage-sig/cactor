@@ -330,7 +330,19 @@ class SyncSignal {
     }
 }
 
-/** Replicator 的共享状态：Actor 写入，任意线程读取 */
+/**
+ * Replicator 的共享状态：Actor 写入，任意线程读取。
+ *
+ * 锁只保护这里的容器（键 → 值的引用、订阅表、对等节点、统计），持锁时间与值的大小无关：
+ * 存进 values 的 ReplicatedValue 是深度不可变的（CRDT 的 add / remove / merge 都返回新实例，
+ * 内部 HashMap 构造完后不再写），经这把锁发布后，任意线程在锁外并发读取、遍历、合并、编码
+ * 都没有数据竞争。
+ *
+ * 历史（N0 / E43）：3e48028、4157d01 把 merge、encode、digest 全部挪进锁内、get() 改为编码再解码的副本，
+ * 认为"锁外并发遍历 HashMap"导致 SIGSEGV。E43 复核：同一批对象 9 线程并发 merge / 编码、
+ * 叠加四种 GC 配置连跑 50 轮无一次崩溃，旧写法也一样；锁内遍历反而让读线程长时间占锁、
+ * 压住 Actor 的写入（并行跑集群套件时 testConcurrentReadsDuringLocalUpdates 因此超时）。见计划 §3.7 第 13 批。
+ */
 class ReplicaStore {
     let lock = Mutex()
     let values = HashMap<String, ReplicatedValue>()
@@ -341,8 +353,6 @@ class ReplicaStore {
     var decodeErrors: Int64 = 0
     var bytesSent: Int64 = 0
     var digestRounds: Int64 = 0
-    // 缓存每个键的摘要（值变化时清除）
-    let digests = HashMap<String, String>()
 }
 
 class ReplicatorActor <: Actor {
@@ -351,6 +361,8 @@ class ReplicatorActor <: Actor {
     let gossipInterval: Duration
     let rnd = Random()
     var round: Int64 = 0
+    // 每个键的摘要缓存（值变化时在 apply 中清除）。只在本 Actor 线程访问，不需要锁
+    let digests = HashMap<String, String>()
 
     init(store: ReplicaStore, manager: SimpleRemoteManager, gossipInterval: Duration) {
         this.store = store
@@ -382,19 +394,14 @@ class ReplicatorActor <: Actor {
 
     private func onLocalUpdate(u: LocalUpdate): Unit {
         let result: Option<Exception> = try {
-            // modify / merge 会遍历存储在 store.values 里的 CRDT 对象（ORSet 的 entries/vv 是
-            // 引用类型 HashMap）。这些遍历必须在锁内进行：digestsNow() 在锁内调用 digest()，
-            // 也遍历同一批 HashMap；锁外遍历会与其并发，实测在全量并行测试下触发
-            // HashMap.contains 的 SIGSEGV（addr 0x8）。CRDT 的操作本身都是不可变的
-            // （add/remove/merge 返回新实例），锁只用于串行化对这些对象的**读取**。
-            let (next, check) = synchronized(store.lock) {
-                let current = store.values.get(u.key) ?? u.initial
-                let n = u.modify(current)
-                // 防止 modify 返回其他类型的值
-                let c = current.merge(n)
-                (n, c)
+            // 只有本 Actor 写 values，取出的值在本次处理期间不会被替换；值本身不可变，
+            // modify / merge 在锁外执行（用户的 modify 可能很慢，不能让读线程等它）
+            let current = synchronized(store.lock) { store.values.get(u.key) } ?? u.initial
+            let next = u.modify(current)
+            // 防止 modify 返回其他类型的值（此前用一次完整 merge 来触发类型检查，白白复制整个值）
+            if (current.kind() != next.kind()) {
+                throw IllegalArgumentException("不能把 ${u.key} 从 ${current.kind()} 改为 ${next.kind()}")
             }
-            let _ = check
             apply(u.key, next)
             push(u.key, next)
             None<Exception>
@@ -482,21 +489,27 @@ class ReplicatorActor <: Actor {
         }
     }
 
+    /** 全部键的当前摘要：锁内只取键与值的引用，编码与哈希在锁外（值不可变） */
     private func digestsNow(): HashMap<String, String> {
-        synchronized(store.lock) {
-            let out = HashMap<String, String>()
+        let snapshot = synchronized(store.lock) {
+            let l = ArrayList<(String, ReplicatedValue)>(store.values.size)
             for ((k, v) in store.values) {
-                let d = match (store.digests.get(k)) {
-                    case Some(c) => c
-                    case None =>
-                        let c = v.digest()
-                        store.digests[k] = c
-                        c
-                }
-                out[k] = d
+                l.add((k, v))
             }
-            out
+            l
         }
+        let out = HashMap<String, String>(snapshot.size)
+        for ((k, v) in snapshot) {
+            let d = match (digests.get(k)) {
+                case Some(c) => c
+                case None =>
+                    let c = v.digest()
+                    digests[k] = c
+                    c
+            }
+            out[k] = d
+        }
+        out
     }
 
     private func onState(r: FieldReader): Unit {
@@ -505,18 +518,11 @@ class ReplicatorActor <: Actor {
             for (_ in 0..n) {
                 let key = r.next()
                 let incoming = ReplicatedValue.decodeFrom(r)
-                // merge 遍历存储值的 HashMap：必须与 digestsNow()/apply() 的遍历互斥
-                // （锁外遍历曾导致 HashMap.contains SIGSEGV，见 onLocalUpdate 注释）
-                let merged = synchronized(store.lock) {
-                    match (store.values.get(key)) {
-                        case Some(cur) => cur.merge(incoming)
-                        case None => incoming
-                    }
+                let merged = match (synchronized(store.lock) { store.values.get(key) }) {
+                    case Some(cur) => cur.merge(incoming)
+                    case None => incoming
                 }
-                synchronized(store.lock) {
-                    store.mergesReceived++
-                }
-                apply(key, merged)
+                apply(key, merged, remote: true)
             }
         } catch (_: Exception) {
             synchronized(store.lock) {
@@ -526,20 +532,23 @@ class ReplicatorActor <: Actor {
     }
 
     /** 保存新值；用户可见的值变化时通知订阅者（在 Replicator Actor 线程中调用） */
-    private func apply(key: String, next: ReplicatedValue): Unit {
-        let (changed, subs) = synchronized(store.lock) {
+    private func apply(key: String, next: ReplicatedValue, remote!: Bool = false): Unit {
+        let (before, subs) = synchronized(store.lock) {
             let before = store.values.get(key)
             store.values[key] = next
-            store.digests.remove(key)
-            let changed = match (before) {
-                case Some(b) => !b.sameValue(next)
-                case None => true
+            if (remote) {
+                store.mergesReceived++
             }
             let subs = match (store.subscribers.get(key)) {
                 case Some(l) => l.toArray()
                 case None => Array<(ReplicatedValue) -> Unit>()
             }
-            (changed, subs)
+            (before, subs)
+        }
+        digests.remove(key)
+        let changed = match (before) {
+            case Some(b) => !b.sameValue(next)
+            case None => true
         }
         if (changed) {
             for (cb in subs) {
@@ -550,23 +559,17 @@ class ReplicatorActor <: Actor {
         }
     }
 
-    /**
-     * 编码一组值。值对象内部的 HashMap 会被 encode 遍历，而 store.values 里的同一批对象
-     * 也可能正被 digestsNow()/merge 遍历——必须与它们在同一把锁下，否则并发遍历
-     * 引用类型 HashMap 会崩溃（见 onLocalUpdate 注释）。本函数只做内存拼装，不做 I/O。
-     */
+    /** 编码一组值（锁外：值不可变，见 ReplicaStore 注释） */
     private func encodeState(entries: Array<(String, ReplicatedValue)>): String {
-        synchronized(store.lock) {
-            let w = FieldWriter()
-            w.put("S")
-            w.put(entries.size)
-            for ((k, v) in entries) {
-                w.put(k)
-                // 值本身已是字段序列，直接拼接
-                w.sb.append(v.encode())
-            }
-            w.done()
+        let w = FieldWriter()
+        w.put("S")
+        w.put(entries.size)
+        for ((k, v) in entries) {
+            w.put(k)
+            // 值本身已是字段序列，直接拼接
+            w.sb.append(v.encode())
         }
+        w.done()
     }
 
     private func sendToPeers(text: String): Unit {
@@ -639,18 +642,23 @@ public class Replicator {
     private let store = ReplicaStore()
     private let actor: ActorRef
     private let system: CActorSystem
-    /** 本节点在 CRDT 中使用的节点标识（默认是远程地址） */
+    /** 本节点在 CRDT 中使用的节点标识（默认是"远程地址#启动标识"） */
     public let selfNode: String
 
+    /**
+     * 节点标识默认取"地址#启动标识"（对标 Akka 以 UniqueAddress 作为 CRDT 的节点键，N4）：
+     * 只用地址时，同一地址重启的新进程从 0 重新计数，会被其他副本里旧进程的分量吞掉——
+     * GCounter / PNCounter 的增量在新值超过旧值之前全部丢失，ORSet 的新 add 被当成"已见过又删除"而丢失
+     */
     public init(system: CActorSystem, manager: SimpleRemoteManager, gossipInterval: Duration) {
-        this(system, manager, gossipInterval, manager.getLocalAddress().toString())
+        this(system, manager, gossipInterval, "${manager.getLocalAddress().toString()}#${manager.selfUid()}")
     }
 
     public init(system: CActorSystem, manager: SimpleRemoteManager, gossipInterval: Duration, selfNode: String) {
         this.system = system
         this.selfNode = selfNode
         let s = store
-        let actorName = "replicator-${selfNode.replace("/", "_").replace(":", "_")}"
+        let actorName = "replicator-${selfNode.replace("/", "_").replace(":", "_").replace("#", "_")}"
         this.actor = system.actorOf({ => ReplicatorActor(s, manager, gossipInterval) }, actorName)
         manager.exposeActor("replicator", actor)
     }
@@ -687,26 +695,15 @@ public class Replicator {
     }
 
     /**
-     * 本地当前值（返回一份独立副本）。
+     * 本地当前值（不可变快照，对标 Akka 的 Get 返回不可变数据）。
      *
-     * 为什么不直接返回 store 里的引用：一旦把引用交给锁外调用方，调用方的遍历
-     * （setElements / encode / digest）就会与 Replicator Actor 线程的 merge/digestsNow
-     * 同时走访同一批 CRDT 内部 HashMap，实测会 SIGSEGV（ReplicatorDigestTest 全量并行时
-     * 崩溃于 ORSet.merge → HashMap.contains，addr 0x8）。
-     *
-     * 副本用"锁内编码 + 锁外解码"构造，保证编码遍历发生在锁内；不在热路径
-     * （生产代码走 setElements 等专用访问器）。
+     * 直接返回存储里的引用，O(1)：CRDT 值深度不可变，之后的本地更新或远程合并生成新实例、
+     * 不会改动已返回的这一份，调用方可以在任意线程遍历、合并、编码。
+     * （此前锁内编码 + 锁外解码复制一份，读线程长时间占锁，见 ReplicaStore 注释）
      */
     public func get(key: String): Option<ReplicatedValue> {
-        let encoded = synchronized(store.lock) {
-            match (store.values.get(key)) {
-                case Some(v) => Some(v.encode())
-                case None => None<String>
-            }
-        }
-        match (encoded) {
-            case Some(text) => Some(ReplicatedValue.decode(text))
-            case None => None<ReplicatedValue>
+        synchronized(store.lock) {
+            store.values.get(key)
         }
     }
 

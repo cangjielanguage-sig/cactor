@@ -134,9 +134,13 @@ public struct RemotingSettings {
         this.secureCookie = secureCookie
     }
 
-    /** 默认：心跳 200ms，φ 阈值 8，容忍停顿 1s，重发 200ms，确认 10ms，未确认上限 20000 条，6 小时后放弃（同 Akka） */
+    /**
+     * 默认值：心跳 1 s、φ 阈值 10、容忍停顿 10 s（同 Akka watch-failure-detector），重发 200 ms，确认 10 ms，
+     * 未确认上限 20000 条，6 小时后放弃（同 Akka）。
+     * 心跳判定不可达会隔离对端且不可撤回（E7′），所以容忍停顿取得宽：此前 1 s，一次 GC 停顿就可能误判
+     */
     public static func defaults(): RemotingSettings {
-        RemotingSettings(Duration.millisecond * 200, 8.0, Duration.second, Duration.millisecond * 200,
+        RemotingSettings(Duration.second, 10.0, Duration.second * 10, Duration.millisecond * 200,
             Duration.millisecond * 10)
     }
 
@@ -431,7 +435,7 @@ class RemoteHandshake <: TransportHandshake {
         if (!core.verifyMac(body, mac, tsText)) {
             return core.rejectHandshake("来自 ${addr} 的握手鉴权失败")
         }
-        if (!core.admitPeer(addr, uid)) {
+        if (!core.admitPeer(addr, uid, inbound: true)) {
             return core.rejectHandshake("${addr}#${uid} 已被隔离")
         }
         let reply = "${HELLO_ACK_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${mac}"
@@ -611,9 +615,18 @@ public class RemotingCore {
 
     /**
      * 握手 / 心跳 / ACK 得知对端身份：被隔离的 uid 拒绝；同一地址出现新 uid 说明对端重启——
-     * 隔离旧 uid、断开它残留的入站连接、向监视者投递 Terminated（旧实例上的 Actor 都已不在）
+     * 隔离旧 uid、断开它残留的入站连接、向监视者投递 Terminated（旧实例上的 Actor 都已不在）。
+     *
+     * inbound：新实例是从入站握手得知的。此时本节点发往该地址的出站关联还属于旧实例，
+     * 旧进程退出后它多半正处于重连退避（最长 5 s），新实例的应答（例如集群 JOIN 的回复）要等退避结束才发得出去；
+     * 这里重建出站关联，让发往新实例的消息立即重连（同 Akka：新实例出现时旧关联被隔离、换新关联）。
+     * 出站握手（confirm）得知时不重建：那条关联本身就刚连上新实例
      */
     func admitPeer(addr: String, uid: UInt64): Bool {
+        admitPeer(addr, uid, inbound: false)
+    }
+
+    func admitPeer(addr: String, uid: UInt64, inbound!: Bool): Bool {
         let (admitted, previous) = synchronized(lock) {
             if (quarantined.contains(quarantineKey(addr, uid))) {
                 (false, None<UInt64>)
@@ -633,7 +646,15 @@ public class RemotingCore {
         if (let Some(old) <- previous) {
             peerRestarts.fetchAdd(1)
             log_remoting.warn("远程节点 ${addr} 已重启（启动标识 ${old} → ${uid}），隔离旧实例并向监视者投递 Terminated")
-            manager().transportInternal().closeInboundFrom(quarantineKey(addr, old)) |> ignoreCount
+            let t = manager().transportInternal()
+            t.closeInboundFrom(quarantineKey(addr, old)) |> ignoreCount
+            if (inbound) {
+                try {
+                    t.resetOutbound(NetworkAddress.parse(addr))
+                } catch (_: Exception) {
+                    ()
+                }
+            }
             terminateWatchersOf(addr)
         }
         admitted

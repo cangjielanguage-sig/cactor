@@ -49,7 +49,7 @@ public class EventHandlerException <: PersistenceException {
  *
  * ⚠️ 使用须知：本类是 persistence 模块三套并行事件溯源 API 之一，**新代码请优先使用
  * EventStore + EventSourcedActor**（event_store.cj / event_sourced_actor.cj），那是 E8
- * 持久化收敛后的主路径。本类保留是为了编译兼容，后续版本将标记 @Deprecated。
+ * 持久化收敛后的主路径。本类保留是为了编译兼容，已标记 @Deprecated（E8′），2.0 删除。
  *
  * 语义保证（2026-11-06 修复 B8 后）：
  * - saveSnapshot 保存真实状态数据（非字符串状态需先自行序列化为 String）；
@@ -59,6 +59,7 @@ public class EventHandlerException <: PersistenceException {
  * - preStart 自动恢复（重启后的新实例同样经 postRestart → preStart 恢复，P4）；已手动 startRecovery 的不重复恢复；
  * - 恢复失败上抛 PersistenceException：在 preStart 中即启动失败，默认监督策略停止该 Actor（对标 Akka onRecoveryFailure）。
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public open class AbstractPersistentActor <: PersistentActor {
     private let eventStore: EnhancedEventStore
     private let snapshotStore: SnapshotStore
@@ -325,6 +326,7 @@ public open class AbstractPersistentActor <: PersistentActor {
 /**
  * 示例持久化Actor - 计数器
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class PersistentCounterActor <: PersistentActor {
     private var count: Int32
     private let actorId: String
@@ -473,6 +475,7 @@ public class PersistentCounterActor <: PersistentActor {
 /**
  * 计数器增加事件
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class CounterIncrementedEvent <: EventPayload {
     private let increment: Int32
     
@@ -493,6 +496,7 @@ public class CounterIncrementedEvent <: EventPayload {
 /**
  * 计数器减少事件
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class CounterDecrementedEvent <: EventPayload {
     private let decrement: Int32
     

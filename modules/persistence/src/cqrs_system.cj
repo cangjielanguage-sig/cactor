@@ -15,6 +15,7 @@ let log_cqrs_system: Logger = Logging.logger("cactor_persistence.cqrs_system")
 /**
  * 命令接口 - 所有命令必须实现此接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface Command {
     func getCommandId(): String
     func getAggregateId(): String
@@ -25,6 +26,7 @@ public interface Command {
 /**
  * 查询接口 - 所有查询必须实现此接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface Query {
     func getQueryId(): String
     func getQueryType(): String
@@ -34,6 +36,7 @@ public interface Query {
 /**
  * 查询结果接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface QueryResult {
     func getResultType(): String
     func serialize(): String
@@ -42,6 +45,7 @@ public interface QueryResult {
 /**
  * 聚合根接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface AggregateRoot {
     func getAggregateId(): String
     func getVersion(): Int64
@@ -53,6 +57,7 @@ public interface AggregateRoot {
 /**
  * 命令处理器接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface CommandHandler {
     func handle(command: Command, aggregate: Option<AggregateRoot>): Array<EventPayload>
     func canHandle(command: Command): Bool
@@ -61,6 +66,7 @@ public interface CommandHandler {
 /**
  * 查询处理器接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface QueryHandler {
     func handle(query: Query): Future<QueryResult>
     func canHandle(query: Query): Bool
@@ -69,6 +75,7 @@ public interface QueryHandler {
 /**
  * 读模型接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface ReadModel {
     func getModelId(): String
     func update(event: PersistentEvent): Unit
@@ -78,6 +85,7 @@ public interface ReadModel {
 /**
  * 查询规格接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface QuerySpec {
     func getSpecType(): String
     func getParameters(): HashMap<String, String>
@@ -86,6 +94,7 @@ public interface QuerySpec {
 /**
  * 基础命令实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class BaseCommand <: Command {
     private let commandId: String
     private let aggregateId: String
@@ -112,6 +121,7 @@ public class BaseCommand <: Command {
 /**
  * 基础查询实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class BaseQuery <: Query {
     private let queryId: String
     private let queryType: String
@@ -140,6 +150,7 @@ public class BaseQuery <: Query {
 /**
  * 基础查询结果实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class BaseQueryResult <: QueryResult {
     private let resultType: String
     private let data: String
@@ -160,6 +171,7 @@ public class BaseQueryResult <: QueryResult {
 /**
  * 基础聚合根实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class BaseAggregateRoot <: AggregateRoot {
     private let aggregateId: String
     private var version: Int64
@@ -201,6 +213,7 @@ public class BaseAggregateRoot <: AggregateRoot {
 /**
  * CQRS总线 - 协调命令和查询处理
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class CQRSBus {
     private let commandHandlers: HashMap<String, CommandHandler>
     private let queryHandlers: HashMap<String, QueryHandler>
@@ -328,6 +341,7 @@ public class CQRSBus {
 /**
  * 简单读模型实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class SimpleReadModel <: ReadModel {
     private let modelId: String
     private let data: HashMap<String, String>
@@ -384,6 +398,7 @@ public class SimpleReadModel <: ReadModel {
 /**
  * 简单查询规格实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class SimpleQuerySpec <: QuerySpec {
     private let specType: String
     private let parameters: HashMap<String, String>

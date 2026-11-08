@@ -186,3 +186,9 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.typed_spawn_bench"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.journal_crash"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ddata_stress"]
+output-type = "executable"

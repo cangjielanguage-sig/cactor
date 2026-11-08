@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 多进程宕机验证：3 个独立进程组成集群（KeepMajority 脑裂处理 + remember-entities 分片），
-# 实体全部启动后 kill -9 最后一个进程，driver 校验它被移出集群、其上的实体在存活进程上自动重启。
+# 实体全部启动后 kill -9 最后一个进程，driver 校验它被移出集群、其上的实体在存活进程上自动重启；
+# 随后在原端口重启该进程，driver 校验新实例 10 s 内重新 Up、不继承旧实例身份、实体 ID 记录不丢。
 #   tools/cluster_crash_demo.sh      # 需要先在 workspace 根目录 cjpm build
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -34,10 +35,24 @@ else
     kill -9 "$victim" 2>/dev/null
 fi
 wait "$victim" 2>/dev/null
+# driver 校验完宕机处理后，在原端口重启被 kill 的进程
+reborn=""
+for _ in $(seq 1 1200); do
+    if grep -q READY_TO_RESTART "$logdir/node0.log" 2>/dev/null || ! kill -0 "$driver" 2>/dev/null; then
+        break
+    fi
+    sleep 0.1
+done
+if grep -q READY_TO_RESTART "$logdir/node0.log"; then
+    CACTOR_LOG_LEVEL=error "$BIN" "$((BASE + 2))" "$SEED" "$N" worker > "$logdir/node2b.log" 2>&1 &
+    reborn=$!
+    echo "已在原端口重启进程 127.0.0.1:$((BASE + 2))"
+fi
 status=0
 wait "$driver" || status=1
 wait "$survivor" || status=1
-grep -hv -e '^\s*$' -e READY_TO_KILL "$logdir/node0.log" "$logdir/node1.log"
+if [[ -n "$reborn" ]]; then wait "$reborn" || status=1; else status=1; fi
+grep -hv -e '^\s*$' -e READY_TO_KILL -e READY_TO_RESTART "$logdir/node0.log" "$logdir/node1.log" "$logdir"/node2b.log 2>/dev/null
 rm -rf "$logdir"
 if [[ $status -eq 0 ]]; then echo "存活进程全部正常退出"; else echo "有进程失败"; fi
 exit $status

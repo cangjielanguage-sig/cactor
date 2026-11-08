@@ -14,7 +14,7 @@ import std.unittest.testmacro.*
 import cactor_core.actor.{Actor, ActorRef, ActorContext, Terminated}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_core.typed.{TypedAskTimeoutException}
-import cactor_foundation.network.{NetworkAddress, NetworkTransport, TcpTransport, TransportProtocol}
+import cactor_foundation.network.{NetworkAddress, NetworkTransport, TcpTransport, TransportProtocol, TransportHandshake}
 import cactor_remote.*
 import cactor_testkit.*
 
@@ -75,6 +75,10 @@ class LossyTransport <: NetworkTransport {
     public func start(): Unit { inner.start() }
     public func stop(): Unit { inner.stop() }
     public func setDataHandler(handler: (Array<UInt8>) -> Unit): Unit { inner.setDataHandler(handler) }
+    // 握手由内层 TCP 传输直接读写，不经过丢帧逻辑（丢的是数据帧）
+    public func setHandshake(h: TransportHandshake): Unit { inner.setHandshake(h) }
+    public func closeInboundFrom(peerKey: String): Int64 { inner.closeInboundFrom(peerKey) }
+    public func resetOutbound(address: NetworkAddress): Unit { inner.resetOutbound(address) }
     public func getLocalAddress(): NetworkAddress { inner.getLocalAddress() }
     public func isActive(): Bool { inner.isActive() }
 

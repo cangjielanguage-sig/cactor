@@ -301,6 +301,15 @@ public class ShardingRememberEntitiesTest {
         // 不发任何消息：宕机节点上的实体在新拥有者上被主动启动
         @Expect(awaitCondition(CLUSTER_WAIT, { => totalLocal([regions[0], regions[1]]) == 30 }), true)
         @Expect(regions[0].restartedCount() + regions[1].restartedCount(), victimIds.size)
+        // 区域登记实体是同步的，preStart（写启动记录）在实体自己的线程上稍后执行：
+        // 并行跑套件、负载高时，上面的计数可能先于最后几条启动记录成立
+        @Expect(awaitCondition(CLUSTER_WAIT, { =>
+            var all = true
+            for (id in victimIds) {
+                all = all && startLog.startsOf(id).size >= 2
+            }
+            all
+        }), true)
         for (id in victimIds) {
             let starts = startLog.startsOf(id)
             @Expect(starts.size, 2)

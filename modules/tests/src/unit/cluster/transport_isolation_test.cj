@@ -14,6 +14,7 @@ import std.unittest.testmacro.*
 import cactor_core.message.{StringMessage}
 import cactor_foundation.network.{NetworkAddress, TransportProtocol}
 import cactor_remote.*
+import cactor_cluster.membership.*
 import cactor_cluster.ddata.{FieldWriter}
 import cactor_testkit.*
 
@@ -46,6 +47,32 @@ public class TransportIsolationTest {
         // 守护 Actor 仍在正常工作：gossip 继续增长
         let before = nodes[0].cluster.gossipCount()
         @Expect(awaitCondition(Duration.second * 2, { => nodes[0].cluster.gossipCount() > before }), true)
+        forger.stop()
+        closeAll(nodes)
+    }
+
+    /** E7′：成员都配置了共享密钥，不知道密钥的进程伪造的 JOIN / HB 连握手都过不了 */
+    @TestCase
+    public func forgedJoinWithoutCookieIsRejected(): Unit {
+        let n0 = CNode("e7-join-0")
+        let n1 = CNode("e7-join-1")
+        for (n in [n0, n1]) {
+            n.remote.configure(RemotingSettings.defaults().withSecureCookie("cluster-cookie"))
+        }
+        n0.join([n0.addr()], FAST)
+        n1.join([n0.addr()], FAST)
+        let nodes = [n0, n1]
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 2) }), true)
+        let forger = SimpleRemoteManager(NetworkAddress("127.0.0.1", 0), TransportProtocol.TCP)
+        forger.start()
+        let fake = "127.0.0.1:1"
+        forger.remoteActorOf(n0.addr(), "cluster").tell(StringMessage(FieldWriter().put("JOIN").put(fake).put("1").done()))
+        forger.remoteActorOf(n0.addr(), "cluster").tell(StringMessage(FieldWriter().put("HB").put(fake).done()))
+        @Expect(awaitCondition(Duration.second * 5, { => n0.remote.rejectedHandshakes() >= 1 }), true)
+        // 负向断言：再观察 500 ms，伪造的成员没有被加入
+        sleep(Duration.millisecond * 500)
+        @Expect(n0.cluster.state().member(fake).isNone(), true)
+        @Expect(n0.cluster.members().size, 2)
         forger.stop()
         closeAll(nodes)
     }

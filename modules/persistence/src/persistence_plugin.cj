@@ -8,6 +8,7 @@ import cactor_foundation.logging.{Logger, Logging}
 let log_persistence_plugin: Logger = Logging.logger("cactor_persistence.persistence_plugin")
 
 // 持久化配置
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class PersistenceConfig {
     private let enabled: Bool
     private let eventStoreType: String
@@ -54,6 +55,7 @@ public class PersistenceConfig {
 }
 
 // 持久化插件接口
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface PersistencePlugin {
     func isEnabled(): Bool
     func persistEvent(actorName: String, eventType: String, eventData: String): Unit
@@ -64,6 +66,7 @@ public interface PersistencePlugin {
 }
 
 // 默认持久化插件实现
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class DefaultPersistencePlugin <: PersistencePlugin {
     private let config: PersistenceConfig
     private let eventStore: EventStore
@@ -104,14 +107,15 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
         
         mutex.lock()
         try {
-            let currentSeq = match (sequenceNumbers.get(actorName)) {
-                case Some(seq) => seq + 1
-                case None => 1
+            // 期望序号取已知的最高序号（首次使用时从日志读取）：同一标识的另一个写者先写入时追加被拒绝（P10）
+            let expected = match (sequenceNumbers.get(actorName)) {
+                case Some(seq) => seq
+                case None => eventStore.highestSequenceNr(actorName)
             }
-            sequenceNumbers.add(actorName, currentSeq)
-            
+            let currentSeq = expected + 1
             let event = BasicEvent("${actorName}_${currentSeq}", actorName, eventType, eventData)
-            eventStore.saveEvent(event)
+            eventStore.append(actorName, [event], expected)
+            sequenceNumbers[actorName] = currentSeq
             
             // 检查是否需要快照
             if (currentSeq % config.getSnapshotInterval() == 0) {
@@ -135,30 +139,24 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
                 log_persistence_plugin.debug("${actorName}: 从快照恢复，序列号=${snapshot.getSequenceNumber()}")
                 onSnapshot(snapshot)
                 
-                // 恢复快照之后的事件
-                let events = eventStore.getEventsAfter(actorName, snapshot.getTimestamp())
-                for (event in events) {
-                    onEvent(event)
+                // 按序号重放快照之后的事件（P5：此前按时间戳，同一毫秒内的事件会重复或遗漏）
+                for (env in eventStore.replay(actorName, snapshot.getSequenceNumber() + 1, Int64.Max)) {
+                    onEvent(env.event)
                 }
                 
                 mutex.lock()
-                sequenceNumbers.add(actorName, snapshot.getSequenceNumber())
+                sequenceNumbers[actorName] = max(snapshot.getSequenceNumber(), eventStore.highestSequenceNr(actorName))
                 mutex.unlock()
                 
             case None => 
                 log_persistence_plugin.debug("${actorName}: 从头开始恢复")
-                // 恢复所有事件
-                let events = eventStore.getEvents(actorName)
-                var maxSeq: Int64 = 0
-                for (event in events) {
-                    onEvent(event)
-                    if (maxSeq < 1) {
-                        maxSeq = 1
-                    }
+                // 恢复所有事件；最高序号取日志的（P5：此前恒为 1，之后的快照序号全错）
+                for (env in eventStore.replay(actorName, 1, Int64.Max)) {
+                    onEvent(env.event)
                 }
                 
                 mutex.lock()
-                sequenceNumbers.add(actorName, maxSeq)
+                sequenceNumbers[actorName] = eventStore.highestSequenceNr(actorName)
                 mutex.unlock()
         }
         
@@ -201,6 +199,7 @@ public class DefaultPersistencePlugin <: PersistencePlugin {
 }
 
 // 持久化插件工厂
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class PersistencePluginFactory {
     public static func create(config: PersistenceConfig): PersistencePlugin {
         DefaultPersistencePlugin(config)
@@ -220,6 +219,7 @@ public class PersistencePluginFactory {
 }
 
 // 持久化消息类型
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class PersistEventMessage <: Message {
     private let eventType: String
     private let eventData: String
@@ -238,6 +238,7 @@ public class PersistEventMessage <: Message {
     }
 }
 
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class TakeSnapshotMessage <: Message {
     private let stateData: String
     
@@ -253,6 +254,7 @@ public class TakeSnapshotMessage <: Message {
     }
 }
 
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class RecoveryCompleteMessage <: Message {
     public init() {}
 

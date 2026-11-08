@@ -76,11 +76,20 @@ if grep -qE '\[ (FAILED|ERROR) \] CASE' "$log" || ! grep -q 'cjpm test success' 
     exit 1
 fi
 
+step "并行集群套件（E43：集群用例 8 进程并行跑 2 轮，崩溃与断言失败都判红）"
+# 上面的全量测试为了稳定串行执行；集群套件另外并行跑，保留"并行下零 SIGSEGV"的回归防线（N0）。
+# 50 轮验收：tools/cluster_parallel_soak.sh 50 8
+guard tools/cluster_parallel_soak.sh 2 8 | tail -3
+
 step "示例自检"
 CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.chat_room
 CACTOR_LOG_LEVEL=error cjHeapSize=4GB guard ./target/release/bin/cactor_examples.scale_test 50000 child | tail -3
 guard tools/cluster_demo.sh | tail -2
-guard tools/cluster_crash_demo.sh | tail -4
+guard tools/cluster_crash_demo.sh | grep -E "验证|重新加入|记录完整|正常退出"
+# 持久化日志：随机 kill -9 + 尾部零填充 / 写到一半，已确认的事件一条不少（E8′）
+guard tools/journal_crash_demo.sh | tail -2
+# 分布式数据：3 节点并发读写 + 四种 GC 配置各一轮，无崩溃、全部收敛（E43）
+guard tools/ddata_stress.sh 4 5 | tail -1
 # 20 秒稳定性自检：收发零丢失、故障全部重启、子 Actor 全部停止、静止存活堆不增长
 CACTOR_LOG_LEVEL=off guard ./target/release/bin/cactor_examples.soak_test 20 | tail -5
 

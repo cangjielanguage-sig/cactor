@@ -14,6 +14,7 @@ import cactor_core.message.{Message}
 /**
  * 事件载荷接口 - 所有事件数据必须实现此接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface EventPayload {
     func getEventType(): String
     func serialize(): String
@@ -23,6 +24,7 @@ public interface EventPayload {
 /**
  * 增强的事件定义
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public struct PersistentEvent {
     public let persistenceId: String
     public let sequenceNr: Int64
@@ -88,6 +90,7 @@ public struct PersistentEvent {
 /**
  * 增强的事件存储接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface EnhancedEventStore {
     /**
      * 保存事件批次（原子操作）
@@ -118,6 +121,7 @@ public interface EnhancedEventStore {
 /**
  * 内存增强事件存储实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class MemoryEnhancedEventStore <: EnhancedEventStore {
     private let events: HashMap<String, ArrayList<PersistentEvent>>
     private let sequenceNumbers: HashMap<String, Int64>
@@ -258,6 +262,7 @@ public class MemoryEnhancedEventStore <: EnhancedEventStore {
 /**
  * 持久化Actor接口
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface PersistentActor <: Actor {
     /**
      * 持久化ID - 用于标识事件流
@@ -298,6 +303,7 @@ public interface PersistentActor <: Actor {
 /**
  * 简单事件载荷实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class SimpleEventPayload <: EventPayload {
     private let eventType: String
     private let data: String
@@ -321,12 +327,14 @@ public class SimpleEventPayload <: EventPayload {
 /**
  * Future接口简化实现
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public interface Future<T> {
     func get(): T
     func isCompleted(): Bool
     func onComplete(callback: (T) -> Unit): Unit
 }
 
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class CompletedFuture<T> <: Future<T> {
     private let value: T
     
@@ -341,6 +349,7 @@ public class CompletedFuture<T> <: Future<T> {
     }
 }
 
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class FailedFuture<T> <: Future<T> {
     private let exception: Exception
     
@@ -361,6 +370,7 @@ public class FailedFuture<T> <: Future<T> {
 /**
  * Future工厂
  */
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class FutureFactory {
     public static func successful(value: Unit): CompletedFuture<Unit> {
         CompletedFuture<Unit>(value)

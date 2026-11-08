@@ -320,6 +320,15 @@ public class SimpleRemoteManager {
         transport.getLocalAddress()
     }
 
+    /**
+     * 本进程的启动标识（每次创建管理器随机生成，握手时交给对端）。
+     * 同一地址重启后标识不同，"地址#标识"才能唯一确定一个节点实例（对标 Akka UniqueAddress），
+     * 集群成员与 CRDT 的节点标识都用它，避免新进程继承旧进程的身份（N4）
+     */
+    public func selfUid(): UInt64 {
+        core.selfUid()
+    }
+
     public func getSender(): SimpleRemoteSender {
         sender
     }

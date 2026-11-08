@@ -135,6 +135,38 @@
     失败抛异常。依赖异常判断对端不可达的代码请改用远程 watch 或 `tellReliable`。传输未启动、帧超过 16 MB 仍抛异常。
   - 出站积压超过 64 MB（控制队列 4 MB）时**丢弃新帧**并限速告警；此前发送方阻塞等待。
   - 连接失败后按 100 ms 起翻倍、封顶 5 s 退避重连；没有连接且空闲 10 s 的关联退出。
+- **远程连接握手与隔离（E7′，对标 Akka Artery handshake / quarantine）**：
+  - `SimpleRemoteManager` 的每条 TCP 连接先交换身份（地址 + 启动标识）：连接方发 HELLO、接受方回 ACK，
+    不通过就断开。**与未升级的节点不能互通**（旧节点不发握手，第一帧被拒绝），请整群升级。
+  - 远程 watch 的心跳判定不可达、可靠消息超过 `giveUpAfter` 未确认时，对端当前实例被**隔离**：再也连不进来，
+    必须重启（换新的启动标识）才能重新通信——误判不可撤回，与 Akka 相同。此前判定不可达后对端照样能继续收发消息。
+  - 同一地址出现新的启动标识（对端重启）时，旧实例被隔离、监视者立即收到 `Terminated`。
+  - `RemotingSettings.defaults()` 的心跳改为 1 s、φ 阈值 10、容忍停顿 10 s（同 Akka watch-failure-detector；
+    此前 200 ms / 8 / 1 s——误判不可撤回之后，1 s 容忍一次 GC 停顿就可能把活着的节点永久隔离）。需要快速检测的请显式配置。
+- **集群节点实例与种子加入（E7′ 的 N4 / N5，对标 Akka UniqueAddress / FirstSeedNodeProcess）**：
+  - 成员 gossip 与 JOIN 的报文格式变了（成员带启动标识 uid、gossip 带墓碑），**与未升级的节点不能组成同一个集群**，请整群升级。
+  - 同一地址重启的进程是新实例：加入时旧实例先被 down、由 Leader 移除，新实例再以 Joining 加入、分配新的 upNumber。
+    此前新进程直接继承旧成员的 Up 状态与 upNumber。订阅者会依次收到旧实例的 `MemberRemoved` 与新实例的 `MemberJoined` / `MemberUp`。
+  - 被移除的地址可以由**新实例**重新加入（此前同一地址永远被拒绝）；被移除的同一实例仍被拒绝。
+  - 首个种子不再立即自己组成集群：先向其他种子发 JOIN，其他种子全部回 NACK（都是新启动的）立即组成；
+    没有任何回应时等 `seedNodeTimeout`（默认 5 s）后组成；已有集群在运行时加入它。种子列表只有自己（或为空）时行为不变。
+    此前首个种子重启后会另起一个只有自己的集群（两个集群、两个 Singleton）。
+  - `Replicator` 的默认节点标识由远程地址改为"地址#启动标识"：同一地址重启后的 CRDT 写入不再被旧进程的分量吞掉
+    （此前 PNCounter 的新增量在超过旧值前全部丢失，ORSet 的新 add 被当成已删除）。显式传入 `selfNode` 的不受影响。
+  - `Cluster.selfMember()` 只返回本实例的记录（本地址的记录属于别的实例时为 None）。
+- **持久化日志 v2（E8′，对标 Akka journal）**：
+  - `FileEventStore` 的文件格式改为 v2（文件头 + 每条记录带序号、CRC32、tags）。v1 文件首次打开时**自动原子迁移**，
+    迁移后旧版本程序读不了，请整体升级后再回滚需先备份 `*.journal`。
+  - `FileEventStore` 默认 **fsync**：`append` / `saveEvent` 返回时事件已落盘，逐条写入约 1 千条/秒（本机），
+    比此前（只写页缓存、不 fsync）慢；吞吐敏感处用 `persistAll` / 批量 `append`（一批一次 fsync），
+    或 `FileEventStore(path, fsync: false)`（只防进程崩溃，不防断电）。
+  - `EventSourcedActor.persist` 改用带期望序号的 `append`：同一持久化标识的第二个写者被拒绝（`JournalConflictException`，
+    交给监督，重启后从日志恢复）；此前两个实例的事件交错写入日志、状态分叉。
+  - 重放一律按序号：`EventSourcedActor` 恢复、`ReadJournal` 的 `sequenceNr`、`DefaultPersistencePlugin` 快照之后的重放
+    （此前按时间戳，同一毫秒内的事件会重复或遗漏；没有快照时恢复出的最高序号恒为 1）。`deleteTo` 之后序号不再等于位置。
+  - 日志尾部残缺（写到一半、断电后的零填充）自动截断；中间损坏而其后仍有完整记录时抛 `PersistenceCorruptionException`，
+    不截断（此前长度为 0 的记录被当成合法记录，恢复报损坏、Actor 永远起不来；中间损坏不被发现）。
+  - `FileSnapshotStore` / `FileDurableStateStore` 写入改为"临时文件 fsync → rename → 目录 fsync"，返回时已落盘。
 - **`AbstractPersistentActor`（E8′ 的 P3 / P4 部分）**：
   - `preStart` 自动从存储恢复（重启后的新实例同样恢复）；已手动调用 `startRecovery()` 的不重复恢复。
     此前没有恢复钩子：重启后序号为 0，首次 persist 即与存储冲突，在默认监督下无限重启。
@@ -230,6 +262,16 @@
   - `@actor` 把 `onStarted(context)` 当成"处理 ActorContext 类型消息"的方法（配合 `cases` 清单时直接编译失败），
     写在前面的兜底处理方法吞掉其后的具体类型处理方法（T13）。
 - **断路器监督半开时的 RestartAfter（R14）**：补专门用例，确认半开状态下基础策略给出的退避重启同样按"再失败即停止"处理。
+- **Replicator 读路径长时间占锁、压住写入（E43，N0 复核）**：`get()` 此前在锁内把整个 CRDT 编码一遍、锁外再解码出副本，
+  `setElements` / `counterValue` / `registerValue` 每次读都如此；摘要、合并、推送编码也全部在锁内。4 个读线程就能让
+  Replicator Actor 抢不到锁，并行跑集群套件时 `testConcurrentReadsDuringLocalUpdates` 50 轮中 22 轮超时。
+  现在锁只保护"键 → 值引用"：`get()` 直接返回不可变值（O(1)，对标 Akka `GetSuccess`），modify、类型检查、merge、
+  编码、摘要都在锁外；摘要缓存只在 Replicator Actor 线程访问、不再加锁；modify 返回其他类型时直接拒绝（此前为此做一次完整 merge）。
+  当年把这些挪进锁内是为了"消除 SIGSEGV"，E43 复核否定了这个归因：值深度不可变、经锁发布，只读共享没有数据竞争，
+  旧写法的独立压测与旧提交的集群套件在本机都复现不出崩溃（见计划 §3.7 第 13 批）。
+- **集群测试在并行执行下的时序问题（E43）**：remember-entities 用例在区域登记实体后立即检查启动记录（`preStart`
+  在实体线程上稍后执行），改为等待；"原端口重启"的用例改用临时端口段（32768–60999）之外的端口——宕机释放的临时端口
+  会被并行的其他测试进程拿去当出站连接的源端口，重启时 "Address already in use"。
 
 ### ✨ 新增（docs/plan/20261106.md 阶段 1，2026-11-06）
 - **经典 `context.watchWith(ref, message)`（E32）**：目标停止时收到 message 而不是 `Terminated`；
@@ -285,6 +327,34 @@
 - **失败用例先行（E31）**：N2（可靠投递的接收端重启后不再投递）、P3（persist 处理器异常回退已落库序号）
   先以 `@Skip` 入库；随 E41 / E8′ 修复后转正，见 `unit/remote_semantics/system_message_reliability_test.cj`、
   `unit/persistence/persist_failure_semantics_test.cj`。
+- **远程鉴权与隔离 API（E7′）**：
+  - `RemotingSettings.withSecureCookie(cookie)` / 八参构造的 `secureCookie`：握手带 HMAC-SHA256、双向校验，
+    时间戳窗口 ±5 分钟，ACK 回显 HELLO 的 mac 防止重放旧应答；不知道密钥的节点连不上，伪造的 DEATH / JOIN / HB 进不来。
+  - `SimpleRemoteManager.quarantine(address, reason)` / `isQuarantined(address)` / `rejectedHandshakes()` / `quarantinedCount()`。
+  - 传输层：`TransportHandshake` 接口；`NetworkTransport.setHandshake` / `closeInboundFrom` / `resetOutbound`（默认实现为空）；
+    `TcpTransport.getHandshakeFailures()` / `getRejectedHandshakes()`。握手帧限 4 KB，接受方等第一帧限时 5 s。
+  - `cactor_foundation.hashing`：纯仓颉的 `sha256`、`hmacSha256`、`constantTimeEquals`、`toHex` / `fromHex`
+    （对照 FIPS 180-4 与 RFC 4231 标准向量，不依赖 OpenSSL）。
+- **持久化日志 v2 API（E8′）**：`EventStore.append(persistenceId, events, expectedSeq): Int64`、
+  `replay(persistenceId, fromSeq, toSeq): Array<EventEnvelope>`、`highestSequenceNr(persistenceId)`、`deleteTo(persistenceId, toSeq)`
+  （接口默认实现基于旧方法，只实现旧接口的自定义存储照常编译）；`JournalConflictException`（`PersistenceException` 子类）；
+  `Event.getTags()`、`BasicEvent.withTags(tags)` / 六参构造，`ReadJournal.currentEventsByTag(tag)`；
+  `EventSourcedActor.persist(type, data, tags)` / `persistAll(events[, tags])`（一批一次 fsync）/ `deleteEventsTo(seq)`；
+  `FileEventStore(path, fsync:, maxOpenFiles:)`（常驻追加句柄，超过上限按 LRU 关闭）、`openFileCount()`；
+  `persistenceFsyncCount()`；`cactor_foundation.hashing.crc32` / `crc32Update`（与 zlib 一致）。
+  组提交：并发写同一日志的写者合并 fsync（本机 8 线程 1000 次追加 164–215 次 fsync，吞吐约为逐条的 5 倍）。
+  新增 `cactor_examples.journal_crash` 与 `tools/journal_crash_demo.sh`（随机 kill -9 + 伪造残缺尾部，已接入 `tools/ci.sh`）。
+- **弃用（E8′ / B9）**：持久化的 Enhanced 族（`EnhancedEventStore`、`AbstractPersistentActor`、`PersistentActor`、`PersistentEvent` 等）、
+  CQRS（`CQRSBus` 等）、Plugin / Manager（`PersistencePlugin`、`PersistentActorManager` 等）标记 `@Deprecated`，2.0 删除；
+  事件溯源只保留 `EventSourcedActor` + `EventStore` 一套。
+- **集群节点实例 API（E7′，N4 / N5）**：`Member.uid`、`Member.uniqueAddress()`、四参构造 `Member(address, status, upNumber, uid)`
+  （三参构造保留，uid 为 0）、`uniqueAddressOf(address, uid)`；`Cluster.selfUid` / `selfUniqueAddress()`；
+  `SimpleRemoteManager.selfUid()`；`ClusterSettings.seedNodeTimeout`（六参构造、`withSeedNodeTimeout(d)`、配置键
+  `cluster.seed-node-timeout`）。新实例从入站握手出现时，远程层重建发往该地址的出站关联，不等旧连接的重连退避（最长 5 s）。
+  多进程宕机验证（`tools/cluster_crash_demo.sh`）增加"原端口重启后 10 s 内以新实例重新加入、实体 ID 记录不丢"。
+- **ManagementServer 加固（E7′，T14）**：`ManagementServer(system, host, port)` 指定绑定地址；
+  `withMaxConnections(n)`（默认 64，超出直接回 503）；`withRequestTimeout(d)`（默认 10 s，从接受连接起的总时限，
+  慢速客户端到时被断开；此前只有单次读超时 5 s）；`rejectedConnections()`。
 - **传输优先通道（E40）**：`NetworkTransport.sendPriority(address, data)`（接口默认实现等同 `send`，自定义传输不受影响）；
   TCP 实现中控制帧先于已积压的普通帧写出（普通数据按帧边界分段写，段间插入控制帧）。
   `SimpleRemoteSender.sendControl` / `SimpleRemoteManager.sendControl`：远程层 `$sys`（PING / PONG / ACK / WATCH / DEATH）
@@ -299,6 +369,11 @@
 - **默认调度器饥饿检测（E39）**：工作线程卡在同一次 Actor 运行里超过 `CACTOR_STARVATION_WARN_MS`（默认 1000，0 关闭）
   时告警一次并点名该 Actor；`cactor_runtime.DispatcherDiagnostics.starvationWarnings()` / `lastStarvationPath()`，
   Prometheus 指标 `cactor_dispatcher_starvation_warnings_total`。
+- **并行与 GC 压测工具（E43）**：`tools/cluster_parallel_soak.sh [轮数] [进程数]` 以 `--parallel` 连跑集群测试套件，
+  崩溃（运行时打印 "unhandled SIGSEGV" / 框架报 "Crashed with exit code"）与断言失败分开统计；
+  `cactor_examples.ddata_stress` + `tools/ddata_stress.sh [轮数] [秒数]`：3 节点回环 TCP 上并发读写 Replicator，
+  轮流切换四种 GC 配置（默认、`cjGCInterval=1ms cjGCThreshold=4MB`、128 MB 小堆、4 KB region），停止后校验收敛。
+  `tools/ci.sh` 新增"集群套件 8 进程并行 2 轮"与"ddata 压测 4 轮"两步（此前集群套件只串行跑）。
 
 ### ✨ 新增（此前已实现但未记录，2026-11-06 补记 E5）
 - **集群 gossip 成员协议**：Joining → Up → Leaving → Exiting → Removed 状态机、种子节点引导、

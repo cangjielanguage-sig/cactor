@@ -7,7 +7,8 @@
  * - eventsByPersistenceId：实时流，先交付已有事件，之后按 pollInterval 轮询新事件（与 Akka 多数日志插件相同），
  *   每条事件恰好交付一次、按序号递增，返回的订阅可随时取消；
  * - currentPersistenceIds / currentEventsByType：全部持久化标识；按事件类型跨标识查询（按时间戳、标识、序号排序）。
- * 事件序号即它在该标识日志中的位置（第几条），与 EventSourcedActor 的 lastSequenceNr 一致。
+ * - currentEventsByTag：带某个标签的事件（跨标识，按时间戳、标识、序号排序；对标 Akka eventsByTag 的有限流版本）。
+ * 序号取日志记录里的序号（E8′ 起写入记录；deleteTo 之后不再等于位置），与 EventSourcedActor 的 lastSequenceNr 一致。
  */
 package cactor_persistence
 
@@ -80,14 +81,7 @@ public class ReadJournal {
     }
 
     public func currentEventsByPersistenceId(persistenceId: String, fromSeq: Int64, toSeq: Int64): Array<EventEnvelope> {
-        let events = store.getEvents(persistenceId)
-        let out = ArrayList<EventEnvelope>()
-        let from = max(1, fromSeq)
-        let to = min(toSeq, events.size)
-        for (seq in from..=to) {
-            out.add(EventEnvelope(persistenceId, seq, events[seq - 1]))
-        }
-        out.toArray()
+        store.replay(persistenceId, max(1, fromSeq), toSeq)
     }
 
     public func currentEventsByPersistenceId(persistenceId: String): Array<EventEnvelope> {
@@ -105,12 +99,12 @@ public class ReadJournal {
         spawn {
             while (!sub.isCancelled()) {
                 try {
-                    let events = st.getEvents(persistenceId)
-                    var next = sub.lastSequenceNr() + 1
-                    while (next <= events.size && !sub.isCancelled()) {
-                        onEvent(EventEnvelope(persistenceId, next, events[next - 1]))
-                        sub.advance(next)
-                        next++
+                    for (env in st.replay(persistenceId, sub.lastSequenceNr() + 1, Int64.Max)) {
+                        if (sub.isCancelled()) {
+                            break
+                        }
+                        onEvent(env)
+                        sub.advance(env.sequenceNr)
                     }
                 } catch (e: Exception) {
                     sub.cancel()
@@ -135,12 +129,20 @@ public class ReadJournal {
 
     /** 全部标识中类型为 eventType 的事件，按（时间戳，标识，序号）排序 */
     public func currentEventsByType(eventType: String): Array<EventEnvelope> {
+        currentEventsWhere({ e => e.getEventType() == eventType })
+    }
+
+    /** 全部标识中带标签 tag 的事件，按（时间戳，标识，序号）排序 */
+    public func currentEventsByTag(tag: String): Array<EventEnvelope> {
+        currentEventsWhere({ e => e.getTags().contains(tag) })
+    }
+
+    private func currentEventsWhere(pred: (Event) -> Bool): Array<EventEnvelope> {
         let out = ArrayList<EventEnvelope>()
         for (id in store.persistenceIds()) {
-            let events = store.getEvents(id)
-            for (i in 0..events.size) {
-                if (events[i].getEventType() == eventType) {
-                    out.add(EventEnvelope(id, i + 1, events[i]))
+            for (env in store.replay(id, 1, Int64.Max)) {
+                if (pred(env.event)) {
+                    out.add(env)
                 }
             }
         }

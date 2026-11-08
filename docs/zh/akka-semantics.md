@@ -98,26 +98,45 @@
 | 可靠投递 | Reliable Delivery：序号、确认、重发，按序去重 | `tellReliable`：序号 + 累计 ACK + 定时重发，接收端去重、乱序缓存 | 不需要显式的 ProducerController / ConsumerController | `remote_semantics/remoting_test.cj`（30% 丢包 2000 条恰好一次、按序） |
 | 消费端重启 | 重发未确认的消息（跨重启至少一次） | 相同：ACK 带接收端启动标识，变化后未确认消息在新通道从 1 重新编号重发 | — | `remote_semantics/system_message_reliability_test.cj`（reliableDeliveryContinuesAfterReceiverRestart） |
 | 系统消息的可靠性 | watch / unwatch / DeathWatchNotification 走可靠的系统消息通道 | 相同：WATCH / UNWATCH / DEATH 走可靠通道 | — | `system_message_reliability_test.cj`（remoteWatchSurvivesPacketLoss：30% 丢包下 20 个 watch 全部收到 `Terminated`） |
-| 对端重启 | 新 uid 握手后隔离旧 uid，旧实例上被监视的 Actor 收到 `Terminated` | 心跳回应带启动标识，变化后立即投递 `Terminated` | 没有握手与隔离（quarantine）：不拒绝旧 uid 的迟到消息（计划 E7′） | `system_message_reliability_test.cj`（remoteWatchDetectsNodeRestartWithinHeartbeatPause） |
+| 对端重启 | 新 uid 握手后隔离旧 uid，旧实例上被监视的 Actor 收到 `Terminated` | 相同（E7′）：握手、心跳回应、ACK 都带启动标识，变化即隔离旧实例并投递 `Terminated` | — | `system_message_reliability_test.cj`（remoteWatchDetectsNodeRestartWithinHeartbeatPause） |
 | 缓冲上限 | `system-message-buffer-size = 20000` | `maxUnacked = 20000`：满了丢弃新消息并计数；接收端乱序缓冲同一上限 | Akka 系统消息缓冲溢出会隔离对端；CActor 只丢新消息 | `system_message_reliability_test.cj`（fullChannelDropsNewMessagesAndCounts） |
-| 超时放弃 | `give-up-system-message-after = 6h` 后隔离对端 | `giveUpAfter = 6h`：放弃发往该节点的全部消息，监视者收到 `Terminated` | 放弃后不隔离，之后的消息建新通道（隔离归 E7′） | `system_message_reliability_test.cj`（reliableChannelGivesUpAndNotifiesWatchers） |
-| 节点不可达 | Phi Accrual 心跳，不可达时监视者收到 `Terminated` | 相同 | — | `remoting_test.cj`（testRemoteWatchNodeFailure） |
+| 超时放弃 | `give-up-system-message-after = 6h` 后隔离对端 | 相同：`giveUpAfter = 6h`，放弃发往该节点的全部消息并隔离，监视者收到 `Terminated` | — | `system_message_reliability_test.cj`（reliableChannelGivesUpAndNotifiesWatchers） |
+| 节点不可达 | Phi Accrual 心跳，不可达时监视者收到 `Terminated`，对端被隔离 | 相同（E7′ 起隔离）；默认心跳 1 s、容忍 10 s、φ 阈值 10 | — | `remoting_test.cj`（testRemoteWatchNodeFailure） |
+| 隔离（quarantine） | 被隔离的 uid 永远不能再通信，误判不可撤回，对端须重启 | 相同：握手拒绝该 uid、断开其入站连接、出站握手拒绝其应答；`quarantine(address)` 可手动隔离 | — | `remote_semantics/remote_security_test.cj`（quarantinedPeerIsCutOffUntilItRestarts、misjudgedNodeStaysQuarantined） |
+| 鉴权 | 依赖 TLS（早期 remoting 有 secure-cookie） | 握手 HMAC-SHA256 共享密钥（`withSecureCookie`），双向校验，时间戳窗口 ±5 分钟 | 没有 TLS：能截获流量的攻击者可在窗口内重放 HELLO（TLS 归 E65） | `remote_security_test.cj`（wrongOrMissingCookieCannotReachTheNode、forgedDeathIsRejected）、`unit/cluster/transport_isolation_test.cj`（forgedJoinWithoutCookieIsRejected） |
 | 发送是否阻塞 | `tell` 只入出站队列；连接由 Association 的出站流建立，失败后退避重连 | 相同（E40）：每个目标地址一个关联，写线程负责连接与写入 | — | `foundation/network/association_test.cj`（sendToBlackHoleNeverBlocksTheCaller：发往黑洞地址的 send P99 < 50 ms） |
 | 出站队列满 | 丢弃并记日志（`outbound-message-queue-size`） | 相同：普通 64 MB、控制 4 MB，满了丢新帧并计数 | 按字节而不是按条数限 | `association_test.cj` |
 | 控制消息通道 | 心跳与系统消息走独立的 control 流，不排在大消息后面 | 优先通道：控制帧插在普通数据的段间写出 | 与普通数据共用一条 TCP 连接（Akka 是独立的 control 流） | `association_test.cj`（priorityFramesOvertakeNormalBacklog）、`unit/cluster/transport_isolation_test.cj`（黑洞地址的伪造心跳不让健康成员被误判） |
 
-## 10. 持久化（E8′ 部分）
+## 10. 集群成员与分布式数据（E7′、E43）
 
 | 语义 | Akka | CActor | 差异 | 测试 |
 |---|---|---|---|---|
+| 节点实例身份 | `UniqueAddress` = 地址 + longUid，成员按实例区分 | 相同：成员记录带启动标识（`Member.uid` / `uniqueAddress()`），可达性表按实例区分，旧实例的行不能压过新实例 | 心跳报文不带 uid（远程层握手已按 uid 隔离旧实例） | `cluster: membership/gossip_merge_test.cj`（reachabilityRowsFollowTheCurrentInstance） |
+| 同一地址重启后加入 | 新实例 Join 时旧实例被 down，移除后新实例才被接纳 | 相同：旧实例 down → Leader 移除 → 新实例 Joining → Up（新 upNumber）；被替换的旧实例记入墓碑，迟到的旧视图不能复活它 | 墓碑不裁剪（Akka 默认 24 h 后裁剪） | `unit/cluster/incarnation_test.cj`（restartedMemberRejoinsAsNewIncarnation）、`gossip_merge_test.cj`（staleViewCannotResurrectReplacedInstance） |
+| 被移除的成员重新加入 | 同一 `UniqueAddress` 不允许 | 相同；同一地址的新实例可以 | — | `incarnation_test.cj`（restartedFirstSeedRejoinsAfterItWasRemoved） |
+| 首个种子启动 | 先向其他种子发 InitJoin，全部 Nack 或 `seed-node-timeout`（5 s）内无回应才自己组成集群 | 相同：JOIN / NACK / WAIT，`seedNodeTimeout` 默认 5 s；首个种子重启后加入原集群 | 没有单独的 InitJoin 报文，JOIN 兼作探测 | `incarnation_test.cj`（freshSeedsFormOneClusterWithoutWaitingForTimeout、firstSeedFormsAfterTimeoutWhenOtherSeedsAreDown、restartedFirstSeedWaitsForOldInstanceInsteadOfFormingIsland） |
+| CRDT 的节点键 | `UniqueAddress`；移除节点的分量由 pruning 并入其他节点 | 默认"地址#启动标识"：重启后的写入不被旧分量吞掉 | 没有 pruning：每次重启多一个分量（值正确，状态略增） | `incarnation_test.cj`（crdtWritesAfterSameAddressRestartAreKept） |
+| 读取本地值 | `Get` 得到 `GetSuccess`，携带的数据不可变，可交给任意线程；`Update` 的 modify 在 Replicator 内执行 | 相同：`Replicator.get` 直接返回存储里的不可变值（O(1)），之后的更新生成新实例，不影响已取得的值；modify 在 Replicator Actor 线程、锁外执行，返回类型不同则拒绝 | 只有 WriteLocal / ReadLocal 一致性 | `unit/cluster/crdt_concurrency_test.cj`（testGetReturnsImmutableSnapshot、testConcurrentReadsDuringLocalUpdates） |
+
+## 11. 持久化（E8′）
+
+| 语义 | Akka | CActor | 差异 | 测试 |
+|---|---|---|---|---|
+| 单写者 | 日志按 `persistenceId` 单写者；写者状态过期时写入失败 | `append(expectedSeq)`：期望序号与日志不符即拒绝（`JournalConflictException`），Actor 交给监督重启后恢复 | Akka 依赖集群分片保证单写者、日志插件一般不校验；CActor 在日志层再校验一次 | `integration/persistence/journal_semantics_test.cj`（secondWriterForSameIdIsRejectedAndRecovers）、`persistence: journal_v2_test.cj`（appendRejectsStaleWriter） |
+| 序号与重放 | 每个事件带 `sequenceNr`，恢复按序号重放快照之后的事件 | 相同：序号写进记录，`replay(from, to)` 闭区间 | — | `journal_v2_test.cj`（deleteToKeepsHighestSequenceNr）、`journal_semantics_test.cj`（pluginReplaysBySequenceNotTimestamp） |
+| 删除事件 | `deleteMessages(toSequenceNr)`，最高序号保留 | 相同：`deleteTo` / `deleteEventsTo` | — | `journal_semantics_test.cj`（persistAllAndDeleteToSurviveRestart） |
+| 持久化确认 | 回调在日志确认写入之后执行（LevelDB 插件默认 fsync） | 相同：`append` 返回时已 fsync；批量与并发写入合并 fsync | 同步调用，不是异步回调 | `journal_v2_test.cj`（batchIsOneFsyncAndConcurrentWritersShareFsyncs）、`tools/journal_crash_demo.sh` |
+| 残缺与损坏 | 依插件而定 | 尾部残缺（含零填充）截断；中间损坏拒绝恢复 | — | `journal_v2_test.cj`（zeroFilledTailIsTruncated、midFileCorruptionIsRefusedNotTruncated） |
+| 标签 | `Tagged` + `eventsByTag` | `withTags` + `currentEventsByTag`（有限流） | 没有实时的 eventsByTag | `journal_v2_test.cj`（tagsSurviveAndCanBeQueried） |
 | 启动 / 重启时恢复 | 先重放快照与事件，再处理命令 | `AbstractPersistentActor` 在 `preStart` 恢复，重启后的新实例同样恢复 | — | `unit/persistence/persist_failure_semantics_test.cj`（handlerFailureRestartsAndReplaysPersistedEvents） |
 | 事件处理器抛异常 | 事件已落库；异常交给监督（经典默认重启，重启后重放） | 相同：抛 `EventHandlerException`，序号不回退 | — | `persist_failure_semantics_test.cj`（handlerFailureDoesNotRollBackPersistedSequence） |
 | 写入失败（版本冲突） | `onPersistFailure`，Actor 停止 | 抛 `PersistenceException`，序号回退，交给监督 | 不强制停止 | `persist_failure_semantics_test.cj`（storeConflictRollsBackAndIsNotAHandlerFailure、persistAllReportsStoreConflict） |
 | 恢复失败 | `onRecoveryFailure`，Actor 停止 | 抛 `PersistenceException`；在 `preStart` 中即启动失败，默认停止 | — | （无专门用例） |
 | 恢复期间的命令 | 暂存，恢复完成后处理 | 恢复在 `preStart` 中同步完成，期间不处理命令 | — | 同上 |
 
-## 11. 已知差异汇总
+## 12. 已知差异汇总
 
 - **类型安全的边界**：类型化引用的协议类型在 `childAs` / lookup 处无法检查（仓颉没有路径相关类型），用错时运行期告警而不是编译期报错。
 - **子 Actor 快路径**：`ctx.actorOf` 是接口虚调用，子 Actor 的初始行为以 `setup` 开头才走用户包的快路径（性能差异，不影响语义）。
-- **未实现**：ChildFailed 信号、SpawnProtocol、集群版 Receptionist、Resizer、withMdc（计划 E63）；远程握手与隔离（quarantine）、TLS（计划 E7′、E65）；类型化持久化 `EventSourcedBehavior`（计划 E44）。
+- **未实现**：ChildFailed 信号、SpawnProtocol、集群版 Receptionist、Resizer、withMdc（计划 E63）；TLS（计划 E65）；CRDT pruning 与成员墓碑裁剪；实时的 `eventsByTag`；类型化持久化 `EventSourcedBehavior`（计划 E44）。

@@ -11,7 +11,9 @@
  *   2. 打印 READY_TO_KILL，由脚本 kill -9 最后一个进程；
  *   3. 校验：SBR 把宕机进程 down 并移出集群（剩 2 个成员）；宕机进程上的实体
  *      在没有任何新消息的情况下，在存活进程上重新启动，且每个实体只在一个存活进程上；
- *   4. 离开集群；另一个存活节点看到 driver 被移除后也离开。
+ *   4. 打印 READY_TO_RESTART，由脚本在原端口重启被 kill 的进程（新进程 = 新启动标识）；校验新实例 10 s 内
+ *      重新 Up、不继承旧实例的身份（uid 不同），remember-entities 记录的实体 ID 一个不少（E7′ / N4）；
+ *   5. 离开集群；其他节点看到 driver 被移除后也离开。
  * 退出码：0 通过，1 失败或超时。
  */
 package cactor_examples.cluster_crash_node
@@ -159,6 +161,10 @@ main(args: Array<String>): Int64 {
         }
         println("[${me}] 实体全部启动并已复制：${ok}；宕机进程 ${victim} 上有 ${onVictim.size} 个实体")
         ok = ok && onVictim.size > 0
+        let victimUid = match (cluster.state().member(victim)) {
+            case Some(m) => m.uid
+            case None => 0u64
+        }
         // stderr 不缓冲：脚本据此立即 kill -9（stdout 重定向到文件时会缓冲到退出）
         eprintln("READY_TO_KILL")
         // SBR：宕机进程被 down 并移出，剩 2 个成员且收敛
@@ -190,7 +196,22 @@ main(args: Array<String>): Int64 {
         }
         println("[${me}] 存活进程上的实体被重复启动：${duplicates} 个")
         ok = ok && downed && restarted && duplicates == 0
-        println(if (ok) { "多进程宕机验证：通过" } else { "多进程宕机验证：失败" })
+        // 原端口重启：新实例重新 Up，且是新成员（uid 不同于被 kill 的旧实例）
+        eprintln("READY_TO_RESTART")
+        let restartBegin = MonoTime.now()
+        let rejoined = waitUntil(Duration.second * 10, { =>
+            let s = cluster.state()
+            match (s.member(victim)) {
+                case Some(m) => m.status == MemberStatus.Up && m.uid != victimUid && s.upCount() == expected && s.converged
+                case None => false
+            }
+        })
+        println("[${me}] 原端口重启的进程以新实例重新加入：${rejoined}（${if (rejoined) { "用时 ${(MonoTime.now() - restartBegin).toMilliseconds()} ms" } else { "10 s 内未完成" }}）")
+        // 新实例加入后分片重新分配，实体 ID 的复制记录不能丢（ORSet 的节点键是"地址#uid"，新进程的 add 不会被旧进程的点吞掉）
+        let kept = waitUntil(Duration.second * 30, { => rememberedCount(rep) == ENTITIES })
+        println("[${me}] 重启后 remember-entities 记录完整：${kept}（${rememberedCount(rep)}/${ENTITIES}）")
+        ok = ok && rejoined && kept
+        println(if (ok) { "多进程宕机与重启验证：通过" } else { "多进程宕机与重启验证：失败" })
         cluster.leave()
         waitUntil(Duration.second * 10, { => cluster.isTerminated() })
     } else if (ok) {

@@ -143,7 +143,7 @@ public class MemorySnapshotStore <: SnapshotStore {
  * 文件快照存储
  *
  * - 每个 Actor 一个快照文件：<basePath>/<hex(actorId)>.snapshots，保留最新 keep 个
- * - 写入采用“写临时文件 + rename 覆盖”，任何时刻文件要么是旧版本要么是新版本
+ * - 写入采用“写临时文件 + fsync + rename 覆盖 + 目录 fsync”，任何时刻文件要么是旧版本要么是新版本，返回时已落盘
  */
 public class FileSnapshotStore <: SnapshotStore {
     private let basePath: String
@@ -180,10 +180,8 @@ public class FileSnapshotStore <: SnapshotStore {
                     .putInt64(sn.getTimestamp())
                     .toRecord())
             }
-            let path = snapshotPath(snapshot.getActorId())
-            let tmp = path + ".tmp"
-            File.writeTo(tmp, out.toArray())
-            rename(tmp, to: path, overwrite: true)
+            // 临时文件 fsync → rename → 目录 fsync（B7：此前不 fsync，断电后可能丢掉新快照甚至留下空文件）
+            writeFileAtomically(snapshotPath(snapshot.getActorId()), out.toArray(), true)
         }
     }
 

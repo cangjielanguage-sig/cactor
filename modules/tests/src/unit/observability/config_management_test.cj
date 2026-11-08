@@ -222,4 +222,64 @@ public class ManagementServerTest {
         remote.stop()
         kit.shutdown()
     }
+
+    /** E7′ / T14：绑定地址可配置；并发连接超过上限时直接回 503，释放后恢复 */
+    @TestCase
+    public func testBindHostAndConnectionLimit(): Unit {
+        let system = CActorSystemFactory.create("mgmt-limit-${MonoTime.now().hashCode()}")
+        let mgmt = ManagementServer(system, "127.0.0.1", 0).withMaxConnections(2).withRequestTimeout(Duration.second * 3)
+            .start()
+        @Expect(httpRequest(mgmt.port(), "GET", "/health/live")[0], 200)
+        // 两个占位连接：连上后不发请求，各占一个名额直到请求总时限
+        let holders = ArrayList<TcpSocket>()
+        for (_ in 0..2) {
+            let h = TcpSocket("127.0.0.1", mgmt.port())
+            h.connect(timeout: Duration.second * 3)
+            holders.add(h)
+        }
+        @Expect(awaitCondition(Duration.second * 2, { => httpRequest(mgmt.port(), "GET", "/health/live")[0] == 503 }), true)
+        @Expect(mgmt.rejectedConnections() >= 1, true)
+        for (h in holders) {
+            h.close()
+        }
+        @Expect(awaitCondition(Duration.second * 5, { => httpRequest(mgmt.port(), "GET", "/health/live")[0] == 200 }), true)
+        mgmt.stop()
+        system.terminate()
+    }
+
+    /** E7′ / T14：慢速客户端（每 200 ms 发 1 字节、永不发完请求头）在请求总时限后被断开 */
+    @TestCase
+    public func testSlowClientIsCutOffAtTotalDeadline(): Unit {
+        let system = CActorSystemFactory.create("mgmt-slow-${MonoTime.now().hashCode()}")
+        let mgmt = ManagementServer(system, 0).withRequestTimeout(Duration.second).start()
+        let s = TcpSocket("127.0.0.1", mgmt.port())
+        s.connect(timeout: Duration.second * 3)
+        s.write("GET /health/live HTTP/1.1\r\n".toArray())
+        let closed = AtomicBool(false)
+        let reader = spawn {
+            let buf = Array<UInt8>(256, repeat: 0)
+            s.readTimeout = Duration.second * 10
+            try {
+                while (s.read(buf) > 0) {}
+            } catch (_: Exception) {
+                ()
+            }
+            closed.store(true)
+        }
+        let start = MonoTime.now()
+        while (!closed.load() && MonoTime.now() - start < Duration.second * 5) {
+            try {
+                s.write("X".toArray())
+            } catch (_: Exception) {
+                break
+            }
+            sleep(Duration.millisecond * 200)
+        }
+        @Expect(awaitCondition(Duration.second * 3, { => closed.load() }), true)
+        @Expect(MonoTime.now() - start < Duration.second * 4, true)
+        reader.get()
+        s.close()
+        mgmt.stop()
+        system.terminate()
+    }
 }

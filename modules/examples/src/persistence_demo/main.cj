@@ -2,6 +2,9 @@
  * Copyright (c) 2024. All rights reserved.
  * CActor 持久化系统演示
  * Plan20阶段1：持久化系统完善 - 事件溯源、CQRS、持久化Actor验证
+ *
+ * 注意：本示例演示的 Enhanced / CQRS / Plugin 三套 API 已在 E8′ 标记 @Deprecated（2.0 删除），编译时会有弃用告警。
+ * 新代码请看 best07_event_sourced_account（EventSourcedActor + FileEventStore）与 journal_crash（日志 v2 的落盘与恢复）。
  */
 package cactor_examples.persistence_demo
 

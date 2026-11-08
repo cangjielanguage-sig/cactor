@@ -2284,7 +2284,7 @@ let typedRef = system.wrapAsTypedActor<Ping>(normalRef, "wrapped")
 
 ## 14. 远程可靠投递与持久化失败语义
 
-与 Akka 的逐条对照见 [akka-semantics.md](akka-semantics.md) 第 9、10 节。
+与 Akka 的逐条对照见 [akka-semantics.md](akka-semantics.md) 第 9、10、11 节。
 
 ### 远程（`cactor_remote`）
 
@@ -2314,9 +2314,74 @@ let stats = node.reliableDeliveryStats()
 - `tell` / `sendMessage` 只入出站队列、不阻塞：连接与重连在该地址的写线程里进行；对端不可达或队列满（64 MB）时丢弃并计数
   （`TcpTransport.getDroppedFrames()`），不抛异常。控制消息用 `sendControl(addr, actor, message)` 走优先通道。
 - 对端重启后，未确认的消息在新通道重发：跨重启是**至少一次**。
+- 每条连接先握手交换身份（地址 + 启动标识）。`RemotingSettings.withSecureCookie("...")` 后握手带 HMAC-SHA256，
+  不知道密钥的节点连不上。心跳判定不可达、可靠消息超时放弃、对端重启（旧实例）时对端被**隔离**：再也连不进来，
+  须重启才能重新通信；也可 `quarantine(address, reason)` 手动隔离，`isQuarantined(address)` 查询。
+- `RemotingSettings.defaults()`：心跳 1 s、φ 阈值 10、容忍停顿 10 s（同 Akka）。
 - 最老的未确认消息超过 `giveUpAfter`：放弃发往该节点的全部消息（计入 `gaveUp`），监视该节点上 Actor 的本地 Actor 收到 `Terminated`。
 
-### 持久化（`AbstractPersistentActor`）
+### 管理端点（`ManagementServer`）
+
+```cangjie
+let mgmt = ManagementServer(system, "0.0.0.0", 8558)   // 两参构造绑定全部地址
+    .withMaxConnections(32)                              // 超出直接回 503
+    .withRequestTimeout(Duration.second * 5)             // 从接受连接起的总时限，慢速客户端到时断开
+    .addReadinessCheck("cluster", { => cluster.isUp() })
+    .start()
+```
+
+### 集群节点实例与种子加入（`cactor_cluster`）
+
+```cangjie
+let settings = ClusterSettings.defaults().withSeedNodeTimeout(Duration.second * 5)   // 默认即 5 s（同 Akka）
+let cluster = Cluster(system, remote, [seed1, seed2], settings)
+cluster.selfUniqueAddress()          // "127.0.0.1:2552#<启动标识>"
+for (m in cluster.members()) {
+    println("${m.uniqueAddress()} ${m.status} up#${m.upNumber}")
+}
+let rep = Replicator(system, remote, Duration.millisecond * 200)   // 节点标识默认 "地址#启动标识"
+```
+
+| 情形 | 行为 |
+|---|---|
+| 进程在同一地址重启 | 新进程有新的启动标识（`SimpleRemoteManager.selfUid()`）。加入时旧实例先被 down、由 Leader 移除，新实例再 Joining → Up，分配新的 upNumber；订阅者先收到旧实例的 `MemberRemoved` |
+| 被移除的成员 | 同一实例永远不能再加入；同一地址的新实例可以 |
+| 首个种子启动 | 先向其他种子发 JOIN：其他种子全部回 NACK 立即组成集群；已有集群在运行（回 WAIT 或发来 gossip）就加入它；没有任何回应时等 `seedNodeTimeout` 后组成 |
+| CRDT 的节点键 | 默认"地址#启动标识"：重启后的写入是新分量，不被旧进程的分量吞掉 |
+| `rep.get(key)` | 返回存储里的不可变值本身（O(1)），可交给任意线程遍历、合并、编码；之后的更新生成新实例，不影响已取得的值（E43） |
+| `rep.update(key, initial, modify)` | modify 在 Replicator Actor 线程、锁外执行，读线程不会被它挡住；返回的值类型与原值不同时抛 `IllegalArgumentException`，原值不变 |
+
+### 事件溯源与日志 v2（`EventSourcedActor` + `EventStore`）
+
+```cangjie
+let journal = FileEventStore("/var/lib/app/journal")          // 默认 fsync：append 返回即已落盘
+let fast = FileEventStore("/tmp/j", fsync: false)               // 只防进程崩溃，不防断电
+
+// 单写者：期望序号不符时抛 JournalConflictException，一条也不写
+var seq = journal.highestSequenceNr("order-1")
+seq = journal.append("order-1", [BasicEvent("e1", "order-1", "Created", "{...}").withTags(["vip"])], seq)
+for (env in journal.replay("order-1", 1, Int64.Max)) {          // 按序号，闭区间
+    println("${env.sequenceNr} ${env.event.getEventType()}")
+}
+journal.deleteTo("order-1", seq)                                 // 最高序号保留
+ReadJournal(journal).currentEventsByTag("vip")
+```
+
+在 `EventSourcedActor` 子类中：`persist(type, data[, tags])`、`persistAll([(type, data), ...])`（一批一次 fsync）、
+`saveSnapshot()` 后 `deleteEventsTo(lastSequenceNr())`。
+
+| 情形 | 行为 |
+|---|---|
+| 同一标识两个写者 | 后写者 `append` 抛 `JournalConflictException`，事件不写入；Actor 交给监督，重启后从日志恢复 |
+| 进程被 kill -9 | 已返回的 append 一条不少；写到一半的尾部在下次打开时截断 |
+| 断电后尾部零填充 / 半条记录 | 按尾部残缺截断（它所在的那批从未被确认） |
+| 中间损坏、其后仍有完整记录 | 抛 `PersistenceCorruptionException`，不截断，等人工处理 |
+| v1 格式的旧日志 | 首次打开时原子迁移为 v2，序号按位置从 1 编号 |
+| 并发写同一日志 | 组提交：fsync 进行中到达的写入由下一次 fsync 一并覆盖 |
+
+Enhanced 族（`EnhancedEventStore` / `AbstractPersistentActor`）、CQRS、Plugin / Manager 已弃用，2.0 删除。
+
+### 持久化（`AbstractPersistentActor`，已弃用）
 
 | 情形 | 行为 |
 |---|---|

@@ -8,6 +8,7 @@ package cactor_persistence
 
 import std.collection.*
 import std.fs.*
+import cactor_foundation.hashing.{sha256, toHex}
 
 /** 记录写入器 */
 class RecordWriter {
@@ -32,6 +33,11 @@ class RecordWriter {
         buf.add(UInt8((v >> 16) & 0xFF))
         buf.add(UInt8((v >> 8) & 0xFF))
         buf.add(UInt8(v & 0xFF))
+    }
+
+    /** 只取负载（不带长度前缀），日志 v2 自己加长度与 CRC */
+    func payload(): Array<UInt8> {
+        buf.toArray()
     }
 
     /** 输出带长度前缀的完整记录 */
@@ -107,15 +113,31 @@ func splitRecords(content: Array<UInt8>): (ArrayList<Array<UInt8>>, Int64) {
     (records, pos)
 }
 
-/** 把任意 actorId 编码为安全的文件名（十六进制），避免路径穿越 */
+// 十六进制文件名的长度上限：加上扩展名后仍远低于常见文件系统 255 字节的文件名上限
+let MAX_HEX_NAME: Int64 = 200
+let HASHED_NAME_PREFIX = "h-"
+
+/**
+ * 把任意 actorId 编码为安全的文件名（十六进制），避免路径穿越。
+ * 十六进制会让长度翻倍：超过 MAX_HEX_NAME 时改用 "h-" + SHA-256（P10：此前标识超过约 120 字节就因文件名过长写入失败）。
+ * 哈希名不可逆，原标识另存在文件内容里（日志文件头、持久状态记录），列举标识时从内容读取
+ */
 func safeFileName(actorId: String): String {
     let hex = "0123456789abcdef"
+    let bytes = actorId.toArray()
+    if (bytes.size * 2 > MAX_HEX_NAME) {
+        return HASHED_NAME_PREFIX + toHex(sha256(bytes))
+    }
     let sb = StringBuilder()
-    for (b in actorId.toArray()) {
+    for (b in bytes) {
         sb.append(Rune(UInt32(hex[Int64(b >> 4)])))
         sb.append(Rune(UInt32(hex[Int64(b & 0x0F)])))
     }
     if (sb.size == 0) { "_empty" } else { sb.toString() }
+}
+
+func isHashedName(name: String): Bool {
+    name.startsWith(HASHED_NAME_PREFIX)
 }
 
 /** 目录不存在时创建（已存在时不报错，可安全地重复打开同一存储） */

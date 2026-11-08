@@ -148,10 +148,9 @@ public class FileDurableStateStore <: DurableStateStore {
                 case None => 0
             }
             checkRevision(persistenceId, current, revision - 1)
-            let path = pathOf(persistenceId)
-            let tmp = path + ".tmp"
-            File.writeTo(tmp, RecordWriter().putString(persistenceId).putInt64(revision).putString(state).toRecord())
-            rename(tmp, to: path, overwrite: true)
+            // 原子替换且返回时已落盘（B7）
+            writeFileAtomically(pathOf(persistenceId),
+                RecordWriter().putString(persistenceId).putInt64(revision).putString(state).toRecord(), true)
         }
     }
 
@@ -175,7 +174,14 @@ public class FileDurableStateStore <: DurableStateStore {
             for (info in Directory.readFrom(basePath)) {
                 let name = info.name
                 if (name.endsWith(".state")) {
-                    if (let Some(id) <- unhexName(name[0..(name.size - ".state".size)])) {
+                    let stem = name[0..(name.size - ".state".size)]
+                    if (isHashedName(stem)) {
+                        // 哈希文件名（标识过长）：原标识是记录的第一个字段
+                        let (records, _) = splitRecords(File.readFrom("${basePath}/${name}"))
+                        if (!records.isEmpty()) {
+                            ids.add(RecordReader(records[0]).getString())
+                        }
+                    } else if (let Some(id) <- unhexName(stem)) {
                         ids.add(id)
                     }
                 }

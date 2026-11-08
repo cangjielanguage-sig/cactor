@@ -8,6 +8,7 @@ import cactor_foundation.logging.{Logger, Logging}
 let log_persistent_actor_manager: Logger = Logging.logger("cactor_persistence.persistent_actor_manager")
 
 // 持久化Actor管理器
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class PersistentActorManager {
     private let persistencePlugin: PersistencePlugin
     private let actors: HashMap<String, Actor>
@@ -83,6 +84,7 @@ public class PersistentActorManager {
 }
 
 // 持久化Actor工厂
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class PersistentActorFactory {
     public static func createManager(config: PersistenceConfig): PersistentActorManager {
         let plugin = PersistencePluginFactory.create(config)
@@ -106,6 +108,7 @@ public class PersistentActorFactory {
 }
 
 // 持久化配置构建器
+@Deprecated["请改用 EventSourcedActor + EventStore（append / replay / deleteTo，见 docs/zh/api-reference.md 第 14 节）；2.0 删除", since: "1.2.0"]
 public class PersistenceConfigBuilder {
     private var enabled: Bool
     private var eventStoreType: String

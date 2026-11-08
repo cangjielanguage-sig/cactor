@@ -45,7 +45,7 @@ public class Sha256Test {
     func hexAndConstantTimeEquals(): Unit {
         let d = sha256("x".toArray())
         @Expect(constantTimeEquals(fromHex(toHex(d)).getOrThrow(), d), true)
-        @Expect(fromHex("ABcd").getOrThrow(), [0xab, 0xcd])
+        @Expect(toHex(fromHex("ABcd").getOrThrow()), "abcd")
         @Expect(fromHex("abc").isNone(), true)
         @Expect(fromHex("zz").isNone(), true)
         let other = d.clone()
