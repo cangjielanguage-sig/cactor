@@ -222,6 +222,30 @@ public func rememberedEntitiesKey(typeName: String, shard: Int64): String {
  * - STOPPED：接收方这些分片的实体已全部终止，并且放弃了自己对它们的托管与获取（回应对应轮次）。
  * 带协议版本：版本不同的区域互不理睬（E42 已在加入时拒绝这种节点，这里是第二道防线）
  */
+/** 手动/自动再平衡：把指定分片的拥有者改为 targetAddress（E13′ 之后的再平衡基础） */
+public class ShardRebalance <: Message {
+    public let shardId: Int64
+    public let targetAddress: String
+    public init(shardId: Int64, targetAddress: String) {
+        this.shardId = shardId
+        this.targetAddress = targetAddress
+    }
+    public func messageType(): String { "cactor.ShardRebalance" }
+}
+
+class ShardRebalanceCodec <: MessageCodec {
+    public func encode(message: Message): Array<UInt8> {
+        let c = (message as ShardRebalance).getOrThrow()
+        FieldWriter().put(c.shardId).put(c.targetAddress).done().toArray()
+    }
+    public func decode(payload: Array<UInt8>): Message {
+        let r = FieldReader(String.fromUtf8(payload))
+        let sh = Int64.parse(r.next())
+        let addr = r.next()
+        ShardRebalance(sh, addr)
+    }
+}
+
 public class ShardControl <: Message {
     public let kind: String
     public let from: String
@@ -370,6 +394,8 @@ class ShardRegionActor <: Actor {
     let acquiring = HashMap<Int64, Acquisition>()
     // 本节点按自己的视图是拥有者、但已让给了请求方的分片 -> 请求方
     let yielded = HashMap<Int64, String>()
+    // 手动/自动再平衡的归属覆盖：分片号 -> 拥有者地址（优先于 rendezvous 哈希）
+    let placementOverrides = HashMap<Int64, String>()
     // 实体还没全部终止、尚未回复的移交请求：分片 -> (请求方, 轮次)
     let pendingStopAcks = HashMap<Int64, ArrayList<(String, Int64)>>()
     // ---- 缓冲 ----
@@ -436,6 +462,7 @@ class ShardRegionActor <: Actor {
                 }
                 route(withSender, context)
             case c: ShardControl => onControl(c, context)
+            case rb: ShardRebalance => onRebalance(rb, context)
             case t: Terminated => onEntityTerminated(t.actor.path.toString(), context)
             case _ => return MessageResult.Unhandled
         }
@@ -513,10 +540,33 @@ class ShardRegionActor <: Actor {
     }
 
     private func ownerOfShard(sh: Int64): Option<String> {
-        match (view) {
-            case Some(v) => shardOwner(sh, v.ups)
-            case None => None<String>
+        match (placementOverrides.get(sh)) {
+            case Some(addr) =>
+                // 覆盖目标必须是当前视图中的成员，否则回退到 rendezvous 哈希
+                match (view) {
+                    case Some(v) =>
+                        let set = HashSet<String>(v.ups)
+                        if (set.contains(addr)) { Some(addr) } else { shardOwner(sh, v.ups) }
+                    case None => Some(addr)
+                }
+            case None =>
+                match (view) {
+                    case Some(v) => shardOwner(sh, v.ups)
+                    case None => None<String>
+                }
         }
+    }
+
+    private func onRebalance(rb: ShardRebalance, context: ActorContext): Unit {
+        // 校验分片号范围
+        if (rb.shardId < 0 || rb.shardId >= numberOfShards) {
+            return
+        }
+        placementOverrides[rb.shardId] = rb.targetAddress
+        // 让出记录作废，按新归属重新判断
+        yielded.remove(rb.shardId)
+        onOwnershipChanged(context)
+        log.info("${selfAddress} 再平衡：分片 ${rb.shardId} -> ${rb.targetAddress}")
     }
 
     private func onOwnershipChanged(context: ActorContext): Unit {
@@ -1150,6 +1200,7 @@ class ShardRegionActor <: Actor {
  * ```
  */
 public class ClusterSharding {
+    private let cluster: Cluster
     private let region: ActorRef
     private let shared = RegionShared()
     private let system: CActorSystem
@@ -1175,6 +1226,8 @@ public class ClusterSharding {
         }
         MessageCodecRegistry.register("cactor.ShardingEnvelope", ShardingEnvelopeCodec())
         MessageCodecRegistry.register("cactor.ShardControl", ShardControlCodec())
+        MessageCodecRegistry.register("cactor.ShardRebalance", ShardRebalanceCodec())
+        this.cluster = cluster
         this.system = system
         this.remote = remote
         this.typeName = typeName
@@ -1310,6 +1363,73 @@ public class ClusterSharding {
             }
         }
         result.toArray()
+    }
+
+    /**
+     * 把指定分片的拥有者改为 targetAddress（手动再平衡，E13′ 之后的再平衡基础）。
+     * 本节点与集群中所有成员的区域都会收到覆盖指令并重新评估归属；targetAddress 必须是当前 Up 成员之一。
+     */
+    public func rebalanceShard(shardId: Int64, targetAddress: String): Unit {
+        if (shardId < 0 || shardId >= numberOfShards) {
+            throw IllegalArgumentException("分片号越界: ${shardId}")
+        }
+        region.tell(ShardRebalance(shardId, targetAddress))
+        // 传播给其他成员
+        let s = cluster.state()
+        for (m in s.members) {
+            if (m.address != cluster.selfAddress && m.status.toString() != "Removed") {
+                let ref = remote.remoteActorOf(NetworkAddress.parse(m.address), "sharding-${typeName}")
+                ref.tell(ShardRebalance(shardId, targetAddress))
+            }
+        }
+    }
+
+    /**
+     * 自动再平衡（基础版）：本节点作为领导者（Up 成员中地址最小者）时，
+     * 根据本节点的负载报告，把负载最重的分片迁移到负载最轻的成员。
+     * 跨节点负载需要各节点报告；本版仅在单节点视图下做"把本节点最忙的分片迁出到地址最小的其他成员"
+     * 的保守决策，完整跨节点聚合归后续版本。
+     */
+    public func rebalance(): Unit {
+        let s = cluster.state()
+        if (s.members.size <= 1) {
+            return
+        }
+        // 只有领导者执行，避免多节点同时决策
+        var leader = s.members[0].address
+        for (m in s.members) {
+            if (m.status.toString() == "Up" && m.address < leader) {
+                leader = m.address
+            }
+        }
+        if (leader != cluster.selfAddress) {
+            return
+        }
+        let load = shardLoad()
+        // 找本节点负载最重的分片
+        var busiest: Int64 = -1
+        var busiestLoad: Int64 = 0
+        for ((sh, c) in load) {
+            if (c > busiestLoad) {
+                busiestLoad = c
+                busiest = sh
+            }
+        }
+        if (busiest < 0 || busiestLoad == 0) {
+            return
+        }
+        // 选目标：Up 成员中地址最小的非本节点
+        var target: Option<String> = None
+        for (m in s.members) {
+            if (m.status.toString() == "Up" && m.address != cluster.selfAddress) {
+                target = Some(m.address)
+                break
+            }
+        }
+        match (target) {
+            case Some(t) => rebalanceShard(busiest, t)
+            case None => ()
+        }
     }
 
     public func stop(): Unit {
