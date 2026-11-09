@@ -45,13 +45,16 @@ public class SimpleActorRegistry {
     public func register(actorRef: ActorRef, parentPath: Option<String>): Unit {
         synchronized(lock) {
             let name = extractActorName(actorRef.path.toString())
-            // 已经注册（同名同引用）则忽略
-            match (nameToActor.get(name)) {
+            // 已经注册（同名同引用）则忽略；同名的是已终止、注销还没执行的旧实例时直接替换（总数不变）
+            let replacing = match (nameToActor.get(name)) {
                 case Some(existing) where existing.equals(actorRef) => return
-                case _ => ()
+                case Some(_) => true
+                case None => false
             }
             nameToActor[name] = actorRef
-            totalActors.fetchAdd(1)
+            if (!replacing) {
+                totalActors.fetchAdd(1)
+            }
             registrationCount.fetchAdd(1)
         }
     }
@@ -60,8 +63,16 @@ public class SimpleActorRegistry {
      * 注销Actor
      */
     public func unregister(actorRef: ActorRef): Unit {
-        let path = actorRef.path.toString()
-        unregisterByPath(path)
+        // 只注销这个实例：同名的新实例可能已经替换了它（旧实例迟到的注销不能删掉新实例的登记）
+        synchronized(lock) {
+            let name = extractActorName(actorRef.path.toString())
+            match (nameToActor.get(name)) {
+                case Some(existing) where existing.equals(actorRef) =>
+                    nameToActor.remove(name)
+                    totalActors.fetchAdd(-1)
+                case _ => ()
+            }
+        }
     }
     
     /**

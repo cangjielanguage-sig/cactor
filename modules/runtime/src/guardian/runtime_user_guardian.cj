@@ -89,9 +89,19 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         // （见 docs/plan/20261031-protoactor-performance.md），并行构造只增加分配争用，
         // 实测顶层创建从 174k/s 掉到 93–124k/s，已回退。顶层创建 ≥200k/s 的目标
         // 需要降低每 Cell 的分配成本（结构化改造），不是锁的问题。
-        synchronized(guardianLock) {
-            if (userActors.contains(name)) {
-                throw Exception("Actor名称已存在: ${name}")
+        var released: Option<SimpleUserActorRef> = None
+        let created = synchronized(guardianLock) {
+            match (userActors.get(name)) {
+                case Some(existing) =>
+                    match (existing as SimpleUserActorRef) {
+                        // 已完全停止（postStop 已执行、lookup 已看不到它），只是终止回调还没来得及释放名字：
+                        // 代它释放。否则调用方看到 lookup 返回 None 后同名创建，仍会偶发"名称已存在"
+                        case Some(c) where c.isTerminated() =>
+                            releaseNameLocked(c)
+                            released = Some(c)
+                        case _ => throw Exception("Actor名称已存在: ${name}")
+                    }
+                case None => ()
             }
             let userActor = doCreateChild(props, name)
             userActors.add(name, userActor)
@@ -100,8 +110,22 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
             if (let Some(strategy) <- props.getSupervisorStrategy()) {
                 supervise(userActor, strategy)
             }
-            return userActor
+            userActor
         }
+        // 运行时回调在锁外执行（它要取运行时的创建锁；在本锁内取会与 actorOf 的加锁顺序相反）
+        if (let Some(c) <- released) {
+            if (let Some(hook) <- topLevelTerminatedHook) {
+                hook(c)
+            }
+        }
+        created
+    }
+
+    /** 释放已终止顶层 Actor 的名字（调用方持有 guardianLock，且已确认登记的就是它） */
+    private func releaseNameLocked(cell: SimpleUserActorRef): Unit {
+        userActors.remove(cell.getName())
+        supervisionStrategies.remove(cell.path.toString())
+        stopCounter.fetchAdd(1)
     }
 
     /**
@@ -480,12 +504,12 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
             return
         }
         liveCellTotal.fetchAdd(-1)
+        // 同名 createUserActor 可能已代它释放了名字（见 createUserActor）：只有仍登记着它时才在这里清理，
+        // 运行时的回调（注销登记表、计数）由释放名字的一方恰好执行一次
         let removed = synchronized(guardianLock) {
             match (userActors.get(cell.getName())) {
                 case Some(r) where r.equals(cell) =>
-                    userActors.remove(cell.getName())
-                    supervisionStrategies.remove(cell.path.toString())
-                    stopCounter.fetchAdd(1)
+                    releaseNameLocked(cell)
                     true
                 case _ => false
             }

@@ -35,7 +35,7 @@
 | 集群 | ✅ gossip 成员协议（Phi Accrual 故障检测）、SBR 脑裂处理（keep-majority）、Cluster Singleton、分布式发布订阅（`DistributedPubSub`）、CRDT + Replicator、分片（rendezvous 哈希 + 许可式两阶段移交：征得每个成员确认已停止后才托管，单活不依赖视图收敛，成员不可达时只缓冲它拥有的分片，E13′）；加入时比对兼容键（分片哈希与移交协议版本、用户键），不兼容的节点被拒绝（E42）；成员按"地址#启动标识"区分实例（同址重启以新实例重新加入）、首个种子先加入其他种子、CRDT 节点键含启动标识（E7′）；成员协议经远程握手可选共享密钥鉴权（B2）；Replicator 读取返回不可变快照，merge / 编码 / 摘要在锁外，集群套件恢复并行执行（E43）；分片 / 单例透传 sender 并提供 `ask`，`Grains.callAsync` 与可重入 Grain、pubsub `subscribeAsync` 与主题 Actor 串行写入，远程回复入口按 Actor 生命周期注册与注销，Removed 成员只留带时间的墓碑（24 h 裁剪）、被 down 的成员按 uid 隔离（E12′）；单例 HandOver 握手（N16）、集群版 Receptionist（E63）、Replicator 一致性级别 WriteMajority / ReadMajority / All、delta 传播（按来源序号、断档向来源补齐）与移除节点的 pruning（两阶段标记，分量并入执行者）（E64）；全部经远程层的 TLS 1.3 / mTLS（E65）。🟡 没有按负载的分片再平衡 | `cluster/membership/`、`cluster/ddata/` |
 | 流 / 状态机 | 🟠 Streams 有背压策略（Block 策略仍抛异常，见 C7）；XState 有基本状态机，`features` / `enterprise` 是占位 | `streams/core/` |
 | 可观测性 | ✅ 分级日志（`foundation.logging`，默认 WARN，支持结构化字段 / MDC）；Prometheus 文本导出（每 Actor 计数 64 位，每 Actor 序列默认上限 1000）；Timer 指标平均值/时间戳已修复为真实值；同名指标注册报错。🟡 追踪只有 `foundation.monitoring.Tracer`（W3C 格式 ID），还没有接入消息投递与 ask | `runtime/prometheus_metrics.cj`、`foundation/logging/` |
-| 工程 | ✅ `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查、`--bench` 门禁接入 bench_gate）；测试 686 / 686（2026-11-08 第 18 批，`tools/ci.sh` 单用例超时 120 s；另跑集群套件 8 进程并行 2 轮与 ddata GC 压测 4 轮）；`cactor_testkit`（TestProbe、BehaviorTestKit、ManualTime）；Akka 对比基准 | `tools/`、`bench/` |
+| 工程 | ✅ `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查、`--bench` 门禁接入 bench_gate）；测试 695 / 695（2026-11-08 第 19 批，`tools/ci.sh` 单用例超时 120 s；另跑集群套件 8 进程并行 2 轮与 ddata GC 压测 4 轮）；`cactor_testkit`（TestProbe、BehaviorTestKit、ManualTime）；Akka 对比基准 | `tools/`、`bench/` |
 | HTTP | ✅ 最小可用（ManagementServer：健康检查 + Prometheus 指标，经真实 HTTP；绑定地址、并发上限、请求总时限可配置）。🟡 Ktor 风格插件体系未开始 | `cactor/api/` |
 
 ### 2.2 性能（同机实测，32 核 Xeon 8582C，详见 20261028-performance.md）
@@ -193,6 +193,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 - [x] gossip 成员协议（Joining → Up → Leaving → Exiting → Removed），种子节点引导，成员事件订阅；接入已有的 Phi Accrual 故障检测器（`cluster/membership/membership.cj`）。
 - [x] Cluster Singleton（`membership/singleton.cj`）、分布式发布订阅（`membership/pubsub.cj`）。
 - [x] Receptionist 集群版（`membership/receptionist.cj`，20261106 计划 E63；测试 `unit/cluster/cluster_distribution_test.cj`）。
+- [x] Distributed Data 增强（20261106 计划 E64）：一致性级别 WriteMajority / ReadMajority / All（`cluster_distribution_test.cj`）；delta 传播（按来源序号、断档向来源补齐）与移除节点的 pruning（两阶段标记，分量并入执行者，陈旧副本不重复计数）（`unit/cluster/ddata_delta_pruning_test.cj`）。
 - [x] 脑裂处理（keep-majority，`membership/sbr.cj`）。
 - [ ] 删除或重写现有原型：`cluster_routing.cj`、`failover.cj` 中的占位逻辑。
 - [x] 成员协议鉴权与 incarnation（20261106 计划 E7′，见上表"集群"一行）。

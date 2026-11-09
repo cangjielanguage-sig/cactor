@@ -413,12 +413,12 @@ public class CActorRuntime {
             throw Exception("Actor名称不能为空")
         }
 
-        // 检查名称是否已存在
+        // 检查名称是否已存在。已终止的旧实例只是终止回调还没注销它（回调要等本锁）：名字视为可用，
+        // 由用户 Guardian 的 createUserActor 代它释放（与 lookup 一致：lookup 已看不到已终止的 Actor）
         match (actorRegistry.findByName(name)) {
-            case Some(existingActor) =>
+            case Some(existingActor) where !existingActor.isTerminated() =>
                 throw Exception("Actor名称已存在: ${name}")
-            case None =>
-                ()  // 名称可用
+            case _ => ()  // 名称可用
         }
     }
 
