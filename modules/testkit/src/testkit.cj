@@ -382,6 +382,27 @@ public class TypedTestProbe<T> where T <: Message {
         probe.expectNoMsg(duration)
     }
 
+    /** 等待一条满足 predicate 的消息（fishForMessage），最多 timeout */
+    public func fishForMessage(timeout: Duration, predicate: (T) -> Bool): T {
+        let deadline = MonoTime.now() + timeout
+        while (true) {
+            let left = deadline - MonoTime.now()
+            if (left <= Duration.Zero) {
+                throw TestKitAssertionException("fishForMessage 超时")
+            }
+            let m = probe.expectMsg(left)
+            match (m as T) {
+                case Some(t) =>
+                    if (predicate(t)) {
+                        return t
+                    }
+                case None => ()
+            }
+        }
+        throw TestKitAssertionException("fishForMessage 未找到匹配消息")
+    }
+
+
     public func send(target: TypedActorRef<T>, message: T): Unit {
         let cr = (ref as ClassicTypedRef<T>).getOrThrow()
         cr.classic.tell(TypedPayloadBox(message), probe.ref)
