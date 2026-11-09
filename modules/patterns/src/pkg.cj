@@ -8,5 +8,6 @@ package cactor_patterns
 // 模式组件导出
 public import cactor_patterns.ask.*
 public import cactor_patterns.routing.*
+public import cactor_patterns.spawnprotocol.*
 public import cactor_foundation.circuit_breaker.*
 public import cactor_patterns.backpressure.*
