@@ -295,6 +295,8 @@ let EMPTY_SENDER_REFS: Array<Option<ActorRef>> = Array<Option<ActorRef>>()
 /** 父 Actor 的子表与它的锁（R8）：只为有子 Actor 的 Cell 分配 */
 class ChildTable {
     let map = HashMap<String, SimpleUserActorRef>(4)
+    // 子 Actor 的创建顺序（RestForOne 语义需要：失败的子 Actor 及其之后创建的兄弟一起重启）
+    let creationOrder = ArrayList<String>()
     let lock = Mutex()
     // 重启等待旧子 Actor 终止期间保存重启原因（只在父线程访问）。放在这里而不是 Cell 上：
     // 只有有子 Actor 的 Actor 才会进入等待，叶 Actor 不为它多付一个字段
@@ -888,6 +890,9 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         let t = childTable()
         synchronized(t.lock) {
             t.map.add(name, child)
+            if (!t.creationOrder.contains(name)) {
+                t.creationOrder.add(name)
+            }
         }
     }
 
@@ -895,6 +900,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (let Some(t) <- childTableValue) {
             synchronized(t.lock) {
                 t.map.remove(name)
+                t.creationOrder.removeIf({ x => x == name })
             }
         }
     }
@@ -1615,6 +1621,38 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         let targets = if (strategy.appliesToAllChildren()) {
             childMap().values().toArray()
+        } else if (strategy.restForOne()) {
+            // RestForOne：失败的子 Actor 及其之后创建的兄弟一起重启
+            let order = childTable().creationOrder
+            var startIdx: Int64 = 0
+            var found = false
+            for (i in 0..order.size) {
+                if (order[i] == child.getName()) {
+                    startIdx = i
+                    found = true
+                    break
+                }
+            }
+            if (!found) {
+                startIdx = 0
+            }
+            let namesAfter = ArrayList<String>()
+            for (i in startIdx..order.size) {
+                namesAfter.add(order[i])
+            }
+            let t = childMap()
+            let arr = ArrayList<SimpleUserActorRef>()
+            for (n in namesAfter) {
+                match (t.get(n)) {
+                    case Some(r) => arr.add(r)
+                    case None => ()
+                }
+            }
+            if (arr.isEmpty()) {
+                [child]
+            } else {
+                arr.toArray()
+            }
         } else {
             [child]
         }

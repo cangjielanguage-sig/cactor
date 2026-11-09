@@ -67,5 +67,13 @@ public interface SupervisionStrategy {
     func appliesToAllChildren(): Bool {
         false
     }
+
+    /**
+     * 是否为 RestForOne 语义：失败的子 Actor 及其之后创建的所有兄弟 Actor 一起重启。
+     * 默认 false。
+     */
+    func restForOne(): Bool {
+        false
+    }
 }
 

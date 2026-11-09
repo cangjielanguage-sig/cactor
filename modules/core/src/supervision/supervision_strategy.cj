@@ -177,6 +177,68 @@ public class OneForAllStrategy <: SupervisionStrategy {
 }
 
 /**
+ * RestForOne 监督策略（对标 Akka RestForOneStrategy）：
+ * 一个子 Actor 失败时，重启它以及在它之后创建的所有兄弟 Actor。
+ * 决策函数与重试上限与 OneForOne 相同；兄弟选择由父 Actor 按创建顺序执行。
+ */
+public class RestForOneStrategy <: SupervisionStrategy {
+    private let maxRetries: Int32
+    private let withinTimeRange: Duration
+    private let retryHistory: ConcurrentHashMap<String, RetryInfo>
+    private let decider: (Exception) -> SupervisionDirective
+
+    public init(maxRetries: Int32, withinTimeRange: Duration,
+                decider: (Exception) -> SupervisionDirective) {
+        this.maxRetries = maxRetries
+        this.withinTimeRange = withinTimeRange
+        this.retryHistory = ConcurrentHashMap<String, RetryInfo>()
+        this.decider = decider
+    }
+
+    public func decide(failure: ActorFailure): SupervisionDirective {
+        let directive = decider(failure.cause)
+        match (directive) {
+            case SupervisionDirective.Restart | SupervisionDirective.RestartAfter(_) =>
+                let retryInfo = getOrCreateRetryInfo(failure.actor)
+                if (retryInfo.shouldRetry(maxRetries, withinTimeRange)) {
+                    retryInfo.recordRetry()
+                    directive
+                } else {
+                    SupervisionDirective.Stop
+                }
+            case _ => directive
+        }
+    }
+
+    private func getOrCreateRetryInfo(actor: ActorRef): RetryInfo {
+        let actorKey = actor.path.toString()
+        match (retryHistory.get(actorKey)) {
+            case Some(info) => info
+            case None =>
+                let newInfo = RetryInfo()
+                retryHistory.add(actorKey, newInfo)
+                newInfo
+        }
+    }
+
+    public func resetRetryInfo(actor: ActorRef): Unit {
+        let actorKey = actor.path.toString()
+        match (retryHistory.get(actorKey)) {
+            case Some(info) => info.reset()
+            case None => ()
+        }
+    }
+
+    public func appliesToAllChildren(): Bool {
+        false
+    }
+
+    public func restForOne(): Bool {
+        true
+    }
+}
+
+/**
  * Escalate监督策略
  * 将失败向上级监督者传播
  * 实现plan3.md优先级3：监督策略完善
