@@ -292,6 +292,8 @@ class RegionShared {
     var acquiringShards: Int64 = 0
     var acquisitionsCompleted: Int64 = 0
     var yieldedShards: Int64 = 0
+    // 每个分片上当前运行的实体数（供负载报告 / 再平衡决策，E62/E13′ 后续）
+    let shardCounts = HashMap<Int64, Int64>()
 }
 
 /** 本节点正在获取的分片：等其他成员确认已停止它 */
@@ -768,6 +770,8 @@ class ShardRegionActor <: Actor {
             ref.tell(PoisonPill())
             synchronized(shared.lock) {
                 shared.entityIds.remove(id)
+                let sh = shardOf(id, numberOfShards)
+                shared.shardCounts[sh] = max(0, (shared.shardCounts.get(sh) ?? 1) - 1)
             }
         }
     }
@@ -796,6 +800,7 @@ class ShardRegionActor <: Actor {
                 lastActive.remove(id)
                 synchronized(shared.lock) {
                     shared.entityIds.remove(id)
+                    shared.shardCounts[sh] = max(0, (shared.shardCounts.get(sh) ?? 1) - 1)
                 }
                 if (let Some(rep) <- settings.rememberEntities) {
                     // 在 receive 里：不同步等待 Replicator（见 Replicator.updateAsync）
@@ -881,6 +886,7 @@ class ShardRegionActor <: Actor {
         }
         synchronized(shared.lock) {
             shared.entityIds.add(id)
+            shared.shardCounts[sh] = (shared.shardCounts.get(sh) ?? 0) + 1
         }
         r
     }
@@ -1256,6 +1262,54 @@ public class ClusterSharding {
         synchronized(shared.lock) {
             shared.restarted
         }
+    }
+
+    /**
+     * 本节点各分片当前运行的实体数（负载报告，E13′/再平衡基础）。
+     * 返回的映射为分片号 -> 实体数的快照；未托管的分片计数为 0。
+     * 跨节点的负载均衡决策应结合所有成员的报告；本方法只报告本节点。
+     */
+    public func shardLoad(): Map<Int64, Int64> {
+        let out = HashMap<Int64, Int64>()
+        synchronized(shared.lock) {
+            for (sh in 0..numberOfShards) {
+                out[sh] = shared.shardCounts.get(sh) ?? 0
+            }
+        }
+        out
+    }
+
+    /**
+     * 负载最重的 n 个分片号（按本节点实体数降序），供再平衡决策使用。
+     * n 大于分片数时返回全部分片。
+     */
+    public func busiestShards(n: Int64): Array<Int64> {
+        let load = shardLoad()
+        let entries = ArrayList<(Int64, Int64)>()
+        for ((sh, c) in load) {
+            entries.add((sh, c))
+        }
+        // 简单选择排序（分片数通常 ≤ 几百，性能可接受）
+        let size = entries.size
+        let limit = if (n < size) { n } else { size }
+        let result = ArrayList<Int64>()
+        let used = HashSet<Int64>()
+        for (_ in 0..limit) {
+            var best: Int64 = -1
+            var bestLoad: Int64 = -1
+            for (i in 0..size) {
+                let (sh, c) = entries[i]
+                if (!used.contains(sh) && c > bestLoad) {
+                    bestLoad = c
+                    best = sh
+                }
+            }
+            if (best >= 0) {
+                result.add(best)
+                used.add(best)
+            }
+        }
+        result.toArray()
     }
 
     public func stop(): Unit {
