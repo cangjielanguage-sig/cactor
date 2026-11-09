@@ -15,6 +15,8 @@ import std.time.*
 import std.collection.*
 import cactor_core.actor.{Actor, ActorRef, ActorContext, Props}
 import cactor_core.message.{Message, MessageResult}
+import cactor_core.typed.{TypedActorRef, ClassicTypedRef, TypedPayloadBox}
+import cactor_core.typed.{TypedActorRef, ClassicTypedRef}
 import cactor.api.{CActorSystem, CActorSystemFactory}
 
 /** 断言失败 */
@@ -342,5 +344,41 @@ public class ActorTestKit {
 
     public func shutdown(): Unit {
         system.terminate()
+    }
+}
+
+
+/**
+ * 类型化测试探针：对 TypedActorRef<T> 的消息做断言（E62 的一部分）。
+ * T 需要是 Message 的子类型。
+ */
+public class TypedTestProbe<T> where T <: Message {
+    private let probe: TestProbe
+    public let ref: TypedActorRef<T>
+
+    public init(system: CActorSystem, name: String) {
+        this.probe = TestProbe(system, name)
+        this.ref = ClassicTypedRef<T>(probe.ref)
+    }
+
+    public func expectMsg(timeout: Duration): T {
+        let m = probe.expectMsg(timeout)
+        match (m as T) {
+            case Some(t) => t
+            case None => throw TestKitAssertionException("收到的消息类型不符: ${m.messageType()}")
+        }
+    }
+
+    public func expectMsg(): T {
+        expectMsg(TestProbe.DEFAULT_TIMEOUT)
+    }
+
+    public func expectNoMsg(duration: Duration): Unit {
+        probe.expectNoMsg(duration)
+    }
+
+    public func send(target: TypedActorRef<T>, message: T): Unit {
+        let cr = (ref as ClassicTypedRef<T>).getOrThrow()
+        cr.classic.tell(TypedPayloadBox(message), probe.ref)
     }
 }
