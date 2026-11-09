@@ -15,7 +15,7 @@ import std.time.*
 import std.collection.*
 import cactor_core.actor.{Actor, ActorRef, ActorContext, Props}
 import cactor_core.message.{Message, MessageResult}
-import cactor_core.typed.{TypedActorRef, ClassicTypedRef, TypedPayloadBox}
+import cactor_core.typed.{TypedActorRef, ClassicTypedRef, TypedPayloadBox, TypedBehavior}
 import cactor_core.typed.{TypedActorRef, ClassicTypedRef}
 import cactor.api.{CActorSystem, CActorSystemFactory}
 
@@ -340,6 +340,11 @@ public class ActorTestKit {
 
     public func actorOf(props: Props<Actor>, name: String): ActorRef {
         system.actorOf(props, name)
+    }
+
+    /** 类型化生成（E62 的一部分） */
+    public func spawnTyped<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U> {
+        system.typed().actorOf(behavior, name)
     }
 
     public func shutdown(): Unit {
