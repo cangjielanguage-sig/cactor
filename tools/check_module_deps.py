@@ -30,6 +30,11 @@ LAYERS = {
     "cactor_examples": 7,
 }
 
+# stdx（外部二进制依赖，需要 OpenSSL 等运行环境）只允许出现在这些模块：
+# 运行时内核（foundation / core / runtime / persistence …）保持零外部依赖，加密等能力经接口注入（E65 TransportSecurity）
+STDX_ALLOWED = {"cactor_remote", "cactor_cluster", "cactor_distribution", "cactor_integration",
+                "cactor_tests", "cactor_examples"}
+
 IMPORT_RE = re.compile(
     r"^\s*(?:(?:public|protected|internal|private)\s+)?import\s+([\w.]+)", re.M)
 NAME_RE = re.compile(r'^name\s*=\s*"([\w]+)"', re.M)
@@ -55,6 +60,9 @@ def main() -> int:
                 text = open(path, encoding="utf-8", errors="ignore").read()
                 for imp in IMPORT_RE.findall(text):
                     target = imp.split(".")[0]
+                    if target == "stdx" and name not in STDX_ALLOWED:
+                        errors.append(f"{path}: {name} 不允许直接依赖 stdx（{imp}），请经接口注入")
+                        continue
                     if target == name or target not in LAYERS:
                         continue
                     if LAYERS[target] >= LAYERS[name]:

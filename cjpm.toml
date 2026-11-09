@@ -29,3 +29,19 @@ compile-option = "-O2 -Woff unused -Woff parser --diagnostic-format=noColor"
 override-compile-option = ""
 link-option = ""
 target-dir = ""
+
+# stdx（E65：远程传输 TLS，`cactor_remote.RemoteTls` 使用 stdx.net.tls / stdx.crypto）。
+# 静态链接：可执行文件运行时不需要 LD_LIBRARY_PATH；OpenSSL 3（libssl / libcrypto）由 stdx 在用到 TLS 时加载。
+# CANGJIE_STDX_PATH 指向 stdx 的静态库目录，例如 $HOME/.cangjie/stdx-1.2.0.1/linux_x86_64_cjnative/static/stdx；
+# `source tools/env.sh` 会在未设置时按本机安装位置给出默认值（tools/ci.sh 已自动执行）。
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.aarch64-unknown-linux-gnu.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.aarch64-apple-darwin.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.x86_64-apple-darwin.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]

@@ -35,6 +35,14 @@ class CNode {
         remote.start()
     }
 
+    /** 使用自定义远程配置（例如 TLS，须在 start 之前配置） */
+    init(name: String, remoting: RemotingSettings) {
+        kit = ActorTestKit(name)
+        remote = SimpleRemoteManager(NetworkAddress("127.0.0.1", 0), TransportProtocol.TCP)
+        remote.configure(remoting)
+        remote.start()
+    }
+
     /** 使用自定义传输（例如注入网络分区） */
     init(name: String, transport: NetworkTransport) {
         kit = ActorTestKit(name)

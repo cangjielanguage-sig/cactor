@@ -200,6 +200,18 @@ public interface TypedActorContext<T> {
     }
 
     /**
+     * 异步结果完成后，经 map 转换为**信号**投递给自己，由行为的 onSignal 在本 Actor 线程中处理
+     * （与消息同一邮箱、按到达顺序；行为不处理时忽略，不进死信）。
+     *
+     * 供在行为内部实现私有协议的库使用：例如持久化行为把"恢复完成 / 写入完成"作为信号送回自己，
+     * 不需要在用户的消息协议 T 里加内部消息（Akka 在内部用 Any 协议 + 拦截器做同一件事）。
+     * map 在本 Actor 线程中执行；信号类型由库自己定义（实现 TypedSignal）。
+     */
+    func pipeSignalToSelf<V>(future: TypedFuture<V>, map: (AskOutcome<V>) -> TypedSignal): Unit {
+        throw UnsupportedContextException("pipeSignalToSelf")
+    }
+
+    /**
      * 消息适配器：返回一个接收 U 的引用，发给它的消息经 f 转换后投递给本 Actor。
      * f 在本 Actor 线程中执行。常用于把其他 Actor 的响应协议转换为本 Actor 的协议。
      */
@@ -954,4 +966,8 @@ internal class TransformContext<In, T> <: TypedActorContext<T> & SupervisionHost
     public func scheduler(): TypedScheduler { underlying.scheduler() }
     public func toClassic(): Option<ActorContext> { underlying.toClassic() }
     public func askMessage(target: TypedActorRef<Any>, message: Any, timeout: Duration): TypedFuture<Any> { underlying.askMessage(target, message, timeout) }
+    // 信号与消息类型无关，transformMessages 内层的行为也能收到（经外层 onSignal 转发）
+    public func pipeSignalToSelf<V>(future: TypedFuture<V>, map: (AskOutcome<V>) -> TypedSignal): Unit {
+        underlying.pipeSignalToSelf<V>(future, map)
+    }
 }

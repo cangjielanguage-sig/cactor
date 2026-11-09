@@ -384,6 +384,14 @@ public class PromiseActorRef <: ActorRef {
     public func hashCode(): Int32 {
         Int32(actorPath.getPath().hashCode() & 0x7FFFFFFF)
     }
+
+    /**
+     * Promise 已完成（收到回复或超时）即视为终止（E12′）：一次性的回复引用不会再收消息，
+     * 远程层据此注销为它登记的回复入口（经分片 / 单例的 ask 每次都会登记一个）
+     */
+    public func isTerminated(): Bool {
+        promise.isCompleted()
+    }
 }
 
 /**

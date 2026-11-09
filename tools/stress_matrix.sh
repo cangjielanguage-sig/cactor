@@ -18,10 +18,9 @@ cd "$(dirname "$0")/.."
 
 # 自带仓颉环境（与 ci.sh 一致）：否则在未 source envsetup.sh 的 shell 里，每个可执行程序都因
 # 找不到 libcangjie-runtime.so 以 127 退出，整张矩阵全红（E26）
-if ! command -v cjpm >/dev/null 2>&1; then
-    # shellcheck disable=SC1091
-    source "${CANGJIE_HOME:-$HOME/.cangjie/1.2.0/cangjie}/envsetup.sh" >/dev/null
-fi
+# 仓颉环境 + stdx 路径（E65：根 cjpm.toml 以 ${CANGJIE_STDX_PATH} 引入 stdx）
+# shellcheck disable=SC1091
+source tools/env.sh
 
 MODE="${1:-quick}"
 BIN="./target/release/bin"

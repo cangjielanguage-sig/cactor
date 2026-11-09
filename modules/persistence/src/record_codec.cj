@@ -63,6 +63,11 @@ class RecordReader {
         this.data = data
     }
 
+    /** 还有未读字段（用于向后兼容地在记录末尾追加字段） */
+    func hasMore(): Bool {
+        pos < data.size
+    }
+
     func getString(): String {
         let n = getInt32()
         if (n < 0 || pos + n > data.size) {

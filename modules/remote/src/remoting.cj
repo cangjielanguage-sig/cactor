@@ -41,7 +41,8 @@ import std.math.*
 import cactor_core.actor.*
 import cactor_core.message.*
 import cactor_core.typed.{TypedPromise, TypedAskTimeoutException}
-import cactor_foundation.network.{NetworkAddress, NetworkTransport, TransportHandshake}
+import cactor_core.dsl.{AskInbox}
+import cactor_foundation.network.{NetworkAddress, NetworkTransport, TransportHandshake, TransportSecurity, TcpTransport}
 import cactor_foundation.hashing.{hmacSha256, toHex, fromHex, constantTimeEquals}
 import cactor_foundation.detector.{PhiAccrualFailureDetector, monotonicMillis}
 import cactor_foundation.logging.{Logger, Logging, LogRateLimiter}
@@ -100,6 +101,11 @@ public struct RemotingSettings {
      * 不设置时握手只交换身份（地址 + 启动标识），不鉴权
      */
     public let secureCookie: Option<String>
+    /**
+     * 传输加密（E65）：设置后每条连接先完成加密握手（如 RemoteTls 的 TLS 1.3 双向认证），明文连接被拒绝；
+     * 与共享密钥可以叠加（TLS 认证"持有本集群 CA 签发的证书"，密钥再认证"知道本集群的密钥"）
+     */
+    public let transportSecurity: Option<TransportSecurity>
 
     public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
         resendInterval: Duration, ackInterval: Duration) {
@@ -116,6 +122,13 @@ public struct RemotingSettings {
     public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
         resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration,
         secureCookie: Option<String>) {
+        this(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval, maxUnacked,
+            giveUpAfter, secureCookie, None<TransportSecurity>)
+    }
+
+    public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
+        resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration,
+        secureCookie: Option<String>, transportSecurity: Option<TransportSecurity>) {
         if (maxUnacked <= 0) {
             throw IllegalArgumentException("maxUnacked 必须为正数: ${maxUnacked}")
         }
@@ -132,6 +145,7 @@ public struct RemotingSettings {
             }
         }
         this.secureCookie = secureCookie
+        this.transportSecurity = transportSecurity
     }
 
     /**
@@ -147,13 +161,24 @@ public struct RemotingSettings {
     /** 换掉可靠投递的上限与放弃时长，其余不变 */
     public func withLimits(maxUnacked: Int64, giveUpAfter: Duration): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, secureCookie)
+            maxUnacked, giveUpAfter, secureCookie, transportSecurity)
     }
 
     /** 设置共享密钥，其余不变（集群内所有节点须相同） */
     public func withSecureCookie(cookie: String): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, Some(cookie))
+            maxUnacked, giveUpAfter, Some(cookie), transportSecurity)
+    }
+
+    /** 设置传输加密，其余不变（集群内所有节点须一致：加密节点拒绝明文连接） */
+    public func withTransportSecurity(security: TransportSecurity): RemotingSettings {
+        RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
+            maxUnacked, giveUpAfter, secureCookie, Some(security))
+    }
+
+    /** 启用 TLS（E65），等同 withTransportSecurity(tls) */
+    public func withTls(tls: RemoteTls): RemotingSettings {
+        withTransportSecurity(tls)
     }
 }
 
@@ -279,6 +304,50 @@ class ByteReader {
 
     func text(): String {
         String.fromUtf8(bytes(long()))
+    }
+}
+
+/** 无法判断终止的回复入口（AskInbox 等）空闲多久后注销 */
+public let REPLY_ENTRY_IDLE_TTL_MS: Int64 = 10 * 60 * 1000
+/** 回复入口的清扫间隔 */
+let REPLY_SWEEP_INTERVAL: Duration = Duration.second
+
+/**
+ * 回复入口（N7、v1 B6）：本地 Actor 作为远程消息的发送方时登记，对端 reply 按名称送回。
+ * 名称带实例序号（"$ref<路径>#n"）：同一路径上重建的 Actor 是新实例、换新名称，
+ * 发给旧实例的迟到回复找不到入口、计为不可投递，而不是投给已死的旧 Cell 或串到新实例。
+ */
+class ReplyEntry {
+    let ref: ActorRef
+    let name: String
+    // 路径索引的键（含系统名，同进程多个系统共用一个远程管理器时不冲突）
+    let key: String
+    // 能否判断终止：AskInbox 这类收件箱没有生命周期，只能按空闲时长回收
+    let observable: Bool
+    let lastUsed: AtomicInt64
+
+    init(ref: ActorRef, name: String, key: String, observable: Bool, now: Int64) {
+        this.ref = ref
+        this.name = name
+        this.key = key
+        this.observable = observable
+        this.lastUsed = AtomicInt64(now)
+    }
+
+    func expired(now: Int64): Bool {
+        if (observable) {
+            ref.isTerminated()
+        } else {
+            now - lastUsed.load() > REPLY_ENTRY_IDLE_TTL_MS
+        }
+    }
+}
+
+/** 本地 Cell、Promise 引用等都能报告终止；AskInbox 没有生命周期（用户随时可能再 get） */
+func hasObservableLifecycle(ref: ActorRef): Bool {
+    match (ref) {
+        case _: AskInbox => false
+        case _ => true
     }
 }
 
@@ -490,8 +559,11 @@ public class RemotingCore {
 
     // 已暴露的 Actor：名称 -> 引用
     private let exposed = HashMap<String, ActorRef>()
-    // 作为发送方注册的本地回复入口：名称 -> 引用
-    private let replyEntries = HashMap<String, ActorRef>()
+    // 作为发送方登记的本地回复入口（E12′）：路径 -> 当前实例的入口；入口名称 -> 入口
+    private let replyByKey = HashMap<String, ReplyEntry>()
+    private let replyByName = HashMap<String, ReplyEntry>()
+    private let replySeq = AtomicInt64(0)
+    let replyEntriesReleased = AtomicInt64(0)
 
     // 远程 watch（监视方）："地址|名称" -> 本地监视者
     private let remoteWatchers = HashMap<String, ArrayList<ActorRef>>()
@@ -539,6 +611,10 @@ public class RemotingCore {
 
     private func manager(): SimpleRemoteManager {
         managerValue.getOrThrow()
+    }
+
+    func currentSettings(): RemotingSettings {
+        settings
     }
 
     func configure(s: RemotingSettings): Unit {
@@ -687,6 +763,27 @@ public class RemotingCore {
         terminateWatchersOf(addrText)
     }
 
+    /**
+     * 隔离指定实例（"地址#uid"，E12′：集群移除被 down 的成员时调用，对标 Akka 隔离被移除成员的 UID）。
+     * 该地址当前已知的就是这个实例时做完整隔离（断开连接、丢弃通道、通知监视者）；
+     * 地址上已换成新实例时只记下旧实例，不影响新实例。重复调用不重复处理
+     */
+    func quarantineInstance(addrText: String, uid: UInt64, reason: String): Unit {
+        let (already, current) = synchronized(lock) {
+            let k = quarantineKey(addrText, uid)
+            let a = quarantined.contains(k)
+            quarantined.add(k)
+            (a, peerUids.get(addrText))
+        }
+        if (already) {
+            return
+        }
+        match (current) {
+            case Some(u) where u == uid => quarantineAddress(addrText, reason)
+            case _ => log_remoting.info("隔离 ${quarantineKey(addrText, uid)}（${reason}）：该地址当前不是这个实例，只阻止它再连入")
+        }
+    }
+
     func isQuarantined(addrText: String): Bool {
         synchronized(lock) {
             match (peerUids.get(addrText)) {
@@ -768,25 +865,78 @@ public class RemotingCore {
         }
     }
 
-    /** 发送方的远程表示；本地 Actor 会注册一个回复入口 */
+    /**
+     * 发送方的远程表示；本地 Actor 登记一个回复入口（E12′：按 Actor 生命周期注册与注销）。
+     * - 同一路径已有入口且其 Actor 仍存活：沿用（刷新空闲时间）；
+     * - 入口的 Actor 已终止（例如分片实体钝化后在同一路径重建）：换新实例的入口并注销旧入口——
+     *   此前入口永远绑定第一次登记的引用，重建后的回复全投给已死的旧 Cell（N7）；
+     * - 已终止 Actor 的入口由可靠投递线程每秒清扫注销（此前永不删除，v1 B6）。
+     * 处理器的登记与注销在同一把锁内完成：另一个线程拿到名称时处理器一定已就位
+     */
     public func senderInfoFor(ref: ActorRef): String {
         match (ref) {
             case r: RemoteActorRef => encodeRemoteSender(r.getTargetAddress(), r.getActorName())
             case _ =>
-                let name = "$ref" + ref.path.getPath()
-                let isNew = synchronized(lock) {
-                    if (replyEntries.contains(name)) {
-                        false
-                    } else {
-                        replyEntries[name] = ref
-                        true
+                let key = ref.path.toString()
+                let now = monotonicMillis()
+                let me = this
+                let name = synchronized(lock) {
+                    match (replyByKey.get(key)) {
+                        case Some(e) where !e.ref.isTerminated() =>
+                            e.lastUsed.store(now)
+                            e.name
+                        case old =>
+                            let e = ReplyEntry(ref, "$ref${ref.path.getPath()}#${replySeq.fetchAdd(1) + 1}", key,
+                                hasObservableLifecycle(ref), now)
+                            if (let Some(o) <- old) {
+                                replyByName.remove(o.name)
+                                receiver.unregisterHandler(o.name)
+                                replyEntriesReleased.fetchAdd(1)
+                            }
+                            replyByKey[key] = e
+                            replyByName[e.name] = e
+                            receiver.registerHandler(e.name, { m: Message, from: Option<String> => me.deliverReply(e, m, from) })
+                            e.name
                     }
                 }
-                if (isNew) {
-                    let me = this
-                    receiver.registerHandler(name, { m: Message, from: Option<String> => me.deliverLocal(ref, m, from) })
-                }
                 encodeRemoteSender(localAddress(), name)
+        }
+    }
+
+    private func deliverReply(e: ReplyEntry, m: Message, from: Option<String>): Unit {
+        e.lastUsed.store(monotonicMillis())
+        deliverLocal(e.ref, m, from)
+    }
+
+    /** 注销已终止 Actor（或空闲超时的收件箱）的回复入口，返回注销数 */
+    func sweepReplyEntries(): Int64 {
+        let now = monotonicMillis()
+        let n = synchronized(lock) {
+            let dead = ArrayList<ReplyEntry>()
+            for ((_, e) in replyByName) {
+                if (e.expired(now)) {
+                    dead.add(e)
+                }
+            }
+            for (e in dead) {
+                replyByName.remove(e.name)
+                receiver.unregisterHandler(e.name)
+                // 路径索引仍指向这一条时才删除（可能已被新实例的入口替换）
+                if (let Some(cur) <- replyByKey.get(e.key)) {
+                    if (refEq(cur, e)) {
+                        replyByKey.remove(e.key)
+                    }
+                }
+            }
+            dead.size
+        }
+        replyEntriesReleased.fetchAdd(n)
+        n
+    }
+
+    func replyEntryCount(): Int64 {
+        synchronized(lock) {
+            replyByName.size
         }
     }
 
@@ -1130,8 +1280,13 @@ public class RemotingCore {
 
     private func reliableLoop(): Unit {
         var lastResend = MonoTime.now()
+        var lastSweep = MonoTime.now()
         while (running.load()) {
             sleep(settings.ackInterval)
+            if (MonoTime.now() - lastSweep >= REPLY_SWEEP_INTERVAL) {
+                lastSweep = MonoTime.now()
+                sweepReplyEntries() |> ignoreCount
+            }
             // 发送累计确认
             let acks = synchronized(lock) {
                 let a = ArrayList<(String, String, Int64)>()
@@ -1352,9 +1507,28 @@ public class RemotingCore {
 }
 
 extend SimpleRemoteManager {
-    /** 调整心跳、重发等参数（在 start 之前调用） */
+    /** 调整心跳、重发等参数（在 start 之前调用；含传输加密的设置在 start 之后调用会抛 IllegalStateException） */
     public func configure(settings: RemotingSettings): Unit {
+        if (settings.transportSecurity.isSome() && isStarted()) {
+            throw IllegalStateException("传输加密须在 start 之前配置")
+        }
         core.configure(settings)
+    }
+
+    /** 经传输加密建立的连接数（出站 + 入站）；未启用加密或不是 TCP 传输时为 0 */
+    public func securedConnections(): Int64 {
+        match (transportInternal() as TcpTransport) {
+            case Some(t) => t.getSecuredConnections()
+            case None => 0
+        }
+    }
+
+    /** 传输层拒绝的入站连接数：加密握手失败（明文连接、证书不通过）与远程层握手被拒之和 */
+    public func rejectedConnections(): Int64 {
+        match (transportInternal() as TcpTransport) {
+            case Some(t) => t.getRejectedHandshakes()
+            case None => 0
+        }
     }
 
     /** 向远程 Actor 发起请求，等待其 context.reply 的回复 */
@@ -1396,6 +1570,19 @@ extend SimpleRemoteManager {
      */
     public func quarantine(address: NetworkAddress, reason: String): Unit {
         core.quarantineAddress(address.toString(), reason)
+    }
+
+    /** 隔离指定实例（"地址#uid"）：地址上已换成新实例时不影响新实例（见 RemotingCore.quarantineInstance） */
+    public func quarantine(address: NetworkAddress, uid: UInt64, reason: String): Unit {
+        core.quarantineInstance(address.toString(), uid, reason)
+    }
+
+    /**
+     * 当前登记的回复入口数（本地 Actor 作为远程消息发送方时登记，Actor 终止后每秒清扫注销）。
+     * 诊断用：稳定负载下应保持在"仍存活且发过远程消息的 Actor 数"附近，不随请求数增长
+     */
+    public func replyEntryCount(): Int64 {
+        core.replyEntryCount()
     }
 
     /** 该地址当前已知的实例是否已被隔离 */

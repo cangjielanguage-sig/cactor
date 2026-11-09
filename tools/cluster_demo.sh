@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 多进程集群验证：启动 3 个独立进程组成集群，经分片收发消息并校验，然后依次离开。
 #   tools/cluster_demo.sh            # 需要先在 workspace 根目录 cjpm build
+#   tools/cluster_demo.sh --tls      # 全部集群流量走 TLS 1.3 双向认证（E65，测试证书 tools/tls-test-certs，端口 25530 起）
 set -uo pipefail
 cd "$(dirname "$0")/.."
 if ! command -v cjpm >/dev/null 2>&1; then
@@ -9,6 +10,10 @@ if ! command -v cjpm >/dev/null 2>&1; then
 fi
 BIN=./target/release/bin/cactor_examples.cluster_node
 BASE=${CLUSTER_DEMO_PORT:-25510}
+if [[ "${1:-}" == "--tls" ]]; then
+    export CACTOR_TLS_DIR="$PWD/tools/tls-test-certs"
+    BASE=${CLUSTER_DEMO_PORT:-25530}
+fi
 SEED="127.0.0.1:${BASE}"
 N=3
 logdir=$(mktemp -d)

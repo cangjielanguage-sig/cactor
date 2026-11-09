@@ -204,6 +204,13 @@ public class SimpleRemoteReceiver {
         }
     }
 
+    /** 已登记的处理器数（暴露的 Actor、回复入口、ask 临时入口等；诊断用） */
+    public func handlerCount(): Int64 {
+        synchronized(mutex) {
+            messageHandlers.size
+        }
+    }
+
     public func hasHandler(actorName: String): Bool {
         synchronized(mutex) {
             messageHandlers.contains(actorName)
@@ -258,7 +265,17 @@ public class SimpleRemoteManager {
 
     public func start(): Unit {
         if (started.compareAndSwap(false, true)) {
-            // 握手（身份交换 + 可选的共享密钥鉴权，E7′）须在传输开始收发之前装上
+            // 传输加密（E65）与握手（身份交换 + 可选的共享密钥鉴权，E7′）都须在传输开始收发之前装上；
+            // 不支持加密的传输在这里抛异常，不会悄悄以明文运行
+            if (let Some(sec) <- core.currentSettings().transportSecurity) {
+                try {
+                    transport.setSecurity(sec)
+                } catch (e: Exception) {
+                    started.store(false)
+                    throw e
+                }
+                log_simple_remote.info("远程传输加密：${sec.describe()}")
+            }
             transport.setHandshake(core.handshake())
             transport.start()
             sender.start()
@@ -334,6 +351,10 @@ public class SimpleRemoteManager {
     }
 
     /** 远程层内部使用：隔离对端时断开连接 */
+    func isStarted(): Bool {
+        started.load()
+    }
+
     func transportInternal(): NetworkTransport {
         transport
     }

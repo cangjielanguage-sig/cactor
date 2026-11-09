@@ -6,6 +6,7 @@
  * TCP：长度前缀分帧（4 字节大端长度 + 负载），每个入站连接一个读协程；
  *      出站按目标地址建关联（OutboundConnection），连接、重连、写入都在关联的写线程里，send 只入队、永不阻塞
  * UDP：一条消息一个数据报（最大 64KB）
+ * 加密（E65）：TCP 连接建立后、握手之前可经 TransportSecurity 升级为加密流（TLS 实现在 cactor_remote，本层不依赖 stdx）
  */
 package cactor_foundation.network
 
@@ -89,6 +90,73 @@ public interface TransportHandshake {
     func confirm(peer: NetworkAddress, reply: Array<UInt8>): Bool
 }
 
+/**
+ * 传输加密（E65）：TCP 连接建立后、应用层握手（TransportHandshake）之前，把连接升级为加密流。
+ * 基础层只定义接口、不依赖 stdx / OpenSSL；TLS 实现见 cactor_remote.RemoteTls。
+ * 两个方法都在该连接自己的协程里调用（出站在关联的写线程，入站在该连接的读协程），可以阻塞到握手完成或超时；
+ * 失败抛异常，连接由传输关闭，计入握手失败（出站）/ 握手被拒（入站）
+ */
+public interface TransportSecurity {
+    /** 出站：对已连接的 TCP 连接做客户端加密握手，返回在其上收发的流 */
+    func secureOutbound(socket: TcpSocket, peer: NetworkAddress, timeout: Duration): StreamingSocket
+
+    /** 入站：对已接受的 TCP 连接做服务端加密握手，返回在其上收发的流 */
+    func secureInbound(socket: TcpSocket, timeout: Duration): StreamingSocket
+
+    /** 描述（日志与诊断），例如 "TLS 1.3 mTLS" */
+    func describe(): String
+}
+
+/**
+ * 一条 TCP 连接及其上的收发流：未加密时就是 TCP 连接本身，加密后是 TransportSecurity 返回的流。
+ * 读写只由拥有它的协程进行；close 可能来自别的线程（停止传输、隔离对端、重置出站连接），
+ * 所以先关原始 TCP 连接：TLS 流的 close 要等阻塞在 read 上的读协程退出（stdx 实测约 1 s），
+ * 关底层连接则立即唤醒它（实测 1 ms），之后再关加密流（此时不再阻塞）
+ */
+class Channel {
+    let raw: TcpSocket
+    private let lock = Mutex()
+    private var stream: StreamingSocket
+    private var secured: Bool = false
+
+    init(raw: TcpSocket) {
+        this.raw = raw
+        this.stream = raw
+    }
+
+    /** 换成加密流（在发布给其他线程使用之前、由拥有它的协程调用） */
+    func upgrade(s: StreamingSocket): Unit {
+        synchronized(lock) {
+            stream = s
+            secured = true
+        }
+    }
+
+    func isSecured(): Bool {
+        synchronized(lock) { secured }
+    }
+
+    func read(buf: Array<UInt8>): Int64 {
+        stream.read(buf)
+    }
+
+    func write(data: Array<UInt8>): Unit {
+        stream.write(data)
+    }
+
+    func setReadTimeout(t: ?Duration): Unit {
+        stream.readTimeout = t
+    }
+
+    func close(): Unit {
+        let (s, sec) = synchronized(lock) { (stream, secured) }
+        closeQuietly({ => raw.close() })
+        if (sec) {
+            closeQuietly({ => s.close() })
+        }
+    }
+}
+
 /** 握手帧的长度上限：握手只有一行文本，防止未鉴权的对端用超大长度字段耗尽内存 */
 public let MAX_HANDSHAKE_FRAME: Int64 = 4096
 /** 接受方等待第一帧的时限：防止不发握手的连接一直占着读协程 */
@@ -143,6 +211,14 @@ public interface NetworkTransport {
      * 不通过就断开，帧不会交给数据回调。须在 start 之前设置。默认实现忽略（不支持握手的传输）
      */
     func setHandshake(handshake: TransportHandshake): Unit {}
+
+    /**
+     * 设置传输加密（E65）：此后建立的每条连接在握手之前先完成加密握手，明文或证书不通过的连接被断开。
+     * 须在 start 之前设置。默认实现抛异常：不支持加密的传输（UDP、测试替身）不能悄悄退回明文
+     */
+    func setSecurity(security: TransportSecurity): Unit {
+        throw UnsupportedException("该传输不支持加密（${security.describe()} 只用于 TCP 传输）")
+    }
 
     /** 断开握手时登记为 peerKey 的全部入站连接（隔离对端用），返回断开的连接数 */
     func closeInboundFrom(peerKey: String): Int64 {
@@ -216,8 +292,10 @@ class TransportCounters {
     let writes = AtomicInt64(0)
     // 出站握手失败（对端应答不通过或超时）
     let handshakeFailures = AtomicInt64(0)
-    // 入站握手被拒绝（第一帧不通过、超时或非法）
+    // 入站握手被拒绝（第一帧不通过、超时或非法；加密握手失败，如明文连接或证书不通过）
     let handshakeRejected = AtomicInt64(0)
+    // 经 TransportSecurity 建立的加密连接数（出站 + 入站）
+    let securedConnections = AtomicInt64(0)
 }
 
 /** 入队结果 */
@@ -263,26 +341,29 @@ class OutboundConnection {
     private let counters: TransportCounters
     private let onRetire: (OutboundConnection) -> Unit
     private let handshakeOf: () -> Option<TransportHandshake>
+    private let securityOf: () -> Option<TransportSecurity>
     private let lock: Mutex = Mutex()
     private let cond: Condition
     private var control: FrameQueue = FrameQueue(4 * 1024)
     private var controlSpare: FrameQueue = FrameQueue(4 * 1024)
     private var pending: FrameQueue = FrameQueue(64 * 1024)
     private var pendingSpare: FrameQueue = FrameQueue(64 * 1024)
-    private var socket: Option<TcpSocket> = None<TcpSocket>
+    private var socket: Option<Channel> = None<Channel>
     private var closed: Bool = false
     private var retired: Bool = false
     private var writerDone: Bool = false
     private var writerWaiting: Bool = false
 
     init(address: NetworkAddress, connectTimeout: Duration, idleRetireAfter: Duration, counters: TransportCounters,
-        onRetire: (OutboundConnection) -> Unit, handshakeOf: () -> Option<TransportHandshake>) {
+        onRetire: (OutboundConnection) -> Unit, handshakeOf: () -> Option<TransportHandshake>,
+        securityOf: () -> Option<TransportSecurity>) {
         this.address = address
         this.connectTimeout = connectTimeout
         this.idleRetireAfter = idleRetireAfter
         this.counters = counters
         this.onRetire = onRetire
         this.handshakeOf = handshakeOf
+        this.securityOf = securityOf
         this.cond = synchronized(lock) { lock.condition() }
     }
 
@@ -428,7 +509,7 @@ class OutboundConnection {
     }
 
     private func connect(): Bool {
-        let s = try {
+        let sock = try {
             let sock = TcpSocket(address.host, UInt16(address.port))
             sock.connect(timeout: connectTimeout)
             sock.noDelay = true
@@ -438,13 +519,26 @@ class OutboundConnection {
             log_transport.debug("连接 ${address.toString()} 失败: ${e.message}")
             return false
         }
+        let s = Channel(sock)
+        // 加密握手先于应用层握手：身份与鉴权帧只在加密流上传输
+        if (let Some(sec) <- securityOf()) {
+            try {
+                s.upgrade(sec.secureOutbound(sock, address, connectTimeout))
+                counters.securedConnections.fetchAdd(1)
+            } catch (e: Exception) {
+                counters.handshakeFailures.fetchAdd(1)
+                log_transport.debug("与 ${address.toString()} 的加密握手失败: ${e.message}")
+                s.close()
+                return false
+            }
+        }
         if (let Some(h) <- handshakeOf()) {
             // 握手：先发 hello，再在 connectTimeout 内读对端应答并校验（双向鉴权）
             let ok = try {
                 s.write(encodeFrame(h.hello(address)))
-                s.readTimeout = connectTimeout
+                s.setReadTimeout(connectTimeout)
                 let reply = readFrameLimited(FrameReader(s), MAX_HANDSHAKE_FRAME)
-                s.readTimeout = None
+                s.setReadTimeout(None)
                 match (reply) {
                     case Some(r) => h.confirm(address, r)
                     case None => false
@@ -455,7 +549,7 @@ class OutboundConnection {
             }
             if (!ok) {
                 counters.handshakeFailures.fetchAdd(1)
-                closeQuietly({ => s.close() })
+                s.close()
                 return false
             }
         }
@@ -468,11 +562,11 @@ class OutboundConnection {
     private func disconnect(): Unit {
         let s = synchronized(lock) {
             let old = socket
-            socket = None<TcpSocket>
+            socket = None<Channel>
             old
         }
         if (let Some(sock) <- s) {
-            closeQuietly({ => sock.close() })
+            sock.close()
         }
     }
 
@@ -591,12 +685,12 @@ class OutboundConnection {
 
 /** 带缓冲的帧读取：一次 read 读入多帧，减少系统调用 */
 class FrameReader {
-    private let socket: TcpSocket
+    private let socket: Channel
     private let buffer: Array<UInt8> = Array<UInt8>(64 * 1024, repeat: 0)
     private var start: Int64 = 0
     private var end: Int64 = 0
 
-    init(socket: TcpSocket) {
+    init(socket: Channel) {
         this.socket = socket
     }
 
@@ -641,10 +735,11 @@ public class TcpTransport <: NetworkTransport {
     private let mutex: Mutex
     private var server: Option<TcpServerSocket>
     private let outbound: HashMap<String, OutboundConnection>
-    private let inbound: ArrayList<TcpSocket>
+    private let inbound: ArrayList<Channel>
     // 握手通过的入站连接：(连接, 对端标识)，隔离对端时按标识断开
-    private let inboundPeers: ArrayList<(TcpSocket, String)> = ArrayList<(TcpSocket, String)>()
+    private let inboundPeers: ArrayList<(Channel, String)> = ArrayList<(Channel, String)>()
     private var handshake: Option<TransportHandshake> = None<TransportHandshake>
+    private var security: Option<TransportSecurity> = None<TransportSecurity>
     private let connectTimeout: Duration
     // 包内可调（测试用）：没有连接的空闲关联多久后退出
     var idleRetireAfter: Duration = IDLE_RETIRE_AFTER
@@ -666,7 +761,7 @@ public class TcpTransport <: NetworkTransport {
         this.mutex = Mutex()
         this.server = None
         this.outbound = HashMap<String, OutboundConnection>()
-        this.inbound = ArrayList<TcpSocket>()
+        this.inbound = ArrayList<Channel>()
         this.connectTimeout = connectTimeout
     }
 
@@ -770,9 +865,26 @@ public class TcpTransport <: NetworkTransport {
         synchronized(mutex) { handshake }
     }
 
+    /** 设置传输加密（E65）。启动后再设置会让已建立的明文连接与新的加密连接并存，所以只允许在 start 之前设置 */
+    public func setSecurity(security: TransportSecurity): Unit {
+        synchronized(mutex) {
+            if (isRunning.load()) {
+                throw IllegalStateException("传输加密须在 start 之前设置")
+            }
+            this.security = Some(security)
+        }
+    }
+
+    private func currentSecurity(): Option<TransportSecurity> {
+        synchronized(mutex) { security }
+    }
+
+    /** 经传输加密建立的连接数（出站 + 入站）；未设置加密时恒为 0 */
+    public func getSecuredConnections(): Int64 { counters.securedConnections.load() }
+
     public func closeInboundFrom(peerKey: String): Int64 {
         let victims = synchronized(mutex) {
-            let v = ArrayList<TcpSocket>()
+            let v = ArrayList<Channel>()
             for ((sock, key) in inboundPeers) {
                 if (key == peerKey) {
                     v.add(sock)
@@ -782,7 +894,7 @@ public class TcpTransport <: NetworkTransport {
             v
         }
         for (sock in victims) {
-            closeQuietly({ => sock.close() })
+            sock.close()
         }
         victims.size
     }
@@ -847,7 +959,7 @@ public class TcpTransport <: NetworkTransport {
                 case Some(existing) => (existing, false)
                 case None =>
                     let c = OutboundConnection(address, connectTimeout, idleRetireAfter, counters, { retired => me.removeAssociation(retired) },
-                        { => me.currentHandshake() })
+                        { => me.currentHandshake() }, { => me.currentSecurity() })
                     outbound.add(key, c)
                     (c, true)
             }
@@ -872,11 +984,13 @@ public class TcpTransport <: NetworkTransport {
     private func acceptLoop(s: TcpServerSocket): Unit {
         while (isRunning.load()) {
             try {
-                let client = s.accept()
-                client.noDelay = true
+                let raw = s.accept()
+                raw.noDelay = true
+                let client = Channel(raw)
                 synchronized(mutex) {
                     inbound.add(client)
                 }
+                // 加密握手与应用层握手都在该连接自己的协程里做：慢速或恶意的对端不会卡住 accept
                 spawn {
                     readLoop(client)
                 }
@@ -888,16 +1002,35 @@ public class TcpTransport <: NetworkTransport {
         }
     }
 
-    private func readLoop(client: TcpSocket): Unit {
+    private func readLoop(client: Channel): Unit {
         let header = Array<UInt8>(4, repeat: 0)
         let reader = FrameReader(client)
+        if (let Some(sec) <- currentSecurity()) {
+            // 明文连接、证书不通过或握手超时：断开，帧不会交给握手与数据回调
+            let ok = try {
+                client.upgrade(sec.secureInbound(client.raw, HANDSHAKE_READ_TIMEOUT))
+                counters.securedConnections.fetchAdd(1)
+                true
+            } catch (e: Exception) {
+                log_transport.debug("入站加密握手失败: ${e.message}")
+                false
+            }
+            if (!ok) {
+                counters.handshakeRejected.fetchAdd(1)
+                synchronized(mutex) {
+                    inbound.removeIf({ c => refEq(c, client) })
+                }
+                client.close()
+                return
+            }
+        }
         if (let Some(h) <- currentHandshake()) {
             if (!acceptHandshake(client, reader, h)) {
                 counters.handshakeRejected.fetchAdd(1)
                 synchronized(mutex) {
                     inbound.removeIf({ c => refEq(c, client) })
                 }
-                closeQuietly({ => client.close() })
+                client.close()
                 return
             }
         }
@@ -933,18 +1066,18 @@ public class TcpTransport <: NetworkTransport {
             inbound.removeIf({ c => refEq(c, client) })
             inboundPeers.removeIf({ p => refEq(p[0], client) })
         }
-        closeQuietly({ => client.close() })
+        client.close()
     }
 
     /** 入站握手：限时读第一帧交给 accept，通过则回应答帧并登记对端标识 */
-    private func acceptHandshake(client: TcpSocket, reader: FrameReader, h: TransportHandshake): Bool {
+    private func acceptHandshake(client: Channel, reader: FrameReader, h: TransportHandshake): Bool {
         try {
-            client.readTimeout = HANDSHAKE_READ_TIMEOUT
+            client.setReadTimeout(HANDSHAKE_READ_TIMEOUT)
             let accepted = match (readFrameLimited(reader, MAX_HANDSHAKE_FRAME)) {
                 case Some(first) => h.accept(first)
                 case None => None<(Array<UInt8>, String)>
             }
-            client.readTimeout = None
+            client.setReadTimeout(None)
             match (accepted) {
                 case Some((reply, peerKey)) =>
                     client.write(encodeFrame(reply))

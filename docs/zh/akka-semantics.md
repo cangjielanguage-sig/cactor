@@ -103,21 +103,37 @@
 | 超时放弃 | `give-up-system-message-after = 6h` 后隔离对端 | 相同：`giveUpAfter = 6h`，放弃发往该节点的全部消息并隔离，监视者收到 `Terminated` | — | `system_message_reliability_test.cj`（reliableChannelGivesUpAndNotifiesWatchers） |
 | 节点不可达 | Phi Accrual 心跳，不可达时监视者收到 `Terminated`，对端被隔离 | 相同（E7′ 起隔离）；默认心跳 1 s、容忍 10 s、φ 阈值 10 | — | `remoting_test.cj`（testRemoteWatchNodeFailure） |
 | 隔离（quarantine） | 被隔离的 uid 永远不能再通信，误判不可撤回，对端须重启 | 相同：握手拒绝该 uid、断开其入站连接、出站握手拒绝其应答；`quarantine(address)` 可手动隔离 | — | `remote_semantics/remote_security_test.cj`（quarantinedPeerIsCutOffUntilItRestarts、misjudgedNodeStaysQuarantined） |
-| 鉴权 | 依赖 TLS（早期 remoting 有 secure-cookie） | 握手 HMAC-SHA256 共享密钥（`withSecureCookie`），双向校验，时间戳窗口 ±5 分钟 | 没有 TLS：能截获流量的攻击者可在窗口内重放 HELLO（TLS 归 E65） | `remote_security_test.cj`（wrongOrMissingCookieCannotReachTheNode、forgedDeathIsRejected）、`unit/cluster/transport_isolation_test.cj`（forgedJoinWithoutCookieIsRejected） |
+| 鉴权 | 依赖 TLS（早期 remoting 有 secure-cookie） | 握手 HMAC-SHA256 共享密钥（`withSecureCookie`），双向校验，时间戳窗口 ±5 分钟 | 可与 TLS（E65）叠加；只用共享密钥时，能截获流量的攻击者可在窗口内重放 HELLO | `remote_security_test.cj`（wrongOrMissingCookieCannotReachTheNode、forgedDeathIsRejected）、`unit/cluster/transport_isolation_test.cj`（forgedJoinWithoutCookieIsRejected） |
+| 传输加密（TLS / mTLS） | Artery `tls-tcp` 传输：`ConfigSSLEngineProvider` 读 key-store / trust-store，`require-mutual-authentication = on`，`hostname-verification = off` | 相同（E65）：`RemoteTls`（stdx.net.tls，TLS 1.3）默认双向认证、只信任配置的 CA、不校验主机名；TCP 连上后先 TLS 握手，远程层握手与消息都在加密流上，明文连接与他 CA 证书被断开 | 证书以 PEM 配置（不是 JKS / PKCS#12）；只支持 TLS 1.3；没有证书热更新与 `RotatingKeysSSLEngineProvider` | `remote_semantics/remote_tls_test.cj`（plaintextConnectionsAreRejected、certificatesFromAnotherCaAreRejected、trafficOnTheWireIsEncrypted 等 6 例）、`unit/cluster/cluster_tls_test.cj`、`tools/cluster_demo.sh --tls` |
 | 发送是否阻塞 | `tell` 只入出站队列；连接由 Association 的出站流建立，失败后退避重连 | 相同（E40）：每个目标地址一个关联，写线程负责连接与写入 | — | `foundation/network/association_test.cj`（sendToBlackHoleNeverBlocksTheCaller：发往黑洞地址的 send P99 < 50 ms） |
 | 出站队列满 | 丢弃并记日志（`outbound-message-queue-size`） | 相同：普通 64 MB、控制 4 MB，满了丢新帧并计数 | 按字节而不是按条数限 | `association_test.cj` |
 | 控制消息通道 | 心跳与系统消息走独立的 control 流，不排在大消息后面 | 优先通道：控制帧插在普通数据的段间写出 | 与普通数据共用一条 TCP 连接（Akka 是独立的 control 流） | `association_test.cj`（priorityFramesOvertakeNormalBacklog）、`unit/cluster/transport_isolation_test.cj`（黑洞地址的伪造心跳不让健康成员被误判） |
 
-## 10. 集群成员与分布式数据（E7′、E43）
+## 10. 集群成员、分片与分布式数据（E7′、E12′、E13′、E42、E43）
 
 | 语义 | Akka | CActor | 差异 | 测试 |
 |---|---|---|---|---|
 | 节点实例身份 | `UniqueAddress` = 地址 + longUid，成员按实例区分 | 相同：成员记录带启动标识（`Member.uid` / `uniqueAddress()`），可达性表按实例区分，旧实例的行不能压过新实例 | 心跳报文不带 uid（远程层握手已按 uid 隔离旧实例） | `cluster: membership/gossip_merge_test.cj`（reachabilityRowsFollowTheCurrentInstance） |
-| 同一地址重启后加入 | 新实例 Join 时旧实例被 down，移除后新实例才被接纳 | 相同：旧实例 down → Leader 移除 → 新实例 Joining → Up（新 upNumber）；被替换的旧实例记入墓碑，迟到的旧视图不能复活它 | 墓碑不裁剪（Akka 默认 24 h 后裁剪） | `unit/cluster/incarnation_test.cj`（restartedMemberRejoinsAsNewIncarnation）、`gossip_merge_test.cj`（staleViewCannotResurrectReplacedInstance） |
+| 同一地址重启后加入 | 新实例 Join 时旧实例被 down，移除后新实例才被接纳 | 相同：旧实例 down → Leader 移除 → 新实例 Joining → Up（新 upNumber）；被替换的旧实例记入墓碑，迟到的旧视图不能复活它 | 无（E12′ 起墓碑带移除时间，`pruneTombstonesAfter` 默认 24 h 后裁剪，同 Akka） | `unit/cluster/incarnation_test.cj`（restartedMemberRejoinsAsNewIncarnation）、`gossip_merge_test.cj`（staleViewCannotResurrectReplacedInstance） |
 | 被移除的成员重新加入 | 同一 `UniqueAddress` 不允许 | 相同；同一地址的新实例可以 | — | `incarnation_test.cj`（restartedFirstSeedRejoinsAfterItWasRemoved） |
 | 首个种子启动 | 先向其他种子发 InitJoin，全部 Nack 或 `seed-node-timeout`（5 s）内无回应才自己组成集群 | 相同：JOIN / NACK / WAIT，`seedNodeTimeout` 默认 5 s；首个种子重启后加入原集群 | 没有单独的 InitJoin 报文，JOIN 兼作探测 | `incarnation_test.cj`（freshSeedsFormOneClusterWithoutWaitingForTimeout、firstSeedFormsAfterTimeoutWhenOtherSeedsAreDown、restartedFirstSeedWaitsForOldInstanceInsteadOfFormingIsland） |
-| CRDT 的节点键 | `UniqueAddress`；移除节点的分量由 pruning 并入其他节点 | 默认"地址#启动标识"：重启后的写入不被旧分量吞掉 | 没有 pruning：每次重启多一个分量（值正确，状态略增） | `incarnation_test.cj`（crdtWritesAfterSameAddressRestartAreKept） |
+| CRDT 的节点键 | `UniqueAddress`；移除节点的分量由 pruning 并入其他节点 | 默认"地址#启动标识"：重启后的写入不被旧分量吞掉；移除后的分量由 pruning 并入（E64，见下两行） | — | `incarnation_test.cj`（crdtWritesAfterSameAddressRestartAreKept） |
+| 加入时的配置兼容检查 | `JoinConfigCompatChecker`：加入时比对配置，不兼容的节点被拒绝 | 相同：JOIN 携带兼容键（内置分片哈希、移交协议版本 + `withJoinCompatibility`），不一致回 REJECT；不带兼容信息的旧版本同样被拒 | 比对的是显式声明的键，不是整份配置 | `unit/cluster/sharding_handoff_test.cj`（incompatibleNodeIsRejectedAndNeverHostsEntities、legacyJoinWithoutCompatibilityIsRejected、incompatibilityIsReportedPerKey） |
+| 分片移交 | 协调者发 BeginHandOff → 各区域确认 → 旧区域停止实体 → ShardStopped → 分配给新区域 | 无协调者的许可式移交：新拥有者向每个可能托管的成员发 BEGIN，对方实体全部终止后回 STOPPED，收齐才创建实体；任何时刻最多一个实例 | 分片归属由 rendezvous 哈希决定（不需要协调者单例与其状态存储），没有按负载的再平衡策略 | `sharding_handoff_test.cj`（singleActivationWhileMembersJoinAndLeave、shardsAreHostedOnlyAfterAcquisition） |
+| 成员不可达时的分片 | 只影响分配在不可达区域上的分片 | 相同：只缓冲拥有者不可达的分片 | — | `sharding_handoff_test.cj`（blackholedNodeDoesNotStallOtherShards） |
+| 无法投递的分片消息 | 区域缓冲满时丢弃并记死信 | 相同；节点离开集群后的消息也进死信 | — | `sharding_handoff_test.cj`（messagesAfterLeavingGoToDeadLetters） |
 | 读取本地值 | `Get` 得到 `GetSuccess`，携带的数据不可变，可交给任意线程；`Update` 的 modify 在 Replicator 内执行 | 相同：`Replicator.get` 直接返回存储里的不可变值（O(1)），之后的更新生成新实例，不影响已取得的值；modify 在 Replicator Actor 线程、锁外执行，返回类型不同则拒绝 | 只有 WriteLocal / ReadLocal 一致性 | `unit/cluster/crdt_concurrency_test.cj`（testGetReturnsImmutableSnapshot、testConcurrentReadsDuringLocalUpdates） |
+| 被移除成员的记录 | Removed 成员从 gossip 删除，只留墓碑；墓碑 `prune-gossip-tombstones-after`（24 h）后裁剪 | 相同（E12′）：记录删除、只留带移除时间的墓碑，合并取较大时间，各节点按同一时间裁剪；故障检测器只为当前成员建立 | — | `unit/cluster/cluster_tools_test.cj`（removedMemberIsPurgedAndTombstonePruned、heartbeatsFromNonMembersCreateNoDetectors）、`gossip_merge_test.cj`（removedRecordsAreNotKeptAndTombstoneTimesMergeByMax） |
+| 移除被 down 的成员 | 隔离其 `UniqueAddress`，僵尸进程不能再通信 | 相同（E12′）：按 uid 隔离，入站连接关闭；同址新实例不受影响 | — | `cluster_tools_test.cj`（downedMemberIsQuarantinedOnRemoval） |
+| 经分片 / 单例的 ask | `EntityRef.ask`、单例 proxy 透传 sender，实体 / 单例回复到发起方 | 相同（E12′）：信封携带 sender，跨节点时编码为远程回复地址，回复直接回到发起方（多跳也不经中间节点）；`ask` 返回 `TypedPromise` | — | `cluster_tools_test.cj`（askThroughShardingRoundTrips、askThroughSingletonRoundTrips） |
+| 远程回复地址 | 回复按 actor path + uid 解析，发给已死实例的回复进死信 | 本地 Actor 作为远程发送方时登记 `$ref<路径>#<序号>` 入口，按实例区分、终止后注销 | 用登记表代替 path 解析；AskInbox 这类无生命周期的引用按空闲时间回收 | `cluster_tools_test.cj`（repliesReachActorRecreatedAtSamePath、replyEntriesDoNotGrowAfter100kReplies） |
+| 单例移交 | 新的最老成员发 HandOverToMe，旧的停止实例（terminationMessage 默认 PoisonPill）后回 HandOverDone，之后才启动 | 相同（N16）：向其他每个 Up / Leaving / Exiting 成员发 HANDOVER_TO_ME，实例处理完邮箱、终止后回 DONE；已 down 的成员不用等，正常离开后移除的成员最多等 10 s | 没有协调者状态，许可式（同 E13′） | `unit/cluster/cluster_distribution_test.cj`（handOverWaitsForPreviousInstanceToStop、crashedOldestDoesNotBlockHandOver） |
+| 集群 Receptionist | 登记表经 Distributed Data 复制；`Listing.serviceInstances` 只含可达节点，`allServiceInstances` 含全部；实例停止、节点移除自动注销 | 相同：登记表是 ORSet（"地址#uid\|暴露名"），`find` / `findAll` 对应两种 Listing；监视者 Actor 注销停止的实例，节点被 down / 移除后各节点删除它的登记 | 经典 `ActorRef` 接口（未提供 ServiceKey&lt;T&gt; 的类型化远程引用） | `cluster_distribution_test.cj`（registerFindAndCallAcrossNodes、stoppedOrDeregisteredInstancesDisappear、crashedNodeRegistrationsAreRemovedAndSubscribersNotified） |
+| 分布式数据 delta 传播 | delta-CRDT：更新只传变化部分，按（来源, 键）序号因果有序；缺序号时回退为整值 | 相同（E64）：计数器传变化分量、ORSet 传新增 / 删除的点；只应用恰好是下一个序号的增量，断档时向来源请求整值，每秒重试最多 5 次，之后由摘要反熵补齐 | Akka 的增量经 gossip 批量发送、断档时回 DeltaNack；这里每次更新立即推送、请求带重试 | `ddata_delta_pruning_test.cj`（concurrentUpdatesConvergeThroughDeltasAlone、deltasAreFarSmallerThanFullState、sequenceGapsAreRepairedFromTheOrigin） |
+| 移除节点的 pruning | Leader 发起 PruningInitialized，全部成员 seen 后 owner 执行（分量并入 owner），PruningPerformed 保留 `pruning-marker-time-to-live`（6 h），期间合并先清理；`max-pruning-dissemination` 后才发起；Leader 从数据中收集已移除节点 | 相同（E64）：标记随整值传播、合并（同一发起者合并 seen，不同发起者取较小者，已执行胜出）；发起者不要求仍是 Leader，离开后由 Leader 接管；被移除节点迟到的增量丢弃；Leader 只在视图收敛时发起 | 只对 "地址#uid" 形式的节点标识扫描；没有持久化键的单独 TTL | `ddata_delta_pruning_test.cj`（removedNodeDataIsCollapsedWithoutChangingValues、pruningWaitsUntilEveryMemberHasSeenTheMarker、staleReplicaRejoiningDoesNotResurrectPrunedData、lateUpdatesFromAPrunedNodeAreIgnored、leaderFindsNodesThatAreNoLongerMembersInTheData、clusterBindingPrunesANodeThatLeft） |
+| 分布式数据一致性级别 | WriteLocal / WriteMajority / WriteAll，ReadLocal / ReadMajority / ReadAll；超时失败但本地已写入 | 相同：过半 = ⌊n/2⌋+1（n = 本节点 + 对等节点），读到的合并值写回本地；返回 `TypedPromise` | 没有 `minCap`、`WriteTo(n)` | `cluster_distribution_test.cj`（majorityWriteThenMajorityReadSeesValue、majorityFailsOnMinoritySide） |
+| 订阅确认 | `Subscribe` 后收到 `SubscribeAck`，订阅表由 mediator 串行维护 | 相同（E12′）：`subscribeAsync` 在本地生效后完成；节点集合的增删由主题 Actor 串行发出 | 节点集合经 Replicator（ORSet）同步，而不是 mediator 之间的 gossip | `cluster_tools_test.cj`（resubscribeRightAfterLastUnsubscribeKeepsNode） |
+| 虚拟 Actor 的可重入（Orleans 语义） | Orleans：默认非可重入，A→B→A 死锁至超时；`[Reentrant]` 允许交错 | 相同（E12′）：`Grain.reentrant()`；`onCallAsync` 的结果未完成期间不占线程（不可重入时后续调用排队） | Akka 无对应概念 | `cluster_tools_test.cj`（reentrantCallChainCompletes、callAsyncIssuesManyCallsWithoutBlocking、blockingCallInsideGrainFailsFast） |
 
 ## 11. 持久化（E8′）
 
@@ -135,8 +151,26 @@
 | 恢复失败 | `onRecoveryFailure`，Actor 停止 | 抛 `PersistenceException`；在 `preStart` 中即启动失败，默认停止 | — | （无专门用例） |
 | 恢复期间的命令 | 暂存，恢复完成后处理 | 恢复在 `preStart` 中同步完成，期间不处理命令 | — | 同上 |
 
-## 12. 已知差异汇总
+## 12. 类型化持久化（E44）
+
+测试路径相对 `modules/tests/src/`；`typed:` 指 `integration/persistence/typed_persistence_test.cj`。
+
+| 语义 | Akka | CActor | 差异 | 测试 |
+|---|---|---|---|---|
+| 命令 → 效果 | 命令处理器返回 `Effect`，`thenRun` / `thenReply` 在事件落盘并应用之后执行 | 相同：`EffectFactory` 创建效果，副作用拿到新状态 | 效果工厂是命令处理器的第三个参数（仓颉不能从返回位置推断泛型） | `typed:`（thenReplyRunsAfterEventIsPersisted） |
+| 写入期间的命令 | 暂存，写入确认后按顺序处理 | 相同；每条命令看到之前全部事件落盘后的状态 | — | `typed:`（commandsDuringPersistAreProcessedInArrivalOrder） |
+| 恢复 | 快照 + 之后的事件，完成后 `RecoveryCompleted`，恢复期间命令暂存 | 相同；日志读在持久化 IO 线程（对标 plugin-dispatcher），事件处理器在 Actor 线程 | 另校验序号连续，缺口即恢复失败 | `typed:`（counterRecoversAcrossSystemRestart、journalGapWithoutCoveringSnapshotFailsRecovery） |
+| 恢复失败 | `RecoveryFailed` 信号后停止 | 相同（日志损坏、事件处理器抛异常） | — | `typed:`（corruptJournalFailsRecoveryAndStopsActor、eventHandlerFailureDuringReplayFailsRecovery） |
+| 写入失败 | 停止；`onPersistFailure(backoff)` 重启 | Actor 以异常失败，默认停止；`supervise(...).onFailure(restartWithBackoff)` 重启并重新恢复 | 通过普通监督配置，不是专门的 `onPersistFailure` | `typed:`（journalConflictFailsActorAndRestartRecovers） |
+| 暂存溢出 | `StashOverflowStrategy` 默认丢弃（发布 `Dropped`），可配置失败 | 默认丢弃，作为未处理消息交给死信订阅者；`FailActor` 失败 | 不是专门的 `Dropped` 事件 | `typed:`（stashOverflowDropsCommandsAsUnhandled、stashOverflowCanFailActor） |
+| 用户 stash | `Effect.stash()` / `thenUnstashAll()` | 相同 | — | `typed:`（userStashAndUnstashAllKeepOrder） |
+| 保留策略 | `RetentionCriteria.snapshotEvery(n, keep)`、`withDeleteEventsOnSnapshot` | 相同；删除上界 = 当前序号 − keep × n | 在途期间到达的快照点只保留最新一个 | `typed:`（retentionKeepsRecentSnapshotsAndDeletesOldEvents） |
+| 事件适配 | `EventAdapter` / `EventSeq`（0..n 个事件） | `EventAdapter.fromJournal` 返回数组 | — | `typed:`（eventAdapterEvolvesOldSchema） |
+| 重启后旧的 IO 结果 | 旧实例的回复不影响新实例 | 实例 token 过滤旧实例的完成信号 | — | `typed:`（staleIoCompletionFromPreviousIncarnationIsIgnored） |
+| 持久状态删除 | `DeleteRevision`：修订号继续递增 | 相同：墓碑修订号 +1，旧写者被拒绝 | — | `typed:`（durableStatePersistsDeletesAndRecovers、deletedStateRejectsStaleWriter） |
+
+## 13. 已知差异汇总
 
 - **类型安全的边界**：类型化引用的协议类型在 `childAs` / lookup 处无法检查（仓颉没有路径相关类型），用错时运行期告警而不是编译期报错。
 - **子 Actor 快路径**：`ctx.actorOf` 是接口虚调用，子 Actor 的初始行为以 `setup` 开头才走用户包的快路径（性能差异，不影响语义）。
-- **未实现**：ChildFailed 信号、SpawnProtocol、集群版 Receptionist、Resizer、withMdc（计划 E63）；TLS（计划 E65）；CRDT pruning 与成员墓碑裁剪；实时的 `eventsByTag`；类型化持久化 `EventSourcedBehavior`（计划 E44）。
+- **未实现**：ChildFailed 信号、SpawnProtocol、Resizer、withMdc（计划 E63）；按负载的分片再平衡；实时的 `eventsByTag`；类型化持久化的 `onPersistFailure` 专门配置与 `Dropped` 事件（用普通监督与未处理消息代替）。

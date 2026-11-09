@@ -106,6 +106,16 @@ func waitUntil(timeout: Duration, cond: () -> Bool): Bool {
     true
 }
 
+func totalStarts(starts: Starts): Int64 {
+    synchronized(starts.lock) {
+        var n: Int64 = 0
+        for ((_, l) in starts.hosts) {
+            n += l.size
+        }
+        n
+    }
+}
+
 func rememberedCount(rep: Replicator): Int64 {
     var n: Int64 = 0
     for (s in 0..SHARDS) {
@@ -139,7 +149,24 @@ main(args: Array<String>): Int64 {
     let sharding = ClusterSharding(cluster, system, remote, "tracked", SHARDS, { id => TrackedEntity(id, me, remote, seed) },
         ShardingSettings.remembering(rep))
 
-    var ok = waitUntil(Duration.second * 30, { => cluster.state().upCount() == expected && cluster.state().converged })
+    // "集群已形成" = 曾看到预期数量的成员都 Up。不要求轮询的那一刻本地视图恰好收敛：分片路由不等收敛（E13′），
+    // driver 可能在本节点自己观察到收敛之前就完成校验并离开
+    let ups = HashSet<String>()
+    let upsLock = Mutex()
+    let formed = AtomicBool(false)
+    cluster.subscribe({ e =>
+        match (e) {
+            case MemberUp(m) =>
+                synchronized(upsLock) {
+                    ups.add(m.address)
+                    if (ups.size >= expected) {
+                        formed.store(true)
+                    }
+                }
+            case _ => ()
+        }
+    })
+    var ok = waitUntil(Duration.second * 30, { => formed.load() || cluster.state().upCount() == expected })
     println("[${me}] 集群形成：${ok}，成员 ${cluster.state().upCount()}")
 
     if (isDriver && ok) {
@@ -150,16 +177,30 @@ main(args: Array<String>): Int64 {
             waitUntil(Duration.second * 30, { => rememberedCount(rep) == ENTITIES })
         // 多等几个 gossip 周期，让实体 ID 也复制到另一个存活节点
         sleep(Duration.second)
+        // 形成期间各节点的成员视图可能还没一致（driver 看到全部 Up 就开始发消息），分片会按收敛后的归属移交一次——
+        // 这是正常迁移（先停后启），不是宕机引起的重启。等启动事件静止 2 s 再记下 kill 前的基线
+        let quiet = waitUntil(Duration.second * 30, { =>
+            let n0 = totalStarts(starts)
+            sleep(Duration.second * 2)
+            totalStarts(starts) == n0
+        })
+        ok = ok && quiet
         let victim = "127.0.0.1:${Int64(port) + expected - 1}"
         let onVictim = ArrayList<String>()
+        let baseline = HashMap<String, Int64>()
+        var movedBeforeKill = 0
         synchronized(starts.lock) {
             for ((id, l) in starts.hosts) {
-                if (l[0] == victim) {
+                baseline[id] = l.size
+                if (l.size > 1) {
+                    movedBeforeKill++
+                }
+                if (l[l.size - 1] == victim) {
                     onVictim.add(id)
                 }
             }
         }
-        println("[${me}] 实体全部启动并已复制：${ok}；宕机进程 ${victim} 上有 ${onVictim.size} 个实体")
+        println("[${me}] 实体全部启动并已复制：${ok}；宕机进程 ${victim} 上有 ${onVictim.size} 个实体（形成期间迁移 ${movedBeforeKill} 个）")
         ok = ok && onVictim.size > 0
         let victimUid = match (cluster.state().member(victim)) {
             case Some(m) => m.uid
@@ -179,18 +220,21 @@ main(args: Array<String>): Int64 {
                 var all = true
                 for (id in onVictim) {
                     let l = starts.hosts[id]
-                    all = all && l.size == 2 && l[1] != victim
+                    // 恰好在存活进程上重启一次
+                    all = all && l.size == baseline[id] + 1 && l[l.size - 1] != victim
                 }
                 all
             }
         })
         println("[${me}] 宕机进程上的 ${onVictim.size} 个实体在存活进程上自动重启：${restarted}")
-        // 其他实体没有被重复启动
+        // 存活进程上的实体没有因为宕机被重复启动（只看 kill 之后新增的启动）
         var duplicates = 0
+        let victimSet = HashSet<String>(onVictim)
         synchronized(starts.lock) {
             for ((id, l) in starts.hosts) {
-                if (l.size > 1 && l[0] != victim) {
+                if (!victimSet.contains(id) && l.size > baseline.get(id).getOrDefault({ => 0 })) {
                     duplicates++
+                    println("[${me}]   重复启动 ${id}：${String.join(l.toArray(), delimiter: " -> ")}")
                 }
             }
         }

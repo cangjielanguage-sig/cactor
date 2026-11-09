@@ -18,11 +18,12 @@ import std.sync.*
 import std.time.*
 import std.collection.*
 import std.convert.*
+import std.env.{getVariable}
 import cactor.api.{CActorSystemFactory}
 import cactor_core.actor.{Actor, ActorContext}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.network.{NetworkAddress, TransportProtocol}
-import cactor_remote.{SimpleRemoteManager}
+import cactor_remote.{SimpleRemoteManager, RemotingSettings, RemoteTls}
 import cactor_cluster.membership.*
 
 let ENTITIES = 30
@@ -116,6 +117,12 @@ main(args: Array<String>): Int64 {
 
     let system = CActorSystemFactory.create("node-${port}")
     let remote = SimpleRemoteManager(NetworkAddress("127.0.0.1", port), TransportProtocol.TCP)
+    // CACTOR_TLS_DIR：含 node.pem / node-key.pem / ca.pem 的目录，设置后全部集群流量走 TLS 1.3 双向认证（E65）
+    let tlsDir = getVariable("CACTOR_TLS_DIR")
+    if (let Some(dir) <- tlsDir) {
+        remote.configure(RemotingSettings.defaults().withTls(
+            RemoteTls.fromPemFiles("${dir}/node.pem", "${dir}/node-key.pem", "${dir}/ca.pem")))
+    }
     remote.start()
     let settings = ClusterSettings(Duration.millisecond * 200, Duration.millisecond * 200, 8.0, Duration.second * 2,
         Some(Duration.second * 3))
@@ -127,7 +134,24 @@ main(args: Array<String>): Int64 {
     }
     let sharding = ClusterSharding(cluster, system, remote, "counter", 32, { id => CounterEntity(id, me, remote, seed) })
 
-    var ok = waitUntil(Duration.second * 30, { => cluster.state().upCount() == expected && cluster.state().converged })
+    // "集群已形成" = 曾看到预期数量的成员都 Up。不要求轮询的那一刻本地视图恰好收敛：分片路由不等收敛（E13′），
+    // driver 可能在本节点自己观察到收敛之前就完成校验并离开
+    let ups = HashSet<String>()
+    let upsLock = Mutex()
+    let formed = AtomicBool(false)
+    cluster.subscribe({ e =>
+        match (e) {
+            case MemberUp(m) =>
+                synchronized(upsLock) {
+                    ups.add(m.address)
+                    if (ups.size >= expected) {
+                        formed.store(true)
+                    }
+                }
+            case _ => ()
+        }
+    })
+    var ok = waitUntil(Duration.second * 30, { => formed.load() || cluster.state().upCount() == expected })
     println("[${me}] 集群形成：${ok}，成员 ${cluster.state().upCount()}，Leader ${cluster.leader() ?? "无"}")
 
     if (isDriver && ok) {
@@ -158,6 +182,13 @@ main(args: Array<String>): Int64 {
         if (perNode.size != expected) {
             println("[${me}] 只有 ${perNode.size} 个进程承担了实体")
             ok = false
+        }
+        if (tlsDir.isSome()) {
+            // 全部连接都经 TLS 建立、没有被拒绝的连接
+            let secured = remote.securedConnections()
+            let rejected = remote.rejectedConnections()
+            println("[${me}] TLS 连接 ${secured} 条，被拒绝 ${rejected} 条")
+            ok = ok && secured > 0 && rejected == 0
         }
         println(if (ok) { "多进程集群验证：通过" } else { "多进程集群验证：失败" })
         cluster.leave()

@@ -14,7 +14,8 @@
  *
  * 节点实例（对标 Akka UniqueAddress，N4）：成员记录带上远程层的启动标识 uid，"地址#uid" 唯一确定一个进程。
  * 同一地址重启的新进程不继承旧成员的身份：加入时旧实例先被 down、由 Leader 移除，之后新实例才以 Joining 加入；
- * 被替换的旧实例记入墓碑（tombstones），随 gossip 传播，迟到的旧视图不能把它复活。被移除的实例永远不能再加入。
+ * 被移除的实例从成员表删除、只记入墓碑（tombstones，"地址#uid" -> 移除时间），随 gossip 传播，迟到的旧视图不能把它复活；
+ * 被移除的实例永远不能再加入。墓碑超过 pruneTombstonesAfter（默认 24 h，同 Akka）后清除（E12′，N14：此前 Removed 记录永不删除）。
  *
  * 种子加入（对标 Akka JoinSeedNodeProcess / FirstSeedNodeProcess，N5）：首个种子不再立即自己组成集群，
  * 而是先向其他种子发 JOIN；还没加入集群的节点回 NACK，已在集群中的节点接纳它或回 WAIT（旧实例移除中）。
@@ -39,7 +40,7 @@ import cactor_foundation.detector.{PhiAccrualFailureDetector, monotonicMillis}
 import cactor_foundation.config.{LayeredConfig, ConfigException}
 import cactor_foundation.logging.{Logging}
 import cactor_remote.{SimpleRemoteManager}
-import cactor_cluster.ddata.{FieldWriter, FieldReader}
+import cactor_cluster.ddata.{FieldWriter, FieldReader, REPLICATOR_PROTOCOL_VERSION}
 
 // ======================= 成员 =======================
 
@@ -176,15 +177,16 @@ class Gossip {
     let seen: HashSet<String>
     // 可达性表：观察者 -> 它看到的不可达成员（随 gossip 传播，合并时每个观察者取版本更高的一行）
     let rows: HashMap<String, ReachRow>
-    // 已被移除且被同址新实例替换的旧实例（"地址#uid"）：只增，合并取并集
-    let tombstones: HashSet<String>
+    // 已被移除的实例（"地址#uid" -> 移除时的墙钟毫秒）：合并取并集（同一实例取较大的时间），
+    // 成员表里不再保留它们的记录；超过 pruneTombstonesAfter 后各节点按这里带的时间一致地清除
+    let tombstones: HashMap<String, Int64>
 
     init(members: HashMap<String, Member>, seen: HashSet<String>) {
-        this(members, seen, HashMap<String, ReachRow>(), HashSet<String>())
+        this(members, seen, HashMap<String, ReachRow>(), HashMap<String, Int64>())
     }
 
     init(members: HashMap<String, Member>, seen: HashSet<String>, rows: HashMap<String, ReachRow>,
-        tombstones: HashSet<String>) {
+        tombstones: HashMap<String, Int64>) {
         this.members = members
         this.seen = seen
         this.rows = rows
@@ -242,7 +244,7 @@ class Gossip {
     }
 
     /** 墓碑里的实例一律视为 Removed */
-    private static func buried(x: Member, tomb: HashSet<String>): Member {
+    private static func buried(x: Member, tomb: HashMap<String, Int64>): Member {
         if (x.status != MemberStatus.Removed && tomb.contains(x.uniqueAddress())) {
             x.withStatus(MemberStatus.Removed)
         } else {
@@ -255,7 +257,7 @@ class Gossip {
      * 新实例只有在旧实例被移除、并记入墓碑之后才会被接纳，带着新实例的 gossip 必然带着旧实例的墓碑，
      * 所以迟到的旧视图（旧实例仍是 Up）合并后也会让位给新实例。两者都活着或都已移除时取 uid 大者，保证合并确定
      */
-    private static func pick(x: Member, y: Member, tomb: HashSet<String>): Member {
+    private static func pick(x: Member, y: Member, tomb: HashMap<String, Int64>): Member {
         if (x.uid == y.uid) {
             return buried(mergeSame(x, y), tomb)
         }
@@ -269,19 +271,39 @@ class Gossip {
         if (bx.uid > by.uid) { bx } else { by }
     }
 
+    static func mergeTombstones(a: HashMap<String, Int64>, b: HashMap<String, Int64>): HashMap<String, Int64> {
+        let tomb = HashMap<String, Int64>(a)
+        for ((k, at) in b) {
+            match (tomb.get(k)) {
+                case Some(cur) where cur >= at => ()
+                case _ => tomb[k] = at
+            }
+        }
+        tomb
+    }
+
+    /**
+     * 合并：墓碑取并集；同一地址的记录按 pick 选出，已移除（在墓碑中或状态为 Removed）的记录不保留——
+     * 被移除的成员只以墓碑的形式存在（E12′，N14），成员表的大小只随当前成员变化
+     */
     static func merge(a: Gossip, b: Gossip): Gossip {
-        let tomb = HashSet<String>(a.tombstones)
-        tomb.add(all: b.tombstones)
+        let tomb = mergeTombstones(a.tombstones, b.tombstones)
         let m = HashMap<String, Member>()
         for ((addr, ma) in a.members) {
-            m[addr] = match (b.members.get(addr)) {
+            let x = match (b.members.get(addr)) {
                 case Some(mb) => pick(ma, mb, tomb)
                 case None => buried(ma, tomb)
+            }
+            if (x.status != MemberStatus.Removed) {
+                m[addr] = x
             }
         }
         for ((addr, mb) in b.members) {
             if (!a.members.contains(addr)) {
-                m[addr] = buried(mb, tomb)
+                let x = buried(mb, tomb)
+                if (x.status != MemberStatus.Removed) {
+                    m[addr] = x
+                }
             }
         }
         let seen = HashSet<String>()
@@ -294,7 +316,7 @@ class Gossip {
         Gossip(m, seen, mergeRows(a.rows, b.rows, m), tomb)
     }
 
-    private static func sameState(m: HashMap<String, Member>, tomb: HashSet<String>, g: Gossip): Bool {
+    private static func sameState(m: HashMap<String, Member>, tomb: HashMap<String, Int64>, g: Gossip): Bool {
         tomb.size == g.tombstones.size && sameMembers(m, g.members)
     }
 
@@ -315,7 +337,7 @@ class Gossip {
         withMembers(m, self, tombstones)
     }
 
-    func withMembers(m: HashMap<String, Member>, self: String, tomb: HashSet<String>): Gossip {
+    func withMembers(m: HashMap<String, Member>, self: String, tomb: HashMap<String, Int64>): Gossip {
         let seen = HashSet<String>()
         seen.add(self)
         // 地址上换了新实例时，旧实例的可达性行随即作废（否则要等下一次合并才被过滤，期间会被当成间接连接的证据）
@@ -377,8 +399,9 @@ class Gossip {
             }
         }
         w.put(tombstones.size)
-        for (t in tombstones) {
+        for ((t, at) in tombstones) {
             w.put(t)
+            w.put(at)
         }
         w.done()
     }
@@ -411,9 +434,10 @@ class Gossip {
             rows[obs] = ReachRow(version, subjects, uid)
         }
         let nt = r.nextInt()
-        let tomb = HashSet<String>()
+        let tomb = HashMap<String, Int64>()
         for (_ in 0..nt) {
-            tomb.add(r.next())
+            let t = r.next()
+            tomb[t] = r.nextInt()
         }
         Gossip(m, seen, rows, tomb)
     }
@@ -456,6 +480,92 @@ public enum ClusterEvent <: ToString {
 }
 
 let DEFAULT_SEED_NODE_TIMEOUT = Duration.second * 5
+let DEFAULT_PRUNE_TOMBSTONES_AFTER = Duration.hour * 24
+
+// ======================= 加入时的兼容检查（E42） =======================
+
+/** 分片两级哈希的算法版本：实体 → 分片为 FNV-1a 64 + fmix64 取模，分片 → 节点为 rendezvous（4bfecc0 起） */
+public let SHARDING_HASH_VERSION: String = "2"
+
+/** 分片移交协议版本：2 = 许可式两阶段移交（E13′） */
+public let SHARDING_PROTOCOL_VERSION: Int64 = 2
+
+/**
+ * gossip 编码版本（E12′）：2 = 墓碑带移除时间、成员表不含 Removed 记录。
+ * 作为内置兼容键 cactor.cluster.gossip 参与加入检查（E42），编码不同的节点不能混部
+ */
+public let CLUSTER_GOSSIP_VERSION: String = "2"
+
+/** 墙钟毫秒：墓碑的移除时间随 gossip 传播，各节点按同一个时间清除（不能用各自的单调时钟） */
+func wallClockMillis(): Int64 {
+    DateTime.now().toUnixTimeStamp().toMilliseconds()
+}
+
+/** 本节点加入时比对的全部兼容键：框架内置 + 用户添加，按键排序 */
+func compatibilityOf(settings: ClusterSettings): Array<(String, String)> {
+    let byKey = HashMap<String, String>()
+    byKey["cactor.sharding.hash"] = SHARDING_HASH_VERSION
+    byKey["cactor.sharding.protocol"] = SHARDING_PROTOCOL_VERSION.toString()
+    byKey["cactor.cluster.gossip"] = CLUSTER_GOSSIP_VERSION
+    byKey["cactor.ddata.protocol"] = REPLICATOR_PROTOCOL_VERSION
+    for ((k, v) in settings.joinCompatibility) {
+        byKey[k] = v
+    }
+    let keys = byKey.keys().toArray()
+    sort(keys)
+    Array<(String, String)>(keys.size, { i => (keys[i], byKey[keys[i]]) })
+}
+
+func encodeCompatibility(entries: Array<(String, String)>): String {
+    let w = FieldWriter().put(entries.size)
+    for ((k, v) in entries) {
+        w.put(k).put(v)
+    }
+    w.done()
+}
+
+func decodeCompatibility(text: String): HashMap<String, String> {
+    let r = FieldReader(text)
+    let n = Int64.parse(r.next())
+    let m = HashMap<String, String>()
+    for (_ in 0..n) {
+        let k = r.next()
+        m[k] = r.next()
+    }
+    m
+}
+
+/**
+ * 加入请求与本节点的兼容键比对：键集合与取值必须完全一致。返回不兼容的原因，None 表示兼容。
+ * 对方没有提供兼容信息（E42 之前的版本）同样不兼容：它的分片哈希 / 移交协议无从确认，混部可能双活
+ */
+public func joinIncompatibility(mine: Array<(String, String)>, theirs: Option<HashMap<String, String>>): Option<String> {
+    let t = match (theirs) {
+        case Some(m) => m
+        case None => return Some("对方没有提供兼容信息（E42 之前的版本？）")
+    }
+    let problems = ArrayList<String>()
+    let seen = HashSet<String>()
+    for ((k, v) in mine) {
+        seen.add(k)
+        match (t.get(k)) {
+            case Some(tv) where tv == v => ()
+            case Some(tv) => problems.add("${k}：本节点 ${v}，对方 ${tv}")
+            case None => problems.add("${k}：本节点 ${v}，对方没有")
+        }
+    }
+    for ((k, tv) in t) {
+        if (!seen.contains(k)) {
+            problems.add("${k}：本节点没有，对方 ${tv}")
+        }
+    }
+    if (problems.isEmpty()) {
+        None
+    } else {
+        sort(problems)
+        Some(String.join(problems.toArray(), delimiter: "；"))
+    }
+}
 
 public struct ClusterSettings {
     public let gossipInterval: Duration
@@ -469,6 +579,16 @@ public struct ClusterSettings {
      * 时限内其他种子全部回 NACK 就立即组成集群；没有任何集群回应才在时限到后自己组成集群
      */
     public let seedNodeTimeout: Duration
+    /**
+     * 加入时比对的兼容键（对标 Akka configuration-compatibility-check / JoinConfigCompatChecker）：
+     * 用户通过 withJoinCompatibility 添加；内置键（cactor. 开头，分片哈希与移交协议版本）总是参与比对
+     */
+    public let joinCompatibility: Array<(String, String)>
+    /**
+     * 墓碑保留时长（同 Akka prune-gossip-tombstones-after，默认 24 h）：被移除成员的墓碑超过这个时长后清除。
+     * 期间迟到的旧 gossip 不能把被移除的实例复活；清除后只剩被隔离、已停止的旧进程，不再有影响
+     */
+    public let pruneTombstonesAfter: Duration
 
     /** 兼容旧接口：Some(d) 等价于 DowningStrategy.AutoDownAfter(d)，None 等价于 NoDowning */
     public init(gossipInterval: Duration, heartbeatInterval: Duration, phiThreshold: Float64,
@@ -487,16 +607,54 @@ public struct ClusterSettings {
 
     public init(gossipInterval: Duration, heartbeatInterval: Duration, phiThreshold: Float64,
         acceptableHeartbeatPause: Duration, downing: DowningStrategy, seedNodeTimeout: Duration) {
+        this(gossipInterval, heartbeatInterval, phiThreshold, acceptableHeartbeatPause, downing, seedNodeTimeout, [],
+            DEFAULT_PRUNE_TOMBSTONES_AFTER)
+    }
+
+    init(gossipInterval: Duration, heartbeatInterval: Duration, phiThreshold: Float64,
+        acceptableHeartbeatPause: Duration, downing: DowningStrategy, seedNodeTimeout: Duration,
+        joinCompatibility: Array<(String, String)>, pruneTombstonesAfter: Duration) {
         this.gossipInterval = gossipInterval
         this.heartbeatInterval = heartbeatInterval
         this.phiThreshold = phiThreshold
         this.acceptableHeartbeatPause = acceptableHeartbeatPause
         this.downing = downing
         this.seedNodeTimeout = seedNodeTimeout
+        this.joinCompatibility = joinCompatibility
+        this.pruneTombstonesAfter = pruneTombstonesAfter
     }
 
     public func withSeedNodeTimeout(d: Duration): ClusterSettings {
-        ClusterSettings(gossipInterval, heartbeatInterval, phiThreshold, acceptableHeartbeatPause, downing, d)
+        ClusterSettings(gossipInterval, heartbeatInterval, phiThreshold, acceptableHeartbeatPause, downing, d,
+            joinCompatibility, pruneTombstonesAfter)
+    }
+
+    /** 墓碑保留时长（见 pruneTombstonesAfter），其余不变 */
+    public func withPruneTombstonesAfter(d: Duration): ClusterSettings {
+        if (d <= Duration.Zero) {
+            throw IllegalArgumentException("墓碑保留时长必须为正: ${d}")
+        }
+        ClusterSettings(gossipInterval, heartbeatInterval, phiThreshold, acceptableHeartbeatPause, downing,
+            seedNodeTimeout, joinCompatibility, d)
+    }
+
+    /**
+     * 增加一个加入时必须一致的兼容键（例如消息 schema 版本 "app.protocol" = "3"）：
+     * 键不一致或对方没有该键的节点加入时被拒绝（REJECT），不会成为成员。cactor. 开头的键保留给框架
+     */
+    public func withJoinCompatibility(key: String, value: String): ClusterSettings {
+        if (key.isEmpty() || key.startsWith("cactor.")) {
+            throw IllegalArgumentException("兼容键不能为空，cactor. 开头的键保留给框架：${key}")
+        }
+        let next = ArrayList<(String, String)>()
+        for ((k, v) in joinCompatibility) {
+            if (k != key) {
+                next.add((k, v))
+            }
+        }
+        next.add((key, value))
+        ClusterSettings(gossipInterval, heartbeatInterval, phiThreshold, acceptableHeartbeatPause, downing,
+            seedNodeTimeout, next.toArray(), pruneTombstonesAfter)
     }
 
     /** gossip 1s、心跳 1s、phi 8、可接受停顿 3s、不自动 down（与 Akka 默认值相同） */
@@ -616,6 +774,12 @@ class ClusterShared {
     // 本节点因脑裂处理判定为不存活而停止
     var downedBySbr = false
     var gossipsSent: Int64 = 0
+    // 加入被拒绝的原因（配置不兼容，E42）
+    var joinRejection: Option<String> = None
+    // 诊断（E12′）：gossip 中的成员记录数、墓碑数、故障检测器数
+    var gossipRecords: Int64 = 0
+    var tombstoneCount: Int64 = 0
+    var detectorCount: Int64 = 0
 }
 
 class ClusterDaemon <: Actor {
@@ -652,7 +816,11 @@ class ClusterDaemon <: Actor {
     // 回过 NACK（自己也还没加入集群）的其他种子
     let nacks = HashSet<String>()
     // 首个种子尚未组成集群时收到的 JOIN：组成集群后立即接纳，不必等对方下一轮重试
-    let pendingJoins = HashMap<String, UInt64>()
+    let pendingJoins = HashMap<String, (UInt64, Option<HashMap<String, String>>)>()
+    // 加入时比对的兼容键（E42）与编码后的文本；被拒绝后不再发 JOIN、也不自己组成集群
+    let compatibility: Array<(String, String)>
+    let compatibilityText: String
+    var rejected: Option<String> = None
 
     init(selfAddress: String, selfUid: UInt64, seeds: Array<String>, remote: SimpleRemoteManager, settings: ClusterSettings,
         shared: ClusterShared) {
@@ -675,6 +843,8 @@ class ClusterDaemon <: Actor {
             }
         }
         this.otherSeeds = others.toArray()
+        this.compatibility = compatibilityOf(settings)
+        this.compatibilityText = encodeCompatibility(compatibility)
         // 没有其他种子可问：直接组成集群
         this.formed = firstSeed && otherSeeds.isEmpty()
     }
@@ -748,12 +918,13 @@ class ClusterDaemon <: Actor {
         !formed && selfStatus() == MemberStatus.Joining && gossip.members.size == 1
     }
 
+    /** JOIN|地址|启动标识|兼容键（E42；旧版本没有第 4 个字段） */
     private func joinText(): String {
-        FieldWriter().put("JOIN").put(selfAddress).put(selfUid.toString()).done()
+        FieldWriter().put("JOIN").put(selfAddress).put(selfUid.toString()).put(compatibilityText).done()
     }
 
     private func sendJoin(): Unit {
-        if (!notYetJoined()) {
+        if (!notYetJoined() || rejected.isSome()) {
             return
         }
         for (s in otherSeeds) {
@@ -766,7 +937,8 @@ class ClusterDaemon <: Actor {
      * 最近 seedNodeTimeout 内得知已有集群在运行就继续加入它；否则其他种子全部回 NACK、或等满 seedNodeTimeout 才组成
      */
     private func maybeFormCluster(): Unit {
-        if (formed || !firstSeed || !notYetJoined()) {
+        // 被已有集群以配置不兼容拒绝：不能另起一个集群（否则新旧版本各成一个集群，同一实体各有一份）
+        if (formed || !firstSeed || !notYetJoined() || rejected.isSome()) {
             return
         }
         let now = monotonicMillis()
@@ -786,13 +958,13 @@ class ClusterDaemon <: Actor {
         formed = true
         log.info("${selfAddress} 组成新集群（${if (allNacked) { "其他种子都还没有加入集群" } else { "等待 ${settings.seedNodeTimeout} 未收到任何集群的回应" }}）")
         leaderActions()
-        let pending = ArrayList<(String, UInt64)>()
-        for ((a, u) in pendingJoins) {
-            pending.add((a, u))
+        let pending = ArrayList<(String, UInt64, Option<HashMap<String, String>>)>()
+        for ((a, (u, c)) in pendingJoins) {
+            pending.add((a, u, c))
         }
         pendingJoins.clear()
-        for ((a, u) in pending) {
-            onJoin(a, u)
+        for ((a, u, c) in pending) {
+            onJoin(a, u, c)
         }
     }
 
@@ -804,7 +976,11 @@ class ClusterDaemon <: Actor {
             let kind = r.next()
             let from = r.next()
             match (kind) {
-                case "JOIN" => onJoin(from, parseUid(r.next()))
+                case "JOIN" =>
+                    let uid = parseUid(r.next())
+                    let compat = if (r.hasMore()) { Some(decodeCompatibility(r.next())) } else { None<HashMap<String, String>> }
+                    onJoin(from, uid, compat)
+                case "REJECT" => onRejected(from, r.next())
                 case "NACK" =>
                     // 对方也还没加入集群（首个种子据此判断是否可以自己组成集群）
                     nacks.add(from)
@@ -833,15 +1009,22 @@ class ClusterDaemon <: Actor {
      * - 同一地址的旧实例还在（进程在同一地址重启，N4）：down 旧实例并回 WAIT，Leader 移除旧实例后，
      *   新实例下一次 JOIN 才被接纳（同 Akka）。新实例从不继承旧实例的 upNumber 与状态
      */
-    private func onJoin(from: String, uid: UInt64): Unit {
+    private func onJoin(from: String, uid: UInt64, compat: Option<HashMap<String, String>>): Unit {
         if (from == selfAddress) {
             return
         }
         if (notYetJoined()) {
             send(from, FieldWriter().put("NACK").put(selfAddress).done())
             if (firstSeed) {
-                pendingJoins[from] = uid
+                pendingJoins[from] = (uid, compat)
             }
+            return
+        }
+        // 配置兼容检查（E42）：分片哈希、移交协议或用户兼容键不一致的节点不能成为成员——
+        // 新旧版本混部时同一实体会被两种算法放到两个节点上（N9）
+        if (let Some(reason) <- joinIncompatibility(compatibility, compat)) {
+            log.warn("拒绝 ${uniqueAddressOf(from, uid)} 加入：配置不兼容（${reason}）")
+            send(from, FieldWriter().put("REJECT").put(selfAddress).put(reason).done())
             return
         }
         if (gossip.tombstones.contains(uniqueAddressOf(from, uid))) {
@@ -858,8 +1041,8 @@ class ClusterDaemon <: Actor {
                 // 旧实例已移除：记入墓碑，新实例以 Joining 加入
                 let next = HashMap<String, Member>(gossip.members)
                 next[from] = Member(from, MemberStatus.Joining, 0, uid)
-                let tomb = HashSet<String>(gossip.tombstones)
-                tomb.add(old.uniqueAddress())
+                let tomb = HashMap<String, Int64>(gossip.tombstones)
+                tomb[old.uniqueAddress()] = wallClockMillis()
                 update(gossip.withMembers(next, selfAddress, tomb))
             case Some(old) =>
                 if (old.status.rank() < MemberStatus.Down.rank()) {
@@ -874,6 +1057,18 @@ class ClusterDaemon <: Actor {
                 update(gossip.withMembers(m, selfAddress))
         }
         sendGossip(from)
+    }
+
+    /** 加入被拒绝（配置不兼容）：不再发 JOIN，也不自己组成集群；原因经 Cluster.joinRejection() 可查 */
+    private func onRejected(from: String, reason: String): Unit {
+        if (!notYetJoined() || rejected.isSome()) {
+            return
+        }
+        rejected = Some(reason)
+        log.error("${selfAddress} 加入集群被 ${from} 拒绝：配置不兼容（${reason}）。本节点不会成为成员，请统一版本或兼容键后重启")
+        synchronized(shared.lock) {
+            shared.joinRejection = Some(reason)
+        }
     }
 
     private func onGossip(from: String, incoming: Gossip): Unit {
@@ -907,8 +1102,14 @@ class ClusterDaemon <: Actor {
         }
     }
 
+    /**
+     * 只为当前成员记录心跳（E12′，N14）：此前任意来源地址发来 HB / GOSSIP 都会建一个故障检测器、永不删除；
+     * 还不是成员的节点（正在加入）在成为成员时由心跳定时器建检测器
+     */
     private func heartbeatFrom(addr: String): Unit {
-        detectorFor(addr).heartbeat()
+        if (addr != selfAddress && isLive(addr)) {
+            detectorFor(addr).heartbeat()
+        }
     }
 
     private func detectorFor(addr: String): PhiAccrualFailureDetector {
@@ -929,6 +1130,7 @@ class ClusterDaemon <: Actor {
     private func onGossipTick(): Unit {
         maybeFormCluster()
         sendJoin()
+        pruneTombstones()
         let targets = ArrayList<String>()
         for ((addr, m) in gossip.members) {
             if (addr != selfAddress && m.status != MemberStatus.Removed && m.status != MemberStatus.Down) {
@@ -959,6 +1161,7 @@ class ClusterDaemon <: Actor {
                 send(addr, FieldWriter().put("HB").put(selfAddress).done())
             }
         }
+        syncStats()
         // 可达性变化
         let before = currentUnreachable()
         let now = monotonicMillis()
@@ -1171,6 +1374,7 @@ class ClusterDaemon <: Actor {
         let next = HashMap<String, Member>(gossip.members)
         var changed = false
         let removedNow = ArrayList<String>()
+        let tomb = HashMap<String, Int64>(gossip.tombstones)
         // down 不可达成员：不需要收敛（不可达成员本身就阻止收敛）
         let now = monotonicMillis()
         let toDown = ArrayList<String>()
@@ -1217,7 +1421,9 @@ class ClusterDaemon <: Actor {
                         next[addr] = m.withStatus(MemberStatus.Exiting)
                         changed = true
                     case Exiting | Down =>
-                        next[addr] = m.withStatus(MemberStatus.Removed)
+                        // 移除 = 删除记录 + 记入墓碑（E12′）：成员表不再保留 Removed 记录
+                        next.remove(addr)
+                        tomb[m.uniqueAddress()] = wallClockMillis()
                         removedNow.add(addr)
                         changed = true
                     case _ => ()
@@ -1225,11 +1431,47 @@ class ClusterDaemon <: Actor {
             }
         }
         if (changed) {
-            update(gossip.withMembers(next, selfAddress))
+            update(gossip.withMembers(next, selfAddress, tomb))
             for (a in removedNow) {
-                // 被移除的节点不再出现在 gossip 目标中，单独通知它一次
+                // 被移除的节点不再出现在 gossip 目标中，单独通知它一次（gossip 里带着它的墓碑，它据此停止）
                 sendGossip(a)
             }
+        }
+    }
+
+    /**
+     * 清除超过保留时长的墓碑（E12′）：时间随 gossip 传播，各节点清除同一批；
+     * 尚未清除的节点把它传回来时，下一轮按同一时间再次清除
+     */
+    private func pruneTombstones(): Unit {
+        if (gossip.tombstones.isEmpty()) {
+            return
+        }
+        let cutoff = wallClockMillis() - settings.pruneTombstonesAfter.toMilliseconds()
+        var expired = false
+        for ((_, at) in gossip.tombstones) {
+            if (at < cutoff) {
+                expired = true
+                break
+            }
+        }
+        if (!expired) {
+            return
+        }
+        let kept = HashMap<String, Int64>()
+        for ((t, at) in gossip.tombstones) {
+            if (at >= cutoff) {
+                kept[t] = at
+            }
+        }
+        update(gossip.withMembers(gossip.members, selfAddress, kept))
+    }
+
+    private func syncStats(): Unit {
+        synchronized(shared.lock) {
+            shared.gossipRecords = gossip.members.size
+            shared.tombstoneCount = gossip.tombstones.size
+            shared.detectorCount = detectors.size
         }
     }
 
@@ -1256,7 +1498,46 @@ class ClusterDaemon <: Actor {
                 }
             }
         }
+        // 已不是成员（被移除）或已 down 的地址：故障检测器与不可达记录一并删除（E12′，N14）
+        let staleDetectors = ArrayList<String>()
+        for ((addr, _) in detectors) {
+            match (next.members.get(addr)) {
+                case Some(m) where m.status != MemberStatus.Down && m.status != MemberStatus.Removed => ()
+                case _ => staleDetectors.add(addr)
+            }
+        }
+        for (addr in staleDetectors) {
+            detectors.remove(addr)
+        }
+        let staleUnreachable = ArrayList<String>()
+        for ((addr, _) in unreachableSince) {
+            if (!next.members.contains(addr)) {
+                staleUnreachable.add(addr)
+            }
+        }
+        for (addr in staleUnreachable) {
+            unreachableSince.remove(addr)
+        }
+        // 被 down 后移除的实例：隔离它的 uid（对标 Akka 移除 Down 成员时隔离其 UniqueAddress）——
+        // 被误判的僵尸进程再也连不进来，入站连接随之关闭（N14）；同址的新实例不受影响
+        for ((addr, p) in old.members) {
+            if (addr == selfAddress || p.status != MemberStatus.Down) {
+                continue
+            }
+            let gone = match (next.members.get(addr)) {
+                case Some(m) => m.uid != p.uid
+                case None => true
+            }
+            if (gone && next.tombstones.contains(p.uniqueAddress())) {
+                try {
+                    remote.quarantine(NetworkAddress.parse(addr), p.uid, "集群成员被 down 后移除")
+                } catch (e: Exception) {
+                    log.warn("隔离被移除的成员 ${p.uniqueAddress()} 失败: ${e}")
+                }
+            }
+        }
         publish(old, next, leaderValue, unreachableBefore)
+        syncStats()
         let st = selfStatus()
         if (st == MemberStatus.Removed || st == MemberStatus.Down) {
             if (!stopped) {
@@ -1272,6 +1553,17 @@ class ClusterDaemon <: Actor {
     /** 计算 old → next 的成员事件、可达性事件与 Leader 变化，更新快照并通知订阅者 */
     private func publish(old: Gossip, next: Gossip, oldLeader: Option<String>, oldUnreachable: HashSet<String>): Unit {
         let events = ArrayList<ClusterEvent>()
+        // 从成员表消失的地址（被移除，只留墓碑）：补发移除事件（按地址排序，各节点顺序一致）
+        let goneAddrs = ArrayList<String>()
+        for ((a, p) in old.members) {
+            if (!next.members.contains(a) && p.status != MemberStatus.Removed) {
+                goneAddrs.add(a)
+            }
+        }
+        sort(goneAddrs)
+        for (a in goneAddrs) {
+            events.add(ClusterEvent.MemberRemoved(old.members[a].withStatus(MemberStatus.Removed)))
+        }
         let addrs = ArrayList<String>()
         for ((a, _) in next.members) {
             addrs.add(a)
@@ -1395,6 +1687,23 @@ public class Cluster {
     public func state(): ClusterSnapshot {
         synchronized(shared.lock) {
             shared.snapshot
+        }
+    }
+
+    /**
+     * 成员层的内部规模（E12′，诊断用）：(gossip 中的成员记录数, 墓碑数, 故障检测器数)。
+     * 被移除的成员只留墓碑、墓碑按 pruneTombstonesAfter 清除，检测器只为当前成员建立——三者都不随历史增长
+     */
+    public func membershipStats(): (Int64, Int64, Int64) {
+        synchronized(shared.lock) {
+            (shared.gossipRecords, shared.tombstoneCount, shared.detectorCount)
+        }
+    }
+
+    /** 加入被拒绝的原因（配置不兼容，E42）；None 表示没有被拒绝 */
+    public func joinRejection(): Option<String> {
+        synchronized(shared.lock) {
+            shared.joinRejection
         }
     }
 

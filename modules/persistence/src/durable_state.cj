@@ -38,15 +38,32 @@ public class DurableStateRecord {
 }
 
 public interface DurableStateStore {
+    /** 当前状态；从未写过或已删除时为 None（已删除的修订号见 revisionOf） */
     func get(persistenceId: String): Option<DurableStateRecord>
 
-    /** 写入修订号为 revision 的状态；当前修订号必须是 revision - 1（不存在时为 0） */
+    /** 写入修订号为 revision 的状态；当前修订号（revisionOf）必须是 revision - 1 */
     func upsert(persistenceId: String, revision: Int64, state: String): Unit
 
-    /** 删除；当前修订号必须是 revision */
+    /**
+     * 删除；当前修订号必须是 revision。删除本身也是一次写入：留下修订号为 revision + 1 的墓碑，
+     * 之后的写入从 revision + 2 继续（对标 Akka DurableStateStore 删除后修订号不回退，P14）
+     */
     func delete(persistenceId: String, revision: Int64): Unit
 
+    /** 未被删除的标识 */
     func persistenceIds(): Array<String>
+
+    /**
+     * 当前修订号：有状态时是状态的修订号，已删除时是墓碑的修订号，从未写过为 0。
+     * 写入方应据此决定下一次 upsert 的修订号——用 get 判断会在删除后把修订号算回 0（被拒绝）。
+     * 默认实现基于 get（不认识墓碑的自定义存储）
+     */
+    func revisionOf(persistenceId: String): Int64 {
+        match (get(persistenceId)) {
+            case Some(r) => r.revision
+            case None => 0
+        }
+    }
 }
 
 func checkRevision(persistenceId: String, current: Int64, expectedCurrent: Int64): Unit {
@@ -59,6 +76,8 @@ func checkRevision(persistenceId: String, current: Int64, expectedCurrent: Int64
 public class MemoryDurableStateStore <: DurableStateStore {
     private let lock = Mutex()
     private let records = HashMap<String, DurableStateRecord>()
+    // 已删除标识的墓碑修订号
+    private let tombstones = HashMap<String, Int64>()
 
     public init() {}
 
@@ -68,25 +87,32 @@ public class MemoryDurableStateStore <: DurableStateStore {
         }
     }
 
+    public func revisionOf(persistenceId: String): Int64 {
+        synchronized(lock) {
+            currentRevision(persistenceId)
+        }
+    }
+
+    private func currentRevision(persistenceId: String): Int64 {
+        match (records.get(persistenceId)) {
+            case Some(r) => r.revision
+            case None => tombstones.get(persistenceId) ?? 0
+        }
+    }
+
     public func upsert(persistenceId: String, revision: Int64, state: String): Unit {
         synchronized(lock) {
-            let current = match (records.get(persistenceId)) {
-                case Some(r) => r.revision
-                case None => 0
-            }
-            checkRevision(persistenceId, current, revision - 1)
+            checkRevision(persistenceId, currentRevision(persistenceId), revision - 1)
             records[persistenceId] = DurableStateRecord(persistenceId, revision, state)
+            tombstones.remove(persistenceId)
         }
     }
 
     public func delete(persistenceId: String, revision: Int64): Unit {
         synchronized(lock) {
-            let current = match (records.get(persistenceId)) {
-                case Some(r) => r.revision
-                case None => 0
-            }
-            checkRevision(persistenceId, current, revision)
+            checkRevision(persistenceId, currentRevision(persistenceId), revision)
             records.remove(persistenceId)
+            tombstones[persistenceId] = revision + 1
         }
     }
 
@@ -118,8 +144,8 @@ public class FileDurableStateStore <: DurableStateStore {
         "${basePath}/${safeFileName(persistenceId)}.state"
     }
 
-    private func read(persistenceId: String): Option<DurableStateRecord> {
-        let path = pathOf(persistenceId)
+    /** (记录, 是否墓碑)；文件格式：标识、修订号、状态[、墓碑标记 1]——旧文件没有第四个字段 */
+    private func readFile(path: String): Option<(DurableStateRecord, Bool)> {
         if (!exists(path)) {
             return None
         }
@@ -132,22 +158,35 @@ public class FileDurableStateStore <: DurableStateStore {
         let id = r.getString()
         let revision = r.getInt64()
         let state = r.getString()
-        Some(DurableStateRecord(id, revision, state))
+        let deleted = r.hasMore() && r.getInt64() == 1
+        Some((DurableStateRecord(id, revision, state), deleted))
+    }
+
+    private func currentRevision(persistenceId: String): Int64 {
+        match (readFile(pathOf(persistenceId))) {
+            case Some((r, _)) => r.revision
+            case None => 0
+        }
     }
 
     public func get(persistenceId: String): Option<DurableStateRecord> {
         synchronized(lock) {
-            read(persistenceId)
+            match (readFile(pathOf(persistenceId))) {
+                case Some((r, false)) => Some(r)
+                case _ => None<DurableStateRecord>
+            }
+        }
+    }
+
+    public func revisionOf(persistenceId: String): Int64 {
+        synchronized(lock) {
+            currentRevision(persistenceId)
         }
     }
 
     public func upsert(persistenceId: String, revision: Int64, state: String): Unit {
         synchronized(lock) {
-            let current = match (read(persistenceId)) {
-                case Some(r) => r.revision
-                case None => 0
-            }
-            checkRevision(persistenceId, current, revision - 1)
+            checkRevision(persistenceId, currentRevision(persistenceId), revision - 1)
             // 原子替换且返回时已落盘（B7）
             writeFileAtomically(pathOf(persistenceId),
                 RecordWriter().putString(persistenceId).putInt64(revision).putString(state).toRecord(), true)
@@ -156,15 +195,10 @@ public class FileDurableStateStore <: DurableStateStore {
 
     public func delete(persistenceId: String, revision: Int64): Unit {
         synchronized(lock) {
-            let current = match (read(persistenceId)) {
-                case Some(r) => r.revision
-                case None => 0
-            }
-            checkRevision(persistenceId, current, revision)
-            let path = pathOf(persistenceId)
-            if (exists(path)) {
-                remove(path)
-            }
+            checkRevision(persistenceId, currentRevision(persistenceId), revision)
+            // 墓碑而不是删文件：修订号不回退，过期的写者（还拿着删除前的修订号）会被拒绝（P14）
+            writeFileAtomically(pathOf(persistenceId),
+                RecordWriter().putString(persistenceId).putInt64(revision + 1).putString("").putInt64(1).toRecord(), true)
         }
     }
 
@@ -174,15 +208,9 @@ public class FileDurableStateStore <: DurableStateStore {
             for (info in Directory.readFrom(basePath)) {
                 let name = info.name
                 if (name.endsWith(".state")) {
-                    let stem = name[0..(name.size - ".state".size)]
-                    if (isHashedName(stem)) {
-                        // 哈希文件名（标识过长）：原标识是记录的第一个字段
-                        let (records, _) = splitRecords(File.readFrom("${basePath}/${name}"))
-                        if (!records.isEmpty()) {
-                            ids.add(RecordReader(records[0]).getString())
-                        }
-                    } else if (let Some(id) <- unhexName(stem)) {
-                        ids.add(id)
+                    // 原标识是记录的第一个字段（哈希文件名时只能从记录里取）；墓碑不算
+                    if (let Some((r, false)) <- readFile("${basePath}/${name}")) {
+                        ids.add(r.persistenceId)
                     }
                 }
             }
@@ -249,13 +277,13 @@ public abstract class DurableStateActor<S> <: Actor {
         currentState = Some(newState)
     }
 
-    /** 删除已保存的状态，内存状态回到 emptyState() */
+    /** 删除已保存的状态，内存状态回到 emptyState()；修订号不回退（删除留下 revision + 1 的墓碑） */
     protected func deleteState(): Unit {
         ensureLoaded()
         if (currentRevision > 0) {
             store.delete(persistenceId(), currentRevision)
+            currentRevision++
         }
-        currentRevision = 0
         currentState = Some(emptyState())
     }
 
@@ -284,7 +312,8 @@ public abstract class DurableStateActor<S> <: Actor {
                 currentRevision = r.revision
                 currentState = Some(decodeState(r.state))
             case None =>
-                currentRevision = 0
+                // 已删除时修订号取墓碑的（不能回到 0，否则下一次写入被拒绝）
+                currentRevision = store.revisionOf(persistenceId())
                 currentState = Some(emptyState())
         }
         loaded = true

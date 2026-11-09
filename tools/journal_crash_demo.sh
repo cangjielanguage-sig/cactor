@@ -23,10 +23,17 @@ for r in $(seq 1 "$ROUNDS"); do
     sleep "0.$(( RANDOM % 7 + 2 ))"
     kill -9 "$writer" 2>/dev/null
     wait "$writer" 2>/dev/null
+    # 损坏步骤本身出错（异常退出）也判红，不能让这一轮在没有注入故障的情况下悄悄通过
+    mode=""
     case $(( r % 3 )) in
-        1) "$BIN" corrupt "$journal" zero > /dev/null ;;
-        2) "$BIN" corrupt "$journal" torn > /dev/null ;;
+        1) mode=zero ;;
+        2) mode=torn ;;
     esac
+    if [[ -n $mode ]] && ! "$BIN" corrupt "$journal" "$mode" > /dev/null; then
+        echo "第 ${r} 轮：注入 ${mode} 损坏失败"
+        status=1
+        break
+    fi
     echo -n "第 ${r} 轮：" 
     if ! CACTOR_LOG_LEVEL=error "$BIN" verify "$journal" "$acks" "$IDS"; then
         status=1

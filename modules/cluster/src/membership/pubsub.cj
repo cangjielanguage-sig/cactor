@@ -7,6 +7,9 @@
  *   节点被移出集群时，其他节点把它从全部主题中删除。
  * - publish 只发给有订阅者的节点：本节点直接投递，其他节点经远程发给对方的主题 Actor。
  *   投递是至多一次；订阅生效需要等 Replicator 同步（通常一个 gossip 间隔）。
+ * - 节点集合的增删由主题 Actor 串行发出（E12′，N12）：本地订阅者 0→1 时加入、→0 时删除，
+ *   Replicator 按顺序处理，"最后一个订阅者离开"与紧随其后的新订阅不会颠倒（此前删除在另一个线程异步执行，
+ *   可能晚于添加，把仍有订阅者的节点移出主题）。subscribe 不阻塞；需要确认本地生效时用 subscribeAsync。
  *
  * ClusterReplicatorBinding 让 Replicator 的对等节点自动跟随集群成员变化，pub/sub 依赖它，也可以单独使用。
  */
@@ -22,28 +25,56 @@ import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.logging.{Logging}
 import cactor_remote.{SimpleRemoteManager}
 import cactor_cluster.ddata.{Replicator}
+import cactor_core.typed.{TypedPromise}
 
 /** 让 Replicator 的对等节点跟随集群成员：成员 Up 时加入，被移除或 down 时删除 */
 public class ClusterReplicatorBinding {
     public static func bind(cluster: Cluster, replicator: Replicator): Unit {
         let me = cluster.selfAddress
+        // pruning（E64）：Leader 发起与执行，等全部未 Down 的成员都见过标记
+        // 只在视图收敛时以 Leader 身份发起：未收敛时可能同时有两个节点自认为 Leader，各自发起会让数据被并入两次
+        replicator.setMembership({ =>
+            let st = cluster.state()
+            st.converged && st.leader == Some(me)
+        }, { =>
+            let out = ArrayList<String>()
+            for (m in cluster.members()) {
+                if (m.status != MemberStatus.Down) {
+                    out.add(m.uniqueAddress())
+                }
+            }
+            out.toArray()
+        })
         cluster.subscribe({ e =>
             match (e) {
                 case ClusterEvent.MemberUp(m) where m.address != me => replicator.join(NetworkAddress.parse(m.address))
                 case ClusterEvent.MemberJoined(m) where m.address != me => replicator.join(NetworkAddress.parse(m.address))
-                case ClusterEvent.MemberRemoved(m) => replicator.leave(NetworkAddress.parse(m.address))
-                case ClusterEvent.MemberDowned(m) => replicator.leave(NetworkAddress.parse(m.address))
+                case ClusterEvent.MemberRemoved(m) =>
+                    replicator.nodeRemoved(m.uniqueAddress())
+                    leaveUnlessReplaced(cluster, replicator, m)
+                case ClusterEvent.MemberDowned(m) => leaveUnlessReplaced(cluster, replicator, m)
                 case _ => ()
             }
         })
     }
 }
 
+/** 同址重启的新实例可能已经加入：地址上的现任成员是别的实例时继续向该地址推送 */
+func leaveUnlessReplaced(cluster: Cluster, replicator: Replicator, m: Member): Unit {
+    match (cluster.state().member(m.address)) {
+        case Some(cur) where cur.uid != m.uid => ()
+        case _ => replicator.leave(NetworkAddress.parse(m.address))
+    }
+}
+
 class SubscribeCmd <: Message {
     let ref: ActorRef
+    // subscribeAsync：本地订阅登记且节点集合的添加生效后完成
+    let ack: Option<TypedPromise<Unit>>
 
-    init(ref: ActorRef) {
+    init(ref: ActorRef, ack: Option<TypedPromise<Unit>>) {
         this.ref = ref
+        this.ack = ack
     }
 
     public func messageType(): String {
@@ -73,13 +104,15 @@ class TopicState {
 class TopicActor <: Actor {
     let topic: String
     let state: TopicState
-    let onEmpty: () -> Unit
+    let replicator: Replicator
+    let selfNode: String
     let subscribers = HashMap<String, ActorRef>()
 
-    init(topic: String, state: TopicState, onEmpty: () -> Unit) {
+    init(topic: String, state: TopicState, replicator: Replicator, selfNode: String) {
         this.topic = topic
         this.state = state
-        this.onEmpty = onEmpty
+        this.replicator = replicator
+        this.selfNode = selfNode
     }
 
     public prop name: String {
@@ -99,6 +132,10 @@ class TopicActor <: Actor {
                     context.watch(s.ref)
                 }
                 syncCount()
+                if (let Some(ack) <- s.ack) {
+                    // 屏障：本 Actor 之前发出的节点集合更新都生效后才确认
+                    replicator.afterPendingUpdates({ => ack.trySuccess(()) |> discardCompleted })
+                }
             case u: UnsubscribeCmd =>
                 if (subscribers.remove(u.ref.path.toString()).isSome()) {
                     context.unwatch(u.ref)
@@ -118,14 +155,21 @@ class TopicActor <: Actor {
         MessageResult.Handled
     }
 
+    /**
+     * 本地订阅者数变化：0→1 把本节点加入主题的节点集合，→0 删除。
+     * 只有本 Actor 发出这两种更新、Replicator 按顺序处理，所以最终状态总与最后一次变化一致
+     */
     private func syncCount(): Unit {
-        let wasNonEmpty = synchronized(state.lock) {
-            let before = state.count
+        let before = synchronized(state.lock) {
+            let b = state.count
             state.count = subscribers.size
-            before > 0
+            b
         }
-        if (wasNonEmpty && subscribers.isEmpty()) {
-            onEmpty()
+        let key = "pubsub/${topic}"
+        if (before == 0 && !subscribers.isEmpty()) {
+            replicator.addToSetAsync(key, selfNode)
+        } else if (before > 0 && subscribers.isEmpty()) {
+            replicator.removeFromSetAsync(key, selfNode)
         }
     }
 }
@@ -201,13 +245,8 @@ public class DistributedPubSub {
                     let st = TopicState()
                     let rep = replicator
                     let me = cluster.selfAddress
-                    let ref = system.actorOf({ => TopicActor(topic, st, { =>
-                        // 本节点最后一个订阅者离开：从主题的节点集合中删除自己（不阻塞主题 Actor）
-                        spawn {
-                            rep.removeFromSet("pubsub/${topic}", me)
-                        }
-                        ()
-                    }) }, "pubsub-${topic}-${me.replace(":", "_").replace(".", "_")}")
+                    let ref = system.actorOf({ => TopicActor(topic, st, rep, me) },
+                        "pubsub-${topic}-${me.replace(":", "_").replace(".", "_")}")
                     remote.exposeActor("pubsub-${topic}", ref)
                     topics[topic] = (ref, st)
                     ref
@@ -215,11 +254,24 @@ public class DistributedPubSub {
         }
     }
 
-    /** 订阅主题；订阅者停止后自动退订 */
+    /**
+     * 订阅主题；订阅者停止后自动退订。不阻塞（E12′：此前同步等待 Replicator，最长 10 s）：
+     * 主题 Actor 登记订阅者并把本节点加入主题的节点集合，其他节点在 Replicator 同步后才会发来消息
+     */
     public func subscribe(topic: String, subscriber: ActorRef): Unit {
         checkTopic(topic)
-        topicActor(topic).tell(SubscribeCmd(subscriber))
-        replicator.addToSet("pubsub/${topic}", cluster.selfAddress)
+        topicActor(topic).tell(SubscribeCmd(subscriber, None<TypedPromise<Unit>>))
+    }
+
+    /**
+     * 订阅并在本地生效后完成（对标 Akka 的 SubscribeAck）：订阅者已登记、本节点已在本地副本的节点集合里。
+     * 其他节点仍要等 Replicator 同步（通常一个 gossip 间隔）
+     */
+    public func subscribeAsync(topic: String, subscriber: ActorRef): TypedPromise<Unit> {
+        checkTopic(topic)
+        let ack = TypedPromise<Unit>()
+        topicActor(topic).tell(SubscribeCmd(subscriber, Some(ack)))
+        ack
     }
 
     public func unsubscribe(topic: String, subscriber: ActorRef): Unit {

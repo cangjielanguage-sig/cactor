@@ -97,6 +97,22 @@ class AdaptedEnvelope <: Message & PayloadCarrier {
 }
 
 /**
+ * 投递给自己的信号（pipeSignalToSelf 使用）：信号在目标 Actor 线程中才计算出来，交给行为的 onSignal，
+ * 与普通消息同一邮箱、按到达顺序处理。不实现 PayloadCarrier——它不是 T 类型的消息，不能被当作消息解包。
+ */
+class SignalEnvelope <: Message {
+    let produce: () -> TypedSignal
+
+    init(produce: () -> TypedSignal) {
+        this.produce = produce
+    }
+
+    public func messageType(): String {
+        "SignalEnvelope"
+    }
+}
+
+/**
  * 由经典引用支撑的类型化引用
  */
 public class ClassicTypedRef<T> <: TypedActorRef<T> {
@@ -427,6 +443,12 @@ class TypedActorAdapter <: Actor {
                     rules.captureFailure(behaviorAny)
                 }
                 r
+            case s: SignalEnvelope =>
+                // 行为不处理自定义信号时忽略（不计为未处理消息：它不是 T 类型的消息，也不进死信）
+                match (applyNext(hooks.onSignal(behaviorAny, s.produce(), c), c, false)) {
+                    case MessageResult.Unhandled => MessageResult.Handled
+                    case r => r
+                }
             case _: ReceiveTimeout =>
                 let m = cold.timeoutMessage(c)
                 if (m is TypedNotMatched) {
@@ -648,6 +670,11 @@ class ClassicTypedContext<T> <: TypedActorContext<T> & SupervisionHost {
     public func pipeToSelf<V>(future: TypedFuture<V>, map: (AskOutcome<V>) -> T): Unit {
         let me = classic.self
         future.onComplete({ outcome => me.tell(AdaptedEnvelope({ => map(outcome) })) })
+    }
+
+    public func pipeSignalToSelf<V>(future: TypedFuture<V>, map: (AskOutcome<V>) -> TypedSignal): Unit {
+        let me = classic.self
+        future.onComplete({ outcome => me.tell(SignalEnvelope({ => map(outcome) })) })
     }
 
     public func messageAdapter<U>(f: (U) -> T): TypedActorRef<U> {

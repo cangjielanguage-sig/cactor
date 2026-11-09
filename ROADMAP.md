@@ -30,12 +30,12 @@
 | 经典 API 语义（R1） | ✅ 监督树（父停子、Escalate、OneForAll）、watch / watchWith / Terminated（Terminated 入用户邮箱，先于它发出的消息先到，与 Akka 一致）、协调关闭（Akka 阶段）、become、定时器、Stash、接收超时、PoisonPill / Kill、Props 生效、按路径查找、死信订阅；失败处理与 Akka 对齐（启动失败 / Kill / DeathPact 默认停止、延迟重启挂起、Error 交给监督）；经典与类型化共用的指数退避（E6′）；重启协议与钩子对齐 Akka（preRestart 默认 postStop、postRestart 默认 preStart、preStart 在 Actor 线程执行、等旧子 Actor 全部终止再建新实例、失败待决期间整棵子树暂停，E33）；`system.stop` 立即停止、剩余消息进死信、名字保留到终止，`gracefulStop` 处理完排队消息再停并等待终止（E33）；与 Akka 的逐条对照见 `docs/zh/akka-semantics.md`；路由器 Actor（`Routers.pool` / `group`：保留发送方、摘除已终止目标、管理消息，E37） | `semantics_test.cj` 34 个用例、`failure_semantics/` 13 个、`death_watch/` 7 个、`lifecycle/` 8 个、`patterns/router_actor_test.cj` 6 个用例、`stop_protocol/` 6 个用例 |
 | 类型化 API（R2） | ✅ 运行在经典 Cell 上；setup / receive / supervise / withTimers / withStash / ask / messageAdapter / pipeToSelf / Receptionist（单机，可退订，订阅者停止后自动退订）；类型化路由器（`TypedRouters.pool` / `group`，组路由器跟随 Receptionist，E37）；行为拦截器（`intercept` / `monitor` / `logMessages`）；监督按行为结构由内向外匹配、计数跨重启累计（E36）；未处理 / 协议之外的消息以 `UnhandledMessage` 进死信并限速记日志；`TypedPromise` 组合子（flatMap / recover / sequence）；以 `setup` 开头的子 Actor 走用户包快路径 | `typed_semantics_test.cj`、`typed_interceptor.cj`、`typed_routing/typed_router_test.cj` |
 | DSL | ✅ `@actor`（协议清单编译期核对，`@actorReceive` 为兼容别名）、`@Message`（编解码 + 注册）、`@StateMachine`（转换表 + 穷尽检查）；`Behaviors` 门面、`askInbox`、流管道 `\|>`；`<<` 运算符、时间字面量；占位宏已删除 | `macros/src/`、`core/src/dsl/`、`docs/dsl.md` |
-| 远程 | ✅ 基于 std.net 的 TCP，按目标地址的出站关联：连接与重连在写线程里（指数退避），发送只入队、不阻塞，队列有界、满了丢弃计数，控制消息走优先通道（E40，黑洞节点不拖累健康成员）；写线程合并写、批量解析；至多一次投递；远程 ask（`remoting.cj` ask）、远程 watch（WATCH/UNWATCH/DEATH 走可靠通道，被监视节点重启凭启动标识立即投递 `Terminated`）；可靠投递（按序去重、接收端重启后在新通道重发、未确认上限与超时放弃，E41）；序列化注册与 schema 演进（`remote_semantics` 测试）。连接握手交换身份（地址 + 启动标识），可选共享密钥 HMAC 鉴权；隔离（quarantine）：心跳不可达、超时放弃、对端重启时隔离旧实例，误判不可撤回（E7′）。🟡 成员与 CRDT 的节点标识仍是地址（N4）、首个种子直接自举（N5）、没有 TLS（E65） | `foundation/network/transport.cj`、`remote/remoting.cj` |
-| 持久化 | ✅ 日志 v2（E8′）：记录带序号 / CRC32 / tags，`append(expectedSeq)` 单写者校验、`replay` / `deleteTo`，FFI fsync + 组提交，残缺尾部截断、中间损坏拒绝恢复，v1 日志自动迁移；随机 kill -9 验证已确认事件不丢（`tools/journal_crash_demo.sh`，接入 CI）；快照与持久状态原子写并落盘；`EventSourcedActor` 为唯一主路径，Enhanced / CQRS / Plugin 三套已 `@Deprecated`。🟡 类型化 `EventSourcedBehavior`（E44）、实时 `eventsByTag`、持久状态删除后修订号归零（P14） | `persistence/` |
-| 集群 | ✅ gossip 成员协议（Phi Accrual 故障检测）、SBR 脑裂处理（keep-majority）、Cluster Singleton、分布式发布订阅（`DistributedPubSub`）、CRDT + Replicator、分片（rendezvous 哈希 + 移交）；成员按"地址#启动标识"区分实例（同址重启以新实例重新加入）、首个种子先加入其他种子、CRDT 节点键含启动标识（E7′）；成员协议经远程握手可选共享密钥鉴权（B2）；Replicator 读取返回不可变快照，merge / 编码 / 摘要在锁外，集群套件恢复并行执行（E43）。🟡 移交无双阶段（B4）、CRDT 无 pruning | `cluster/membership/`、`cluster/ddata/` |
+| 远程 | ✅ 基于 std.net 的 TCP，按目标地址的出站关联：连接与重连在写线程里（指数退避），发送只入队、不阻塞，队列有界、满了丢弃计数，控制消息走优先通道（E40，黑洞节点不拖累健康成员）；写线程合并写、批量解析；至多一次投递；远程 ask（`remoting.cj` ask）、远程 watch（WATCH/UNWATCH/DEATH 走可靠通道，被监视节点重启凭启动标识立即投递 `Terminated`）；可靠投递（按序去重、接收端重启后在新通道重发、未确认上限与超时放弃，E41）；序列化注册与 schema 演进（`remote_semantics` 测试）。连接握手交换身份（地址 + 启动标识），可选共享密钥 HMAC 鉴权；隔离（quarantine）：心跳不可达、超时放弃、对端重启时隔离旧实例，误判不可撤回（E7′）；成员与 CRDT 按"地址#启动标识"区分实例（N4）、种子加入对标 FirstSeedNodeProcess（N5）。TLS 1.3 双向认证（`RemoteTls`，基于 stdx，E65）：明文连接与他 CA 证书被拒绝，集群全部流量经同一远程层加密 | `foundation/network/transport.cj`、`remote/remoting.cj` |
+| 持久化 | ✅ 日志 v2（E8′）：记录带序号 / CRC32 / tags，`append(expectedSeq)` 单写者校验、`replay` / `deleteTo`，FFI fsync + 组提交，残缺尾部截断、中间损坏拒绝恢复，v1 日志自动迁移；随机 kill -9 验证已确认事件不丢（`tools/journal_crash_demo.sh`，接入 CI）；快照与持久状态原子写并落盘；`EventSourcedActor` 为经典主路径，Enhanced / CQRS / Plugin 三套已 `@Deprecated`；✅ 类型化 `EventSourcedBehavior` / `DurableStateBehavior`（E44，`cactor_persistence.typed`：Effect 链、恢复与写入期间自动暂存、独立持久化 IO 线程池、RetentionCriteria、EventAdapter schema 演进，购物车示例三次重启恢复自检）；持久状态删除留墓碑、修订号不回退（P14）。🟡 实时 `eventsByTag`；快照与持久状态是每个标识一个文件，fsync 不能跨实体合并 | `persistence/` |
+| 集群 | ✅ gossip 成员协议（Phi Accrual 故障检测）、SBR 脑裂处理（keep-majority）、Cluster Singleton、分布式发布订阅（`DistributedPubSub`）、CRDT + Replicator、分片（rendezvous 哈希 + 许可式两阶段移交：征得每个成员确认已停止后才托管，单活不依赖视图收敛，成员不可达时只缓冲它拥有的分片，E13′）；加入时比对兼容键（分片哈希与移交协议版本、用户键），不兼容的节点被拒绝（E42）；成员按"地址#启动标识"区分实例（同址重启以新实例重新加入）、首个种子先加入其他种子、CRDT 节点键含启动标识（E7′）；成员协议经远程握手可选共享密钥鉴权（B2）；Replicator 读取返回不可变快照，merge / 编码 / 摘要在锁外，集群套件恢复并行执行（E43）；分片 / 单例透传 sender 并提供 `ask`，`Grains.callAsync` 与可重入 Grain、pubsub `subscribeAsync` 与主题 Actor 串行写入，远程回复入口按 Actor 生命周期注册与注销，Removed 成员只留带时间的墓碑（24 h 裁剪）、被 down 的成员按 uid 隔离（E12′）；单例 HandOver 握手（N16）、集群版 Receptionist（E63）、Replicator 一致性级别 WriteMajority / ReadMajority / All、delta 传播（按来源序号、断档向来源补齐）与移除节点的 pruning（两阶段标记，分量并入执行者）（E64）；全部经远程层的 TLS 1.3 / mTLS（E65）。🟡 没有按负载的分片再平衡 | `cluster/membership/`、`cluster/ddata/` |
 | 流 / 状态机 | 🟠 Streams 有背压策略（Block 策略仍抛异常，见 C7）；XState 有基本状态机，`features` / `enterprise` 是占位 | `streams/core/` |
 | 可观测性 | ✅ 分级日志（`foundation.logging`，默认 WARN，支持结构化字段 / MDC）；Prometheus 文本导出（每 Actor 计数 64 位，每 Actor 序列默认上限 1000）；Timer 指标平均值/时间戳已修复为真实值；同名指标注册报错。🟡 追踪只有 `foundation.monitoring.Tracer`（W3C 格式 ID），还没有接入消息投递与 ask | `runtime/prometheus_metrics.cj`、`foundation/logging/` |
-| 工程 | ✅ `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查、`--bench` 门禁接入 bench_gate）；测试 633 / 633（2026-11-07 第 13 批，`tools/ci.sh` 单用例超时 120 s；另跑集群套件 8 进程并行 2 轮与 ddata GC 压测 4 轮）；`cactor_testkit`（TestProbe、BehaviorTestKit、ManualTime）；Akka 对比基准 | `tools/`、`bench/` |
+| 工程 | ✅ `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查、`--bench` 门禁接入 bench_gate）；测试 686 / 686（2026-11-08 第 18 批，`tools/ci.sh` 单用例超时 120 s；另跑集群套件 8 进程并行 2 轮与 ddata GC 压测 4 轮）；`cactor_testkit`（TestProbe、BehaviorTestKit、ManualTime）；Akka 对比基准 | `tools/`、`bench/` |
 | HTTP | ✅ 最小可用（ManagementServer：健康检查 + Prometheus 指标，经真实 HTTP；绑定地址、并发上限、请求总时限可配置）。🟡 Ktor 风格插件体系未开始 | `cactor/api/` |
 
 ### 2.2 性能（同机实测，32 核 Xeon 8582C，详见 20261028-performance.md）
@@ -181,7 +181,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 - [ ] 序列化注册表与版本号（与 `@Message` 宏打通），支持 schema 演进。✅ 基础版已落地（`remote` 模块 codec 注册 + 版本拒绝，`schema_evolution_test.cj`）。
 - [x] 远程 `ActorRef` 与本地统一：远程 ask（`remoting.cj` `ask`）；远程 watch（WATCH/DEATH，连接断开时投递 `Terminated`）。
 - [x] 可靠投递：序号 + 确认 + 重发（对应 Akka Reliable Delivery）。`tellReliable` 有序号、累计 ACK、重发与去重；接收端重启后未确认消息在新通道重发（跨重启至少一次）；未确认上限 `maxUnacked` 与超时放弃 `giveUpAfter`（E41，`unit/remote_semantics/system_message_reliability_test.cj`）。
-- [ ] 基于 stdx 的 TLS。
+- [x] 基于 stdx 的 TLS（E65）：`RemoteTls` TLS 1.3 双向认证、只信任配置的 CA；明文连接被拒绝、线上抓包看不到消息内容（`remote_tls_test.cj`），3 进程集群全程 TLS（`tools/cluster_demo.sh --tls`）。
 - **验收**：远程吞吐在空闲机器上追平 Akka Artery TCP；随机断连测试下可靠投递不丢消息、不乱序。
 
 ---
@@ -192,10 +192,10 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 - [x] gossip 成员协议（Joining → Up → Leaving → Exiting → Removed），种子节点引导，成员事件订阅；接入已有的 Phi Accrual 故障检测器（`cluster/membership/membership.cj`）。
 - [x] Cluster Singleton（`membership/singleton.cj`）、分布式发布订阅（`membership/pubsub.cj`）。
-- [ ] Receptionist 集群版（当前 `core/typed/receptionist.cj` 仅单机，20261106 计划 E63）。
+- [x] Receptionist 集群版（`membership/receptionist.cj`，20261106 计划 E63；测试 `unit/cluster/cluster_distribution_test.cj`）。
 - [x] 脑裂处理（keep-majority，`membership/sbr.cj`）。
 - [ ] 删除或重写现有原型：`cluster_routing.cj`、`failover.cj` 中的占位逻辑。
-- [ ] 成员协议鉴权与 incarnation（20261106 计划 E7/E13）。
+- [x] 成员协议鉴权与 incarnation（20261106 计划 E7′，见上表"集群"一行）。
 - **验收**：本机 3 节点集群测试：加入、离开、杀掉一个节点后 Singleton 切换（已有测试覆盖）。
 
 ### 7.2 HTTP 生产化（P6–P9）

@@ -232,6 +232,14 @@ public class CActorRuntime {
         userGuardian.deadLetterCount()
     }
 
+    /**
+     * 把投递不出去的消息交给死信（计数、通知 subscribeDeadLetters 的订阅者、限速记日志），
+     * 供运行时之外的路由组件使用：例如分片区域在节点离开集群、缓冲区满时丢弃的消息（对标 Akka system.deadLetters）
+     */
+    public func publishDeadLetter(message: Message, recipient: String): Unit {
+        userGuardian.publishDeadLetter(message, recipient)
+    }
+
     /** 系统内累计的未处理消息数（receive 返回 Unhandled、类型化协议之外的消息；不含死信） */
     public func unhandledCount(): Int64 {
         userGuardian.unhandledCount()

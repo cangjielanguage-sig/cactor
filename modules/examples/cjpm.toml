@@ -192,3 +192,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.ddata_stress"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.typed_persistence_demo"]
+output-type = "executable"

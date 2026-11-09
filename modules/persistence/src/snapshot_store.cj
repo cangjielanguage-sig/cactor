@@ -50,6 +50,32 @@ public interface SnapshotStore {
     func getSnapshot(actorId: String, sequenceNumber: Int64): Option<Snapshot>
     func deleteSnapshots(actorId: String): Unit
     func close(): Unit
+
+    /**
+     * 删除序号 ≤ maxSequenceNr 的快照（类型化持久化的 RetentionCriteria 用它只保留最近 N 份）。
+     * 只实现了上面五个方法的自定义存储不受影响：调用时抛 UnsupportedException
+     */
+    func deleteSnapshotsTo(actorId: String, maxSequenceNr: Int64): Unit {
+        throw UnsupportedException("该快照存储不支持 deleteSnapshotsTo（${actorId} ≤ ${maxSequenceNr}）")
+    }
+}
+
+/**
+ * 按序号升序插入；同一序号的快照被替换（重复保存是幂等的）。
+ * 为什么不直接追加：快照是异步保存的，Actor 重启前提交的旧快照可能比新实例的快照晚落盘；
+ * 按位置取"最新"会把它当成最新，而它之后的事件可能已被保留策略删除，恢复出错误状态
+ */
+func insertSnapshotBySeq(list: ArrayList<Snapshot>, snapshot: Snapshot): Unit {
+    let seq = snapshot.getSequenceNumber()
+    var i = list.size
+    while (i > 0 && list[i - 1].getSequenceNumber() > seq) {
+        i--
+    }
+    if (i > 0 && list[i - 1].getSequenceNumber() == seq) {
+        list[i - 1] = snapshot
+    } else {
+        list.add(snapshot, at: i)
+    }
 }
 
 // 内存快照存储
@@ -63,49 +89,33 @@ public class MemorySnapshotStore <: SnapshotStore {
     }
     
     public func saveSnapshot(snapshot: Snapshot): Unit {
-        mutex.lock()
-        try {
+        synchronized(mutex) {
             let actorId = snapshot.getActorId()
-            match (snapshots.get(actorId)) {
-                case Some(snapshotList) => 
-                    snapshotList.add(snapshot)
-                    // 保持最新的5个快照
-                    if (snapshotList.size > 5) {
-                        // 只保留最新的 5 个
-                        let newList = ArrayList<Snapshot>()
-                        for (i in (snapshotList.size - 5)..snapshotList.size) {
-                            newList.add(snapshotList[i])
-                        }
-                        snapshots.add(actorId, newList)
-                    }
+            let list = match (snapshots.get(actorId)) {
+                case Some(l) => l
                 case None =>
-                    let newList = ArrayList<Snapshot>()
-                    newList.add(snapshot)
-                    snapshots.add(actorId, newList)
+                    let l = ArrayList<Snapshot>()
+                    snapshots.add(actorId, l)
+                    l
             }
-        } finally {
-            mutex.unlock()
+            insertSnapshotBySeq(list, snapshot)
+            // 只保留序号最大的 5 个
+            if (list.size > 5) {
+                let threshold = list[list.size - 5].getSequenceNumber()
+                list.removeIf({ sn => sn.getSequenceNumber() < threshold })
+            }
         }
     }
-    
+
     public func getLatestSnapshot(actorId: String): Option<Snapshot> {
-        mutex.lock()
-        try {
+        synchronized(mutex) {
             match (snapshots.get(actorId)) {
-                case Some(snapshotList) => 
-                    if (snapshotList.size > 0) {
-                        Some(snapshotList[snapshotList.size - 1])
-                    } else {
-                        None<Snapshot>
-                    }
-                case None => 
-                    None<Snapshot>
+                case Some(l) where l.size > 0 => Some(l[l.size - 1])
+                case _ => None<Snapshot>
             }
-        } finally {
-            mutex.unlock()
         }
     }
-    
+
     public func getSnapshot(actorId: String, sequenceNumber: Int64): Option<Snapshot> {
         mutex.lock()
         try {
@@ -131,6 +141,14 @@ public class MemorySnapshotStore <: SnapshotStore {
             snapshots.remove(actorId)
         } finally {
             mutex.unlock()
+        }
+    }
+
+    public func deleteSnapshotsTo(actorId: String, maxSequenceNr: Int64): Unit {
+        synchronized(mutex) {
+            if (let Some(l) <- snapshots.get(actorId)) {
+                l.removeIf({ sn => sn.getSequenceNumber() <= maxSequenceNr })
+            }
         }
     }
     
@@ -168,21 +186,47 @@ public class FileSnapshotStore <: SnapshotStore {
     public func saveSnapshot(snapshot: Snapshot): Unit {
         synchronized(mutex) {
             let all = ArrayList<Snapshot>(readAll(snapshot.getActorId()))
-            all.add(snapshot)
+            insertSnapshotBySeq(all, snapshot)
             let start = if (all.size > keep) { all.size - keep } else { 0 }
-            let out = ArrayList<UInt8>()
-            for (i in start..all.size) {
-                let sn = all[i]
-                out.add(all: RecordWriter()
-                    .putString(sn.getActorId())
-                    .putString(sn.getStateData())
-                    .putInt64(sn.getSequenceNumber())
-                    .putInt64(sn.getTimestamp())
-                    .toRecord())
-            }
-            // 临时文件 fsync → rename → 目录 fsync（B7：此前不 fsync，断电后可能丢掉新快照甚至留下空文件）
-            writeFileAtomically(snapshotPath(snapshot.getActorId()), out.toArray(), true)
+            writeAll(snapshot.getActorId(), all.toArray()[start..])
         }
+    }
+
+    public func deleteSnapshotsTo(actorId: String, maxSequenceNr: Int64): Unit {
+        synchronized(mutex) {
+            let all = readAll(actorId)
+            let rest = ArrayList<Snapshot>()
+            for (sn in all) {
+                if (sn.getSequenceNumber() > maxSequenceNr) {
+                    rest.add(sn)
+                }
+            }
+            if (rest.size == all.size) {
+                return
+            }
+            if (rest.isEmpty()) {
+                let path = snapshotPath(actorId)
+                if (exists(path)) {
+                    remove(path)
+                }
+            } else {
+                writeAll(actorId, rest.toArray())
+            }
+        }
+    }
+
+    private func writeAll(actorId: String, snapshots: Array<Snapshot>): Unit {
+        let out = ArrayList<UInt8>()
+        for (sn in snapshots) {
+            out.add(all: RecordWriter()
+                .putString(sn.getActorId())
+                .putString(sn.getStateData())
+                .putInt64(sn.getSequenceNumber())
+                .putInt64(sn.getTimestamp())
+                .toRecord())
+        }
+        // 临时文件 fsync → rename → 目录 fsync（B7：此前不 fsync，断电后可能丢掉新快照甚至留下空文件）
+        writeFileAtomically(snapshotPath(actorId), out.toArray(), true)
     }
 
     public func getLatestSnapshot(actorId: String): Option<Snapshot> {
@@ -224,7 +268,7 @@ public class FileSnapshotStore <: SnapshotStore {
             let state = r.getString()
             let seq = r.getInt64()
             let ts = r.getInt64()
-            result.add(BasicSnapshot(owner, seq, state, ts))
+            insertSnapshotBySeq(result, BasicSnapshot(owner, seq, state, ts))
         }
         result.toArray()
     }

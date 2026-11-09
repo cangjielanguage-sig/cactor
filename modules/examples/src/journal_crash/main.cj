@@ -43,6 +43,11 @@ func writer(dir: String, k: Int64): Int64 {
 }
 
 func corrupt(dir: String, mode: String): Int64 {
+    // 写入进程可能在创建日志目录之前就被 kill -9（负载高时启动慢）：没有日志可损坏，不算失败
+    if (!exists(dir)) {
+        println("日志目录还不存在，没有可损坏的日志")
+        return 0
+    }
     let rnd = Random()
     var n = 0
     for (info in Directory.readFrom(dir)) {

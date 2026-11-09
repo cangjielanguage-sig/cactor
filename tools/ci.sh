@@ -17,10 +17,9 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-if ! command -v cjpm >/dev/null 2>&1; then
-    # shellcheck disable=SC1091
-    source "${CANGJIE_HOME:-$HOME/.cangjie/1.2.0/cangjie}/envsetup.sh" >/dev/null
-fi
+# 仓颉环境 + stdx 路径（E65：根 cjpm.toml 以 ${CANGJIE_STDX_PATH} 引入 stdx）
+# shellcheck disable=SC1091
+source tools/env.sh
 
 step() { printf '\n==> %s\n' "$*"; }
 
@@ -85,9 +84,14 @@ step "示例自检"
 CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.chat_room
 CACTOR_LOG_LEVEL=error cjHeapSize=4GB guard ./target/release/bin/cactor_examples.scale_test 50000 child | tail -3
 guard tools/cluster_demo.sh | tail -2
-guard tools/cluster_crash_demo.sh | grep -E "验证|重新加入|记录完整|正常退出"
+# 同一多进程集群全部走 TLS 1.3 双向认证（E65）：每个进程都只接受本集群 CA 签发的证书
+guard tools/cluster_demo.sh --tls | grep -E "TLS 连接|验证|正常退出"
+# 只显示结论行；但任何一项判定为 false、有重复启动或进程失败时把那一行也显示出来，失败原因不被过滤掉
+guard tools/cluster_crash_demo.sh | grep -E "验证|重新加入|记录完整|正常退出|：false|重复启动：[1-9]|重复启动 t-|有 0 个实体|有进程失败|没有就绪"
 # 持久化日志：随机 kill -9 + 尾部零填充 / 写到一半，已确认的事件一条不少（E8′）
 guard tools/journal_crash_demo.sh | tail -2
+# 类型化持久化：三个系统先后共用一个目录，64 个购物车并发写入后恢复一件不少、结账快照、删除不回退（E44）
+CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.typed_persistence_demo | tail -1
 # 分布式数据：3 节点并发读写 + 四种 GC 配置各一轮，无崩溃、全部收敛（E43）
 guard tools/ddata_stress.sh 4 5 | tail -1
 # 20 秒稳定性自检：收发零丢失、故障全部重启、子 Actor 全部停止、静止存活堆不增长

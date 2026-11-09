@@ -21,6 +21,10 @@ cd cactor
 
 ### 2. 构建项目
 ```bash
+# 仓颉环境 + stdx 路径：根 cjpm.toml 以 ${CANGJIE_STDX_PATH} 静态链接 stdx（远程 TLS 使用）。
+# tools/env.sh 在未设置时取 ~/.cangjie/stdx-*/<平台>_cjnative/static/stdx
+source tools/env.sh
+
 # 构建所有组件
 cjpm build
 

@@ -121,7 +121,7 @@ main() {
 | DSL | `@actor[cases/protocol]`、`@Message`、`@StateMachine`、`Behaviors`、流管道、时间字面量、`<<` | 可用 |
 | 测试 | `TestProbe`、`BehaviorTestKit`、虚拟时钟 `ManualTime` | 可用 |
 | 可观测性 | 分级与结构化日志、MDC、JSON Lines、Prometheus 指标 | 可用 |
-| 远程 | TCP 传输、远程 ask / watch、跨节点回复、可靠投递 | 可用，暂无 TLS |
+| 远程 | TCP 传输、远程 ask / watch、跨节点回复、可靠投递、握手鉴权与隔离、TLS 1.3 双向认证 | 可用 |
 | 集群 | gossip 成员协议、脑裂处理、Cluster Singleton、分布式发布订阅、集群分片（钝化、remember-entities）、虚拟 Actor（Grains）、CRDT 与 Replicator | 可用，有多节点、网络分区与多进程宕机验证 |
 | 持久化 | 文件事件日志、快照、事件溯源 Actor、持久化状态（乐观并发）、持久化查询、按 URI 选择存储的插件注册表 | 可用 |
 | 流处理 | Streams DSL | 实验性 |
@@ -142,6 +142,7 @@ main() {
 git clone https://atomgit.com/Cangjie-SIG/cactor.git
 cd cactor
 
+source tools/env.sh   # 仓颉环境 + stdx 路径（CANGJIE_STDX_PATH，远程 TLS 依赖 stdx）
 cjpm build
 ```
 
@@ -525,6 +526,7 @@ workspace 目前共有 366 个测试用例（`tools/ci.sh`），在仓颉 1.2.0 
 欢迎提交 Issue 和 Pull Request，无论是修复问题、补充测试还是改进文档。提交前请先阅读 [贡献指南](CONTRIBUTING.md)，并确认：
 
 ```bash
+source tools/env.sh                 # 仓颉环境 + stdx 路径
 cjpm build                          # 构建通过
 cjpm test                           # 测试通过
 python3 tools/check_module_deps.py  # 分层检查通过

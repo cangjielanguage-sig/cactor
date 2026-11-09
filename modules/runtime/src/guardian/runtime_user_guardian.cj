@@ -527,7 +527,7 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
         deadLetterTotal.load()
     }
 
-    func publishDeadLetter(message: Message, path: String): Unit {
+    public func publishDeadLetter(message: Message, path: String): Unit {
         deadLetterTotal.fetchAdd(1)
         let listeners = deadLetterListeners
         for (l in listeners) {

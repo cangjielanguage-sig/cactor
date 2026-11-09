@@ -2351,6 +2351,163 @@ let rep = Replicator(system, remote, Duration.millisecond * 200)   // 节点标�
 | `rep.get(key)` | 返回存储里的不可变值本身（O(1)），可交给任意线程遍历、合并、编码；之后的更新生成新实例，不影响已取得的值（E43） |
 | `rep.update(key, initial, modify)` | modify 在 Replicator Actor 线程、锁外执行，读线程不会被它挡住；返回的值类型与原值不同时抛 `IllegalArgumentException`，原值不变 |
 
+### 集群分片：许可式移交与加入兼容检查（E13′、E42）
+
+```cangjie
+// 每个节点都用相同的类型名、分片数创建（获取分片要等每个成员的区域确认）
+let carts = ClusterSharding(cluster, system, remote, "cart", 100, { id => CartActor(id) })
+carts.tell("user-42", AddItem("apple"))          // 任何节点调用都送到 user-42 唯一的实例
+let (hosted, acquiring, acquired) = carts.shardStats()   // 本节点托管 / 正在获取的分片数、已完成的获取次数
+
+// 加入兼容检查：内置分片哈希版本与移交协议版本总是比对；再加上业务自己的兼容键
+let settings = ClusterSettings.defaults().withJoinCompatibility("app.protocol", "3")
+match (cluster.joinRejection()) {
+    case Some(reason) => println("加入被拒绝：${reason}")   // 例如 "app.protocol：本节点 3，对方 2"
+    case None => ()
+}
+```
+
+| 情形 | 行为 |
+|---|---|
+| 本节点成为分片拥有者（视图建立、成员加入或离开） | 向其他每个 Up / Leaving / Exiting 成员发 BEGIN；对方停止该分片的实体（先处理完邮箱里的消息），全部终止后回 STOPPED；收齐才创建实体。期间该分片的消息按序缓冲 |
+| 两个节点视图不一致、都认为自己是拥有者 | 后请求的一方让先托管的一方停止；任何时刻最多一个节点托管同一分片，视图一致后只剩真正的拥有者 |
+| 成员不可达（未 down） | 只有拥有者不可达的分片缓冲消息，恢复后送达；其他分片照常投递。正在进行的获取要等它恢复或被 down |
+| 成员被 down / 移除 | 不再等它确认（前提：被 down 的节点自行停止，见 SBR） |
+| 转发超过 3 跳仍不在拥有者上 | 挂起，视图变化或每秒重新路由 |
+| 本节点离开集群、缓冲区满 | 消息交给死信（`subscribeDeadLetters` 可见，路径 `sharding/<类型>/<实体>`），`stats()` 的丢弃数加一 |
+| 某个成员没有创建该类型的区域 | 需要它确认的分片一直获取中，10 s 后告警点名 |
+| 加入时兼容键不一致，或对方是不带兼容信息的旧版本 | 回 REJECT，永远不会成为成员；被拒的节点不再发 JOIN，首个种子也不会另起集群 |
+
+### 集群工具：ask、异步 Grain、pubsub 确认与成员清理（E12′）
+
+```cangjie
+// 分片 / 单例透传 sender：实体照常 context.reply；跨节点时回复直接回到发起方
+let total = carts.ask("user-42", StringMessage("total"), 2.seconds).get(3.seconds)   // Actor 外
+carts.tell("user-42", StringMessage("total"), ctx.self)                             // Actor 内：回复进自己的邮箱
+let leader = ledger.ask(StringMessage("who"), 2.seconds)                            // ClusterSingleton 同理
+
+// Grain 之间互相调用：实现 onCallAsync，用 callAsync 组合，不阻塞工作线程
+class OrderGrain <: Grain {
+    let carts: Grains
+    init(carts: Grains) { this.carts = carts }
+    public func reentrant(): Bool { true }          // A→B→A 的调用链需要可重入
+    public func onCallAsync(req: Message, ctx: GrainContext): TypedPromise<Message> {
+        carts.callAsync(ctx.id, StringMessage("total"), 2.seconds)
+            .map<Message>({ t => StringMessage("order:" + (t as StringMessage).getOrThrow().getContent()) })
+    }
+}
+
+// pubsub：subscribe 不阻塞；需要确认本地已生效时
+pubsub.subscribeAsync("news", subscriberRef).get(5.seconds)
+
+// 成员层规模（诊断）与墓碑保留时长
+let (records, tombstones, detectors) = cluster.membershipStats()
+let settings = ClusterSettings.defaults().withPruneTombstonesAfter(Duration.hour * 24)
+```
+
+| 情形 | 行为 |
+|---|---|
+| 本地 Actor 作为远程消息的发送方 | 登记回复入口 `$ref<路径>#<序号>`；Actor 终止后每秒清扫注销，`replyEntryCount()` 不随请求数增长 |
+| 同一路径上重建的 Actor 发远程消息 | 换新入口、注销旧入口：回复送到新实例；发给旧实例的迟到回复计为不可投递 |
+| AskInbox 作为远程发送方 | 无法判断终止，入口空闲 `REPLY_ENTRY_IDLE_TTL_MS`（10 分钟）后注销 |
+| 分片 / 单例的 ask 超时 | Promise 以 `TypedAskTimeoutException` 失败，迟到的回复被丢弃 |
+| Grain 的 `onCallAsync` 结果未完成 | 默认（不可重入）：后续调用排队，完成后按序处理；`reentrant()` 为 true：照常处理其他调用 |
+| 在 Actor / Grain 处理方法里调用 `Grains.call` | 立即 `IllegalStateException`（阻塞会占住亲和工作线程），请用 `callAsync` |
+| 调用方节点在应答前重启 | 应答发往 `grain-replies-<kind>-<旧 uid>`，新进程没有这个入口，不会串到新调用 |
+| 最后一个订阅者退订后立即重新订阅 | 主题 Actor 按顺序发出"删除、添加"，节点留在主题里 |
+| 成员被移除 | 记录从 gossip 删除、只留墓碑（带移除时间，24 h 后各节点一致清除）；故障检测器一并删除 |
+| 非成员地址发来心跳 | 忽略，不建故障检测器 |
+| 被 down 的成员被移除 | 隔离其 uid：断开连接、拒绝再连入；同址重启的新实例不受影响 |
+
+### 分布式补齐：单例 HandOver、集群 Receptionist、一致性级别
+
+```cangjie
+// 集群版 Receptionist：每个节点各建一个，共用本节点的 Replicator
+let receptionist = ClusterReceptionist(cluster, system, remote, replicator)
+receptionist.register("translator", translatorRef)            // 停止后自动注销
+for (t in receptionist.find("translator")) {                    // 本节点为本地引用，其他节点为 RemoteActorRef
+    t.tell(Translate("hello"), ctx.self)
+}
+receptionist.subscribe("translator", { refs => println("实例数 ${refs.size}") })
+
+// 一致性级别：不阻塞，返回 TypedPromise
+replicator.addToSetWith("orders", "o-42", WriteConsistency.WriteMajority(3.seconds))
+    .onComplete({ o => ... })                                   // 少数派一侧以 ReplicatorConsistencyException 失败
+let v = replicator.getWith("orders", ReadConsistency.ReadMajority(3.seconds)).get(5.seconds)  // Actor 外
+```
+
+| 情形 | 行为 |
+|---|---|
+| 单例：最老成员正常离开 | 新的最老成员发 HANDOVER_TO_ME，旧实例处理完邮箱后停止、回 HANDOVER_DONE，之后才启动新实例；任何时刻最多一个 |
+| 单例：最老成员宕机 | 不可达期间不移交（不排除不可达成员，分区不会多起一个）；被 down 后不需要它确认，立即在下一个最老成员上启动 |
+| 单例：正常离开的成员被移除后不回应 | 最多再等 `SINGLETON_HANDOVER_GRACE_MS`（10 s）后按已停止处理 |
+| 单例：握手期间发来的消息 | 由目标节点的管理器缓冲（入口 `singleton-<名称>`），实例启动后按序投递 |
+| Receptionist：实例停止 / 显式注销 | 登记删除，经 Replicator 传播（通常一个 gossip 间隔） |
+| Receptionist：节点不可达 / 被 down | 不可达期间 `find` 不返回它的实例（`findAll` 仍返回）；被 down 或移除后各节点删除它的全部登记 |
+| Receptionist：同址重启的新进程 | 登记元素带 uid，旧进程的登记不会被当成新进程的 |
+| `WriteMajority(t)` / `WriteAll(t)` | 本地应用并发给对等节点，⌊n/2⌋+1 / n 个副本（含本节点）确认后成功；超时失败，但本地值已更新、之后照常传播 |
+| `ReadMajority(t)` / `ReadAll(t)` | 收到足够副本的值后返回合并结果，并写回本地；过半写 + 过半读必然读到 |
+
+### 分布式数据：delta 传播与移除节点的 pruning（E64）
+
+```cangjie
+// delta 传播默认开启：本地更新只推送变化部分（计数器的变化分量、ORSet 新增 / 删除的点）
+let st = replicator.deltaStats()        // deltaPushes / fullPushes / deltasApplied / gaps
+replicator.setDeltaPropagation(false)   // 对照与排障：每次推送整值
+
+// pruning：ClusterReplicatorBinding（分片、pubsub、Receptionist 都会调用）自动接上成员视图与移除事件
+ClusterReplicatorBinding.bind(cluster, replicator)
+replicator.configurePruning(maxDissemination: 60.seconds, markerTimeToLive: 6.hours)   // 只改传入的项
+let (initialized, performed, keysWithMarkers) = replicator.pruningStats()
+
+// 不经集群时手工接上（测试或自建成员管理）
+replicator.setMembership({ => isLeader() }, { => memberNodeIds() })   // 节点标识为 "地址#uid"
+replicator.nodeRemoved("10.0.0.7:25520#8812345")
+```
+
+| 情形 | 行为 |
+|---|---|
+| 本地更新 | 推送增量（带（来源, 键）序号）；键第一次出现、或更新里混入了别的节点的点时推送整值 |
+| 增量序号恰好是下一个 | 应用；重复的丢弃 |
+| 序号断档（丢包） | 不应用（ORSet 的版本向量不能越过没收到的点），向来源请求整值；1 s 内没收到就重发请求，最多 5 次，之后交给反熵 |
+| 节点被移除 | 等 `maxDissemination`（默认 60 s，让它在途的更新传遍）后由 Leader 发起；全部成员登记后发起者执行：计数器分量并入发起者，ORSet 的点改记到发起者，值不变 |
+| 发起者失去 Leader 身份 / 离开集群 | 仍由它执行 / 由现任 Leader 重新发起 |
+| Leader 没收到移除事件 | 扫描数据里出现、不是成员的 "地址#uid" 节点，同样处理（自定义的、不含 `#` 的节点标识不会被当成已移除） |
+| 陈旧副本（含被移除节点的数据）重新连上 | 已执行标记保留 `markerTimeToLive`（默认 6 h），合并前先剥掉该节点的数据，不会重复计数；副本离线超过这个时长则可能重复计数（同 Akka） |
+| 被移除节点迟到的增量（僵尸进程） | 丢弃 |
+| 与 pruning 并发的删除 | pruning 视同执行者重新添加，按 add-wins 处理（同 Akka） |
+| `pruningInterval` | 默认 5 s；扫描只看每个值里出现的节点集合 |
+
+### 远程传输 TLS / mTLS（`RemoteTls`，E65）
+
+```cangjie
+import cactor_remote.{SimpleRemoteManager, RemotingSettings, RemoteTls}
+
+// 本节点证书链（叶子在前）、PKCS#8 私钥、信任的 CA；默认 TLS 1.3 双向认证
+let tls = RemoteTls.fromPemFiles("/etc/cactor/node.pem", "/etc/cactor/node-key.pem", "/etc/cactor/ca.pem")
+let remote = SimpleRemoteManager(NetworkAddress("10.0.0.5", 25520), TransportProtocol.TCP)
+remote.configure(RemotingSettings.defaults().withTls(tls).withSecureCookie(cookie))   // 必须在 start 之前
+remote.start()
+let cluster = Cluster(system, remote, seeds, settings)   // gossip、心跳、分片、ddata 全部经 TLS
+```
+
+| 情形 | 行为 |
+|---|---|
+| 两端证书都由信任的 CA 签发 | TLS 1.3 握手（约 60 ms，连接长期复用）后进行远程层握手与收发；`securedConnections()` 计数 |
+| 明文连接（未配 TLS 的节点、裸 TCP） | TLS 握手失败，连接断开，帧不交给远程层；`rejectedConnections()` 计数 |
+| TLS 节点连明文节点 | 握手失败、消息按连接失败丢弃，不降级为明文 |
+| 对端证书由其他 CA 签发 / 过期 / 客户端不带证书 | 两个方向都断开；`RemoteTls.rejectedPeerCertificates()` 计数 |
+| 系统根证书签发的公网证书 | 拒绝：只信任配置的 CA（stdx 的 CustomCA 会同时信任系统根证书，所以用 CustomVerify 自行校验） |
+| 主机名 | 不校验（同 Akka 默认）：节点按"持有本集群 CA 签发的证书"认证，身份由其后的握手（地址 + 启动标识）确认 |
+| 本节点证书不是信任的 CA 签发 | `RemoteTls.fromPem` 抛 `IllegalArgumentException`（配置错误立即报出） |
+| UDP 等不支持加密的传输 / start 之后再配置 | `start` 抛 `UnsupportedException` / `configure` 抛 `IllegalStateException`，不会以明文运行 |
+| `withoutMutualAuthentication()` | 单向 TLS：只认证服务端，任何能连上端口的进程都能建立连接，须配合共享密钥 |
+
+构建：根 `cjpm.toml` 以 `${CANGJIE_STDX_PATH}` 静态链接 stdx，先 `source tools/env.sh`（或自行 export 为 stdx 的 `static/stdx` 目录）。
+运行时需要 OpenSSL 3（libssl.so.3 / libcrypto.so.3），只在用到 TLS 时加载。
+证书：每个节点用本集群 CA 签发的证书（extendedKeyUsage 含 serverAuth 与 clientAuth），私钥 PKCS#8 PEM；EC P-256 握手最快。
+`tools/gen_test_tls_certs.sh` 演示了完整的签发步骤（其产物 `tools/tls-test-certs/` 仅供测试）。
+
 ### 事件溯源与日志 v2（`EventSourcedActor` + `EventStore`）
 
 ```cangjie
@@ -2380,6 +2537,77 @@ ReadJournal(journal).currentEventsByTag("vip")
 | 并发写同一日志 | 组提交：fsync 进行中到达的写入由下一次 fsync 一并覆盖 |
 
 Enhanced 族（`EnhancedEventStore` / `AbstractPersistentActor`）、CQRS、Plugin / Manager 已弃用，2.0 删除。
+
+### 类型化持久化（`cactor_persistence.typed`，E44，对标 Akka Typed）
+
+```cangjie
+import cactor_core.typed.*
+import cactor_persistence.{FileEventStore, FileSnapshotStore}
+import cactor_persistence.typed.*
+
+enum CartCmd { | AddItem(String, Int64, TypedActorRef<CartReply>) | Checkout(TypedActorRef<CartReply>) | GetCart(TypedActorRef<CartReply>) }
+enum CartEvt { | ItemAdded(String, Int64) | CheckedOut(Int64) }
+
+let cart = EventSourcedBehavior<CartCmd, CartEvt, Cart>(PersistenceId.of("ShoppingCart", cartId),
+    emptyState: Cart.empty(),
+    commandHandler: { cart, cmd, effect =>                      // 只读状态、返回效果；不做 IO
+        match (cmd) {
+            case GetCart(replyTo) => effect.reply(replyTo, Accepted(cart))
+            case AddItem(item, _, replyTo) where cart.has(item) => effect.reply(replyTo, Rejected("已在购物车中"))
+            case AddItem(item, qty, replyTo) =>
+                effect.persist(ItemAdded(item, qty)).thenReply(replyTo, { c => Accepted(c) })   // 落盘之后回复新状态
+            case Checkout(replyTo) => effect.persist(CheckedOut(nowMs())).thenReply(replyTo, { c => Accepted(c) })
+        }
+    },
+    eventHandler: { cart, evt => cart.apply(evt) },             // 纯函数，恢复时重放
+    eventAdapter: cartEvents,                                    // 事件 ↔ (manifest, data)
+    journal: FileEventStore("/var/lib/app/journal"))
+    .withSnapshots(FileSnapshotStore("/var/lib/app/snapshots"), cartCodec)
+    .withRetention(RetentionCriteria.snapshotEvery(100, 2).withDeleteEventsOnSnapshot())
+    .snapshotWhen({ _, evt, _ =>                                 // 也可按事件触发快照
+        match (evt) {
+            case CheckedOut(_) => true
+            case _ => false
+        }
+    })
+    .receiveSignal({ state, signal => if (signal is RecoveryCompleted) { /* ... */ } })
+system.typedActorOf(cart.behavior(), "cart-${cartId}")
+```
+
+命令处理器的第三个参数是类型已确定的效果工厂（仓颉不能从返回位置推断静态泛型函数的类型参数）：
+
+| 效果 | 含义 |
+|---|---|
+| `effect.persist(e)` / `persistAll([e1, e2])` | 写入日志（一批一次 fsync），确认后依次应用事件处理器，再执行副作用 |
+| `effect.none()` / `reply(replyTo, msg)` | 不写入；`reply` = `none().thenRun(发送)` |
+| `effect.unhandled()` | 计为未处理消息（交给死信订阅者） |
+| `effect.stash()` / `unstashAll()` | 用户暂存当前命令；`thenUnstashAll()` 时按原顺序放回、先于此后到达的命令处理 |
+| `effect.stop()` | 停止 Actor |
+| `.thenRun(f)` / `.thenReply(replyTo, f)` / `.thenStop()` / `.thenUnstashAll()` | 主效果完成后按顺序执行；`f` 拿到的是此时的状态（持久化后为新状态） |
+
+| 情形 | 行为 |
+|---|---|
+| 启动 / 监督重启 | 在持久化 IO 线程读最新快照（按序号）与之后的事件，Actor 线程应用事件处理器；完成后发 `RecoveryCompleted(最高序号)`，再处理暂存的命令 |
+| 恢复中、写入中到达的命令 | 暂存（默认容量 4096），按到达顺序逐条处理：每条命令看到之前全部事件落盘后的状态 |
+| 暂存满 | `withStash(n, overflow: DropCommand)`（默认）：丢弃并作为未处理消息上报、限速记日志；`FailActor`：抛 `StashOverflowException` |
+| 写入失败（如另一个写者造成序号冲突） | Actor 以该异常失败：默认停止；`TypedBehaviors.supervise(b).onFailure(restartWithBackoff(...))` 重启后重新恢复 |
+| 恢复失败（日志损坏、事件处理器抛异常、序号缺口） | 先发 `RecoveryFailed`，再以 `PersistenceException` 失败（默认停止），不带着不完整的状态运行 |
+| 重启前在途的 IO 完成 | 完成信号按实例 token 识别并丢弃（新实例已从存储恢复） |
+| 保留策略 | 序号跨过 n 的倍数时快照（同时最多一个在途，在途期间只保留最新的待写快照）；保存后删除序号 ≤ 当前 − keep × n 的快照，`withDeleteEventsOnSnapshot` 时连同事件；结果以 `SnapshotCompleted` / `DeleteSnapshotsCompleted` / `DeleteEventsCompleted` / `SnapshotFailed` / `DeleteFailed` 信号通知 |
+| schema 演进 | `EventAdapter.fromJournal(manifest, data)` 返回 0..n 个事件：空数组跳过废弃事件，多个用于拆分；写入序号按日志序号接续 |
+| 系统关闭 | 不等在途 IO（与 Akka 相同）；需要时 `PersistenceIo.awaitIdle(timeout)`；IO 线程数 `CACTOR_PERSISTENCE_IO_THREADS`（默认 8） |
+
+`DurableStateBehavior<C, S>(persistenceId, emptyState:, commandHandler:, codec:, store:)`：命令处理器用
+`effect.persist(newState)` / `effect.delete()`，每次写入修订号加一；删除后状态回到 `emptyState`，
+存储留下修订号 +1 的墓碑（`store.revisionOf(id)`），之后的写入接在墓碑之后，持有旧修订号的写者被拒绝（P14）。
+
+完整示例：`modules/examples/src/typed_persistence_demo/main.cj`（`./target/release/bin/cactor_examples.typed_persistence_demo`）。
+
+在类型化 Actor 里把 Future 的结果作为**信号**送回自己（不占命令协议，供持久化这类内部通知使用）：
+
+```cangjie
+ctx.pipeSignalToSelf<Int64>(future, { outcome => LoadDone(outcome) })   // LoadDone <: TypedSignal，在 onSignal 中处理
+```
 
 ### 持久化（`AbstractPersistentActor`，已弃用）
 

@@ -6,8 +6,8 @@ description: Build, test and validate the CActor repo. Use when checking whether
 # CActor 构建与验证
 
 ```bash
-# cjpm 不在 PATH 时先 source：
-source "${CANGJIE_HOME:-$HOME/.cangjie/1.2.0/cangjie}/envsetup.sh"
+# 先 source：仓颉环境（cjpm 不在 PATH 时）+ CANGJIE_STDX_PATH（根 cjpm.toml 静态链接 stdx，E65 的 TLS）
+source tools/env.sh
 
 cjpm build                          # 必须在仓库根目录
 python3 tools/check_module_deps.py  # 模块分层检查
@@ -17,6 +17,7 @@ tools/ci.sh                         # 上述全部 + 示例自检（提交前的
 
 ## 注意
 
+- 没有 `source tools/env.sh` 直接 `cjpm build` 会报 "imports package 'stdx...' but it is not added as a dependency"。
 - **必须在 workspace 根目录执行**；`cjpm build -m <模块>` 不继承 `-O2`，基准结果慢 2–3 倍。
 - 单跑某示例：`CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.<名字>`
   （名字见 `modules/examples/src/` 下的目录）。

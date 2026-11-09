@@ -175,6 +175,52 @@
     **序号不再回退**；默认监督重启后由恢复重放该事件。此前回退序号，之后每次 persist 都与存储冲突。
   - `persistAll` 消费存储返回的 Future：版本冲突抛 `PersistenceException`（此前静默吞掉、序号照样前进）。
   - 恢复失败抛 `PersistenceException`（此前只记日志、以残缺状态继续运行）；在 `preStart` 中即为启动失败，默认停止。
+- **持久状态删除留下墓碑、修订号不回退（E44，P14，对标 Akka DurableStateStore）**：
+  - `DurableStateStore.delete(id, revision)` 改为写入修订号 `revision + 1` 的墓碑：`get` 返回 None，
+    新增的 `revisionOf(id)` 返回墓碑的修订号；之后的 `upsert` 必须用 `revisionOf + 1`（此前删除后修订号回到 0，
+    从 1 重新开始）。持有删除前修订号的旧写者因此被拒绝——此前它能把已删除的状态以旧修订号写回来（ABA）。
+  - 经典 `DurableStateActor` 删除后修订号同样接续；`persistenceIds()` 不含已删除的标识。
+  - `FileDurableStateStore` 的墓碑是带第 4 个字段的记录，旧文件照常读取；**旧版本程序会把墓碑读成值为空串的状态**，回滚前请注意。
+  - 自定义 `DurableStateStore` 不实现 `revisionOf` 时，默认实现基于 `get`（不认识墓碑，行为同此前）。
+- **集群加入时检查配置兼容（E42，对标 Akka JoinConfigCompatChecker）**：JOIN 带上兼容键——内置分片哈希版本
+  `cactor.sharding.hash` 与移交协议版本 `cactor.sharding.protocol`，以及 `ClusterSettings.withJoinCompatibility(k, v)`
+  添加的用户键；键集合或取值不一致的节点收到 REJECT，永远不会成为成员（`Cluster.joinRejection()` 给出原因），
+  被拒的首个种子也不会自己另起一个集群。**不带兼容信息的旧版本节点同样被拒绝**：本版本不能与旧版本混部，请整群升级。
+  此前新旧哈希算法的节点可以混部，同一实体在两个节点上同时激活（N9）。
+- **分片改为许可式移交（E13′）**：节点在征得其他每个 Up / Leaving / Exiting 成员确认"已停止该分片"后才托管它，
+  视图建立后立即获取自己的全部分片。可观察的变化：
+  - 获取分片要等每个成员的区域回应：**集群中每个节点都必须创建同类型的 `ClusterSharding`**（此前文档已要求，
+    现在不满足时这些分片的消息一直缓冲，10 s 后告警点名没有回应的成员）；
+  - 路由不再等成员视图收敛：只有拥有者不可达或正在获取的分片缓冲消息；
+  - 缓冲区满时丢弃**新到的**消息（此前丢最旧的），节点离开集群后的消息与缓冲区里的消息交给死信；
+  - 移交期间旧节点先处理完实体邮箱里的消息、实体终止后新节点才创建实体，移交耗时比此前略长。
+- **Replicator 协议 v2（E64：delta 传播与 pruning）**：更新推送改为带（来源, 键）序号的增量 / 整值报文（`DL` / `DQ`），
+  一致性读写与反熵报文附带 pruning 标记；新增内置兼容键 `cactor.ddata.protocol = 2`，与之前版本的节点不能混部（加入时被 REJECT），
+  请整群升级。经 `ClusterReplicatorBinding`（分片、pubsub、Receptionist 都会调用）使用的 Replicator 自动启用 pruning：
+  被移除节点的计数器分量并入其他节点，`ReplicatedValue` 的内部分量（`nodeComponents()`）随之变化，用户可见的值不变。
+- **集群工具补齐（E12′）的可观察变化**：
+  - **gossip 编码 v2**：墓碑带移除时间、成员表不再保留 Removed 记录；新增内置兼容键 `cactor.cluster.gossip = 2`，
+    与 E42 之前及 E13′/E42 中间版本的节点不能混部（加入时被 REJECT），请整群升级；
+  - 被移除的成员从 `Gossip` 删除、只留墓碑，墓碑 24 h 后清除（`ClusterSettings.withPruneTombstonesAfter`）；
+    `MemberRemoved` 事件照常发出；
+  - **被 down 后移除的成员按 uid 隔离**（对标 Akka）：被误判的僵尸进程再也连不进来，入站连接随之关闭，同址重启的新实例不受影响；
+  - `DistributedPubSub.subscribe` **不再阻塞**（此前同步等待 Replicator，最长 10 s）；需要确认本地生效用 `subscribeAsync`；
+  - `Grains.call` 在 Actor（包括 Grain）的处理方法里调用时**立即抛 `IllegalStateException`**（此前阻塞工作线程直到超时，
+    被等的 Grain 恰好在同一线程上就是死锁）；Grain 之间互相调用请实现 `onCallAsync` 并用 `callAsync` 组合；
+  - Grain 的应答入口名改为 `grain-replies-<kind>-<uid>`、`GrainCall.replyTo` 改为 "地址#uid"；
+  - 远程回复入口名改为 `$ref<路径>#<序号>`（按实例登记，Actor 终止后注销），发给已终止实例的迟到回复计为不可投递。
+- **Cluster Singleton 的 HandOver 握手（N16）与代理改道**：
+  - 新的最老成员收齐其他 Up / Leaving / Exiting 成员的 HANDOVER_DONE 才启动实例，旧实例以 PoisonPill 停止
+    （先处理完邮箱里的消息，此前 `system.stop` 直接停止、丢弃邮箱）；正常离开后被移除的成员最多再等 10 s
+    （`SINGLETON_HANDOVER_GRACE_MS`），被 down 的成员不用等。移交比此前慢一个"旧实例停止"的时间；
+  - 代理发往其他节点的消息改发该节点的管理器入口 `singleton-<名称>`（此前直接发给暴露的实例，
+    新实例握手期间到达的消息会丢失）；实例本身不再暴露给远程层，控制消息走 `singleton-ctl-<名称>`；
+  - 实例自己停止后，管理器在下一轮重新获取并启动（此前留着已死的引用，消息全进死信）。
+- **构建引入 stdx（E65）**：根 `cjpm.toml` 以 `bin-dependencies` 静态链接 stdx，路径取环境变量 `CANGJIE_STDX_PATH`
+  （stdx 的 `static/stdx` 目录）。直接 `cjpm build` 之前须设置它，或 `source tools/env.sh`（按本机安装位置给出默认值，
+  `tools/ci.sh` 已自动执行）；未设置时 cjpm 只报 "imports package 'stdx...' but it is not added as a dependency"。
+  可执行文件不新增运行时依赖（静态链接；OpenSSL 3 只在用到 TLS 时由 stdx 加载）。stdx 只允许 remote 及以上的模块使用，
+  `tools/check_module_deps.py` 拦截底层模块的 stdx 导入。
 - **`@actor` 生成的分派顺序（E36，T13）**：兜底类型（`Message` / `Any`）的处理方法总是排在最后；
   首参为 `ActorContext` 的 `onXxx`（如 `onStarted(context)`）与 static 方法不再被当作消息处理方法。
 
@@ -272,6 +318,36 @@
 - **集群测试在并行执行下的时序问题（E43）**：remember-entities 用例在区域登记实体后立即检查启动记录（`preStart`
   在实体线程上稍后执行），改为等待；"原端口重启"的用例改用临时端口段（32768–60999）之外的端口——宕机释放的临时端口
   会被并行的其他测试进程拿去当出站连接的源端口，重启时 "Address already in use"。
+- **分片双活与可用性（E13′）**：
+  - 成员变化时新拥有者按新视图直接创建实体，旧拥有者要等下一次刷新视图、再处理完实体邮箱里的消息才停止，
+    二者重叠（B4）：成员持续变化的压测中 36–70 个实体同时有两个实例，现在为 0；
+  - 任一节点不可达时视图不收敛，全集群分片的消息都被缓冲（N6）：现在只缓冲拥有者不可达的分片；
+  - 转发过一次的消息在新视图下反复排队、且使其后每条消息都多等一个 50 ms 周期；节点离开集群后缓冲的消息永不处理（N8）。
+- **集群工具（E12′）**：
+  - 远程回复入口永远绑定第一次登记的引用：同一路径上重建的 Actor（例如分片实体钝化后重建）收不到回复，回复投给已死的旧实例（N7）；
+    入口永不注销，1000 个短命 Actor 各问答一次就留下 1000 个入口（v1 B6）——现在按实例登记、终止后每秒清扫注销，
+    10 万次远程回复后入口数回到 0；
+  - 分片与单例丢弃 sender：实体 / 单例里 `context.reply` 无处可回（N16）——现在透传，跨节点回复直接回到发起方；
+  - `Grains.call` 阻塞工作线程，A→B→A 的调用链必然超时；correlationId 进程内自增，重启后旧应答会串到新调用（N13）；
+  - pubsub "最后一个订阅者离开"的删除在另一个线程异步执行，可能晚于紧随其后的订阅，把仍有订阅者的节点移出主题（N12）——
+    现在由主题 Actor 串行发出增删；
+  - 任意来源地址发来的心跳都会建一个故障检测器、永不删除；Removed 成员永久留在 gossip 里（N14）。
+- **单例移交重叠（N16）**：最老成员离开时新实例立即启动、旧实例要到下一轮才停止，停止较慢的实例与新实例同时存活
+  （实测 2 个），现在由 HandOver 握手保证任何时刻最多一个。
+- **日志 kill -9 验证的损坏步骤（`tools/journal_crash_demo.sh`）**：写入进程在创建日志目录之前被 kill -9（负载高时启动慢）时，
+  `journal_crash corrupt` 读不存在的目录抛 FSException，而脚本不检查它的退出码，这一轮在没注入故障的情况下照样判通过。
+  现在目录不存在时 corrupt 按"无日志可损坏"正常返回，其他异常退出判红。
+- **多进程宕机验证的"重复启动"误判（`cluster_crash_node`）**：driver 看到全部成员 Up 就开始发消息，此时其他节点的视图可能还没包含
+  最后一个节点，分片先在存活节点上启动、视图一致后再移交过去（正常的单活移交）。旧判定按"第一次启动的节点"认定实体位置，
+  kill 后这些实体在存活节点上重启被误算成"重复启动"（负载下约 1/12：宕机进程上算出 6 个 + 误判 4 个 = 实际的 10 个）。
+  现在等启动事件静止 2 s 后记 kill 前基线，按最后所在节点认定，只统计 kill 之后新增的启动，并打印出问题实体的启动历史；
+  CI 过滤也会显示任何判定为 false 的行。
+- **多进程集群示例的"集群已形成"判定**：`cluster_node` / `cluster_crash_node` 改为订阅 MemberUp，
+  曾看到预期数量的成员都 Up 即为形成（此前要求轮询那一刻本地视图恰好收敛，分片不再等收敛后 driver 可能先完成并离开）。
+- **快照存储的"最新快照"按序号（E44）**：`MemorySnapshotStore` / `FileSnapshotStore` 此前按保存顺序取最后一个，
+  保留份数也按保存顺序截取。快照异步保存时，重启前提交的旧快照可能比新实例的快照晚落盘，被当成"最新"；
+  它之后的事件若已被保留策略删除，恢复会悄悄少掉一段事件。现在按序号有序保存（同一序号覆盖），最新 = 序号最大，
+  保留的是序号最大的若干份。
 
 ### ✨ 新增（docs/plan/20261106.md 阶段 1，2026-11-06）
 - **经典 `context.watchWith(ref, message)`（E32）**：目标停止时收到 message 而不是 `Terminated`；
@@ -374,6 +450,84 @@
   `cactor_examples.ddata_stress` + `tools/ddata_stress.sh [轮数] [秒数]`：3 节点回环 TCP 上并发读写 Replicator，
   轮流切换四种 GC 配置（默认、`cjGCInterval=1ms cjGCThreshold=4MB`、128 MB 小堆、4 KB region），停止后校验收敛。
   `tools/ci.sh` 新增"集群套件 8 进程并行 2 轮"与"ddata 压测 4 轮"两步（此前集群套件只串行跑）。
+- **类型化持久化（E44，对标 Akka Typed `EventSourcedBehavior` / `DurableStateBehavior`）**，新包 `cactor_persistence.typed`：
+  - `EventSourcedBehavior<C, E, S>(persistenceId, emptyState:, commandHandler:, eventHandler:, eventAdapter:, journal:)`，
+    链式 `withSnapshots(store, codec)`、`withRetention(RetentionCriteria)`、`snapshotWhen((S, E, seqNr) -> Bool)`、
+    `receiveSignal((S, TypedSignal) -> Unit)`、`withStash(capacity, overflow:)`，`behavior()` 得到可 `actorOf` 的行为；
+  - `DurableStateBehavior<C, S>(persistenceId, emptyState:, commandHandler:, codec:, store:)`：整体保存状态，删除不回退修订号；
+  - 命令处理器 `(state, cmd, effect) -> Effect`：`effect.persist / persistAll / none / unhandled / stop / stash / unstashAll / reply`
+    （持久状态为 `persist(newState) / delete()`），副作用 `thenRun / thenReply / thenStop / thenUnstashAll`
+    在事件**落盘并应用之后**执行、拿到新状态；
+  - 恢复与写入期间到达的命令自动暂存，按到达顺序逐条处理；暂存满时 `StashOverflowStrategy.DropCommand`
+    （默认，被丢弃的命令作为未处理消息交给死信订阅者）或 `FailActor`；
+  - 日志读写在独立的持久化 IO 线程池上执行（`PersistenceIo`，`CACTOR_PERSISTENCE_IO_THREADS`，默认 8），
+    结果以信号送回 Actor；监督重启后旧实例在途 IO 的完成信号按实例 token 丢弃；`PersistenceIo.awaitIdle(timeout)`
+    等在途 IO 全部完成（系统关闭不等它们）；
+  - `PersistenceId.of(entityTypeHint, entityId)`（`"类型|标识"`）/ `ofUniqueId`；`EventAdapter<E>`（manifest、
+    `fromJournal` 返回 0..n 个事件以支持 schema 演进、tags）与 `FunctionEventAdapter`；`StateCodec<S>` 与 `FunctionStateCodec`；
+  - `RetentionCriteria.snapshotEvery(n, keep).withDeleteEventsOnSnapshot()`：快照后删除序号 ≤ 当前 − keep × n 的快照与事件；
+  - 信号 `RecoveryCompleted` / `RecoveryFailed` / `SnapshotCompleted` / `SnapshotFailed` / `DeleteSnapshotsCompleted` /
+    `DeleteEventsCompleted` / `DeleteFailed`；恢复失败（日志损坏、事件处理器抛异常、序号缺口）与写入失败让 Actor 失败
+    （默认停止，`supervise(...).onFailure(restartWithBackoff)` 可重启并重新恢复）；
+  - 示例 `cactor_examples.typed_persistence_demo`（购物车 + 用户资料，三个系统先后恢复并自检），已接入 `tools/ci.sh`。
+- **分片移交诊断（E13′）**：`ClusterSharding.shardStats()` = (本节点托管的分片数, 正在获取的分片数, 已完成的获取次数)；
+  移交控制消息 `ShardControl`（BEGIN / STOPPED，带协议版本 `SHARDING_PROTOCOL_VERSION`）；
+  `SHARDING_HASH_VERSION` 常量。
+- **加入兼容检查（E42）**：`ClusterSettings.withJoinCompatibility(key, value)`、`Cluster.joinRejection()`、
+  `joinIncompatibility(mine, theirs)`（逐键给出不兼容原因）。
+- **集群工具补齐（E12′）**：
+  - 分片：`ClusterSharding.tell(entityId, message, sender)`、`ask(entityId, message, timeout): TypedPromise<Message>`；
+  - 单例：`ClusterSingleton.tell(message, sender)`、`ask(message, timeout)`；
+  - Grains：`Grains.callAsync(id, request, timeout): TypedPromise<Message>`；`Grain.onCallAsync`（默认调用 `onCall`，
+    结果未完成期间排队后续调用）、`Grain.reentrant()`（对标 Orleans `[Reentrant]`）；`Grain.onCall` 改为有默认实现（二选一实现）；
+  - pubsub：`DistributedPubSub.subscribeAsync(topic, ref): TypedPromise<Unit>`（对标 Akka SubscribeAck）；
+    `Replicator.afterPendingUpdates(callback)`（更新屏障）；
+  - 成员：`Cluster.membershipStats()` = (gossip 成员记录数, 墓碑数, 故障检测器数)；
+    `ClusterSettings.pruneTombstonesAfter` / `withPruneTombstonesAfter`；`CLUSTER_GOSSIP_VERSION`；
+  - 远程：`SimpleRemoteManager.quarantine(address, uid, reason)`（只隔离指定实例）、`replyEntryCount()`；
+    `SimpleRemoteReceiver.handlerCount()`；`REPLY_ENTRY_IDLE_TTL_MS`（AskInbox 这类无生命周期引用的入口空闲回收时长）；
+    `PromiseActorRef.isTerminated()` = Promise 已完成。
+- **分布式补齐（计划 §3.10）**：
+  - 集群版 Receptionist（E63 的分布式部分，对标 Akka Cluster Receptionist）：`ClusterReceptionist(cluster, system, remote, replicator)`
+    的 `register` / `deregister` / `find`（可达成员上的实例）/ `findAll` / `subscribe` / `localRegistrationCount`；
+    实例停止自动注销，节点被 down / 移除后登记被删除；
+  - Replicator 一致性级别（E64 的一部分，对标 Akka）：`WriteConsistency`（`WriteLocal` / `WriteMajority(t)` / `WriteAll(t)`）、
+    `ReadConsistency`（`ReadLocal` / `ReadMajority(t)` / `ReadAll(t)`）、`updateWith` / `getWith` / `addToSetWith` /
+    `incrementCounterWith`（返回 `TypedPromise`），`ReplicatorConsistencyException`；
+  - 单例：`ClusterSingleton.handOverCount()`、`SINGLETON_HANDOVER_GRACE_MS`。
+  - **Replicator delta 传播（E64，对标 Akka delta-CRDT）**：本地更新只推送变化部分——计数器只带变化的分量，
+    ORSet 只带新增的点与删除的点（`ORSetDelta`），不能表示为增量时（键第一次出现、更新里混入了别的节点的点）推送整值。
+    增量按（来源, 键）编序号，接收方只应用恰好是下一个序号的增量；断档时不应用（否则版本向量会越过没收到的点），
+    向来源请求整值补齐，请求或回应丢失时每秒重试（最多 5 次，之后交给反熵）。300 个元素的集合上再加 50 个元素，
+    推送字节数约为整值推送的 1/134。`Replicator.setDeltaPropagation(enabled)`（默认开启，关闭后每次推送整值）、
+    `deltaStats()`（`ReplicatorDeltaStats`：增量 / 整值推送数、已应用增量数、断档数）；`GCounter` / `GSet` / `ORSet.deltaFrom`、
+    `ORSet.applyDelta`。
+  - **移除节点的 pruning（E64，对标 Akka RemovedNodePruning）**：节点被移除后，它在计数器里的分量并入执行者的分量、
+    ORSet 里它的点改记到执行者，值不变、按节点区分的状态不再随重启次数增长。两阶段：Leader（视图收敛时）在节点移除满
+    `maxDissemination` 后为含它数据的键发起标记，每个成员登记并以整值推送（手里该节点的数据随之回到发起者），发起者看到全部成员
+    都已登记才执行；已执行标记保留 `markerTimeToLive`（默认 6 h），期间所有合并先剥掉该节点的数据，陈旧副本重新连上不会重复计数，
+    被移除节点迟到的增量被丢弃。发起者失去 Leader 身份仍会执行，离开集群时由现任 Leader 接管；Leader 还会扫描数据中不在集群的节点
+    （同址重启后新实例成为 Leader 时收不到旧实例的移除事件）。`ClusterReplicatorBinding` 自动接上：`Replicator.setMembership`、
+    `nodeRemoved`、`configurePruning(interval:, maxDissemination:, markerTimeToLive:)`、`pruningStats()`；
+    `ReplicatedValue.modifiedByNodes()` / `needsPruning(node)` / `nodeComponents()`，CRDT 的 `prune` / `cleanup` / `modifiedByNodes`。
+    与 Akka 相同，pruning 视同执行者重新添加元素：与它并发的删除按 add-wins 处理。
+  - `ClusterReplicatorBinding`：成员被移除或 down 时，若同一地址上已有新实例（同址重启），不再停止向该地址推送。
+  - **远程传输 TLS 1.3 / mTLS（E65，对标 Akka Artery TLS）**：`RemoteTls.fromPem(证书链, PKCS#8 私钥, 信任的 CA)` /
+    `fromPemFiles`，`RemotingSettings.withTls(tls)` / `withTransportSecurity(s)`（start 之前配置）。默认双向认证、只用 TLS 1.3、
+    对端证书只按配置的 CA 校验（不信任系统根证书）、不校验主机名（同 Akka 默认）；构造时校验本节点证书由信任的 CA 签发且在有效期内。
+    TCP 连接建立后先完成 TLS 握手，远程层握手（身份、共享密钥）与全部消息都在加密流上；明文连接、他 CA 证书、不带证书的客户端都被断开，
+    TLS 节点也不会向明文节点降级。集群的 gossip、心跳、分片、ddata、Receptionist 经同一个远程层，配置一次即全部加密。
+    `RemoteTls.withoutMutualAuthentication()`、`rejectedPeerCertificates()`；`SimpleRemoteManager.securedConnections()` /
+    `rejectedConnections()`。基础层新增 `TransportSecurity` 接口（不依赖 stdx）与 `NetworkTransport.setSecurity`
+    （默认抛 `UnsupportedException`：UDP 等不支持加密的传输不会悄悄以明文运行）、`TcpTransport.getSecuredConnections()`。
+    测试证书与生成脚本：`tools/gen_test_tls_certs.sh`、`tools/tls-test-certs/`（仅供测试）；`tools/cluster_demo.sh --tls`
+    以 3 个进程验证整个集群走 TLS。
+- **`CActorSystem.publishDeadLetter(message, recipient)`**：自己做路由的组件把投递不出去的消息交给死信
+  （计入 `deadLetterCount`、通知 `subscribeDeadLetters` 的订阅者，对标 Akka `system.deadLetters`）。
+- **`TypedActorContext.pipeSignalToSelf(future, map)`（E44）**：Future 完成后结果以 `TypedSignal` 送回本 Actor、
+  在 `onSignal` 中处理（不占命令协议 `T`，经过 setup / supervise 包装同样送达）；接口默认实现抛 `UnsupportedContextException`。
+- **存储接口（E44）**：`SnapshotStore.deleteSnapshotsTo(id, maxSequenceNr)`（内存与文件实现；接口默认抛 `UnsupportedException`）；
+  `DurableStateStore.revisionOf(id)`。
 
 ### ✨ 新增（此前已实现但未记录，2026-11-06 补记 E5）
 - **集群 gossip 成员协议**：Joining → Up → Leaving → Exiting → Removed 状态机、种子节点引导、

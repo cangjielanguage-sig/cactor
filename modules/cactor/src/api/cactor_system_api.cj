@@ -167,6 +167,14 @@ public class CActorSystem {
     }
 
     /**
+     * 把投递不出去的消息交给死信（计入 deadLetterCount，并通知 subscribeDeadLetters 的订阅者）。
+     * recipient 为原目标的描述（例如 "sharding/cart/user-42"）。供自己做路由的组件使用（对标 Akka system.deadLetters）
+     */
+    public func publishDeadLetter(message: Message, recipient: String): Unit {
+        runtime.publishDeadLetter(message, recipient)
+    }
+
+    /**
      * 系统内累计的未处理消息数（receive 返回 Unhandled、类型化 Actor 收到协议之外的消息；不含死信）。
      * 每条未处理消息同时以 UnhandledMessage 交给 subscribeDeadLetters 的订阅者（对标 Akka AllDeadLetters）
      */

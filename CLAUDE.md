@@ -7,7 +7,7 @@ CActor 是仓颉（Cangjie）语言的 Actor 模型库，定位为 AI Agent 的�
 
 ```bash
 # 必须在 workspace 根目录执行（单模块 cjpm build -m 不继承 -O2）
-source "${CANGJIE_HOME:-$HOME/.cangjie/1.2.0/cangjie}/envsetup.sh"   # 若 cjpm 不在 PATH
+source tools/env.sh        # 仓颉环境 + CANGJIE_STDX_PATH（根 cjpm.toml 静态链接 stdx，远程 TLS 用；未设置时 cjpm 报"未声明依赖 stdx"）
 cjpm build                 # 构建（-O2）
 cjpm test                  # 全部测试
 tools/ci.sh                # 构建 + 模块分层检查 + 全部测试（提交前必须通过）
@@ -28,6 +28,7 @@ macros 为独立宏模块，仅被 examples 使用
 ```
 
 新增 import 前先想清楚层次，`check_module_deps.py` 会在 CI 拦住反向依赖。
+stdx 只允许 remote 及以上的模块导入（foundation / core / runtime 等保持零外部依赖，能力经接口注入，如 `TransportSecurity`）。
 
 ## 核心编程模型（写代码前必读）
 
