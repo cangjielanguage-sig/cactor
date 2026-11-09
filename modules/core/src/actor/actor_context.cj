@@ -14,8 +14,9 @@
 package cactor_core.actor
 
 import std.time.*
+import std.collection.*
 import cactor_core.message.{Message, MessageResult}
-import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.logging.{Logger, Logging, Mdc}
 
 /**
  * 行为函数：become 切换后用它代替 Actor.receive 处理消息
@@ -62,6 +63,14 @@ public interface ActorContext {
     /** 以 self 作为发送方向目标发送消息，目标可以用 senderRef()/reply 回复 */
     func send(target: ActorRef, message: Message): Unit {
         target.tell(message)
+    }
+
+    /**
+     * 在 MDC 上下文中执行 block（对标 Akka Typed 的 context.withMdc）。
+     * block 执行期间 MDC 中包含给定的键值；block 返回后恢复原 MDC。
+     */
+    func withMdc(mdc: Map<String, String>, block: () -> Unit): Unit {
+        Mdc.scoped(mdc.toArray(), block)
     }
 
     // ---------- 子 Actor ----------

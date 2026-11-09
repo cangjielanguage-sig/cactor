@@ -56,3 +56,18 @@ public class TypedTerminated <: TypedSignal {
         pathString() == other.pathString()
     }
 }
+
+/** 子 Actor 失败（对标 Akka Typed 的 ChildFailed 信号） */
+public class ChildFailed <: TypedSignal {
+    public let ref: ActorRef
+    public let cause: Exception
+
+    public init(ref: ActorRef, cause: Exception) {
+        this.ref = ref
+        this.cause = cause
+    }
+
+    public func signalName(): String {
+        "ChildFailed"
+    }
+}
