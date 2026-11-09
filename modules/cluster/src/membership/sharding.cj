@@ -292,6 +292,45 @@ class ShardControlCodec <: MessageCodec {
     }
 }
 
+
+/** 负载报告：某节点各分片的实体数，供领导者做再平衡决策 */
+public class ShardLoadReport <: Message {
+    public let nodeAddress: String
+    public let loads: Array<(Int64, Int64)>
+
+    public init(nodeAddress: String, loads: Array<(Int64, Int64)>) {
+        this.nodeAddress = nodeAddress
+        this.loads = loads
+    }
+    public func messageType(): String { "cactor.ShardLoadReport" }
+}
+
+class ShardLoadReportCodec <: MessageCodec {
+    public func encode(message: Message): Array<UInt8> {
+        let c = (message as ShardLoadReport).getOrThrow()
+        let w = FieldWriter().put(c.nodeAddress).put(c.loads.size)
+        for ((sh, cnt) in c.loads) {
+            w.put(sh).put(cnt)
+        }
+        w.done().toArray()
+    }
+    public func decode(payload: Array<UInt8>): Message {
+        let r = FieldReader(String.fromUtf8(payload))
+        let addr = r.next()
+        let n = Int64.parse(r.next())
+        if (n < 0 || n > 1_000_000) {
+            throw IllegalArgumentException("负载报告损坏：条目数 ${n}")
+        }
+        let loads = ArrayList<(Int64, Int64)>(n)
+        for (_ in 0..n) {
+            let sh = Int64.parse(r.next())
+            let cnt = Int64.parse(r.next())
+            loads.add((sh, cnt))
+        }
+        ShardLoadReport(addr, loads.toArray())
+    }
+}
+
 // ======================= Region =======================
 
 class RegionTick <: Message {
@@ -396,6 +435,8 @@ class ShardRegionActor <: Actor {
     let yielded = HashMap<Int64, String>()
     // 手动/自动再平衡的归属覆盖：分片号 -> 拥有者地址（优先于 rendezvous 哈希）
     let placementOverrides = HashMap<Int64, String>()
+    // 其他成员上报的负载：节点地址 -> (分片号 -> 实体数)
+    let peerLoads = HashMap<String, HashMap<Int64, Int64>>()
     // 实体还没全部终止、尚未回复的移交请求：分片 -> (请求方, 轮次)
     let pendingStopAcks = HashMap<Int64, ArrayList<(String, Int64)>>()
     // ---- 缓冲 ----
@@ -444,6 +485,7 @@ class ShardRegionActor <: Actor {
             case _: RegionTick =>
                 ticks++
                 refreshView(context)
+                sendLoadReport(context)
                 sendAcquireRequests()
                 passivateIdle(context)
                 if (ticks % REROUTE_PARKED_TICKS == 0) {
@@ -463,6 +505,7 @@ class ShardRegionActor <: Actor {
                 route(withSender, context)
             case c: ShardControl => onControl(c, context)
             case rb: ShardRebalance => onRebalance(rb, context)
+            case rl: ShardLoadReport => onLoadReport(rl, context)
             case t: Terminated => onEntityTerminated(t.actor.path.toString(), context)
             case _ => return MessageResult.Unhandled
         }
@@ -562,11 +605,144 @@ class ShardRegionActor <: Actor {
         if (rb.shardId < 0 || rb.shardId >= numberOfShards) {
             return
         }
+        // 已经是相同覆盖：避免重复传播
+        match (placementOverrides.get(rb.shardId)) {
+            case Some(a) where a == rb.targetAddress => return
+            case _ => ()
+        }
         placementOverrides[rb.shardId] = rb.targetAddress
         // 让出记录作废，按新归属重新判断
         yielded.remove(rb.shardId)
         onOwnershipChanged(context)
         log.info("${selfAddress} 再平衡：分片 ${rb.shardId} -> ${rb.targetAddress}")
+        // 传播给其他成员（发起者也发给自己已处理；这里发给非自身的成员）
+        let s = cluster.state()
+        for (m in s.members) {
+            if (m.address != selfAddress && m.status.toString() != "Removed") {
+                let ref = remote.remoteActorOf(NetworkAddress.parse(m.address), "sharding-${typeName}")
+                ref.tell(ShardRebalance(rb.shardId, rb.targetAddress))
+            }
+        }
+    }
+
+    private func sendLoadReport(context: ActorContext): Unit {
+        // 每 10 个 tick（约 500 ms）上报一次，避免消息风暴
+        if (ticks % 10 != 0) {
+            return
+        }
+        let s = cluster.state()
+        if (s.members.size <= 1) {
+            return
+        }
+        // 找领导者
+        var leader = s.members[0].address
+        for (m in s.members) {
+            if (m.status.toString() == "Up" && m.address < leader) {
+                leader = m.address
+            }
+        }
+        if (leader == selfAddress) {
+            return
+        }
+        // 上报本节点负载
+        let loads = ArrayList<(Int64, Int64)>()
+        synchronized(shared.lock) {
+            for (sh in 0..numberOfShards) {
+                loads.add((sh, shared.shardCounts.get(sh) ?? 0))
+            }
+        }
+        let ref = remote.remoteActorOf(NetworkAddress.parse(leader), "sharding-${typeName}")
+        ref.tell(ShardLoadReport(selfAddress, loads.toArray()))
+    }
+
+    private func onLoadReport(rl: ShardLoadReport, context: ActorContext): Unit {
+        let m = HashMap<Int64, Int64>()
+        for ((sh, c) in rl.loads) {
+            m[sh] = c
+        }
+        peerLoads[rl.nodeAddress] = m
+        // 领导者收到报告后评估再平衡
+        let s = cluster.state()
+        var leader = s.members[0].address
+        for (mm in s.members) {
+            if (mm.status.toString() == "Up" && mm.address < leader) {
+                leader = mm.address
+            }
+        }
+        if (leader == selfAddress) {
+            evaluateRebalance(context)
+        }
+    }
+
+    private func evaluateRebalance(context: ActorContext): Unit {
+        // 聚合所有节点负载
+        let nodeTotals = HashMap<String, Int64>()
+        // 本节点
+        var selfTotal: Int64 = 0
+        synchronized(shared.lock) {
+            for (sh in 0..numberOfShards) {
+                selfTotal += shared.shardCounts.get(sh) ?? 0
+            }
+        }
+        nodeTotals[selfAddress] = selfTotal
+        for ((addr, load) in peerLoads) {
+            var t: Int64 = 0
+            for ((_, c) in load) { t += c }
+            nodeTotals[addr] = t
+        }
+        if (nodeTotals.size < 2) {
+            return
+        }
+        // 找最忙与最空闲节点
+        var busiestNode = selfAddress
+        var busiestTotal: Int64 = -1
+        var idlestNode = selfAddress
+        var idlestTotal: Int64 = Int64.Max
+        for ((addr, t) in nodeTotals) {
+            if (t > busiestTotal) { busiestTotal = t; busiestNode = addr }
+            if (t < idlestTotal) { idlestTotal = t; idlestNode = addr }
+        }
+        if (busiestNode == idlestNode) {
+            return
+        }
+        // 不平衡阈值：最忙 > 最空闲 * 1.5 且差值 > 5
+        if (busiestTotal <= idlestTotal * 3 / 2) {
+            return
+        }
+        if (busiestTotal - idlestTotal < 5) {
+            return
+        }
+        // 只有本节点是最忙节点时才发起迁移（领导者也是最忙时），把最忙分片迁到最空闲
+        if (busiestNode != selfAddress) {
+            return
+        }
+        // 找本节点负载最重的分片
+        var busiestShard: Int64 = -1
+        var busiestShardLoad: Int64 = 0
+        synchronized(shared.lock) {
+            for (sh in 0..numberOfShards) {
+                let c = shared.shardCounts.get(sh) ?? 0
+                if (c > busiestShardLoad) {
+                    busiestShardLoad = c
+                    busiestShard = sh
+                }
+            }
+        }
+        if (busiestShard < 0 || busiestShardLoad == 0) {
+            return
+        }
+        log.info("自动再平衡：分片 ${busiestShard} 从 ${busiestNode} -> ${idlestNode}")
+        // 复用 rebalance 传播逻辑
+        placementOverrides[busiestShard] = idlestNode
+        yielded.remove(busiestShard)
+        onOwnershipChanged(context)
+        let s2 = cluster.state()
+        for (m in s2.members) {
+            if (m.address != selfAddress && m.status.toString() != "Removed") {
+                let ref = remote.remoteActorOf(NetworkAddress.parse(m.address), "sharding-${typeName}")
+                ref.tell(ShardRebalance(busiestShard, idlestNode))
+            }
+        }
     }
 
     private func onOwnershipChanged(context: ActorContext): Unit {
@@ -1227,6 +1403,7 @@ public class ClusterSharding {
         MessageCodecRegistry.register("cactor.ShardingEnvelope", ShardingEnvelopeCodec())
         MessageCodecRegistry.register("cactor.ShardControl", ShardControlCodec())
         MessageCodecRegistry.register("cactor.ShardRebalance", ShardRebalanceCodec())
+        MessageCodecRegistry.register("cactor.ShardLoadReport", ShardLoadReportCodec())
         this.cluster = cluster
         this.system = system
         this.remote = remote
@@ -1374,14 +1551,6 @@ public class ClusterSharding {
             throw IllegalArgumentException("分片号越界: ${shardId}")
         }
         region.tell(ShardRebalance(shardId, targetAddress))
-        // 传播给其他成员
-        let s = cluster.state()
-        for (m in s.members) {
-            if (m.address != cluster.selfAddress && m.status.toString() != "Removed") {
-                let ref = remote.remoteActorOf(NetworkAddress.parse(m.address), "sharding-${typeName}")
-                ref.tell(ShardRebalance(shardId, targetAddress))
-            }
-        }
     }
 
     /**
