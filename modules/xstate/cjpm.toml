@@ -9,4 +9,3 @@ output-type = "static"
 cactor_foundation = { path = "../foundation" }
 cactor_core = { path = "../core" }
 cactor = { path = "../cactor" }
-cactor_cluster = { path = "../cluster" }

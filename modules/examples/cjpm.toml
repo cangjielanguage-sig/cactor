@@ -49,9 +49,6 @@ output-type = "executable"
 [package.package-configuration."cactor_examples.test_framework_validation"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.cluster_sharding_demo"]
-output-type = "executable"
-
 [package.package-configuration."cactor_examples.persistence_demo"]
 output-type = "executable"
 

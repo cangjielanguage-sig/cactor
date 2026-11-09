@@ -133,7 +133,7 @@ cjpm run --name cactor_examples.ask_demo
 ### 2. 集群分片
 ```bash
 # 运行集群分片示例
-cjpm run --name cactor_examples.cluster_sharding_demo
+cjpm run --name cactor_examples.best09_cluster_sharding
 ```
 
 展示功能：

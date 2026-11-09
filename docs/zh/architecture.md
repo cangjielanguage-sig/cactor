@@ -910,7 +910,7 @@ public class TokenBucketRateLimiter <: BackpressureController {
 | 子模块 | 核心功能 |
 |--------|----------|
 | `remote` | 简单远程 Actor 通信 |
-| `cluster` | ShardCoordinator, ShardAllocationStrategy |
+| `cluster` | ClusterSharding（分片、单活移交、再平衡）、ClusterRouterPool、Cluster Singleton、分布式 pubsub |
 | `persistence` | EventPayload, PersistentEvent, EnhancedEventStore, PersistentActor |
 | `streaming` | 分布式流处理 |
 
@@ -937,9 +937,14 @@ public protocol RemoteProtocol {
 
 ### 7.3 集群与分片
 
+> **实现状态（2026-11）**：本节是早期设计草案，`ShardCoordinator` / `ShardRegion` / `ClusterRouter` 等类型从未落库，
+> 相关原型文件已于 2026-11 删除。真实实现见 `modules/cluster/src/membership/sharding.cj` 的 `ClusterSharding`：
+> 按实体 id 稳定哈希取模得到分片、许可式两阶段移交保证单活、`remember-entities` 与空闲钝化、
+> `rebalanceShard(shard, target)` / `rebalance()` 再平衡（领导者按成员负载自动决策），以及
+> `membership/router.cj` 的集群感知路由。设计意图仍可参考，具体 API 以代码与 `docs/zh/api-reference.md` 为准。
+
 ```cangjie
-// 分片协调器
-public interface ShardCoordinator {
+// 分片协调器（设计草案，未实现；实际用 ClusterSharding）
     func allocateShard(shardId: String, node: Address): Unit
     func locateShard(shardId: String): Address
     func rebalance(): Unit  // 负载再平衡

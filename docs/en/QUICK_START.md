@@ -133,7 +133,7 @@ Features demonstrated:
 ### 2. Cluster Sharding
 ```bash
 # Run cluster sharding example
-cjpm run --name cactor_examples.cluster_sharding_demo
+cjpm run --name cactor_examples.best09_cluster_sharding
 ```
 
 Features demonstrated:

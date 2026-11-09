@@ -61,15 +61,14 @@
 - 超时管理机制
 
 ### 🏢 集群分片示例
-**文件**: `cluster_sharding_demo/`
-**运行**: `cjpm run --name cactor_examples.cluster_sharding_demo`
+**文件**: `best09_cluster_sharding/`
+**运行**: `cjpm run --name cactor_examples.best09_cluster_sharding`
 **难度**: ⭐⭐⭐⭐ 高级
 
-演示集群分片的接口设计（原型，尚无真实网络通信）：
-- 集群分片协调
-- 多种路由策略
-- 负载均衡
-- 故障转移
+演示真实的集群分片语义（单进程内起三个远程节点 + 三个 `ClusterSharding` region，带自检）：
+- gossip 成员协议与 Leader 收敛
+- 按 entityId 路由到唯一实体，同一实体的消息落在同一份状态上
+- 实体分布在各节点；生产环境用 `tools/cluster_demo.sh` 起多进程
 
 ### 💾 持久化示例
 **文件**: `persistence_demo/`

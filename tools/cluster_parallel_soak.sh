@@ -16,6 +16,9 @@ if ! command -v cjpm >/dev/null 2>&1; then
     # shellcheck disable=SC1091
     source "${CANGJIE_HOME:-$HOME/.cangjie/1.2.0/cangjie}/envsetup.sh" >/dev/null
 fi
+# DYLD_*_LIBRARY_PATH（macOS 上直接跑 unittest_bin 需要）统一由 tools/env.sh 给出
+# shellcheck disable=SC1091
+source tools/env.sh >/dev/null 2>&1 || true
 
 ROUNDS="${1:-50}"
 PAR="${2:-8}"
@@ -24,13 +27,30 @@ if [ ! -x "$BIN" ]; then
     echo "找不到 $BIN，先运行 cjpm test --no-run"
     exit 2
 fi
+
+# macOS：--parallel=N 会重新 exec 自身，子进程 exec 时 DYLD_* 被系统清掉，而 unittest_bin 没有
+# 写 LC_RPATH，于是子进程一启动就 "Library not loaded: @rpath/libcangjie-runtime.dylib"（退出码 134）。
+# 用一个自设环境变量的包装脚本作为 argv[0]：子进程重新 exec 包装脚本时又会有 DYLD_LIBRARY_PATH。
+RUNNER="$BIN"
+if [ "$(uname -s)" = "Darwin" ] && [ -n "${DYLD_LIBRARY_PATH:-}" ]; then
+    RUNNER=$(mktemp -t cactor_unittest_runner)
+    ABS_BIN="$(cd "$(dirname "$BIN")" && pwd)/$(basename "$BIN")"
+    {
+        echo '#!/bin/bash'
+        # 写成字面值：子进程的环境可能被清空，不能依赖它继承到 DYLD_LIBRARY_PATH
+        echo "export DYLD_LIBRARY_PATH=\"${DYLD_LIBRARY_PATH}\${DYLD_LIBRARY_PATH:+:\$DYLD_LIBRARY_PATH}\""
+        echo "exec \"${ABS_BIN}\" \"\$@\""
+    } > "$RUNNER"
+    chmod +x "$RUNNER"
+    trap 'rm -f "$RUNNER"' EXIT
+fi
 LOG_DIR=$(mktemp -d)
 crashes=0
 failed_rounds=0
 for i in $(seq 1 "$ROUNDS"); do
     log="$LOG_DIR/r$i.log"
     start=$(date +%s)
-    env -u CACTOR_LOG_LEVEL "$BIN" --parallel="$PAR" --no-progress --no-color --timeout-each=120s >"$log" 2>&1
+    env -u CACTOR_LOG_LEVEL "$RUNNER" --parallel="$PAR" --no-progress --no-color --timeout-each=120s >"$log" 2>&1
     rc=$?
     secs=$(( $(date +%s) - start ))
     crash=$(grep -cE "unhandled SIGSEGV|Crashed with exit code|Segmentation fault" "$log")

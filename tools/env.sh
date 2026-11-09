@@ -28,3 +28,34 @@ if [ -z "${CANGJIE_STDX_PATH:-}" ]; then
     fi
     unset _cactor_plat _cactor_stdx
 fi
+
+# macOS：target/release/bin 与 unittest_bin 下的可执行文件没有写 rpath，直接运行时仓颉运行时库
+# 找不到（dyld: Library not loaded @rpath/libcangjie-runtime.dylib）。cjpm 自己的 shim 也是用
+# DYLD_*_LIBRARY_PATH 补齐的；tools/cluster_parallel_soak.sh 等脚本直接跑二进制，
+# 统一在这里补上，否则门禁会以 "Abort trap: 6" 退在启动阶段而不是真的测试失败。
+#
+# 注意两条路径都要设：
+#   - target/release/bin/* 的引用能被 DYLD_FALLBACK_LIBRARY_PATH 命中；
+#   - unittest_bin/* 用 @rpath，dyld 只查 DYLD_LIBRARY_PATH。
+# CANGJIE_HOME 未设置时按仓颉安装的两个常见位置探测（cjpm 在 PATH 里时 env.sh 不会 source envsetup）。
+if [ "$(uname -s)" = "Darwin" ]; then
+    case "$(uname -m)" in
+        arm64) _cactor_arch=aarch64 ;;
+        x86_64) _cactor_arch=x64 ;;
+        *) _cactor_arch="$(uname -m)" ;;
+    esac
+    _cactor_cj_home=""
+    for _cactor_d in "${CANGJIE_HOME:-}" "${HOME}/cangjie" "${HOME}/.cangjie/1.2.0/cangjie"; do
+        if [ -n "$_cactor_d" ] && [ -d "${_cactor_d}/runtime/lib/darwin_${_cactor_arch}_cjnative" ]; then
+            _cactor_cj_home="$_cactor_d"
+            break
+        fi
+    done
+    if [ -n "$_cactor_cj_home" ]; then
+        _cactor_dyld="${_cactor_cj_home}/runtime/lib/darwin_${_cactor_arch}_cjnative:${_cactor_cj_home}/tools/lib"
+        export DYLD_FALLBACK_LIBRARY_PATH="${_cactor_dyld}${DYLD_FALLBACK_LIBRARY_PATH:+:${DYLD_FALLBACK_LIBRARY_PATH}}"
+        export DYLD_LIBRARY_PATH="${_cactor_dyld}${DYLD_LIBRARY_PATH:+:${DYLD_LIBRARY_PATH}}"
+        unset _cactor_dyld
+    fi
+    unset _cactor_arch _cactor_cj_home _cactor_d
+fi

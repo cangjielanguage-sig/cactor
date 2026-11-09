@@ -150,7 +150,7 @@ Features demonstrated:
 ### 2. Cluster Sharding
 
 ```bash
-cjpm run --name cactor_examples.cluster_sharding_demo
+cjpm run --name cactor_examples.best09_cluster_sharding
 ```
 
 Features demonstrated:
@@ -291,7 +291,7 @@ Run any example with `cjpm run --name <name>`:
 |--------------------------------|-----------------------------------|
 | Hello World                    | `cactor_examples.hello_world_demo`|
 | Ask Pattern                    | `cactor_examples.ask_demo`        |
-| Cluster Sharding               | `cactor_examples.cluster_sharding_demo`|
+| Cluster Sharding               | `cactor_examples.best09_cluster_sharding`|
 | Persistence                    | `cactor_examples.persistence_demo`|
 | Streams                        | `cactor_examples.streams_demo`    |
 | State Machine                  | `cactor_examples.xstate_demo`     |

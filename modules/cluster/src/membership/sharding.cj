@@ -183,8 +183,11 @@ public class ShardingSettings {
     public let passivateAfter: Option<Duration>
     /** 记住实体 ID 的复制器；Some 表示开启 remember-entities */
     public let rememberEntities: Option<Replicator>
+    /** 自动再平衡策略；决策逻辑见 rebalance.cj 的 decideRebalance（纯函数） */
+    public let rebalance: RebalancePolicy
 
-    public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>) {
+    public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
+        rebalance!: RebalancePolicy = RebalancePolicy()) {
         if (bufferSize <= 0) {
             throw IllegalArgumentException("缓冲区大小必须为正数: ${bufferSize}")
         }
@@ -194,6 +197,7 @@ public class ShardingSettings {
         this.bufferSize = bufferSize
         this.passivateAfter = passivateAfter
         this.rememberEntities = rememberEntities
+        this.rebalance = rebalance
     }
 
     public static func defaults(): ShardingSettings {
@@ -206,6 +210,19 @@ public class ShardingSettings {
 
     public static func remembering(replicator: Replicator): ShardingSettings {
         ShardingSettings(10000, None<Duration>, Some(replicator))
+    }
+
+    /** 换再平衡策略（链式：ShardingSettings.passivating(1.minutes).withRebalance(...)） */
+    public func withRebalance(policy: RebalancePolicy): ShardingSettings {
+        ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: policy)
+    }
+
+    public func withBufferSize(size: Int64): ShardingSettings {
+        ShardingSettings(size, passivateAfter, rememberEntities, rebalance: rebalance)
+    }
+
+    public func withPassivation(idle: Duration): ShardingSettings {
+        ShardingSettings(bufferSize, Some(idle), None<Replicator>, rebalance: rebalance)
     }
 }
 
@@ -339,6 +356,13 @@ class RegionTick <: Message {
     }
 }
 
+/** 请求 Region 立即做一次再平衡评估（运维 / 测试入口；领导者本来就会周期评估，见 evaluateRebalance） */
+class RebalanceEvaluate <: Message {
+    public func messageType(): String {
+        "cactor.ShardRebalanceEvaluate"
+    }
+}
+
 class RegionShared {
     let lock = Mutex()
     let entityIds = HashSet<String>()
@@ -394,6 +418,7 @@ let MAX_HOPS: Int64 = 3
 let HANDOFF_RESEND_MS: Int64 = 200
 let SLOW_ACQUIRE_WARN_MS: Int64 = 10000
 let REROUTE_PARKED_TICKS: Int64 = 20
+// 负载报告与迁移间隔的默认值在 RebalancePolicy 里（见 rebalance.cj），区域只读 settings.rebalance
 
 /**
  * 分片区域（每个节点、每种实体类型一个）。
@@ -435,8 +460,14 @@ class ShardRegionActor <: Actor {
     let yielded = HashMap<Int64, String>()
     // 手动/自动再平衡的归属覆盖：分片号 -> 拥有者地址（优先于 rendezvous 哈希）
     let placementOverrides = HashMap<Int64, String>()
-    // 其他成员上报的负载：节点地址 -> (分片号 -> 实体数)
+    // 其他成员上报的负载：节点地址 -> (分片号 -> 实体数)，以及各报告的时刻（过期即丢弃）
     let peerLoads = HashMap<String, HashMap<Int64, Int64>>()
+    let peerLoadAt = HashMap<String, Int64>()
+    // 上次自动迁移的时刻：两次迁移之间至少间隔 settings.rebalance.cooldown，避免分片来回搬
+    var lastAutoRebalanceMs: Int64 = Int64.Min / 2
+    // 上次负载上报的签名与时刻：负载不变时只在 TTL 的一半后刷新，避免每 tick 都推报告
+    var lastReportSignature: String = ""
+    var lastReportMs: Int64 = Int64.Min / 2
     // 实体还没全部终止、尚未回复的移交请求：分片 -> (请求方, 轮次)
     let pendingStopAcks = HashMap<Int64, ArrayList<(String, Int64)>>()
     // ---- 缓冲 ----
@@ -491,6 +522,11 @@ class ShardRegionActor <: Actor {
                 if (ticks % REROUTE_PARKED_TICKS == 0) {
                     rerouteParked(context)
                 }
+                // 领导者每 2s 无条件评估一次（报告的到达顺序不该决定是否评估），
+                // 报告不全或视图不稳定时 evaluateRebalance 自己会放弃
+                if (ticks % 40 == 0 && isLeader(cluster.state())) {
+                    evaluateRebalance(context)
+                }
                 // 获取完成或成员变化后立即检查，平时每 500ms 检查一次需要恢复的实体
                 if (restoreDue || ticks % 10 == 0) {
                     restoreDue = false
@@ -506,6 +542,7 @@ class ShardRegionActor <: Actor {
             case c: ShardControl => onControl(c, context)
             case rb: ShardRebalance => onRebalance(rb, context)
             case rl: ShardLoadReport => onLoadReport(rl, context)
+            case _: RebalanceEvaluate => evaluateRebalance(context)
             case t: Terminated => onEntityTerminated(t.actor.path.toString(), context)
             case _ => return MessageResult.Unhandled
         }
@@ -615,133 +652,155 @@ class ShardRegionActor <: Actor {
         yielded.remove(rb.shardId)
         onOwnershipChanged(context)
         log.info("${selfAddress} 再平衡：分片 ${rb.shardId} -> ${rb.targetAddress}")
-        // 传播给其他成员（发起者也发给自己已处理；这里发给非自身的成员）
+        // 传播给其他成员（发起者也发给自己已处理；这里发给非自身的成员）。
+        // 用可靠通道（E41）：放置覆盖必须每个成员都收到，否则各节点对同一分片的归属判断不一致，
+        // 分片会在两边反复获取/让出（单活由许可式移交保证，但会白搬）。
         let s = cluster.state()
         for (m in s.members) {
             if (m.address != selfAddress && m.status.toString() != "Removed") {
                 let ref = remote.remoteActorOf(NetworkAddress.parse(m.address), "sharding-${typeName}")
-                ref.tell(ShardRebalance(rb.shardId, rb.targetAddress))
+                remote.tellReliable(ref, ShardRebalance(rb.shardId, rb.targetAddress))
             }
         }
     }
 
     private func sendLoadReport(context: ActorContext): Unit {
-        // 每 10 个 tick（约 500 ms）上报一次，避免消息风暴
-        if (ticks % 10 != 0) {
-            return
-        }
         let s = cluster.state()
         if (s.members.size <= 1) {
             return
         }
-        // 找领导者
-        var leader = s.members[0].address
+        match (leaderAddress(s)) {
+            case None => return
+            case Some(a) where a == selfAddress => return
+            case Some(leader) =>
+                // 负载没变就不发：每个 tick 都推报告在大集群里是纯噪声；但必须在 TTL 内刷新一次，
+                // 否则领导者会把本节点当成没有报告、干脆不做再平衡。
+                let now = monotonicMillis()
+                let ttlMs = settings.rebalance.reportTtl.toMilliseconds()
+                let refreshMs = if (ttlMs > 2) { ttlMs / 2 } else { 1 }
+                let loads = ArrayList<(Int64, Int64)>()
+                let parts = ArrayList<String>()
+                synchronized(shared.lock) {
+                    for (sh in 0..numberOfShards) {
+                        let c = shared.shardCounts.get(sh) ?? 0
+                        loads.add((sh, c))
+                        parts.add("${sh}=${c}")
+                    }
+                }
+                let signature = String.join(parts.toArray(), delimiter: ",")
+                if (signature == lastReportSignature && now - lastReportMs < refreshMs) {
+                    return
+                }
+                let ref = remote.remoteActorOf(NetworkAddress.parse(leader), "sharding-${typeName}")
+                ref.tell(ShardLoadReport(selfAddress, loads.toArray()))
+                lastReportSignature = signature
+                lastReportMs = now
+        }
+    }
+
+    /** 当前视图里地址最小的 Up 成员（与 Cluster 的 Leader 判定一致）；没有 Up 成员时为 None */
+    private func leaderAddress(s: ClusterSnapshot): Option<String> {
+        var leader = ""
         for (m in s.members) {
-            if (m.status.toString() == "Up" && m.address < leader) {
+            if (m.status.toString() == "Up" && (leader.isEmpty() || m.address < leader)) {
                 leader = m.address
             }
         }
-        if (leader == selfAddress) {
-            return
+        if (leader.isEmpty()) {
+            return None<String>
         }
-        // 上报本节点负载
-        let loads = ArrayList<(Int64, Int64)>()
-        synchronized(shared.lock) {
-            for (sh in 0..numberOfShards) {
-                loads.add((sh, shared.shardCounts.get(sh) ?? 0))
+        Some(leader)
+    }
+
+    private func isLeader(s: ClusterSnapshot): Bool {
+        match (leaderAddress(s)) {
+            case Some(a) => a == selfAddress
+            case None => false
+        }
+    }
+
+    /** 丢弃已不是 Up 成员的报告，以及超过 reportTtl 没有更新的报告 */
+    private func prunePeerLoads(now: Int64, ups: HashSet<String>): Unit {
+        let ttlMs = settings.rebalance.reportTtl.toMilliseconds()
+        let stale = ArrayList<String>()
+        for ((addr, at) in peerLoadAt) {
+            if (!ups.contains(addr) || now - at > ttlMs) {
+                stale.add(addr)
             }
         }
-        let ref = remote.remoteActorOf(NetworkAddress.parse(leader), "sharding-${typeName}")
-        ref.tell(ShardLoadReport(selfAddress, loads.toArray()))
+        for (addr in stale) {
+            peerLoadAt.remove(addr)
+            peerLoads.remove(addr)
+        }
     }
 
     private func onLoadReport(rl: ShardLoadReport, context: ActorContext): Unit {
-        let m = HashMap<Int64, Int64>()
-        for ((sh, c) in rl.loads) {
-            m[sh] = c
-        }
-        peerLoads[rl.nodeAddress] = m
-        // 领导者收到报告后评估再平衡
+        // 只接受当前 Up 成员的报告：伪造地址、已离开节点的陈旧报告不得影响分片放置
         let s = cluster.state()
-        var leader = s.members[0].address
-        for (mm in s.members) {
-            if (mm.status.toString() == "Up" && mm.address < leader) {
-                leader = mm.address
+        var isMember = false
+        for (m in s.members) {
+            if (m.address == rl.nodeAddress && m.status.toString() == "Up") {
+                isMember = true
+                break
             }
         }
-        if (leader == selfAddress) {
+        if (!isMember || rl.nodeAddress == selfAddress) {
+            return
+        }
+        let m = HashMap<Int64, Int64>()
+        for ((sh, c) in rl.loads) {
+            if (sh >= 0 && sh < numberOfShards && c >= 0) {
+                m[sh] = c
+            }
+        }
+        peerLoads[rl.nodeAddress] = m
+        peerLoadAt[rl.nodeAddress] = monotonicMillis()
+        if (isLeader(s)) {
             evaluateRebalance(context)
         }
     }
 
+    /**
+     * 领导者按各成员上报的负载评估一次再平衡：把**最忙节点**上最重的分片迁到最空闲节点。
+     *
+     * 决策本身在 `decideRebalance`（rebalance.cj，纯函数）：这里只负责把集群状态翻译成视图快照，
+     * 再按结果执行。这样阈值/冷却/放弃理由都能单测，也允许任意成员作为源（旧实现只搬领导者自己的分片）。
+     */
     private func evaluateRebalance(context: ActorContext): Unit {
-        // 聚合所有节点负载
-        let nodeTotals = HashMap<String, Int64>()
-        // 本节点
-        var selfTotal: Int64 = 0
+        let s = cluster.state()
+        // 聚合各节点的（分片 -> 实体数）：本节点直接读，其他成员用报告（不可达为 0，报告由 prune 处理过期）
+        let ups = ArrayList<String>()
+        for (m in s.members) {
+            if (m.status.toString() == "Up") {
+                ups.add(m.address)
+            }
+        }
+        let now = monotonicMillis()
+        let upSet = HashSet<String>(ups)
+        prunePeerLoads(now, upSet)
+        let loads = HashMap<String, Map<Int64, Int64>>()
         synchronized(shared.lock) {
+            let selfLoad = HashMap<Int64, Int64>()
             for (sh in 0..numberOfShards) {
-                selfTotal += shared.shardCounts.get(sh) ?? 0
+                selfLoad[sh] = shared.shardCounts.get(sh) ?? 0
+            }
+            loads[selfAddress] = selfLoad
+        }
+        for ((addr, l) in peerLoads) {
+            if (addr != selfAddress) {
+                loads[addr] = l
             }
         }
-        nodeTotals[selfAddress] = selfTotal
-        for ((addr, load) in peerLoads) {
-            var t: Int64 = 0
-            for ((_, c) in load) { t += c }
-            nodeTotals[addr] = t
-        }
-        if (nodeTotals.size < 2) {
-            return
-        }
-        // 找最忙与最空闲节点
-        var busiestNode = selfAddress
-        var busiestTotal: Int64 = -1
-        var idlestNode = selfAddress
-        var idlestTotal: Int64 = Int64.Max
-        for ((addr, t) in nodeTotals) {
-            if (t > busiestTotal) { busiestTotal = t; busiestNode = addr }
-            if (t < idlestTotal) { idlestTotal = t; idlestNode = addr }
-        }
-        if (busiestNode == idlestNode) {
-            return
-        }
-        // 不平衡阈值：最忙 > 最空闲 * 1.5 且差值 > 5
-        if (busiestTotal <= idlestTotal * 3 / 2) {
-            return
-        }
-        if (busiestTotal - idlestTotal < 5) {
-            return
-        }
-        // 只有本节点是最忙节点时才发起迁移（领导者也是最忙时），把最忙分片迁到最空闲
-        if (busiestNode != selfAddress) {
-            return
-        }
-        // 找本节点负载最重的分片
-        var busiestShard: Int64 = -1
-        var busiestShardLoad: Int64 = 0
-        synchronized(shared.lock) {
-            for (sh in 0..numberOfShards) {
-                let c = shared.shardCounts.get(sh) ?? 0
-                if (c > busiestShardLoad) {
-                    busiestShardLoad = c
-                    busiestShard = sh
-                }
-            }
-        }
-        if (busiestShard < 0 || busiestShardLoad == 0) {
-            return
-        }
-        log.info("自动再平衡：分片 ${busiestShard} 从 ${busiestNode} -> ${idlestNode}")
-        // 复用 rebalance 传播逻辑
-        placementOverrides[busiestShard] = idlestNode
-        yielded.remove(busiestShard)
-        onOwnershipChanged(context)
-        let s2 = cluster.state()
-        for (m in s2.members) {
-            if (m.address != selfAddress && m.status.toString() != "Removed") {
-                let ref = remote.remoteActorOf(NetworkAddress.parse(m.address), "sharding-${typeName}")
-                ref.tell(ShardRebalance(busiestShard, idlestNode))
-            }
+        let view = RebalanceView(ups.toArray(), loads, unreachable: Int64(s.unreachable.size),
+            lastMoveAtMs: lastAutoRebalanceMs, nowMs: now)
+        match (decideRebalance(view, settings.rebalance)) {
+            case RebalanceDecision.Skip(reason) =>
+                log.debug("跳过再平衡（${rebalanceSkipText(reason)}）：成员 ${ups.size}，报告 ${peerLoads.size}，不可达 ${s.unreachable.size}")
+            case RebalanceDecision.Move(mv) =>
+                lastAutoRebalanceMs = now
+                log.info("自动再平衡：分片 ${mv.shardId}（${mv.entityCount} 个实体）从 ${mv.source} -> ${mv.target}；节点实体数 ${mv.sourceTotal} / ${mv.targetTotal}")
+                // 走与手动再平衡相同的路径：设覆盖、让出、广播给所有成员；源节点收到后停止该分片
+                onRebalance(ShardRebalance(mv.shardId, mv.target), context)
         }
     }
 
@@ -1559,46 +1618,14 @@ public class ClusterSharding {
      * 跨节点负载需要各节点报告；本版仅在单节点视图下做"把本节点最忙的分片迁出到地址最小的其他成员"
      * 的保守决策，完整跨节点聚合归后续版本。
      */
+    /**
+     * 触发一次自动再平衡评估（运维 / 测试入口）。
+     *
+     * 常规情况下领导者每 2s 自己评估一次（并在收到负载报告时评估），本方法只是让 Region
+     * 立即评估一遍；是否迁移仍由 evaluateRebalance 的条件（全部成员报告、视图稳定、阈值、冷却）决定。
+     */
     public func rebalance(): Unit {
-        let s = cluster.state()
-        if (s.members.size <= 1) {
-            return
-        }
-        // 只有领导者执行，避免多节点同时决策
-        var leader = s.members[0].address
-        for (m in s.members) {
-            if (m.status.toString() == "Up" && m.address < leader) {
-                leader = m.address
-            }
-        }
-        if (leader != cluster.selfAddress) {
-            return
-        }
-        let load = shardLoad()
-        // 找本节点负载最重的分片
-        var busiest: Int64 = -1
-        var busiestLoad: Int64 = 0
-        for ((sh, c) in load) {
-            if (c > busiestLoad) {
-                busiestLoad = c
-                busiest = sh
-            }
-        }
-        if (busiest < 0 || busiestLoad == 0) {
-            return
-        }
-        // 选目标：Up 成员中地址最小的非本节点
-        var target: Option<String> = None
-        for (m in s.members) {
-            if (m.status.toString() == "Up" && m.address != cluster.selfAddress) {
-                target = Some(m.address)
-                break
-            }
-        }
-        match (target) {
-            case Some(t) => rebalanceShard(busiest, t)
-            case None => ()
-        }
+        region.tell(RebalanceEvaluate())
     }
 
     public func stop(): Unit {

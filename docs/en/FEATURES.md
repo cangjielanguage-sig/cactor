@@ -42,10 +42,9 @@ Ask.askAsync(actor, message, timeout,
 - **Dynamic Scaling**: Support for dynamic node addition and removal
 
 #### Architecture Components
-- **ShardCoordinator**: Global shard state management
-- **ShardRegion**: Local shard management and entity routing
-- **ClusterRouter**: Cluster routing and load balancing
-- **EntityExtractor**: Entity ID extraction and shard mapping
+- **ClusterSharding** (`cactor_cluster.membership`): single-active shards (permission-based two-phase handoff), entity routing, remember-entities and idle passivation, load-based rebalancing
+- **ClusterRouterPool**: cluster-aware routing (forward per member/shard, works with `ClusterSharding`)
+- **EntityExtractor**: stable hash from entity id to shard id (the version participates in join compatibility checks)
 
 ### 💾 Persistence System
 **Status**: ✅ Event sourcing and CQRS fully implemented

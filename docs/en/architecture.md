@@ -640,7 +640,7 @@ The Distribution layer enables CActor to span multiple nodes and persist actor s
 
 ```
 modules/distribution/src/
-|-- cluster/     # ShardCoordinator, ShardAllocationStrategy
+|-- cluster/     # ClusterSharding (single-active handoff, rebalancing), ClusterRouterPool, Cluster Singleton, pub/sub
 |-- persistence/ # EventStore, PersistentEvent, PersistentActor
 |-- remote/      # Simple remote actor communication
 +-- streaming/   # Distributed stream processing
@@ -668,7 +668,14 @@ The `remote` module provides transparent actor communication across process boun
 
 ### 7.3 Clustering and Sharding
 
-**ShardCoordinator** manages the distribution of actors (shards) across the cluster:
+> **Implementation status (Nov 2026)**: this section is an early design draft. `ShardCoordinator` / `ShardRegion` /
+> `ClusterRouter` were never implemented and the prototype files were deleted in Nov 2026. The real implementation is
+> `ClusterSharding` in `modules/cluster/src/membership/sharding.cj`: stable hash of the entity id picks the shard,
+> permission-based two-phase handoff guarantees single activation, plus remember-entities, idle passivation and
+> `rebalanceShard(shard, target)` / `rebalance()` (the leader decides from member load reports); cluster-aware
+> routing lives in `membership/router.cj`. Treat the code and `docs/zh/api-reference.md` as the source of truth.
+
+**ShardCoordinator** (design draft) manages the distribution of actors (shards) across the cluster:
 
 - **LeastShardsAllocationStrategy**: Assigns shards to the node with the fewest shards.
 - Shards are identified by a `ShardId`, enabling location-transparent actor lookups.

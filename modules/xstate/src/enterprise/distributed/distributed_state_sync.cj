@@ -1,7 +1,10 @@
 /*
  * Copyright (c) 2024. All rights reserved.
- * CActor XState - 分布式状态同步系统
- * 基于CActor集群的分布式状态机同步
+ * CActor XState - 分布式状态同步系统（experimental）
+ *
+ * 注意：本文件未接入真实的集群传输（没有 gossip / 远程调用，只按消息类型处理本地表），
+ * 保留它是为了状态机 API 的形状完整，不要把它当作可用的分布式状态同步。
+ * 真实的分布式状态请用 `cactor_cluster.membership.Cluster` + `cactor_cluster.ddata.Replicator`。
  */
 package cactor_xstate.enterprise.distributed
 
@@ -11,7 +14,6 @@ import std.sync.*
 import cactor_core.actor.{Actor}
 import cactor_core.context.{ActorContext}
 import cactor_core.message.{Message, MessageResult}
-import cactor_cluster.{SimpleClusterManager}
 import cactor_foundation.logging.{Logger, Logging}
 
 let log_distributed_state_sync: Logger = Logging.logger("cactor_xstate.enterprise.distributed.distributed_state_sync")
@@ -126,7 +128,6 @@ public enum ConflictResolutionStrategy {
  * 分布式状态同步管理器
  */
 public class DistributedStateSyncManager <: Actor {
-    private let clusterSupport: Option<SimpleClusterManager>
     private let localStates: HashMap<String, DistributedStateInfo>
     private let remoteStates: HashMap<String, HashMap<String, DistributedStateInfo>>
     private let conflictResolver: ConflictResolutionStrategy
@@ -135,11 +136,9 @@ public class DistributedStateSyncManager <: Actor {
     private var lastSyncTime: Int64
     
     public init(
-        clusterSupport: Option<SimpleClusterManager>,
         conflictResolver: ConflictResolutionStrategy,
         syncInterval: Duration
     ) {
-        this.clusterSupport = clusterSupport
         this.localStates = HashMap<String, DistributedStateInfo>()
         this.remoteStates = HashMap<String, HashMap<String, DistributedStateInfo>>()
         this.conflictResolver = conflictResolver
@@ -529,10 +528,7 @@ public class DistributedStateSyncManager <: Actor {
      * 获取本地节点ID
      */
     private func getLocalNodeId(): String {
-        if (clusterSupport.isSome()) {
-            // 在实际实现中，这里会从集群支持获取节点ID
-            return "node-local"
-        }
-        return "standalone"
+        // 本类没有接入真实集群，节点标识只能是本进程
+        "standalone"
     }
 }

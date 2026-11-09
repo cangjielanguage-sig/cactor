@@ -7,6 +7,44 @@
 
 ## [未发布]
 
+### 💥 破坏性变更（2026-11-09，分布式收尾）
+- **删除 `cactor_cluster` 根包原型**：`cluster_support.cj`、`cluster_routing.cj`、`failover.cj`、`shard_region.cj`、`cluster_sharding.cj`
+  共 1673 行，以及只演示它们的 `cactor_examples.cluster_sharding_demo`（414 行）。这些类型（`ClusterState`、`ShardCoordinator`、
+  `ClusterRouter`、`ShardRegion` 等）用进程内结构模拟集群，`forwardToRemoteShard` 只打日志、路由恒选第一个目标、
+  `isShardLocal` 硬编码，与真实成员/分片层无关。请改用 `cactor_cluster.membership`：`ClusterSharding`（分片）、
+  `ClusterRouterPool`（集群感知路由）、`ClusterSingleton`、`DistributedPubSub`；示例见 `best09_cluster_sharding`、
+  `tools/cluster_demo.sh`。
+- **`xstate` 去 `cactor_cluster` 依赖**：`DistributedStateSyncManager.init` 由
+  `init(conflictResolver, syncInterval, clusterSupport)` 变为 `init(conflictResolver, syncInterval)`；
+  `clusterSupport` 原本只是保存下来、从没参与同步逻辑。模块现标注 experimental（完整状态同步尚未实现）。
+
+### ✨ 新增（2026-11-09，分布式收尾）
+- **分片按负载的跨节点自动再平衡**（`cluster/membership/sharding.cj`）：领导者聚合所有 Up 成员 5 s 内的
+  `ShardLoadReport`（非 Up 成员的报告直接丢弃、已离开成员的旧报告清理），不平衡度超过 1.5 倍且实体数差值 > 5 时，
+  把最忙节点上最重的分片迁到最空闲节点——源与目标都可以是**任意成员**（此前只有"领导者自己最忙"时搬自己的分片）。
+  视图里有不可达成员时不动，全部成员都有报告才决策，两次迁移间隔 3 s，每 2 s tick 评估一次；`rebalance()` 立即触发一次评估。
+- **`BlackholeTransport`（`cactor_testkit.network_harness`）**：包装任意 `NetworkTransport`，按地址双向丢弃出站帧
+  （同时覆盖普通与优先通道），`blackhole` / `heal` / `healAll` / `droppedCount` 可随时开关，其余方法全部转发。
+  用于验证"对端不可达 → 故障检测 → 恢复"的完整链路（`unit/cluster/cluster_blackhole_test.cj`）。
+
+### 🐛 修复（2026-11-09，分布式收尾）
+- **分片放置覆盖不是可靠广播**：迁移与再平衡的 `ShardRebalance` 覆盖原先用 `ref.tell` 发给其他成员（at-most-once），
+  漏收的成员会按 rendezvous 自行获取分片，与覆盖记录冲突、反复取/让（实测出现某节点被"搬空"）。
+  改为 `remote.tellReliable(ref, ...)`：覆盖必须每个成员都收到，否则各节点的归属判断不一致。
+- **再平衡测试恒真**：旧 `manualRebalanceMovesShard` 的断言块直接写 `true`；现断言源节点少一个分片、目标多一个，
+  并新增 `leaderRebalancesSkewedLoadAutomatically`（8 个分片全部指向 a 后，b 开始托管只能由自动再平衡造成）。
+
+### 🔧 工具链（2026-11-09）
+- **macOS 门禁环境**：`tools/env.sh` 探测仓颉安装位置并导出 `DYLD_LIBRARY_PATH` / `DYLD_FALLBACK_LIBRARY_PATH`
+  （`unittest_bin` 以 `@rpath` 引用运行时而没有写 LC_RPATH，`install_name_tool -add_rpath` 因无 header pad 失败）。
+- **`tools/cluster_parallel_soak.sh`**：`--parallel=N` 会重新 exec 自己，子进程丢掉 `DYLD_*`，导致 0 s 内
+  `Abort trap: 6`（退出码 134，`dyld: Library not loaded: @rpath/libcangjie-runtime.dylib`）。现在在 Darwin 上用临时包装脚本
+  把 `DYLD_LIBRARY_PATH` 写进子进程环境后再 exec 真实二进制。
+- **`tools/ddata_stress.sh`**：每轮用 `env CACTOR_LOG_LEVEL=error $cfg ...` 转发，而 `env` 是 SIP 保护的可执行文件，dyld 会把
+  `DYLD_*_LIBRARY_PATH` 从它的环境里剥掉（同一二进制直接跑没事、经 `env` 就是 0 s `Abort trap: 6`）。现在显式把两个 DYLD 变量
+  再传给 `env`。另加一条诊断：失败输出含 `Out of memory` 时提示先看该轮堆大小与 `uptime` 的 load average（本机 load 57–84 时
+  GC 线程抢不到 CPU，256 MB / 128 MB 堆的轮次会以 `OutOfMemoryError` 退出，不是崩溃）。
+
 ### 💥 破坏性变更（2026-11-06 补记，docs/plan/20261106.md E30）
 升级前请逐条核对：
 - **默认监督策略与 Akka 对齐（E27）**：`DefaultSupervisionStrategy.defaultDecider` 对

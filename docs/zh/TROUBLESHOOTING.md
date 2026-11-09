@@ -257,27 +257,25 @@ sudo systemctl restart cactor-cluster
 **诊断步骤**:
 
 ```bash
-# 1. 检查分片状态
+# 2. 查看分片归属与负载（管理端点）
 curl http://localhost:8080/cluster/shards
 
-# 2. 查看协调器状态
-curl http://localhost:8080/cluster/coordinator
-
-# 3. 分析重平衡日志
-grep "rebalancing" logs/cactor.log
+# 3. 分析再平衡日志（领导者每 2 s 评估一次，不平衡超过 1.5 倍且差>5 才搬迁，冷却 3 s）
+grep "ShardRebalance" logs/cactor.log
 ```
 
 **解决方案**:
 
 ```cangjie
-// 1. 手动触发重平衡
-let coordinator = system.actorOf(ShardCoordinator.props(), "coordinator")
-coordinator.tell(RebalanceShards())
+// 1. 立刻触发一次再平衡评估（由领导者执行；无 Leader 时无效）
+sharding.rebalance()
 
-// 2. 调整重平衡策略
-let shardingConfig = ShardingConfig.create()
-    .withRebalanceThreshold(0.1)    // 降低重平衡阈值
-    .withRebalanceInterval(30.seconds)  // 增加重平衡间隔
+// 2. 手动把某个分片迁到指定节点（会广播给全部成员）
+sharding.rebalanceShard(shardId, targetAddress)
+
+// 3. 查看各分片负载，判断是否真的不均衡
+let (hosted, acquired, _) = sharding.shardStats()
+let loads = sharding.busiestShards(5)
 ```
 
 ## 💾 持久化问题排除

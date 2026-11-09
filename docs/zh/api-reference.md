@@ -2178,6 +2178,25 @@ probe.cleanup()
 testSystem.terminate()
 ```
 
+### 故障注入：`BlackholeTransport`（`cactor_testkit/network_harness.cj`）
+
+模拟"对端完全收不到包"（黑洞），用于验证故障检测、隔离、恢复。它包装任意 `NetworkTransport`，命中黑名单的地址在 `send` / `sendPriority` 时直接丢帧（普通与优先通道都丢），其余调用全部转发：
+
+```cangjie
+import cactor_testkit.*
+import cactor_foundation.network.*
+
+let inner = TcpTransport(NetworkAddress("127.0.0.1", 0))
+let net = BlackholeTransport(inner)
+// 双向黑洞：a 发往 b、b 发往 a 的帧全部丢弃
+net.blackhole(aAddr)
+net.blackhole(bAddr)
+let dropped = net.droppedCount()      // 累计丢弃帧数
+net.heal(bAddr)                       // 恢复单个地址
+net.healAll()                         // 恢复全部
+if (net.isBlackholed(aAddr)) { /* ... */ }
+```
+
 ---
 
 ## 13. 类型安全 Actor
@@ -2358,6 +2377,11 @@ let rep = Replicator(system, remote, Duration.millisecond * 200)   // 节点标�
 let carts = ClusterSharding(cluster, system, remote, "cart", 100, { id => CartActor(id) })
 carts.tell("user-42", AddItem("apple"))          // 任何节点调用都送到 user-42 唯一的实例
 let (hosted, acquiring, acquired) = carts.shardStats()   // 本节点托管 / 正在获取的分片数、已完成的获取次数
+let heaviest = carts.busiestShards(5)                    // 实体数最多的 5 个分片（负载报告）
+
+// 再平衡：rebalance() 只是让领导者立刻评估一次；rebalanceShard 手动迁移（广播给全部成员）
+carts.rebalance()
+carts.rebalanceShard(42, targetAddress)                  // 分片 42 → targetAddress
 
 // 加入兼容检查：内置分片哈希版本与移交协议版本总是比对；再加上业务自己的兼容键
 let settings = ClusterSettings.defaults().withJoinCompatibility("app.protocol", "3")
@@ -2376,6 +2400,7 @@ match (cluster.joinRejection()) {
 | 转发超过 3 跳仍不在拥有者上 | 挂起，视图变化或每秒重新路由 |
 | 本节点离开集群、缓冲区满 | 消息交给死信（`subscribeDeadLetters` 可见，路径 `sharding/<类型>/<实体>`），`stats()` 的丢弃数加一 |
 | 某个成员没有创建该类型的区域 | 需要它确认的分片一直获取中，10 s 后告警点名 |
+| 自动再平衡 | 领导者每 2 s tick（及每次收到负载报告）把 Up 成员 5 s 内的报告聚合成表；有不可达成员时不动，全部成员都有报告才决策；最忙与最空闲的实体数相差 > 5 且不小于 1.5 倍时，把最忙节点上最重的分片迁到最空闲节点（源可以是任意成员）；两次自动迁移间隔 3 s。非 Up 成员的报告直接丢弃 |
 | 加入时兼容键不一致，或对方是不带兼容信息的旧版本 | 回 REJECT，永远不会成为成员；被拒的节点不再发 JOIN，首个种子也不会另起集群 |
 
 ### 集群工具：ask、异步 Grain、pubsub 确认与成员清理（E12′）

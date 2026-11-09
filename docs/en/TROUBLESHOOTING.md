@@ -260,24 +260,25 @@ sudo systemctl restart cactor-cluster
 # 1. Check shard status
 curl http://localhost:8080/cluster/shards
 
-# 2. View coordinator status
-curl http://localhost:8080/cluster/coordinator
+# 2. View shard ownership and load (management endpoint)
+curl http://localhost:8080/cluster/shards
 
-# 3. Analyze rebalancing logs
-grep "rebalancing" logs/cactor.log
+# 3. Analyze rebalancing logs (the leader evaluates every 2 s; moves only when the skew exceeds 1.5x and a difference of 5, with a 3 s cooldown)
+grep "ShardRebalance" logs/cactor.log
 ```
 
 **Solutions**:
 
 ```cangjie
-// 1. Manually trigger rebalancing
-let coordinator = system.actorOf(ShardCoordinator.props(), "coordinator")
-coordinator.tell(RebalanceShards())
+// 1. Trigger one rebalance evaluation now (executed by the leader; no-op without one)
+sharding.rebalance()
 
-// 2. Adjust rebalancing strategy
-let shardingConfig = ShardingConfig.create()
-    .withRebalanceThreshold(0.1)    // Lower rebalancing threshold
-    .withRebalanceInterval(30.seconds)  // Increase rebalancing interval
+// 2. Manually move one shard to a target node (broadcast to all members)
+sharding.rebalanceShard(shardId, targetAddress)
+
+// 3. Inspect per-shard load to see whether the cluster is really skewed
+let (hosted, acquired, _) = sharding.shardStats()
+let loads = sharding.busiestShards(5)
 ```
 
 ## Persistence Troubleshooting

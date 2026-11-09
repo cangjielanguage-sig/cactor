@@ -133,11 +133,11 @@ cjpm run --name cactor_examples.ask_demo
 ### 2. 集群分片
 ```bash
 # 运行集群分片示例
-cjpm run --name cactor_examples.cluster_sharding_demo
+cjpm run --name cactor_examples.best09_cluster_sharding
 ```
 
 展示功能：
-- 集群分片协调
+- 3 个真实节点上的 ClusterSharding（一致性哈希 + 许可式移交）
 - 多种路由策略
 - 负载均衡
 - 支持：100万Actor

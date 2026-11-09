@@ -42,10 +42,9 @@ Ask.askAsync(actor, message, timeout,
 - **动态扩缩容**: 支持节点动态添加和移除
 
 #### 架构组件
-- **ShardCoordinator**: 全局分片状态管理
-- **ShardRegion**: 本地分片管理和实体路由
-- **ClusterRouter**: 集群路由和负载均衡
-- **EntityExtractor**: 实体ID提取和分片映射
+- **ClusterSharding**（`cactor_cluster.membership`）：分片单活（许可式两阶段移交）、实体路由、remember-entities 与空闲钝化、按负载再平衡
+- **ClusterRouterPool**：集群感知路由（按成员/分片转发，可配合 `ClusterSharding`）
+- **EntityExtractor**：实体 id → 分片 id 的稳定哈希（版本号参与兼容检查）
 
 ### 💾 持久化系统 (Persistence System)
 **状态**: ✅ 事件溯源和CQRS完整实现

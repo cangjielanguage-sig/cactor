@@ -348,7 +348,7 @@ cjpm test
 python3 tools/check_module_deps.py
 ```
 
-更多示例在 `modules/examples/src`：`ask_pattern_demo`、`typed_actor_demo`、`chat_room`（多客户端会话，接近多 Agent 协作的形状）、`cluster_sharding_demo`、`persistence_demo` 等。
+更多示例在 `modules/examples/src`：`ask_pattern_demo`、`typed_actor_demo`、`chat_room`（多客户端会话，接近多 Agent 协作的形状）、`best09_cluster_sharding`、`persistence_demo` 等。
 
 ---
 
