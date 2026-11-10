@@ -74,9 +74,18 @@ curl http://localhost:8080/metrics
 # Actor统计
 curl http://localhost:8080/actors/stats
 
-# 集群状态
+# 集群状态（需要先 attachClusterRoutes，见下）
 curl http://localhost:8080/cluster/status
 ```
+
+`/cluster/status` 与 `/cluster/shards` 不是内置端点：门面不认识集群类型，由集群模块注入：
+
+```cangjie
+import cactor_cluster.ops.attachClusterRoutes
+attachClusterRoutes(mgmt, cluster, sharding: Some(carts))   // 不传 sharding 时只挂 /cluster/status
+```
+
+没挂就访问会得到 404。两个端点只读本节点快照，不向其他节点发消息：节点卡住时它们照样能返回，但内容反映的是本节点的知识。
 
 ## 🏃 性能问题排除
 
@@ -257,7 +266,7 @@ sudo systemctl restart cactor-cluster
 **诊断步骤**:
 
 ```bash
-# 1. 检查分片状态
+# 1. 检查分片状态（需 attachClusterRoutes 注入）
 curl http://localhost:8080/cluster/shards
 
 # 2. 查看分片归属与负载（管理端点）

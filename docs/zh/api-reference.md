@@ -2178,6 +2178,37 @@ probe.cleanup()
 testSystem.terminate()
 ```
 
+### 探针的终止断言与日志断言（E62）
+
+`TestProbe.watch` / `expectTerminated` 在探针自己的 Actor 线程里建立 DeathWatch（`watch` 只能在 Actor 线程调用，探针用内部的控制消息转交），适合断言"某个 Actor 真的停了"，不用 sleep：
+
+```cangjie
+let probe = kit.createTestProbe("watcher")
+probe.watch(target)                       // 也可以直接调 expectTerminated，它会先 watch
+target.tell(PoisonPill())
+let t = probe.expectTerminated(target, Duration.second * 5)   // 返回 Terminated
+@Expect(t.actor.equals(target), true)
+```
+
+对已经停止的目标立即返回（watch 已死目标会立刻投递 `Terminated`）；目标还活着则在超时后抛 `TestKitAssertionException`（消息含"没有停止"），不会静默通过，也不会把 `Terminated` 之外的消息吃掉。
+
+日志断言用 `LoggingTestKit`：临时把全局 sink 换成内存 sink 并调低级别，`close()` 还原（幂等）：
+
+```cangjie
+let logs = LoggingTestKit.start(LogLevel.Debug)
+try {
+    doSomething()
+    let r = logs.expectMessage(LogLevel.Info, "分配了 3 个分片", Duration.second * 2)  // 返回 LogRecord
+    logs.expectMessage(LogLevel.Debug, "发心跳")            // 默认 3 s
+    logs.expectNoMessage(LogLevel.Error, "OOM", Duration.millisecond * 200)
+    logs.clear()                                          // 之后只看新记录
+} finally {
+    logs.close()
+}
+```
+
+断言只匹配安装或 `clear()` 之后产生的新记录；失败时错误消息里带最近 5 条日志，省掉在 CI 里翻全量输出。级别按 `ordinal()` 比较（Trace 最小、Off 最大），低于阈值的记录不会进入 sink。
+
 ### 故障注入：`BlackholeTransport`（`cactor_testkit/network_harness.cj`）
 
 模拟"对端完全收不到包"（黑洞），用于验证故障检测、隔离、恢复。它包装任意 `NetworkTransport`，命中黑名单的地址在 `send` / `sendPriority` 时直接丢帧（普通与优先通道都丢），其余调用全部转发：
@@ -2348,6 +2379,23 @@ let mgmt = ManagementServer(system, "0.0.0.0", 8558)   // 两参构造绑定全�
     .addReadinessCheck("cluster", { => cluster.isUp() })
     .start()
 ```
+
+内置端点为 `/health/live`、`/health/ready`、`/metrics`（路径不区分查询串）。集群的成员与分片视图不是内置的：门面不认识集群类型（`cactor` 不依赖 `cluster`），由集群模块注入：
+
+```cangjie
+import cactor.api.{ManagementServer, ManagementRoute}
+import cactor_cluster.ops.attachClusterRoutes
+
+// 成员视图 /cluster/status、分片视图 /cluster/shards（不传 sharding 时只挂成员视图）
+attachClusterRoutes(mgmt, cluster, sharding: Some(carts))
+
+// 自定义端点：路径必须是绝对的，重复注册抛 IllegalArgumentException；
+// 处理器在连接协程里执行，抛异常回 500 并计入 handlerErrors()，不会打断服务
+mgmt.addRoute(ManagementRoute("/custom/stats", "application/json", { => jsonOf(system) }))
+mgmt.addRoute("/custom/ping", "text/plain", { => "pong" })
+```
+
+`/cluster/status` 报出 `self`、`selfUniqueAddress`、`state`、`converged`、`upCount`、`leader`、`sbrDowned`、`gossipCount`、`unreachable` 与逐成员的 `address`/`status`/`upNumber`/`uid`/`reachable`/`self`；`/cluster/shards` 报出 `type`、`shards`、`ownerCount`、`hosted`、`acquiring`、`acquisitions`、`entities`、`delivered`、`forwarded`、`handedOff`、`buffered`、`dropped`、`passivated`、`restarted`、`busiest`（最忙 5 个）与按分片号排序的 `load` 表。两者都只读本地快照，不向其他节点发消息——节点卡住不会拖住管理端口，代价是视图反映的是本节点的知识。
 
 ### 集群节点实例与种子加入（`cactor_cluster`）
 

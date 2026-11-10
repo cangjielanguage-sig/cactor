@@ -18,6 +18,22 @@
   `init(conflictResolver, syncInterval, clusterSupport)` 变为 `init(conflictResolver, syncInterval)`；
   `clusterSupport` 原本只是保存下来、从没参与同步逻辑。模块现标注 experimental（完整状态同步尚未实现）。
 
+### ✨ 新增（2026-11-10，运维与测试可见性）
+- **管理端点的自定义路由**（`cactor/api/management.cj`）：`ManagementRoute(path, contentType, handler)` +
+  `ManagementServer.addRoute`。路径必须是绝对的，重复注册抛 `IllegalArgumentException`；处理器在连接协程里执行，
+  抛异常回 500 并计入 `handlerErrors()`，不会打断服务。门面仍不认识集群类型（分层约束），集群视图靠注入。
+- **集群视图端点**（`cactor_cluster.ops`，新包）：`attachClusterRoutes(mgmt, cluster, sharding: Some(region))`
+  挂上 `/cluster/status`（自身地址与实例标识、成员状态、收敛、领导者、upCount、不可达、SBR 是否 down、gossip 轮次）
+  与 `/cluster/shards`（分片数、托管/获取中/已完成获取、实体数、投递/转发/移交/缓冲/丢弃、钝化与恢复计数、
+  最忙 5 个分片、按分片号排序的负载表）。两者只读本地快照，不向其他节点发消息。此前
+  `docs/TROUBLESHOOTING.md` 让运维 `curl /cluster/status`，但服务端只有健康检查与指标，路径一律 404。
+- **`TestProbe.watch` / `expectTerminated`**（`cactor_testkit`）：探针用内部 `ProbeWatch` 控制消息在自己的
+  Actor 线程里建立 DeathWatch；已停止的目标立即返回，活着的目标超时抛 `TestKitAssertionException`（消息含
+  "没有停止"），不会吞掉其他消息。
+- **`LoggingTestKit`**（`cactor_testkit/logging_testkit.cj`）：`start(level)` 临时替换全局 sink 并调低级别，
+  `expectMessage` / `expectNoMessage` / `clear` / `close`（幂等还原）。只匹配安装或 clear 之后的新记录，
+  失败时带上最近 5 条日志。为此 `Logging` 新增 `currentSink()`。
+
 ### ✨ 新增（2026-11-09，再平衡策略）
 - **`RebalancePolicy`（`cactor_cluster.membership`）**：再平衡的阈值不再写死在区域里。不可变 struct，
   命名参数默认 `minEntityDelta = 5`、`ratioPercent = 150`、`cooldown = 3.seconds`、`reportTtl = 5.seconds`，

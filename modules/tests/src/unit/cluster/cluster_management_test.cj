@@ -1,5 +1,5 @@
 /*
- * CActor - 集群视图管理端点（E66）
+ * CActor - 集群视图管理端点（运维可见性）
  *
  * docs/TROUBLESHOOTING.md 让我们 `curl /cluster/status` 与 `/cluster/shards`，但管理端口以前只有
  * 健康检查与指标，这两个端点根本不存在。本用例验证：

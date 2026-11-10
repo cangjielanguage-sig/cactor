@@ -308,9 +308,13 @@ public class TestProbe {
         while (true) {
             let left = deadline - MonoTime.now()
             if (left <= Duration.Zero) {
-                throw TestKitAssertionException("${timeout} 内 ${target.path} 没有停止")
+                throw TestKitAssertionException("${timeout} 内被监视的 Actor 没有停止")
             }
-            let m = expectMsg(left)
+            let m = try {
+                expectMsg(left)
+            } catch (_: TestKitAssertionException) {
+                throw TestKitAssertionException("${timeout} 内被监视的 Actor 没有停止")
+            }
             if (let Some(t) <- (m as Terminated)) {
                 if (t.actor.equals(target)) {
                     return t

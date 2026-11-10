@@ -49,17 +49,16 @@ public class LoggingTestKit {
     /** 等一条 level 及以上、文本包含 contains 的日志；超时抛 TestKitAssertionException */
     public func expectMessage(level: LogLevel, contains: String, timeout: Duration): LogRecord {
         let deadline = MonoTime.now() + timeout
-        while (true) {
-            match (findNew(level, contains)) {
-                case Some(r) => return r
-                case None => ()
-            }
+        var found = findNew(level, contains)
+        while (found.isNone()) {
             let left = deadline - MonoTime.now()
             if (left <= Duration.Zero) {
-                throw TestKitAssertionException("${timeout} 内没有出现 ${level} 级别、包含「${contains}」的日志；最近记录：${recent()}")
+                throw TestKitAssertionException("${timeout} 内没有出现 ${level.label()} 级别、包含「${contains}」的日志；最近记录：${recent()}")
             }
             sleep(Duration.millisecond * 5)
+            found = findNew(level, contains)
         }
+        found.getOrThrow()
     }
 
     public func expectMessage(level: LogLevel, contains: String): LogRecord {
@@ -70,9 +69,8 @@ public class LoggingTestKit {
     public func expectNoMessage(level: LogLevel, contains: String, duration: Duration): Unit {
         let deadline = MonoTime.now() + duration
         while (MonoTime.now() < deadline) {
-            match (findNew(level, contains)) {
-                case Some(r) => throw TestKitAssertionException("不应出现但出现了：${r.format()}")
-                case None => ()
+            if (let Some(r) <- findNew(level, contains)) {
+                throw TestKitAssertionException("不应出现但出现了：${r.format()}")
             }
             sleep(Duration.millisecond * 5)
         }

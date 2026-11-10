@@ -329,6 +329,13 @@ public class Logging {
         LogLevel.fromOrdinal(levelValue.load())
     }
 
+    /** 当前全局 sink（测试框架替换前先保存，用完还原） */
+    public static func currentSink(): LogSink {
+        synchronized(sinkLock) {
+            sink
+        }
+    }
+
     public static func setSink(newSink: LogSink): Unit {
         synchronized(sinkLock) {
             sink = newSink

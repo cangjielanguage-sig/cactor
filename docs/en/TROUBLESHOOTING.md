@@ -76,6 +76,11 @@ curl http://localhost:8080/actors/stats
 
 # Cluster status
 curl http://localhost:8080/cluster/status
+
+`/cluster/status` and `/cluster/shards` are not built in: the facade does not know cluster types, so the cluster
+module injects them with `attachClusterRoutes(mgmt, cluster, sharding: Some(carts))` (`cactor_cluster.ops`);
+without it the paths answer 404. Both read only the local snapshot — they keep answering when the node is stuck,
+but the view is this node's knowledge.
 ```
 
 ## Performance Troubleshooting

@@ -1,4 +1,4 @@
-/* CActor Cluster.Ops - 集群视图管理端点（E66）
+/* CActor Cluster.Ops - 集群视图管理端点（运维可见性）
  *
  * 门面模块 `cactor.api.ManagementServer` 只认识 CActorSystem，不认识集群类型（分层：cluster → cactor）。
  * 因此集群视图以"路由"的形式从上层注入：
