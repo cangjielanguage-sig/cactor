@@ -411,7 +411,7 @@ public class PubSubSerialWritesTest {
         }
         @Expect(awaitCondition(CLUSTER_WAIT, { => ps[0].pubsub.subscriberNodes("t") == [ps[1].node.address()] }), true)
         // 再等几个 gossip 周期：节点没有被迟到的删除移出
-        sleep(Duration.millisecond * 500)
+        @Expect(awaitGossipRounds([ps[0].node.cluster, ps[1].node.cluster], 3, CLUSTER_WAIT), true)
         @Expect(ps[0].pubsub.subscriberNodes("t"), [ps[1].node.address()])
         @Expect(ps[1].pubsub.subscriberNodes("t"), [ps[1].node.address()])
         @Expect(ps[0].pubsub.publish("t", StringMessage("m")), 1)
@@ -443,7 +443,7 @@ public class MembershipCleanupTest {
         @Expect(awaitCondition(CLUSTER_WAIT, { =>
             nodes[0].cluster.membershipStats()[1] == 0 && nodes[1].cluster.membershipStats()[1] == 0
         }), true)
-        sleep(Duration.millisecond * 300)
+        @Expect(awaitGossipRounds([nodes[0].cluster, nodes[1].cluster], 2, CLUSTER_WAIT), true)
         @Expect(nodes[0].cluster.membershipStats()[1], 0)
         @Expect(nodes[0].cluster.state().upCount(), 2)
         closeAll(nodes)
@@ -459,7 +459,7 @@ public class MembershipCleanupTest {
             stranger.remote.sendControl(nodes[0].addr(), "cluster",
                 StringMessage(FieldWriter().put("HB").put("10.255.0.${i}:7000").done()))
         }
-        sleep(Duration.millisecond * 500)
+        @Expect(awaitGossipRounds([nodes[0].cluster, nodes[1].cluster], 2, CLUSTER_WAIT), true)
         @Expect(nodes[0].cluster.membershipStats()[2], 1)
         stranger.close()
         closeAll(nodes)

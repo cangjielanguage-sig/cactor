@@ -49,7 +49,7 @@ public class ClusterTlsTest {
         let intruder = CNode("e65-intruder")
         intruder.join([seed], FAST)
         @Expect(awaitCondition(CLUSTER_WAIT, { => nodes[0].remote.rejectedConnections() >= 1 }), true)
-        sleep(Duration.second)
+        @Expect(awaitGossipRounds([nodes[0].cluster, nodes[1].cluster, nodes[2].cluster], 2, CLUSTER_WAIT), true)
         for (n in nodes) {
             @Expect(n.cluster.state().member(intruder.address()).isNone(), true)
             @Expect(n.cluster.state().upCount(), 3)

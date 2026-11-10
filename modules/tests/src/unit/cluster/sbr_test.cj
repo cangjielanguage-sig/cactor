@@ -426,7 +426,7 @@ public class DelayedJoinTest {
         b.join([seed.addr()], settings)
         @Expect(awaitCondition(CLUSTER_WAIT, { => seed.cluster.isUp() }), true)
         // 等待 20 个 gossip 周期：加入者保持 Joining，也不能互相接纳
-        sleep(Duration.second)
+        @Expect(awaitGossipRounds([seed.cluster, a.cluster, b.cluster], 20, CLUSTER_WAIT), true)
         @Expect(a.cluster.isUp() || b.cluster.isUp(), false)
         @Expect(a.cluster.state().members.size, 1)
         @Expect(b.cluster.state().members.size, 1)

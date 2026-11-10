@@ -84,8 +84,9 @@ public class DistributedPubSubTest {
         @Expect(awaitCondition(CLUSTER_WAIT, { => ps[2].pubsub.subscriberNodes("news").size == 2 }), true)
         ps[2].pubsub.publish("news", StringMessage("again"))
         @Expect(rec.awaitSize(6, CLUSTER_WAIT), true)
-        sleep(Duration.millisecond * 200)
-        // 恰好一次：没有重复
+        // 恰好一次：先让三节点再各跑两轮 gossip（订阅传播/重复投递都会在这里出现），再看计数
+        @Expect(awaitGossipRounds([ps[0].node.cluster, ps[1].node.cluster, ps[2].node.cluster], 2, CLUSTER_WAIT), true)
+        // 没有重复
         @Expect(rec.size(), 6)
         for (tag in ["n1a", "n1b", "n2"]) {
             @Expect(rec.count("${tag}:hello"), 1)
@@ -113,7 +114,7 @@ public class DistributedPubSubTest {
         @Expect(awaitCondition(CLUSTER_WAIT, { => ps[0].pubsub.subscriberNodes("t").isEmpty() }), true)
         @Expect(ps[2].pubsub.localSubscriberCount("t"), 0)
         @Expect(ps[0].pubsub.publish("t", StringMessage("lost")), 0)
-        sleep(Duration.millisecond * 100)
+        @Expect(awaitGossipRounds([ps[0].node.cluster, ps[1].node.cluster, ps[2].node.cluster], 2, CLUSTER_WAIT), true)
         @Expect(rec.size(), 0)
         closePubSub(ps)
     }

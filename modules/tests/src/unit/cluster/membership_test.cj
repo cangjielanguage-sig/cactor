@@ -204,8 +204,8 @@ public class MembershipTest {
         victim.crash()
         @Expect(nodes[0].events.await("UnreachableMember(${va})", CLUSTER_WAIT), true)
         @Expect(awaitCondition(CLUSTER_WAIT, { => nodes[1].cluster.state().unreachable == [va] }), true)
-        // 不可达成员阻止收敛：不 down 就一直留在成员表里
-        sleep(Duration.millisecond * 500)
+        // 不可达成员阻止收敛：不 down 就一直留在成员表里（等两轮 gossip 传播完再看，不靠固定睡眠）
+        @Expect(awaitGossipRounds([nodes[0].cluster, nodes[1].cluster], 2, CLUSTER_WAIT), true)
         @Expect(nodes[0].cluster.state().member(va).isSome(), true)
         @Expect(nodes[0].cluster.state().converged, false)
         nodes[1].cluster.down(va)

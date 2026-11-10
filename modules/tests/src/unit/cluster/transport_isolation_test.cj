@@ -69,8 +69,8 @@ public class TransportIsolationTest {
         forger.remoteActorOf(n0.addr(), "cluster").tell(StringMessage(FieldWriter().put("JOIN").put(fake).put("1").done()))
         forger.remoteActorOf(n0.addr(), "cluster").tell(StringMessage(FieldWriter().put("HB").put(fake).done()))
         @Expect(awaitCondition(Duration.second * 5, { => n0.remote.rejectedHandshakes() >= 1 }), true)
-        // 负向断言：再观察 500 ms，伪造的成员没有被加入
-        sleep(Duration.millisecond * 500)
+        // 负向断言：再跑两轮 gossip，伪造的成员没有被加入（拒绝是一次性的判定，之后再传播也没有来源）
+        @Expect(awaitGossipRounds([n0.cluster, n1.cluster], 2, CLUSTER_WAIT), true)
         @Expect(n0.cluster.state().member(fake).isNone(), true)
         @Expect(n0.cluster.members().size, 2)
         forger.stop()

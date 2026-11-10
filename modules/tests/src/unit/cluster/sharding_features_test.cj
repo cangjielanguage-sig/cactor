@@ -351,7 +351,7 @@ public class ShardingRememberEntitiesTest {
             !reps[0].setElements(key0).contains("r0") && !reps[1].setElements(key0).contains("r0")
         }), true)
         @Expect(awaitCondition(CLUSTER_WAIT, { => totalLocal([regions[0], regions[1]]) == 29 }), true)
-        sleep(Duration.second)
+        @Expect(awaitGossipRounds([nodes[0].cluster, nodes[1].cluster], 2, CLUSTER_WAIT), true)
         @Expect(totalLocal([regions[0], regions[1]]), 29)
         for (i in 0..2) {
             regions[i].stop()
