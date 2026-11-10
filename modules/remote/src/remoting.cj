@@ -1517,18 +1517,13 @@ extend SimpleRemoteManager {
 
     /** 经传输加密建立的连接数（出站 + 入站）；未启用加密或不是 TCP 传输时为 0 */
     public func securedConnections(): Int64 {
-        match (transportInternal() as TcpTransport) {
-            case Some(t) => t.getSecuredConnections()
-            case None => 0
-        }
+        // 走接口而不是向下转型：传输被包装（黑洞注入等）时仍要拿到真实计数
+        transportInternal().securedConnectionCount()
     }
 
     /** 传输层拒绝的入站连接数：加密握手失败（明文连接、证书不通过）与远程层握手被拒之和 */
     public func rejectedConnections(): Int64 {
-        match (transportInternal() as TcpTransport) {
-            case Some(t) => t.getRejectedHandshakes()
-            case None => 0
-        }
+        transportInternal().rejectedConnectionCount()
     }
 
     /** 向远程 Actor 发起请求，等待其 context.reply 的回复 */

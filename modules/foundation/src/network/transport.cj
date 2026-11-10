@@ -232,6 +232,19 @@ public interface NetworkTransport {
     func getLocalAddress(): NetworkAddress
 
     func isActive(): Bool
+
+    /**
+     * 经传输加密建立的连接数（E65）。默认 0；包装型传输（如黑洞注入）必须转发给内层，
+     * 否则"包一层测试装饰器"就会让运维看到的加密连接数变成 0，等于把观测能力打回原形
+     */
+    func securedConnectionCount(): Int64 {
+        0
+    }
+
+    /** 传输层拒绝的入站连接数（加密握手失败 + 远程层握手被拒） */
+    func rejectedConnectionCount(): Int64 {
+        0
+    }
 }
 
 /** 帧大小上限，防止恶意或损坏的长度字段导致内存耗尽 */
@@ -909,6 +922,10 @@ public class TcpTransport <: NetworkTransport {
 
     /** 经传输加密建立的连接数（出站 + 入站）；未设置加密时恒为 0 */
     public func getSecuredConnections(): Int64 { counters.securedConnections.load() }
+
+    public func securedConnectionCount(): Int64 { counters.securedConnections.load() }
+
+    public func rejectedConnectionCount(): Int64 { counters.handshakeRejected.load() }
 
     public func closeInboundFrom(peerKey: String): Int64 {
         let victims = synchronized(mutex) {

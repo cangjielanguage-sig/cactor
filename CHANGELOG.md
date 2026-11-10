@@ -28,6 +28,14 @@
 - **`tools/cluster_chaos.sh`**：3 个真进程组成集群，黑洞一条链路并断言"被判不可达的是收不到心跳的一端"、`droppedCount` 增长、
   heal 后重新收敛；已接入 `tools/ci.sh`。`cluster_node` 新增 `CACTOR_MGMT_PORT`、`CACTOR_NO_AUTODOWN` 与 `hold` 模式。
 
+### 🐛 修复（2026-11-10，进程级故障注入）
+- **传输被包装后加密连接数恒为 0**：`SimpleRemoteManager.securedConnections()` 把传输向下转型成 `TcpTransport`，
+  一旦外面包了 `BlackholeTransport` 就永远读到 0（TLS 示例自检会报"TLS 连接 0 条"）。改为接口方法
+  `NetworkTransport.securedConnectionCount()` / `rejectedConnectionCount()`（默认 0，`TcpTransport` 覆盖真实计数，
+  包装型传输转发内层），远程层不再转型——观测能力不再随装饰器一起丢失。
+- **`ShardingRebalanceTest.manualRebalanceMovesShard` 在 8 进程并行下偶发超时**：用例关掉自动再平衡（只测手动迁移），
+  迁移方向按观察到的负载决定，只等"集群里确实有实体"再迁一个分片并断言源 -1 / 目标 +1。
+
 ### ✨ 新增（2026-11-10，分片获取可观测）
 - **`AcquisitionHealth` + `ClusterSharding.acquisitionHealth()`**（`cactor_cluster.membership`）：分片获取是许可式两阶段移交，
   必须等每个可能托管者确认"已停止"，否则会出现双主——所以不设超时强推，而是暴露 `slow`（等待超过阈值的分片数）、

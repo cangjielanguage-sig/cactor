@@ -129,6 +129,15 @@ public class BlackholeTransport <: NetworkTransport {
         inner.isActive()
     }
 
+    /** 观测计数必须穿透装饰器：内层是 TcpTransport 时给出真实的加密/拒绝连接数 */
+    public func securedConnectionCount(): Int64 {
+        inner.securedConnectionCount()
+    }
+
+    public func rejectedConnectionCount(): Int64 {
+        inner.rejectedConnectionCount()
+    }
+
     public func send(address: NetworkAddress, data: Array<UInt8>): Unit {
         if (shouldDrop(address)) {
             dropped.fetchAdd(1)
