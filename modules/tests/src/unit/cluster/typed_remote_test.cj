@@ -74,6 +74,27 @@ func typedRecorder(label: String, rec: EventRecorder): TypedBehavior<StringMessa
     })
 }
 
+/** 收到请求就回一条 StringMessage（走经典上下文的 reply，回复引用来自信封 sender） */
+func replyingRecorder(rec: EventRecorder): TypedBehavior<StringMessage> {
+    TypedBehaviors.receive<StringMessage>({ ctx, msg =>
+        let text = "pong:${msg.getContent()}"
+        match (ctx.toClassic()) {
+            case Some(classic) => classic.reply(StringMessage(text))
+            case None => ()
+        }
+        rec.record(text)
+        TypedBehaviors.same<StringMessage>()
+    })
+}
+
+/** 只记录不回复：用于验证跨节点 ask 的超时 */
+func silentRecorder(rec: EventRecorder): TypedBehavior<StringMessage> {
+    TypedBehaviors.receiveMessage<StringMessage>({ msg =>
+        rec.record("silent:${msg.getContent()}")
+        TypedBehaviors.same<StringMessage>()
+    })
+}
+
 @Test
 public class TypedRemoteTest {
     /** 一个节点暴露类型化 Actor，另一个节点用 typedRemoteActorOf 拿到远程类型化引用并 tell */
@@ -98,6 +119,63 @@ public class TypedRemoteTest {
         @Expect(rec.await("b:跨节点", CLUSTER_WAIT), true)
 
         // 载荷不是 Message 时发送侧立即失败，而不是悄悄丢包
+        a.close()
+        b.close()
+    }
+
+    /** 跨节点类型化 ask：回复引用走信封 sender，请求消息里不需要带引用 */
+    @TestCase
+    public func typedAskCrossesNodes(): Unit {
+        let a = CNode("tq-a")
+        let b = CNode("tq-b")
+        a.join([a.addr()], FAST)
+        b.join([b.addr()], FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp2([a, b], 2) }), true)
+
+        let rec = EventRecorder()
+        let refB = b.kit.spawnTyped<StringMessage>(replyingRecorder(rec), "typed-ask")
+        match (refB.toClassic()) {
+            case Some(classic) => b.remote.exposeActor("typed-ask", classic)
+            case None => @Fail("spawnTyped 应当返回由经典 Actor 支撑的引用")
+        }
+
+        let refA = a.remote.typedRemoteActorOf<StringMessage>(b.addr(), "typed-ask")
+        let p = TypedAsk.askRemote<StringMessage, StringMessage>(refA, StringMessage("ping"), CLUSTER_WAIT)
+        @Expect(p.get(CLUSTER_WAIT).getContent(), "pong:ping")
+        @Expect(rec.await("pong:ping", CLUSTER_WAIT), true)
+
+        a.close()
+        b.close()
+    }
+
+    /** 目标不回复时，跨节点 ask 以 TypedAskTimeoutException 失败，而不是永久挂起 */
+    @TestCase
+    public func typedAskTimesOutWithoutReply(): Unit {
+        let a = CNode("tqt-a")
+        let b = CNode("tqt-b")
+        a.join([a.addr()], FAST)
+        b.join([b.addr()], FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp2([a, b], 2) }), true)
+
+        let rec = EventRecorder()
+        let refB = b.kit.spawnTyped<StringMessage>(silentRecorder(rec), "typed-silent")
+        match (refB.toClassic()) {
+            case Some(classic) => b.remote.exposeActor("typed-silent", classic)
+            case None => @Fail("spawnTyped 应当返回由经典 Actor 支撑的引用")
+        }
+
+        let refA = a.remote.typedRemoteActorOf<StringMessage>(b.addr(), "typed-silent")
+        let p = TypedAsk.askRemote<StringMessage, StringMessage>(refA, StringMessage("ping"), Duration.millisecond * 500)
+        var timedOut = false
+        try {
+            p.get(Duration.second * 5)
+        } catch (e: TypedAskTimeoutException) {
+            timedOut = true
+        }
+        @Expect(timedOut, true)
+        // 请求确实到了对端（不是超时掩盖了丢包）
+        @Expect(rec.await("silent:ping", CLUSTER_WAIT), true)
+
         a.close()
         b.close()
     }

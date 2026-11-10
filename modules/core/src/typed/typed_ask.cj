@@ -430,4 +430,51 @@ public struct TypedAsk {
         }
         promise
     }
+
+    private static let remoteSeq: AtomicInt64 = AtomicInt64(0)
+
+    /**
+     * 跨节点 ask：请求以 TypedPayloadBox 过线，回复引用走**信封的 sender**通道，
+     * 所以请求消息本身不需要带任何引用（用户自定义的编解码器也就不需要认识 ref 字段）。
+     *
+     * 目标端照常回复即可：经典上下文用 `context.reply(响应)`；类型化上下文用
+     * `context.toClassic().getOrThrow().reply(响应)`。响应在发起方被还原成 Res。
+     *
+     * 与 ask 的分工：ask 在进程内把 replyTo 塞进请求消息，最直接；跨进程时那个引用过不了线，
+     * 因此用 askRemote。Res 必须是响应 Message 的类型本身（StringMessage 这类），
+     * 或者是回复方用类型化引用回传、由 PromiseActorRef 自动解包的载荷。
+     *
+     * 示例：
+     *   let p = TypedAsk.askRemote<StringMessage, StringMessage>(remote, StringMessage("ping"), Duration.second)
+     *   let reply = p.get(Duration.second)
+     */
+    public static func askRemote<Req, Res>(target: TypedActorRef<Req>, request: Req,
+        timeout: Duration): TypedPromise<Res> {
+        let raw = TypedPromise<Any>()
+        let path = "/temp/remote-ask-${remoteSeq.fetchAdd(1) + 1}"
+        let replyTo = PromiseActorRef(raw, path)
+        let targetPath = target.pathString()
+        let timer = Timer.once(timeout, { =>
+            raw.tryFailure(TypedAskTimeoutException("跨节点 ask ${targetPath} 在 ${timeout} 内没有回复"))
+            ()
+        })
+        raw.onComplete({ _ => timer.cancel() })
+        match (target.toClassic()) {
+            case Some(classic) =>
+                // 回复引用作为 sender：远程层会为它登记回复入口，回复沿网络直接回到本节点
+                try {
+                    classic.tell(TypedPayloadBox(request), replyTo)
+                } catch (e: Exception) {
+                    raw.tryFailure(e)
+                }
+            case None =>
+                raw.tryFailure(IllegalArgumentException("askRemote 的目标必须由 Actor 承载（toClassic() 为空）：${targetPath}"))
+        }
+        raw.map<Res>({ a =>
+            match (a as Res) {
+                case Some(v) => v
+                case None => throw IllegalStateException("跨节点 ask ${targetPath} 的回复无法还原为期望类型；回复要么是 Res 本身，要么是类型化引用回传的一条消息")
+            }
+        })
+    }
 }
