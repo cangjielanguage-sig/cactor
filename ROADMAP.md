@@ -199,6 +199,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 - [x] 分片按负载再平衡（2026-11-09）：领导者聚合全部 Up 成员 5 s 内的负载报告，可在任意成员之间搬迁最重分片（阈值 1.5 倍且差值 > 5、冷却 3 s、覆盖经可靠通道广播）；测试 `unit/cluster/sharding_rebalance_test.cj` 覆盖手动与自动两条路径。策略与决策已抽出（2026-11-09 续）：`RebalancePolicy` + 纯函数 `decideRebalance`，12 例纯函数用例在 `unit/cluster/rebalance_policy_test.cj`；负载上报按签名去重、每 TTL/2 刷新。
 - [x] 单机黑洞注入：testkit `BlackholeTransport`（`modules/testkit/src/network_harness.cj`），测试 `unit/cluster/cluster_blackhole_test.cj`。
 - [x] 集群视图管理端点（2026-11-10）：`cactor/api/management.cj` 的通用 `ManagementRoute` + `addRoute`，`cactor_cluster.ops.attachClusterRoutes` 挂上 `/cluster/status`、`/cluster/shards`；测试 `unit/cluster/cluster_management_test.cj`。此前 `docs/TROUBLESHOOTING.md` 让运维访问这两个路径，服务端一直 404。
+- [x] 分片获取可观测（2026-11-10）：`ShardingSettings.acquireWarnAfter`（默认 10 s，可调）+ `ClusterSharding.acquisitionHealth()`（slow / oldestMs / pendingMembers / slowWarnings）+ `/cluster/shards` 字段；告警按窗口重复而不是只报一次；测试 `unit/cluster/sharding_acquisition_test.cj`（只在一侧建区域 → 托管为 0、报出在等的节点 → 另一侧建区域后收敛）。
 - [x] testkit 断言工具（2026-11-10，E62 的两项）：`TestProbe.watch` / `expectTerminated`（探针在自己的 Actor 线程建立 DeathWatch，已停止目标立即返回、活着目标超时报错）与 `LoggingTestKit`（内存 sink + 级别过滤 + clear/close 还原）；测试 `unit/testkit/probe_and_logging_testkit_test.cj`。跨进程 barrier / 进程级黑洞注入仍未做，E62 保持 🟡。
 - [x] 成员协议鉴权与 incarnation（20261106 计划 E7′，见上表"集群"一行）。
 - **验收**：本机 3 节点集群测试：加入、离开、杀掉一个节点后 Singleton 切换（已有测试覆盖）。

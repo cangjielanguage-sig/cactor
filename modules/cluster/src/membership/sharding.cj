@@ -185,9 +185,15 @@ public class ShardingSettings {
     public let rememberEntities: Option<Replicator>
     /** 自动再平衡策略；决策逻辑见 rebalance.cj 的 decideRebalance（纯函数） */
     public let rebalance: RebalancePolicy
+    /**
+     * 获取分片等待该时长后开始告警、并计入 acquisitionHealth 的 slow 计数（默认 10 s）。
+     * 只影响观测，不影响正确性：获取仍会一直重发直到对方确认（否则可能两个节点同时托管同一分片）。
+     */
+    public let acquireWarnAfter: Duration
 
     public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
-        rebalance!: RebalancePolicy = RebalancePolicy()) {
+        rebalance!: RebalancePolicy = RebalancePolicy(),
+        acquireWarnAfter!: Duration = Duration.second * 10) {
         if (bufferSize <= 0) {
             throw IllegalArgumentException("缓冲区大小必须为正数: ${bufferSize}")
         }
@@ -198,6 +204,10 @@ public class ShardingSettings {
         this.passivateAfter = passivateAfter
         this.rememberEntities = rememberEntities
         this.rebalance = rebalance
+        if (acquireWarnAfter <= Duration.Zero) {
+            throw IllegalArgumentException("acquireWarnAfter 必须为正数: ${acquireWarnAfter}")
+        }
+        this.acquireWarnAfter = acquireWarnAfter
     }
 
     public static func defaults(): ShardingSettings {
@@ -214,15 +224,52 @@ public class ShardingSettings {
 
     /** 换再平衡策略（链式：ShardingSettings.passivating(1.minutes).withRebalance(...)） */
     public func withRebalance(policy: RebalancePolicy): ShardingSettings {
-        ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: policy)
+        ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: policy, acquireWarnAfter: acquireWarnAfter)
     }
 
     public func withBufferSize(size: Int64): ShardingSettings {
-        ShardingSettings(size, passivateAfter, rememberEntities, rebalance: rebalance)
+        ShardingSettings(size, passivateAfter, rememberEntities, rebalance: rebalance, acquireWarnAfter: acquireWarnAfter)
     }
 
     public func withPassivation(idle: Duration): ShardingSettings {
-        ShardingSettings(bufferSize, Some(idle), None<Replicator>, rebalance: rebalance)
+        ShardingSettings(bufferSize, Some(idle), None<Replicator>, rebalance: rebalance, acquireWarnAfter: acquireWarnAfter)
+    }
+
+    /** 换获取等待的告警阈值（只影响观测；链式与 withRebalance 一致） */
+    public func withAcquireWarnAfter(after: Duration): ShardingSettings {
+        ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: rebalance, acquireWarnAfter: after)
+    }
+}
+
+/**
+ * 分片获取的健康度快照（运维观测，E13′ 补充）。
+ *
+ * 获取是两阶段移交：本方必须等到其他每个可能托管者回复"已停止"，否则两个节点可能同时托管同一分片。
+ * 因此这里**不设超时强推**——只把"卡了多久、在等谁"变成可查询、可告警的数据：
+ *   - `slow`：等待超过 `ShardingSettings.acquireWarnAfter` 的分片数；
+ *   - `oldestMs`：最久的一个已经等了多久；
+ *   - `pendingMembers`：这些分片还在等的成员地址（通常是没跑同类型 ClusterSharding 的节点）；
+ *   - `slowWarnings`：累计告警次数（每过一个阈值窗口 +1）。
+ */
+public struct AcquisitionHealth <: ToString {
+    public let hosted: Int64
+    public let acquiring: Int64
+    public let slow: Int64
+    public let oldestMs: Int64
+    public let pendingMembers: Array<String>
+    public let slowWarnings: Int64
+
+    public init(hosted: Int64, acquiring: Int64, slow: Int64, oldestMs: Int64, pendingMembers: Array<String>, slowWarnings: Int64) {
+        this.hosted = hosted
+        this.acquiring = acquiring
+        this.slow = slow
+        this.oldestMs = oldestMs
+        this.pendingMembers = pendingMembers
+        this.slowWarnings = slowWarnings
+    }
+
+    public func toString(): String {
+        "AcquisitionHealth(托管 ${hosted}, 获取中 ${acquiring}, 慢 ${slow}, 最久 ${oldestMs} ms, 等待 ${String.join(pendingMembers, delimiter: ",")})"
     }
 }
 
@@ -379,6 +426,11 @@ class RegionShared {
     var acquiringShards: Int64 = 0
     var acquisitionsCompleted: Int64 = 0
     var yieldedShards: Int64 = 0
+    // 获取健康度快照（sendAcquireRequests 每次重发时更新，供 /cluster/shards 与 acquisitionHealth）
+    var slowAcquires: Int64 = 0
+    var oldestAcquireMs: Int64 = 0
+    var acquireSlowWarnings: Int64 = 0
+    let pendingAcquireMembers = HashSet<String>()
     // 每个分片上当前运行的实体数（供负载报告 / 再平衡决策，E62/E13′ 后续）
     let shardCounts = HashMap<Int64, Int64>()
 }
@@ -390,7 +442,7 @@ class Acquisition {
     let acked = HashSet<String>()
     let startedMs: Int64
     var lastSentMs: Int64 = -1
-    var warned = false
+    var lastWarnMs: Int64 = -1
 
     init(round: Int64, startedMs: Int64) {
         this.round = round
@@ -416,7 +468,6 @@ class RegionView {
 // 转发次数上限：超过后挂起，视图变化（或每秒）重新路由；拥有者让出后消息转回来超过 2 跳即重新获取
 let MAX_HOPS: Int64 = 3
 let HANDOFF_RESEND_MS: Int64 = 200
-let SLOW_ACQUIRE_WARN_MS: Int64 = 10000
 let REROUTE_PARKED_TICKS: Int64 = 20
 // 负载报告与迁移间隔的默认值在 RebalancePolicy 里（见 rebalance.cj），区域只读 settings.rebalance
 
@@ -891,12 +942,30 @@ class ShardRegionActor <: Actor {
     /** 向还没确认的成员（重）发移交请求：按成员合并成一条消息，每 200ms 重发一次直到确认 */
     private func sendAcquireRequests(): Unit {
         if (acquiring.isEmpty()) {
+            publishAcquireHealth(0, 0, HashSet<String>())
             return
         }
         let now = monotonicMillis()
+        let warnMs = settings.acquireWarnAfter.toMilliseconds()
+        var slow: Int64 = 0
+        var oldest: Int64 = 0
+        let waiting = HashSet<String>()
         let perMember = HashMap<String, ArrayList<(Int64, Int64)>>()
         for ((sh, a) in acquiring) {
-            if (a.pending.isEmpty() || (a.lastSentMs >= 0 && now - a.lastSentMs < HANDOFF_RESEND_MS)) {
+            if (a.pending.isEmpty()) {
+                continue
+            }
+            let waited = now - a.startedMs
+            if (waited >= warnMs) {
+                slow++
+                if (waited > oldest) {
+                    oldest = waited
+                }
+                for (m in a.pending) {
+                    waiting.add(m)
+                }
+            }
+            if (a.lastSentMs >= 0 && now - a.lastSentMs < HANDOFF_RESEND_MS) {
                 continue
             }
             a.lastSentMs = now
@@ -909,13 +978,30 @@ class ShardRegionActor <: Actor {
                         perMember[m] = l
                 }
             }
-            if (!a.warned && now - a.startedMs > SLOW_ACQUIRE_WARN_MS) {
-                a.warned = true
-                log.warn("${selfAddress} 获取 ${typeName} 分片 ${sh} 已等待 ${now - a.startedMs} ms，仍未确认的成员：${a.pending.toArray()}（这些节点需要运行同类型的 ClusterSharding）")
+            // 每经过一个阈值窗口再告警一次：一次性的 warn 在长时间故障里会被后续日志淹没
+            if (a.lastWarnMs < 0 || waited - a.lastWarnMs >= warnMs) {
+                a.lastWarnMs = waited
+                synchronized(shared.lock) {
+                    shared.acquireSlowWarnings++
+                }
+                log.warn("${selfAddress} 获取 ${typeName} 分片 ${sh} 已等待 ${waited} ms，仍未确认的成员：${a.pending.toArray()}（这些节点需要运行同类型的 ClusterSharding 且网络可达）")
             }
         }
+        publishAcquireHealth(slow, oldest, waiting)
         for ((m, items) in perMember) {
             sendControl(m, "BEGIN", items.toArray())
+        }
+    }
+
+    /** 把获取健康度写进共享区：告警之外，运维还能从 /cluster/shards 看到卡在等谁 */
+    private func publishAcquireHealth(slow: Int64, oldest: Int64, waiting: HashSet<String>): Unit {
+        synchronized(shared.lock) {
+            shared.slowAcquires = slow
+            shared.oldestAcquireMs = oldest
+            shared.pendingAcquireMembers.clear()
+            for (m in waiting) {
+                shared.pendingAcquireMembers.add(m)
+            }
         }
     }
 
@@ -1547,6 +1633,19 @@ public class ClusterSharding {
     public func shardStats(): (Int64, Int64, Int64) {
         synchronized(shared.lock) {
             (shared.hostedShards, shared.acquiringShards, shared.acquisitionsCompleted)
+        }
+    }
+
+    /**
+     * 获取健康度（见 AcquisitionHealth）：托管/获取中的分片数、等待超过阈值的分片数与成员。
+     * 快照由区域的重发循环维护，最多滞后一个 tick；数量小、无需额外调度。
+     */
+    public func acquisitionHealth(): AcquisitionHealth {
+        synchronized(shared.lock) {
+            let pending = ArrayList<String>(shared.pendingAcquireMembers)
+            pending.sort()
+            AcquisitionHealth(shared.hostedShards, shared.acquiringShards, shared.slowAcquires,
+                shared.oldestAcquireMs, pending.toArray(), shared.acquireSlowWarnings)
         }
     }
 

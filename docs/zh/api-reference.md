@@ -2438,6 +2438,14 @@ let carts2 = ClusterSharding(cluster, system, remote, "cart", 100, { id => CartA
 // 压测、演示需要固定放置时关掉自动迁移（手动 rebalanceShard 仍可用）
 let fixed = ShardingSettings.defaults().withRebalance(RebalancePolicy.disabled())
 
+// 获取卡死的可见化：等超过 acquireWarnAfter（默认 10 s）会反复告警，并能查"卡了多久、在等谁"
+let acq = ShardingSettings.defaults().withAcquireWarnAfter(30.seconds)
+let region = ClusterSharding(cluster, system, remote, "cart", 100, { id => CartActor(id) }, acq)
+let health = region.acquisitionHealth()
+// health.slow（超过阈值的分片数）、health.oldestMs（最久等了多久）、
+// health.pendingMembers（还在等谁确认，通常是没跑同类型 ClusterSharding 的节点）、
+// health.slowWarnings（累计告警次数，每过一个阈值窗口 +1）
+
 // 加入兼容检查：内置分片哈希版本与移交协议版本总是比对；再加上业务自己的兼容键
 let settings = ClusterSettings.defaults().withJoinCompatibility("app.protocol", "3")
 match (cluster.joinRejection()) {
@@ -2455,6 +2463,7 @@ match (cluster.joinRejection()) {
 | 转发超过 3 跳仍不在拥有者上 | 挂起，视图变化或每秒重新路由 |
 | 本节点离开集群、缓冲区满 | 消息交给死信（`subscribeDeadLetters` 可见，路径 `sharding/<类型>/<实体>`），`stats()` 的丢弃数加一 |
 | 某个成员没有创建该类型的区域 | 需要它确认的分片一直获取中，10 s 后告警点名 |
+| 获取一直不完成 | 获取是许可式两阶段移交：必须等到每个可能托管者确认"已停止"，否则两个节点可能同时托管同一分片。所以**不会超时强推**，而是把等待变成数据——`ShardingSettings.acquireWarnAfter`（默认 10 s）之后每过一个窗口告警一次并累加 `slowWarnings`，`acquisitionHealth()` 给出 `slow` / `oldestMs` / `pendingMembers`，`/cluster/shards` 同样暴露 `slowAcquires`、`oldestAcquireMs`、`pendingAcquireMembers`。最常见的原因是某个 Up 成员没有创建同类型的 `ClusterSharding` |
 | 自动再平衡 | 领导者每 2 s tick（及每次收到负载报告）把 Up 成员 `reportTtl`（默认 5 s）内的报告聚合成表；有不可达成员时不动，全部成员都有报告才决策；最忙与最空闲的实体数相差超过 `minEntityDelta`（默认 5）且不小于 `ratioPercent`（默认 150%）时，把最忙节点上最重的分片迁到最空闲节点（源可以是任意成员）；两次自动迁移间隔 `cooldown`（默认 3 s）。非 Up 成员的报告直接丢弃。阈值、冷却与 TTL 由 `RebalancePolicy` 描述，决策由纯函数 `decideRebalance` 给出（返回 `Move` 或带理由的 `Skip`，日志里能看到为什么没搬）。负载不变的节点不重复上报，但每 `reportTtl / 2` 刷新一次 |
 | 加入时兼容键不一致，或对方是不带兼容信息的旧版本 | 回 REJECT，永远不会成为成员；被拒的节点不再发 JOIN，首个种子也不会另起集群 |
 

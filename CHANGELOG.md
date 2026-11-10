@@ -18,6 +18,14 @@
   `init(conflictResolver, syncInterval, clusterSupport)` 变为 `init(conflictResolver, syncInterval)`；
   `clusterSupport` 原本只是保存下来、从没参与同步逻辑。模块现标注 experimental（完整状态同步尚未实现）。
 
+### ✨ 新增（2026-11-10，分片获取可观测）
+- **`AcquisitionHealth` + `ClusterSharding.acquisitionHealth()`**（`cactor_cluster.membership`）：分片获取是许可式两阶段移交，
+  必须等每个可能托管者确认"已停止"，否则会出现双主——所以不设超时强推，而是暴露 `slow`（等待超过阈值的分片数）、
+  `oldestMs`、`pendingMembers`（还在等谁，通常是没跑同类型区域的节点）与累计告警次数 `slowWarnings`。
+- **`ShardingSettings.acquireWarnAfter`**（默认 10 s，`withAcquireWarnAfter` 可调）：删掉硬编码的 10 s 阈值；
+  告警从每个分片只报一次改为每过一个窗口再报一次，长时间故障不会被旧 warn 淹没。
+- **`/cluster/shards` 新增字段**：`slowAcquires`、`oldestAcquireMs`、`acquireSlowWarnings`、`pendingAcquireMembers`。
+
 ### ✨ 新增（2026-11-10，运维与测试可见性）
 - **管理端点的自定义路由**（`cactor/api/management.cj`）：`ManagementRoute(path, contentType, handler)` +
   `ManagementServer.addRoute`。路径必须是绝对的，重复注册抛 `IllegalArgumentException`；处理器在连接协程里执行，

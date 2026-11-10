@@ -82,7 +82,18 @@ public func shardingStatusJson(region: ClusterSharding): String {
     sb.append(",\"dropped\":${dropped}")
     sb.append(",\"passivated\":${region.passivatedCount()}")
     sb.append(",\"restarted\":${region.restartedCount()}")
-    sb.append(",\"busiest\":[")
+    let health = region.acquisitionHealth()
+    sb.append(",\"slowAcquires\":${health.slow}")
+    sb.append(",\"oldestAcquireMs\":${health.oldestMs}")
+    sb.append(",\"acquireSlowWarnings\":${health.slowWarnings}")
+    sb.append(",\"pendingAcquireMembers\":[")
+    for (i in 0..health.pendingMembers.size) {
+        if (i > 0) {
+            sb.append(",")
+        }
+        sb.append("\"${jsonEscape(health.pendingMembers[i])}\"")
+    }
+    sb.append("],\"busiest\":[")
     for (i in 0..busiest.size) {
         if (i > 0) {
             sb.append(",")
