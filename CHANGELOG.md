@@ -7,6 +7,14 @@
 
 ## [未发布]
 
+### ✨ 新增（2026-11-10，跨进程 barrier）
+
+- `cactor_testkit.ProcessBarrier`：用共享目录的 `.ready` 文件做跨进程会合，`arrive` / `await` / `parties` / `isOpen` /
+  `reset`，shell 侧 `touch <dir>/<name>.ready` 即可参与同一 barrier；崩溃不会留下半开的连接，缺谁直接列在 `parties()`。
+- `awaitGossipRounds(nodes, rounds, timeout)`（测试 harness）：按 `gossipCount()` 的推进替代固定 `sleep`，
+  8 处负向断言的睡眠已迁移，高负载下不再因为『消息还没传播完』偶发变红。
+- 测试：`unit/testkit/process_barrier_test.cj` 4 例（含用真实 `/bin/sh` 子进程验证跨进程会合），全量 728 → **732**。
+
 ### ✨ 新增（2026-11-10，类型化协议的普通 enum 过线）
 
 - `TypedPayloadCodecs`：为不是 `Message` 的类型（类型化协议最常见的普通 `enum`）注册命名编解码器，

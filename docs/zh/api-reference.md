@@ -2228,6 +2228,36 @@ net.healAll()                         // 恢复全部
 if (net.isBlackholed(aAddr)) { /* ... */ }
 ```
 
+### 跨进程同步：`ProcessBarrier`
+
+`ClusterBarrier`（进程内 Mutex 计数）只能同步线程；要在**多个操作系统进程**之间卡住同一步，用 `ProcessBarrier`——共享目录里的 `<name>.ready` 文件就是会合点，到齐后写 `go`：
+
+```cangjie
+import cactor_testkit.*
+
+let dir = ProcessBarrier.tempDirectory("chaos")       // /tmp/cactor-barrier-chaos-<随机数>
+let barrier = ProcessBarrier(dir, timeout: 30.seconds)
+// 每个进程到这一步就登记并等待，全部到齐后一起继续
+let ok = barrier.arrive("node-1", expected: 3)        // 自己登记 + 等 3 个
+barrier.parties()                                     // ["node-1","node-2","node-3"]，缺谁一眼看到
+barrier.isOpen()                                      // go 标记是否已写
+barrier.reset()                                       // 同目录复用下一轮
+```
+
+shell 侧可以 `touch <dir>/node-2.ready` 直接参与同一个 barrier（协议写在类头注释里），所以脚本与测试可以混用。选了文件而不是 socket：崩溃不会留下半开连接，也不需要谁先启动。
+
+### 等待的写法：`awaitGossipRounds`
+
+负向断言（"迟到的删除没有生效""伪造成员没被加入"）以前靠 `sleep(500.millis)`，高负载下消息可能还没传播完就断言，于是偶发变红。改成等 gossip 真的推进了若干轮：
+
+```cangjie
+// 两个节点各自再跑 3 轮 gossip，再断言"什么都没变"
+@Expect(awaitGossipRounds([nodes[0].cluster, nodes[1].cluster], 3, CLUSTER_WAIT), true)
+@Expect(nodes[0].cluster.membershipStats()[1], 0)
+```
+
+只在**没有任何可观察推进量**的场景（三方完全隔离）才退回按 gossip 间隔等轮数，并在用例里写清原因。
+
 ---
 
 ## 13. 类型安全 Actor
