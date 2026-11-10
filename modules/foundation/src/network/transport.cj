@@ -765,13 +765,41 @@ public class TcpTransport <: NetworkTransport {
         this.connectTimeout = connectTimeout
     }
 
+    /**
+     * 绑定监听端口。同一地址重启时，上一个监听器可能还卡在阻塞的 accept 上没释放描述符
+     * （close 与 accept 在不同线程，Darwin 上 close 要等 accept 返回），此时 bind 会先撞上
+     * EADDRINUSE；短暂重试即可。持续占用（端口被别的进程监听）仍然失败，不会无限等待。
+     */
+    private func bindListener(): TcpServerSocket {
+        var waited: Int64 = 0
+        for (attempt in 0..7) {
+            let s = TcpServerSocket(bindAt: UInt16(requestedAddress.port))
+            s.reuseAddress = true
+            try {
+                s.bind()
+                return s
+            } catch (e: SocketException) {
+                try {
+                    s.close()
+                } catch (_: Exception) {
+                }
+                if (attempt == 6) {
+                    isRunning.store(false)
+                    throw e
+                }
+                waited = waited + 10 * (attempt + 1)
+                sleep(Duration.millisecond * (10 * (attempt + 1)))
+            }
+        }
+        // 循环里的返回值已经覆盖全部路径，这里只为满足编译器的返回检查
+        throw IllegalStateException("绑定 ${requestedAddress.toString()} 失败：重试 ${waited} ms 后仍不可用")
+    }
+
     public func start(): Unit {
         if (!isRunning.compareAndSwap(false, true)) {
             return
         }
-        let s = TcpServerSocket(bindAt: UInt16(requestedAddress.port))
-        s.reuseAddress = true
-        s.bind()
+        let s = bindListener()
         if (let Some(addr) <- (s.localAddress as IPSocketAddress)) {
             boundPort = Int32(addr.port)
         }

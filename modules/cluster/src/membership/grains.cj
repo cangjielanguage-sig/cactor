@@ -399,7 +399,10 @@ public class Grains {
         let deliver = { r: GrainReply => rt.onReply(r) }
         this.sharding = ClusterSharding(cluster, system, remote, "grain-${kind}", numberOfShards,
             { id => GrainHost(GrainContext(kind, id, node), factory(id), remote, st, deliver, ep) },
-            ShardingSettings.passivating(idleTimeout))
+            // 关闭按负载的自动再平衡：Grain 的激活是**有状态**的（非持久化 Grain 的内存状态随激活走），
+            // 因为负载差异把它搬到别的节点等于静默丢掉状态，还违反"同一标识固定宿主"的语义；
+            // 分布本身由 rendezvous 哈希保证，激活的迁移只发生在节点离开/宕机时。
+            ShardingSettings.passivating(idleTimeout).withRebalance(RebalancePolicy.disabled()))
         remote.registerHandler(grainReplyHandler(kind, remote.selfUid().toString()), { m: Message =>
             if (let Some(r) <- (m as GrainReply)) {
                 rt.onReply(r)

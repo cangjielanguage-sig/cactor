@@ -13,7 +13,7 @@ package cactor_testkit
 import std.sync.*
 import std.time.*
 import std.collection.*
-import cactor_core.actor.{Actor, ActorRef, ActorContext, Props}
+import cactor_core.actor.{Actor, ActorRef, ActorContext, Props, Terminated}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.typed.{TypedActorRef, ClassicTypedRef, TypedPayloadBox, TypedBehavior}
 import cactor_core.typed.{TypedActorRef, ClassicTypedRef}
@@ -201,6 +201,11 @@ class ProbeActor <: Actor {
     }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
+        // 控制消息：在探针自己的上下文里建立监视（watch 只能在 Actor 线程里调用）
+        if (let Some(w) <- (message as ProbeWatch)) {
+            context.watch(w.target)
+            return MessageResult.Handled
+        }
         queue.put(ReceivedMessage(message, context.senderRef()))
         if (let Some(f) <- autoReply) {
             if (let Some(r) <- f(message)) {
@@ -208,6 +213,19 @@ class ProbeActor <: Actor {
             }
         }
         MessageResult.Handled
+    }
+}
+
+/** 让探针监视某个 Actor（内部消息，不进入被测逻辑） */
+class ProbeWatch <: Message {
+    let target: ActorRef
+
+    init(target: ActorRef) {
+        this.target = target
+    }
+
+    public func messageType(): String {
+        "ProbeWatch"
     }
 }
 
@@ -269,6 +287,42 @@ public class TestProbe {
             case Some(item) => throw TestKitAssertionException("不应收到消息，但收到了: ${item.message.messageType()}")
             case None => ()
         }
+    }
+
+    /**
+     * 让探针监视 target；target 停止后探针会收到 Terminated（作为普通消息入队）。
+     * 对标 Akka TestProbe.watch。
+     */
+    public func watch(target: ActorRef): Unit {
+        probeRef.tell(ProbeWatch(target))
+    }
+
+    /**
+     * 等待 target 停止（E62，对标 Akka expectTerminated）。
+     * 已经停止的目标会立即观察到（watch 已停止的目标会马上投递 Terminated）；
+     * 期间收到的其他消息被丢弃（与 Akka 一致，需要保留请先自行收完）。
+     */
+    public func expectTerminated(target: ActorRef, timeout: Duration): Terminated {
+        watch(target)
+        let deadline = MonoTime.now() + timeout
+        while (true) {
+            let left = deadline - MonoTime.now()
+            if (left <= Duration.Zero) {
+                throw TestKitAssertionException("${timeout} 内 ${target.path} 没有停止")
+            }
+            let m = expectMsg(left)
+            if (let Some(t) <- (m as Terminated)) {
+                if (t.actor.equals(target)) {
+                    return t
+                }
+            }
+        }
+        throw TestKitAssertionException("不可达")
+    }
+
+    /** 等待 target 停止，使用默认超时 */
+    public func expectTerminated(target: ActorRef): Terminated {
+        expectTerminated(target, DEFAULT_TIMEOUT)
     }
 
     /** 连续接收 n 条消息 */

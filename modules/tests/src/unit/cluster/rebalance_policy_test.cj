@@ -96,10 +96,10 @@ public class RebalancePolicyTest {
         expectSkip(decideRebalance(v, RebalancePolicy.defaults()), RebalanceSkipReason.Balanced)
     }
 
-    /** 6 / 0 比例够大，但绝对差没到 minEntityDelta：小规模抖动不值得搬 */
+    /** 4 / 0 比例够大，但绝对差没到 minEntityDelta（5）：小规模抖动不值得搬 */
     @TestCase
     public func entityDeltaBelowMinimumIsBalanced(): Unit {
-        let v = viewOf([("a", [(0, 6)]), ("b", [(0, 0)])])
+        let v = viewOf([("a", [(0, 4)]), ("b", [(0, 0)])])
         expectSkip(decideRebalance(v, RebalancePolicy.defaults()), RebalanceSkipReason.Balanced)
     }
 

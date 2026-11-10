@@ -154,6 +154,29 @@ func totalLocal(regions: Array<ClusterSharding>): Int64 {
     n
 }
 
+func passivationDiag(what: String, regions: Array<ClusterSharding>, ledger: Ledgers): Unit {
+    var local: Int64 = 0
+    var passivated: Int64 = 0
+    for (i in 0..regions.size) {
+        local += regions[i].localEntityCount()
+        passivated += regions[i].passivatedCount()
+    }
+    println("DIAG ${what}：本地实体 ${local}、钝化计数 ${passivated}、写入条数 ${ledger.count()}" +
+        "（逐区域 ${regions.map({ r => "${r.localEntityCount()}/${r.passivatedCount()}" }).toArray()}）")
+}
+
+/** 等条件成立；超时先打印诊断，再交回调用方断言（失败时日志能区分"没收敛"与"计数时序"） */
+func awaitPassivation(limit: Duration, cond: () -> Bool, diag: () -> Unit): Bool {
+    let ok = awaitCondition(limit, cond)
+    if (!ok) {
+        diag()
+    }
+    ok
+}
+
+// 钝化用例统一关掉按负载的自动再平衡：这里验证“空闲即钝化”，而再平衡会把分片（连同实体）移交到别的节点，
+// 移交时停止的实体记在 handedOff 上、不计入 passivatedCount（20 个实体只剩 18 次钝化）。再平衡本身由
+// ShardingRebalanceTest 覆盖；库的默认值仍然是开启。
 @Test
 public class ShardingPassivationTest {
     @TestCase
@@ -165,20 +188,22 @@ public class ShardingPassivationTest {
             let n = nodes[i]
             let addr = n.address()
             ClusterSharding(n.cluster, n.kit.system, n.remote, "idle", 32, { id => CountingEntity(id, addr, ledger) },
-                ShardingSettings.passivating(Duration.millisecond * 300))
+                ShardingSettings.passivating(Duration.millisecond * 300).withRebalance(RebalancePolicy.disabled()))
         })
         for (e in 0..20) {
             regions[e % 2].tell("p${e}", StringMessage("a"))
         }
-        @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == 20 }), true)
-        // 空闲后全部被钝化
-        @Expect(awaitCondition(CLUSTER_WAIT, { => totalLocal(regions) == 0 }), true)
-        @Expect(regions[0].passivatedCount() + regions[1].passivatedCount(), 20)
+        @Expect(awaitPassivation(CLUSTER_WAIT, { => ledger.count() == 20 }, { => passivationDiag("首轮消息", regions, ledger) }), true)
+        // 空闲后全部被钝化。注意顺序：localEntityCount 在 stopEntity 里先归零，钝化计数稍后才递增
+        // （同一个 Actor 轮次内、锁外），所以"本地实体为 0"早于"计数到 20"是正常的中间态；
+        // 断言等计数到位，语义是"20 个实体全部被钝化过"，不是"某一瞬间恰好数到 20"。
+        @Expect(awaitPassivation(CLUSTER_WAIT, { => totalLocal(regions) == 0 }, { => passivationDiag("钝化后", regions, ledger) }), true)
+        @Expect(awaitPassivation(CLUSTER_WAIT, { => regions[0].passivatedCount() + regions[1].passivatedCount() == 20 }, { => passivationDiag("钝化计数", regions, ledger) }), true)
         // 再发消息：重新创建，内存状态从 0 开始（证明确实是新实例）
         for (e in 0..20) {
             regions[(e + 1) % 2].tell("p${e}", StringMessage("b"))
         }
-        @Expect(awaitCondition(CLUSTER_WAIT, { => ledger.count() == 40 }), true)
+        @Expect(awaitPassivation(CLUSTER_WAIT, { => ledger.count() == 40 }, { => passivationDiag("重建消息", regions, ledger) }), true)
         for (e in 0..20) {
             @Expect(ledger.latestOf("p${e}"), 1)
             @Expect(ledger.hostsOf("p${e}").size, 1)
@@ -197,7 +222,8 @@ public class ShardingPassivationTest {
         let addr = nodes[0].address()
         // 持续活跃的实体（每 30ms 一条，阈值 1s）不应被钝化
         let steady = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "steady", 8,
-            { id => CountingEntity(id, addr, ledger) }, ShardingSettings.passivating(Duration.second))
+            { id => CountingEntity(id, addr, ledger) },
+            ShardingSettings.passivating(Duration.second).withRebalance(RebalancePolicy.disabled()))
         for (k in 0..20) {
             steady.tell("busy", StringMessage("${k}"))
             sleep(Duration.millisecond * 30)
@@ -207,7 +233,8 @@ public class ShardingPassivationTest {
         @Expect(steady.passivatedCount(), 0)
         steady.stop()
         let region = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "busy", 8,
-            { id => CountingEntity(id, addr, ledger) }, ShardingSettings.passivating(Duration.millisecond * 100))
+            { id => CountingEntity(id, addr, ledger) },
+            ShardingSettings.passivating(Duration.millisecond * 100).withRebalance(RebalancePolicy.disabled()))
         // 间隔在钝化阈值附近随机抖动：不少消息会在实体停止过程中到达，要求一条不丢
         let rnd = Random(7)
         var sent: Int64 = 0
@@ -233,7 +260,8 @@ public class ShardingPassivationTest {
         let ledger = Ledgers()
         // 阈值 100ms，而 10 条消息需要 300ms 才能处理完：钝化发生时邮箱中仍有积压
         let region = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "slow", 8,
-            { id => SlowEntity(id, ledger) }, ShardingSettings.passivating(Duration.millisecond * 100))
+            { id => SlowEntity(id, ledger) },
+            ShardingSettings.passivating(Duration.millisecond * 100).withRebalance(RebalancePolicy.disabled()))
         for (k in 0..10) {
             region.tell("s", StringMessage("${k}"))
         }

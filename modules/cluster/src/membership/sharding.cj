@@ -665,6 +665,10 @@ class ShardRegionActor <: Actor {
     }
 
     private func sendLoadReport(context: ActorContext): Unit {
+        // 策略关闭时连报告都不发：既省跨节点流量，也避免"看起来在监控负载却从不决策"的误解
+        if (!settings.rebalance.enabled) {
+            return
+        }
         let s = cluster.state()
         if (s.members.size <= 1) {
             return

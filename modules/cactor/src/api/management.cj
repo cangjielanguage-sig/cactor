@@ -21,6 +21,14 @@
  *     .addReadinessCheck("cluster", { => cluster.isUp() && cluster.state().converged })
  *     .start()
  * ```
+ *
+ * 自定义端点（E66）：门面模块不认识集群类型，因此集群视图由上层注册成路由，而不是写死在这里：
+ *
+ * ```
+ * // cactor_cluster.ops 提供的集群视图
+ * attachClusterRoutes(mgmt, cluster, Some(carts))
+ * ```
+ * 内置端点优先；路径按精确匹配（查询串已剥离），处理器抛异常回 500 并计数。
  */
 package cactor.api
 
@@ -29,11 +37,34 @@ import std.sync.*
 import std.time.*
 import std.collection.*
 
+/**
+ * 自定义管理端点。
+ *
+ * path 必须是以 "/" 开头的绝对路径（精确匹配，不含查询串）；handler 每次请求调用一次，
+ * 在连接协程里执行，因此必须线程安全、且不要做阻塞很久的事情（总时限由 withRequestTimeout 兜底）。
+ */
+public struct ManagementRoute {
+    public let path: String
+    public let contentType: String
+    public let handler: () -> String
+
+    public init(path: String, contentType: String, handler: () -> String) {
+        if (!path.startsWith("/")) {
+            throw IllegalArgumentException("管理端点路径必须以 / 开头: ${path}")
+        }
+        this.path = path
+        this.contentType = contentType
+        this.handler = handler
+    }
+}
+
 public class ManagementServer {
     private let system: CActorSystem
     private let requestedPort: UInt16
     private let lock = Mutex()
     private let checks = ArrayList<(String, () -> Bool)>()
+    private let routes = ArrayList<ManagementRoute>()
+    private let routeFailures = AtomicInt64(0)
     private var server: Option<TcpServerSocket> = None
     private let running = AtomicBool(false)
     private let served = AtomicInt64(0)
@@ -80,6 +111,29 @@ public class ManagementServer {
     /** 因超过并发上限被拒绝的连接数 */
     public func rejectedConnections(): Int64 {
         rejected.load()
+    }
+
+    /** 注册自定义端点（start 之前调用；同一路径以先注册者为准） */
+    public func addRoute(route: ManagementRoute): ManagementServer {
+        synchronized(lock) {
+            for (r in routes) {
+                if (r.path == route.path) {
+                    throw IllegalArgumentException("管理端点路径重复: ${route.path}")
+                }
+            }
+            routes.add(route)
+        }
+        this
+    }
+
+    /** 注册自定义端点的简写 */
+    public func addRoute(path: String, contentType: String, handler: () -> String): ManagementServer {
+        addRoute(ManagementRoute(path, contentType, handler))
+    }
+
+    /** 处理器抛异常的次数（回 500，进程继续服务） */
+    public func handlerErrors(): Int64 {
+        routeFailures.load()
     }
 
     /** 注册就绪检查；检查抛异常视为不通过 */
@@ -233,7 +287,29 @@ public class ManagementServer {
                 }
             case "/health/ready" => readiness()
             case "/metrics" => ("200 OK", "text/plain; version=0.0.4", system.metricsText(false))
-            case _ => ("404 Not Found", "text/plain", "not found\n")
+            case _ => customRoute(path)
+        }
+    }
+
+    /** 上层注册的端点；处理器抛异常时不带垮连接协程，回 500 并计数 */
+    private func customRoute(path: String): (String, String, String) {
+        var found: Option<ManagementRoute> = None<ManagementRoute>
+        synchronized(lock) {
+            for (r in routes) {
+                if (r.path == path) {
+                    found = Some(r)
+                }
+            }
+        }
+        match (found) {
+            case Some(r) =>
+                try {
+                    ("200 OK", r.contentType, r.handler())
+                } catch (_: Exception) {
+                    routeFailures.fetchAdd(1)
+                    ("500 Internal Server Error", "text/plain", "handler failed\n")
+                }
+            case None => ("404 Not Found", "text/plain", "not found\n")
         }
     }
 

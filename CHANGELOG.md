@@ -18,6 +18,19 @@
   `init(conflictResolver, syncInterval, clusterSupport)` 变为 `init(conflictResolver, syncInterval)`；
   `clusterSupport` 原本只是保存下来、从没参与同步逻辑。模块现标注 experimental（完整状态同步尚未实现）。
 
+### ✨ 新增（2026-11-09，再平衡策略）
+- **`RebalancePolicy`（`cactor_cluster.membership`）**：再平衡的阈值不再写死在区域里。不可变 struct，
+  命名参数默认 `minEntityDelta = 5`、`ratioPercent = 150`、`cooldown = 3.seconds`、`reportTtl = 5.seconds`，
+  构造时校验；`withXxx` 返回新实例，`disabled()` 关闭自动迁移（手动 `rebalanceShard` 不受影响）。
+  用法：`ShardingSettings.passivating(1.minutes).withRebalance(RebalancePolicy().withRatioPercent(200))`。
+- **`decideRebalance(view, policy)` 纯函数 + `RebalanceDecision` 枚举**：决策从 `ShardRegionActor` 抽出，
+  返回 `Move(ShardMove)` 或 `Skip(RebalanceSkipReason)`（Disabled / UnreachableMembers / NotEnoughMembers /
+  MissingLoadReport / Balanced / Cooldown），日志与测试都能看到"为什么没搬"；新增理由时穷尽 `match` 会在编译期报错。
+  同值按地址/分片号 tie-break，与 HashMap 迭代顺序无关。
+- **负载上报按签名去重**：负载不变时不推报告，但每 `reportTtl / 2`（默认 2.5 s）强制刷新一次，保证领导者手里的报告不过期；
+  领导者判定统一走新的 `leaderAddress`。
+- **`ShardingSettings` 链式方法**：`withRebalance` / `withBufferSize` / `withPassivation`（原构造与静态工厂不变）。
+
 ### ✨ 新增（2026-11-09，分布式收尾）
 - **分片按负载的跨节点自动再平衡**（`cluster/membership/sharding.cj`）：领导者聚合所有 Up 成员 5 s 内的
   `ShardLoadReport`（非 Up 成员的报告直接丢弃、已离开成员的旧报告清理），不平衡度超过 1.5 倍且实体数差值 > 5 时，
@@ -26,6 +39,21 @@
 - **`BlackholeTransport`（`cactor_testkit.network_harness`）**：包装任意 `NetworkTransport`，按地址双向丢弃出站帧
   （同时覆盖普通与优先通道），`blackhole` / `heal` / `healAll` / `droppedCount` 可随时开关，其余方法全部转发。
   用于验证"对端不可达 → 故障检测 → 恢复"的完整链路（`unit/cluster/cluster_blackhole_test.cj`）。
+
+- **同址重启偶发 `Address already in use`**：`TcpTransport.start()` 的 `bind()` 改为有界重试（最多 7 次、约 280 ms
+  退避）。旧监听器的 `close()` 与阻塞在 `accept()` 的读协程在不同线程，Darwin 上描述符要等 `accept()` 返回才释放，
+  同一端口立刻重启会先撞上 `EADDRINUSE`；`SO_REUSEADDR` 对"仍在监听的 fd"无效。端口被别的进程占用时仍然直接失败。
+- **钝化与自动再平衡的交互（测试暴露）**：节点负载 20/0 时领导者会把分片连同实体移交，移交停止的实体计入
+  `handedOff` 而不是 `passivatedCount`，`ShardingPassivationTest` 因此偶发 18/20。钝化用例改为显式
+  `withRebalance(RebalancePolicy.disabled())`（库默认仍开启），断言改为等待计数到位，并在超时时打印逐区域诊断。
+- **再平衡决策的内联常量与不确定结果**：阈值/冷却/TTL 原是常量，比例比较用 `Int64 * 3 / 2`（极端值会触发溢出检查），
+  最忙/最空闲节点用 HashMap 迭代顺序决定（同值时不同节点可能搬给对方）。现统一走 `decideRebalance`：`Float64` 比较、
+  地址与分片号 tie-break，策略可配置。
+
+### 🐛 修复（2026-11-09，再平衡策略）
+- **Grain 不该被按负载搬走**：`Grains` 的宿主区域改用 `ShardingSettings.passivating(...).withRebalance(RebalancePolicy.disabled())`。
+  Grain 激活是有状态的（非持久化 Grain 的内存状态随激活走），按负载迁移等于静默丢状态，也违反"同一标识固定宿主"；
+  分布由 rendezvous 哈希保证，迁移只在节点离开/宕机时发生。策略关闭时区域也不再上报负载报告。
 
 ### 🐛 修复（2026-11-09，分布式收尾）
 - **分片放置覆盖不是可靠广播**：迁移与再平衡的 `ShardRebalance` 覆盖原先用 `ref.tell` 发给其他成员（at-most-once），
