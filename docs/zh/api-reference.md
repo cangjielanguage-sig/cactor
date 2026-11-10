@@ -2613,6 +2613,27 @@ for (r in a.receptionist.findTyped<Echo>(key)) {        // 本节点本地引用
 a.receptionist.deregisterTyped<Echo>(key, echo)
 ```
 
+跨节点 ask：回复引用不放进消息，而是走信封的 sender 通道（v2.26）：
+
+```cangjie
+// 节点 B：收到请求就回复（经典上下文；类型化上下文可以 toClassic() 拿到同一个能力）
+let echo = b.system.typed().actorOf(
+    TypedBehaviors.receive<StringMessage>({ ctx, msg =>
+        ctx.toClassic().getOrThrow().reply(StringMessage("pong:${msg.getContent()}"))
+        TypedBehaviors.same<StringMessage>()
+    }),
+    "typed-ask")
+
+// 节点 A：请求发出后，回复沿网络直接回到本节点
+let p = TypedAsk.askRemote<StringMessage, StringMessage>(remoteEcho, StringMessage("ping"), 3.seconds)
+let reply = p.get(3.seconds)     // 超时抛 TypedAskTimeoutException
+```
+
+为什么不复用 `TypedAsk.ask`：`ask` 把一次性回复引用（`/temp/ask-N`）塞进请求消息，进程内最直接；
+跨节点时那个引用是本地对象，用户自定义的 codec 不认识它，于是"请求能过线、回复回不来"。
+`askRemote` 改用远程层本来就有的 sender 通道（`senderInfoFor` 会给本地引用登记回复入口），
+代价是请求里不能顺便携带回复引用——需要多轮对话时用 `tell`。
+
 | 情形 | 行为 |
 |---|---|
 | 载荷既不是 `Message` 也没有命名编解码器（闭包、连接、任意对象） | 发送侧立即抛 `SerializationException`，明确"这条消息不能跨节点"，不会悄悄丢包 |
@@ -2621,7 +2642,8 @@ a.receptionist.deregisterTyped<Echo>(key, echo)
 | 同一次注册进程内生效 | 注册表是进程级的；`typeNames()` 用来比对两端配置，`unregister(typeName)` 只在测试里用 |
 | 同一个 codec 被重复注册 | `ensureTypedPayloadCodecRegistered()` 幂等；已存在同名 codec 时不覆盖（`SimpleRemoteManager.start()` 调用它） |
 | 登记一次性回复引用（`PromiseRef` / `PromiseActorRef`） | 抛 `IllegalArgumentException`：它没有经典路径，跨节点找不到 |
-| 跨节点类型化 **ask** | 尚不支持：`TypedAsk` 把回复引用塞进请求消息，而协议 codec 不认识 `TypedActorRef` 字段；`tell` 与订阅式交互不受影响 |
+| 跨节点类型化 **ask** | 用 `TypedAsk.askRemote(target, request, timeout)`（v2.26）：回复引用走信封的 sender 通道，请求消息里不需要带任何引用 |
+| `askRemote` 的回复类型 | 必须是响应消息本身的类型（`StringMessage` 这类）或由对端类型化引用回传、`PromiseActorRef` 自动解包的载荷；无法还原时抛 `IllegalStateException` |
 
 ### 分布式数据：delta 传播与移除节点的 pruning（E64）
 

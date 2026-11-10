@@ -7,6 +7,16 @@
 
 ## [未发布]
 
+### ✨ 新增（2026-11-10，跨节点类型化 ask）
+
+- `TypedAsk.askRemote<Req, Res>(target, request, timeout)`：跨节点类型化请求-响应。请求经 `TypedPayloadBox` 过线，
+  回复引用走**信封的 sender** 通道（远程层为它登记回复入口，回复沿网络直达发起方），因此请求消息里不需要携带任何引用，
+  用户自定义的 codec 也不必认识 `TypedActorRef` 字段。
+- 目标端照常回复即可：经典上下文 `context.reply(响应)`，类型化上下文 `context.toClassic().getOrThrow().reply(响应)`。
+- 回复无法还原为 `Res` 时抛 `IllegalStateException`，不再静默等待到超时；超时抛 `TypedAskTimeoutException`，错误文案带目标路径。
+- 测试：`unit/cluster/typed_remote_test.cj` 两个用例（回复到达、不回复时超时且对端确实处理了请求），全量 732 → **734**。
+- E63 记满：`ChildFailed` 信号、`SpawnProtocol`、集群版 Receptionist、`rest_for_one`、`withMdc` 之后，跨节点类型化 ask 补上最后一块。
+
 ### ✨ 新增（2026-11-10，跨进程 barrier）
 
 - `cactor_testkit.ProcessBarrier`：用共享目录的 `.ready` 文件做跨进程会合，`arrive` / `await` / `parties` / `isOpen` /

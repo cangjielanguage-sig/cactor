@@ -129,7 +129,7 @@ public class TypedRemoteTest {
         let a = CNode("tq-a")
         let b = CNode("tq-b")
         a.join([a.addr()], FAST)
-        b.join([b.addr()], FAST)
+        b.join([a.addr()], FAST)
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp2([a, b], 2) }), true)
 
         let rec = EventRecorder()
@@ -154,7 +154,7 @@ public class TypedRemoteTest {
         let a = CNode("tqt-a")
         let b = CNode("tqt-b")
         a.join([a.addr()], FAST)
-        b.join([b.addr()], FAST)
+        b.join([a.addr()], FAST)
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp2([a, b], 2) }), true)
 
         let rec = EventRecorder()
