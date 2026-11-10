@@ -88,6 +88,8 @@ guard tools/cluster_demo.sh | tail -2
 guard tools/cluster_demo.sh --tls | grep -E "TLS 连接|验证|正常退出"
 # 只显示结论行；但任何一项判定为 false、有重复启动或进程失败时把那一行也显示出来，失败原因不被过滤掉
 guard tools/cluster_crash_demo.sh | grep -E "验证|重新加入|记录完整|正常退出|：false|重复启动：[1-9]|重复启动 t-|有 0 个实体|有进程失败|没有就绪"
+# 进程级故障注入（E62）：3 个真进程，黑洞一条链路 → 对端判不可达 → 恢复后重新收敛
+guard tools/cluster_chaos.sh | grep -E "✓|通过|失败"
 # 持久化日志：随机 kill -9 + 尾部零填充 / 写到一半，已确认的事件一条不少（E8′）
 guard tools/journal_crash_demo.sh | tail -2
 # 类型化持久化：三个系统先后共用一个目录，64 个购物车并发写入后恢复一件不少、结账快照、删除不回退（E44）

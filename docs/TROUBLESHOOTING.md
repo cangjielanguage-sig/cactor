@@ -457,3 +457,9 @@ println("内存使用变化: ${memoryAfter - memoryBefore} bytes")
 **CActor v1.2.0 - 快速诊断，高效解决！** 🔧
 
 *最后更新: 2025年7月3日*
+
+## 验证故障注入（E62）
+
+`attachFaultInjectionRoutes(mgmt, transport)` 挂上 `/cluster/blackhole?addr=host:port`、`/cluster/heal[?addr=]`、`/cluster/faults`。
+`tools/cluster_chaos.sh` 用 3 个真进程把整条链路跑一遍：黑洞 node0 -> node2 后，**node2 会先把 node0 判为不可达**（单向黑洞只让收不到心跳的一端报警），
+`droppedCount` 增长；`heal` 之后三节点重新收敛。排障时同样可以先 `curl /cluster/status` 看 `unreachable`，再决定要不要注入。

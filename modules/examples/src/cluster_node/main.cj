@@ -19,12 +19,13 @@ import std.time.*
 import std.collection.*
 import std.convert.*
 import std.env.{getVariable}
-import cactor.api.{CActorSystemFactory}
+import cactor.api.{CActorSystemFactory, ManagementServer}
 import cactor_core.actor.{Actor, ActorContext}
 import cactor_core.message.{Message, MessageResult, StringMessage}
-import cactor_foundation.network.{NetworkAddress, TransportProtocol}
+import cactor_foundation.network.{NetworkAddress, TransportProtocol, TcpTransport, BlackholeTransport}
 import cactor_remote.{SimpleRemoteManager, RemotingSettings, RemoteTls}
 import cactor_cluster.membership.*
+import cactor_cluster.ops.*
 
 let ENTITIES = 30
 let PER_ENTITY = 10
@@ -113,10 +114,20 @@ main(args: Array<String>): Int64 {
     let port = Int32.parse(args[0])
     let seed = NetworkAddress.parse(args[1])
     let expected = Int64.parse(args[2])
-    let isDriver = args.size > 3 && args[3] == "driver"
+    let mode = if (args.size > 3) { args[3] } else { "" }
+    let isDriver = mode == "driver"
+    // hold：只起节点等外部驱动（tools/cluster_chaos.sh 用它做进程级故障注入），校验由脚本轮询端点完成
+    let isHold = mode == "hold"
+    // CACTOR_MGMT_PORT：管理端点端口，设置后挂 /cluster/status、/cluster/shards 与故障注入端点
+    let mgmtPort = match (getVariable("CACTOR_MGMT_PORT")) {
+        case Some(v) => UInt16.parse(v)
+        case None => UInt16(0)
+    }
 
     let system = CActorSystemFactory.create("node-${port}")
-    let remote = SimpleRemoteManager(NetworkAddress("127.0.0.1", port), TransportProtocol.TCP)
+    // 传输包一层黑洞注入：管理端点可以在运行期切换"丢掉发往某地址的全部出站帧"
+    let transport = BlackholeTransport(TcpTransport(NetworkAddress("127.0.0.1", port)))
+    let remote = SimpleRemoteManager(transport)
     // CACTOR_TLS_DIR：含 node.pem / node-key.pem / ca.pem 的目录，设置后全部集群流量走 TLS 1.3 双向认证（E65）
     let tlsDir = getVariable("CACTOR_TLS_DIR")
     if (let Some(dir) <- tlsDir) {
@@ -124,8 +135,14 @@ main(args: Array<String>): Int64 {
             RemoteTls.fromPemFiles("${dir}/node.pem", "${dir}/node-key.pem", "${dir}/ca.pem")))
     }
     remote.start()
+    // CACTOR_NO_AUTODOWN：只观察可达性、不自动 Down（故障注入验证要用——Down 掉就再也回不来）
+    let autoDown = if (getVariable("CACTOR_NO_AUTODOWN").isSome()) {
+        None<Duration>
+    } else {
+        Some(Duration.second * 3)
+    }
     let settings = ClusterSettings(Duration.millisecond * 200, Duration.millisecond * 200, 8.0, Duration.second * 2,
-        Some(Duration.second * 3))
+        autoDown)
     let cluster = Cluster(system, remote, [seed], settings)
     let me = cluster.selfAddress
     let results = Results()
@@ -133,6 +150,13 @@ main(args: Array<String>): Int64 {
         remote.exposeActor("collector", system.actorOf({ => Collector(results) }, "collector"))
     }
     let sharding = ClusterSharding(cluster, system, remote, "counter", 32, { id => CounterEntity(id, me, remote, seed) })
+    if (mgmtPort > 0) {
+        let mgmt = ManagementServer(system, "127.0.0.1", mgmtPort)
+        attachClusterRoutes(mgmt, cluster, sharding: Some(sharding))
+        attachFaultInjectionRoutes(mgmt, transport)
+        mgmt.start()
+        println("[${me}] 管理端点 127.0.0.1:${mgmt.port()}（/cluster/status、/cluster/shards、/cluster/blackhole、/cluster/heal）")
+    }
 
     // "集群已形成" = 曾看到预期数量的成员都 Up。不要求轮询的那一刻本地视图恰好收敛：分片路由不等收敛（E13′），
     // driver 可能在本节点自己观察到收敛之前就完成校验并离开
@@ -154,6 +178,13 @@ main(args: Array<String>): Int64 {
     var ok = waitUntil(Duration.second * 30, { => formed.load() || cluster.state().upCount() == expected })
     println("[${me}] 集群形成：${ok}，成员 ${cluster.state().upCount()}，Leader ${cluster.leader() ?? "无"}")
 
+    if (isHold) {
+        // 脚本通过端点驱动；进程只负责保持存活，收到 SIGTERM 退出
+        println("[${me}] hold 模式：等待外部驱动")
+        while (true) {
+            sleep(Duration.millisecond * 200)
+        }
+    }
     if (isDriver && ok) {
         for (k in 0..PER_ENTITY) {
             for (e in 0..ENTITIES) {

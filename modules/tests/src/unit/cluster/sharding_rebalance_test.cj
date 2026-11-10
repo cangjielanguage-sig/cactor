@@ -44,34 +44,40 @@ public class ShardingRebalanceTest {
         b.join([a.addr()], RB_FAST)
         @Expect(awaitCondition(RB_WAIT, { => allUp2([a, b], 2) }), true)
 
-        let ra = ClusterSharding(a.cluster, a.kit.system, a.remote, "rb", 8, { id => RbEntity(id) })
-        let rb = ClusterSharding(b.cluster, b.kit.system, b.remote, "rb", 8, { id => RbEntity(id) })
+        // 关掉自动再平衡：本用例只测手动迁移，不能被并发的自动迁移打扰（自动那条由下一个用例覆盖）
+        let manualOnly = ShardingSettings.defaults().withRebalance(RebalancePolicy.disabled())
+        let ra = ClusterSharding(a.cluster, a.kit.system, a.remote, "rb", 8, { id => RbEntity(id) }, manualOnly)
+        let rb = ClusterSharding(b.cluster, b.kit.system, b.remote, "rb", 8, { id => RbEntity(id) }, manualOnly)
         @Expect(awaitAllAcquired([ra, rb], 8, RB_WAIT), true)
 
-        // 发一些实体消息，确保实体被创建、负载报告里有非零分片
-        for (i in 0..20) {
+        // 投递 200 条覆盖到多个分片；不假设哪个节点托管，只等"集群里确实有实体被创建"
+        for (i in 0..200) {
             ra.tell("e-${i}", StringMessage("hi"))
         }
-        @Expect(awaitCondition(RB_WAIT, { => totalLoad(ra) > 0 && totalLoad(rb) > 0 }), true)
+        @Expect(awaitCondition(RB_WAIT, { => totalLoad(ra) + totalLoad(rb) > 0 }), true)
 
-        // 选一个本节点 a 托管的分片，迁移到 b
-        let (hostedA, _, _) = ra.shardStats()
-        let (hostedB, _, _) = rb.shardStats()
+        // 负载落在哪个节点取决于哈希分布，由观察结果决定迁移方向（源 → 目标），断言与方向无关
+        let fromA = totalLoad(ra) > 0
+        let src = if (fromA) { ra } else { rb }
+        let dst = if (fromA) { rb } else { ra }
+        let dstAddress = if (fromA) { b.address() } else { a.address() }
+        let (srcBefore, _, _) = src.shardStats()
+        let (dstBefore, _, _) = dst.shardStats()
         var targetShard: Int64 = -1
-        for ((sh, c) in ra.shardLoad()) {
+        for ((sh, c) in src.shardLoad()) {
             if (c > 0) {
                 targetShard = sh
                 break
             }
         }
         @Expect(targetShard >= 0, true)
-        ra.rebalanceShard(targetShard, b.address())
+        src.rebalanceShard(targetShard, dstAddress)
 
-        // 真实断言：a 少托管一个、b 多托管一个（能力移交走许可式两阶段）
+        // 真实断言：源节点少托管一个、目标节点多托管一个（能力移交走许可式两阶段）
         @Expect(awaitCondition(RB_WAIT, { =>
-            let (hA, _, _) = ra.shardStats()
-            let (hB, _, _) = rb.shardStats()
-            hA == hostedA - 1 && hB == hostedB + 1
+            let (srcAfter, _, _) = src.shardStats()
+            let (dstAfter, _, _) = dst.shardStats()
+            srcAfter == srcBefore - 1 && dstAfter == dstBefore + 1
         }), true)
 
         ra.stop()

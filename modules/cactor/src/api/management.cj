@@ -47,14 +47,26 @@ public struct ManagementRoute {
     public let path: String
     public let contentType: String
     public let handler: () -> String
+    /**
+     * 需要看查询串的端点（例如 `/cluster/blackhole?addr=host:port`）。
+     * 处理器拿到的参数是**原始请求目标**（含 `?query`），由处理器自己解析——
+     * 门面不做路由参数解析，避免把 URL 语义硬编码进通用机制。
+     */
+    public let queryHandler: Option<(String) -> String>
 
     public init(path: String, contentType: String, handler: () -> String) {
+        this(path, contentType, handler, queryHandler: None<(String) -> String>)
+    }
+
+    public init(path: String, contentType: String, handler: () -> String,
+        queryHandler!: Option<(String) -> String>) {
         if (!path.startsWith("/")) {
             throw IllegalArgumentException("管理端点路径必须以 / 开头: ${path}")
         }
         this.path = path
         this.contentType = contentType
         this.handler = handler
+        this.queryHandler = queryHandler
     }
 }
 
@@ -129,6 +141,11 @@ public class ManagementServer {
     /** 注册自定义端点的简写 */
     public func addRoute(path: String, contentType: String, handler: () -> String): ManagementServer {
         addRoute(ManagementRoute(path, contentType, handler))
+    }
+
+    /** 注册需要查询串的端点（处理器收到含 `?query` 的原始请求目标） */
+    public func addQueryRoute(path: String, contentType: String, handler: (String) -> String): ManagementServer {
+        addRoute(ManagementRoute(path, contentType, { => handler("") }, queryHandler: Some(handler)))
     }
 
     /** 处理器抛异常的次数（回 500，进程继续服务） */
@@ -287,12 +304,12 @@ public class ManagementServer {
                 }
             case "/health/ready" => readiness()
             case "/metrics" => ("200 OK", "text/plain; version=0.0.4", system.metricsText(false))
-            case _ => customRoute(path)
+            case _ => customRoute(parts[1], path)
         }
     }
 
     /** 上层注册的端点；处理器抛异常时不带垮连接协程，回 500 并计数 */
-    private func customRoute(path: String): (String, String, String) {
+    private func customRoute(raw: String, path: String): (String, String, String) {
         var found: Option<ManagementRoute> = None<ManagementRoute>
         synchronized(lock) {
             for (r in routes) {
@@ -304,7 +321,11 @@ public class ManagementServer {
         match (found) {
             case Some(r) =>
                 try {
-                    ("200 OK", r.contentType, r.handler())
+                    let body = match (r.queryHandler) {
+                        case Some(h) => h(raw)
+                        case None => r.handler()
+                    }
+                    ("200 OK", r.contentType, body)
                 } catch (_: Exception) {
                     routeFailures.fetchAdd(1)
                     ("500 Internal Server Error", "text/plain", "handler failed\n")

@@ -164,6 +164,6 @@ private func quoteOrNull(value: Option<String>): String {
     }
 }
 
-private func jsonEscape(s: String): String {
+func jsonEscape(s: String): String {
     s.replace("\\", "\\\\").replace("\"", "\\\"")
 }

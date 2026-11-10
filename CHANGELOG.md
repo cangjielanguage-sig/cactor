@@ -18,6 +18,16 @@
   `init(conflictResolver, syncInterval, clusterSupport)` 变为 `init(conflictResolver, syncInterval)`；
   `clusterSupport` 原本只是保存下来、从没参与同步逻辑。模块现标注 experimental（完整状态同步尚未实现）。
 
+### ✨ 新增（2026-11-10，进程级故障注入）
+- **`BlackholeTransport` 移到 `cactor_foundation.network`**（`modules/foundation/src/network/blackhole.cj`）：进程级注入需要示例进程与运维端点直接构造它；
+  `cactor_testkit.BlackholeTransport` 通过 `public import` 继续可用，另新增 `blackholedAddresses()` / `blackholedCount()`。
+- **`attachFaultInjectionRoutes(mgmt, transport, allowAll!)`**（`cactor_cluster.ops`）：`/cluster/faults`（黑洞地址 + 丢帧数）、
+  `/cluster/blackhole?addr=host:port`、`/cluster/heal[?addr=]`，用 GET 以便 `curl` 一行触发。
+- **`ManagementServer.addQueryRoute(path, contentType, handler: (String) -> String)`**：需要查询串的端点不必再把参数塞进路径；
+  处理器拿到含 `?query` 的原始请求目标，解析留在上层。
+- **`tools/cluster_chaos.sh`**：3 个真进程组成集群，黑洞一条链路并断言"被判不可达的是收不到心跳的一端"、`droppedCount` 增长、
+  heal 后重新收敛；已接入 `tools/ci.sh`。`cluster_node` 新增 `CACTOR_MGMT_PORT`、`CACTOR_NO_AUTODOWN` 与 `hold` 模式。
+
 ### ✨ 新增（2026-11-10，分片获取可观测）
 - **`AcquisitionHealth` + `ClusterSharding.acquisitionHealth()`**（`cactor_cluster.membership`）：分片获取是许可式两阶段移交，
   必须等每个可能托管者确认"已停止"，否则会出现双主——所以不设超时强推，而是暴露 `slow`（等待超过阈值的分片数）、
