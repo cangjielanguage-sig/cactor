@@ -2538,6 +2538,36 @@ let v = replicator.getWith("orders", ReadConsistency.ReadMajority(3.seconds)).ge
 | `WriteMajority(t)` / `WriteAll(t)` | 本地应用并发给对等节点，⌊n/2⌋+1 / n 个副本（含本节点）确认后成功；超时失败，但本地值已更新、之后照常传播 |
 | `ReadMajority(t)` / `ReadAll(t)` | 收到足够副本的值后返回合并结果，并写回本地；过半写 + 过半读必然读到 |
 
+### 类型化引用的跨进程能力（E63）
+
+经典引用（`ActorRef`）能跨节点是因为每个 Actor 都有路径；类型化引用要跨节点，缺的是"消息怎么变成字节"：
+`TypedPayloadBox` 的载荷在编译期是 `Any`。v2.23 的处置是把载荷按**它自己的 codec** 嵌成一帧完整消息。
+
+```cangjie
+// 节点 B：暴露一个类型化 Actor（协议类型必须实现 Message 并注册 codec）
+let echo = b.system.typed().actorOf(echoBehavior, "typed-echo")
+b.remote.exposeActor("typed-echo", echo.toClassic().getOrThrow())
+
+// 节点 A：拿到远程类型化引用直接 tell
+let remoteEcho = a.remote.typedRemoteActorOf<Echo>(bAddress, "typed-echo")
+remoteEcho.tell(Echo("跨节点"))        // 载荷经 TypedPayloadBoxCodec 过线
+
+// 全集群按 ServiceKey<T> 查找（协议类型由 key 的 T 决定）
+let key = ServiceKey<Echo>("echo")
+b.receptionist.registerTyped<Echo>(key, echo)          // 只能登记由 Actor 支撑的引用
+for (r in a.receptionist.findTyped<Echo>(key)) {        // 本节点本地引用，其他节点远程类型化引用
+    r.tell(Echo("hi"))
+}
+a.receptionist.deregisterTyped<Echo>(key, echo)
+```
+
+| 情形 | 行为 |
+|---|---|
+| 载荷不是 `Message`（闭包、连接、任意对象） | 发送侧立即抛 `SerializationException`，明确"这条消息不能跨节点"，不会悄悄丢包 |
+| 同一个 codec 被重复注册 | `ensureTypedPayloadCodecRegistered()` 幂等；已存在同名 codec 时不覆盖（`SimpleRemoteManager.start()` 调用它） |
+| 登记一次性回复引用（`PromiseRef` / `PromiseActorRef`） | 抛 `IllegalArgumentException`：它没有经典路径，跨节点找不到 |
+| 跨节点类型化 **ask** | 尚不支持：`TypedAsk` 把回复引用塞进请求消息，而协议 codec 不认识 `TypedActorRef` 字段；`tell` 与订阅式交互不受影响 |
+
 ### 分布式数据：delta 传播与移除节点的 pruning（E64）
 
 ```cangjie

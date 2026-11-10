@@ -18,6 +18,17 @@
   `init(conflictResolver, syncInterval, clusterSupport)` 变为 `init(conflictResolver, syncInterval)`；
   `clusterSupport` 原本只是保存下来、从没参与同步逻辑。模块现标注 experimental（完整状态同步尚未实现）。
 
+### ✨ 新增（2026-11-10，类型化引用的跨进程能力）
+- **`SimpleRemoteManager.typedRemoteActorOf<T>(address, actorName): TypedActorRef<T>`**：远程地址上的类型化引用，
+  `tell` 的载荷以 `TypedPayloadBox` 过线；载荷必须是实现了 `Message` 的协议类型。
+- **`TypedPayloadBoxCodec`**（`cactor_core.typed`）：把载荷按它自己的 codec 嵌成一帧完整消息，不为每个协议再注册
+  "类型化版本"；载荷不是 `Message` 时在发送侧抛 `SerializationException`（而不是悄悄丢包）。
+  `ensureTypedPayloadCodecRegistered()` 幂等，`SimpleRemoteManager.start()` 自动调用，已存在的同名 codec 不会被覆盖。
+- **`ClusterReceptionist.registerTyped / deregisterTyped / findTyped / findAllTyped`**：用 `ServiceKey<T>` 保证
+  "找到的引用协议正确"；本节点返回本地引用，其他节点返回远程类型化引用。一次性回复引用（`PromiseRef`）不能登记。
+- 测试 719 → 724：`typed_remote_test.cj` 2 例（两节点类型化 tell、三节点 registerTyped/findTyped）、
+  `typed_codec_test.cj` 3 例（往返、非 Message 载荷、重复注册幂等）。
+
 ### ✨ 新增（2026-11-10，进程级故障注入）
 - **`BlackholeTransport` 移到 `cactor_foundation.network`**（`modules/foundation/src/network/blackhole.cj`）：进程级注入需要示例进程与运维端点直接构造它；
   `cactor_testkit.BlackholeTransport` 通过 `public import` 继续可用，另新增 `blackholedAddresses()` / `blackholedCount()`。

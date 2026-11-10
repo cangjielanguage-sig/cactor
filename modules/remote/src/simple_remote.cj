@@ -12,6 +12,7 @@ import std.collection.*
 import std.sync.*
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.{Message, NetworkMessage, NetworkMessageSerializer}
+import cactor_core.typed.{TypedActorRef, ClassicTypedRef, ensureTypedPayloadCodecRegistered}
 import cactor_foundation.network.{NetworkTransport, NetworkAddress, TransportFactory, TransportProtocol}
 import cactor_foundation.logging.{Logger, Logging}
 
@@ -265,6 +266,8 @@ public class SimpleRemoteManager {
 
     public func start(): Unit {
         if (started.compareAndSwap(false, true)) {
+            // 类型化消息的跨进程编解码（E63）：类型化 tell 的载荷是 TypedPayloadBox，默认序列化器不认识
+            ensureTypedPayloadCodecRegistered()
             // 传输加密（E65）与握手（身份交换 + 可选的共享密钥鉴权，E7′）都须在传输开始收发之前装上；
             // 不支持加密的传输在这里抛异常，不会悄悄以明文运行
             if (let Some(sec) <- core.currentSettings().transportSecurity) {
@@ -326,6 +329,14 @@ public class SimpleRemoteManager {
      */
     public func remoteActorOf(targetAddress: NetworkAddress, actorName: String): RemoteActorRef {
         RemoteActorRef(this, targetAddress, actorName)
+    }
+
+    /**
+     * 远程地址上的类型化引用（E63）：`tell` 的载荷以 TypedPayloadBox 过线，
+     * 载荷类型必须是实现了 Message 的协议类型；`ask` 仍受限于"回复引用不能过线"，见计划 E63 记录。
+     */
+    public func typedRemoteActorOf<T>(targetAddress: NetworkAddress, actorName: String): TypedActorRef<T> {
+        ClassicTypedRef<T>(remoteActorOf(targetAddress, actorName))
     }
 
     public func isActive(): Bool {

@@ -12,6 +12,8 @@
  * - 登记与注销只写本地副本，经 Replicator 推送与反熵传播（通常一个 gossip 间隔内全集群可见）；
  *   subscribe 在本地副本变化时回调（回调在 Replicator Actor 线程执行，应当很快）。
  * 发往远程实例的消息需要能被序列化（内置消息、注册了编解码器的消息或 @Message 宏生成的消息）。
+ * 类型化入口（E63）：registerTyped / findTyped 用 ServiceKey<T> 保证"找到的引用协议正确"，
+ * 返回的 TypedActorRef<T> 在本节点是本地引用、在其他节点是远程类型化引用。
  */
 package cactor_cluster.membership
 
@@ -21,6 +23,7 @@ import std.sort.*
 import cactor.api.{CActorSystem}
 import cactor_core.actor.{Actor, ActorContext, ActorRef, Terminated}
 import cactor_core.message.{Message, MessageResult}
+import cactor_core.typed.{ServiceKey, TypedActorRef, ClassicTypedRef}
 import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.logging.{Logging}
 import cactor_remote.{SimpleRemoteManager}
@@ -231,6 +234,47 @@ public class ClusterReceptionist {
             replicator.removeFromSetAsync(receptionistKey(s.key), s.element)
             remote.unexposeActor(s.name)
         }
+    }
+
+    /**
+     * 登记类型化服务实例（E63）：必须是由 Actor 支撑的引用（ClassicTypedRef），
+     * 一次性回复引用（PromiseRef 等）没有经典路径，无法跨节点寻址。
+     */
+    public func registerTyped<T>(key: ServiceKey<T>, ref: TypedActorRef<T>): Unit {
+        match (ref.toClassic()) {
+            case Some(classic) => register(key.id, classic)
+            case None => throw IllegalArgumentException(
+                "${ref.pathString()} 不是由 Actor 支撑的类型化引用，不能跨节点登记（只能登记 TypedActorRef 的经典实现）")
+        }
+    }
+
+    /** 注销类型化服务实例 */
+    public func deregisterTyped<T>(key: ServiceKey<T>, ref: TypedActorRef<T>): Unit {
+        match (ref.toClassic()) {
+            case Some(classic) => deregister(key.id, classic)
+            case None => ()
+        }
+    }
+
+    /**
+     * 按 ServiceKey 在全集群查找类型化实例：本节点为本地引用，其他节点为远程类型化引用，
+     * 直接 `tell` 即可（载荷须实现 Message，见 core 的 TypedPayloadBoxCodec）。
+     */
+    public func findTyped<T>(key: ServiceKey<T>): Array<TypedActorRef<T>> {
+        let out = ArrayList<TypedActorRef<T>>()
+        for (r in find(key.id)) {
+            out.add(ClassicTypedRef<T>(r))
+        }
+        out.toArray()
+    }
+
+    /** 含不可达成员实例的类型化查找（对标 Listing.allServiceInstances） */
+    public func findAllTyped<T>(key: ServiceKey<T>): Array<TypedActorRef<T>> {
+        let out = ArrayList<TypedActorRef<T>>()
+        for (r in findAll(key.id)) {
+            out.add(ClassicTypedRef<T>(r))
+        }
+        out.toArray()
     }
 
     /** 全集群可达成员上的实例（本节点的为本地引用，其他节点的为 RemoteActorRef），按登记元素排序 */
