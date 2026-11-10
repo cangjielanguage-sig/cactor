@@ -16,7 +16,6 @@ import std.collection.*
 import cactor_core.actor.{Actor, ActorRef, ActorContext, Props, Terminated}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.typed.{TypedActorRef, ClassicTypedRef, TypedPayloadBox, TypedBehavior}
-import cactor_core.typed.{TypedActorRef, ClassicTypedRef}
 import cactor.api.{CActorSystem, CActorSystemFactory}
 
 /** 断言失败 */

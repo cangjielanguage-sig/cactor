@@ -2541,7 +2541,29 @@ let v = replicator.getWith("orders", ReadConsistency.ReadMajority(3.seconds)).ge
 ### 类型化引用的跨进程能力（E63）
 
 经典引用（`ActorRef`）能跨节点是因为每个 Actor 都有路径；类型化引用要跨节点，缺的是"消息怎么变成字节"：
-`TypedPayloadBox` 的载荷在编译期是 `Any`。v2.23 的处置是把载荷按**它自己的 codec** 嵌成一帧完整消息。
+`TypedPayloadBox` 的载荷在编译期是 `Any`。有两条路：
+
+- 载荷实现了 `Message`：按**它自己的 codec** 嵌成一帧完整消息（v2.23）；
+- 载荷是普通 `enum`（类型化协议最常见的形态，本来就不实现 `Message`）：用 `TypedPayloadCodecs` 注册一对编解码闭包（v2.24）。
+
+```cangjie
+// 路径一：协议类型实现了 Message
+let remoteEcho = a.remote.typedRemoteActorOf<Echo>(bAddress, "typed-echo")
+remoteEcho.tell(Echo("跨节点"))        // 载荷经 TypedPayloadBoxCodec 过线
+
+// 路径二：普通 enum 协议
+enum Traffic {
+    | Ping(String)
+    | Count(Int64)
+}
+TypedPayloadCodecs.register<Traffic>(
+    typeName: "demo.Traffic",                       // 双方必须一致，建议带包名
+    encode: { m => match (m) { ... } },             // 自己写的二进制编码
+    decode: { b => ... })
+
+let remote = a.remote.typedRemoteActorOf<Traffic>(bAddress, "traffic")
+remote.tell(Traffic.Ping("hi"))                     // 接收侧仍是用户包的 as T 桥接
+```
 
 ```cangjie
 // 节点 B：暴露一个类型化 Actor（协议类型必须实现 Message 并注册 codec）
@@ -2563,7 +2585,10 @@ a.receptionist.deregisterTyped<Echo>(key, echo)
 
 | 情形 | 行为 |
 |---|---|
-| 载荷不是 `Message`（闭包、连接、任意对象） | 发送侧立即抛 `SerializationException`，明确"这条消息不能跨节点"，不会悄悄丢包 |
+| 载荷既不是 `Message` 也没有命名编解码器（闭包、连接、任意对象） | 发送侧立即抛 `SerializationException`，明确"这条消息不能跨节点"，不会悄悄丢包 |
+| 载荷类型名重复注册 | 立刻抛 `IllegalStateException`：同一字节串在两端会被解成不同类型，属于必须停止的错误（与 `MessageCodecRegistry.register` 的静默覆盖不同） |
+| 对端没有注册同名编解码器 | 解码侧抛 `DeserializationException`，并指出缺失的类型名 |
+| 同一次注册进程内生效 | 注册表是进程级的；`typeNames()` 用来比对两端配置，`unregister(typeName)` 只在测试里用 |
 | 同一个 codec 被重复注册 | `ensureTypedPayloadCodecRegistered()` 幂等；已存在同名 codec 时不覆盖（`SimpleRemoteManager.start()` 调用它） |
 | 登记一次性回复引用（`PromiseRef` / `PromiseActorRef`） | 抛 `IllegalArgumentException`：它没有经典路径，跨节点找不到 |
 | 跨节点类型化 **ask** | 尚不支持：`TypedAsk` 把回复引用塞进请求消息，而协议 codec 不认识 `TypedActorRef` 字段；`tell` 与订阅式交互不受影响 |

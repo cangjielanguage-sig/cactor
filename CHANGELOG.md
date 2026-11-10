@@ -7,6 +7,17 @@
 
 ## [未发布]
 
+### ✨ 新增（2026-11-10，类型化协议的普通 enum 过线）
+
+- `TypedPayloadCodecs`：为不是 `Message` 的类型（类型化协议最常见的普通 `enum`）注册命名编解码器，
+  `register<T>(typeName:, encode:, decode:)` 在注册时记录 `v is T`，发送时按注册顺序找第一个匹配；
+  类型名重复立刻抛 `IllegalStateException`（两端对同一字节串解出不同类型比崩溃更糟）。
+- 类型化信封升到 codec 版本 2：首字节区分"嵌套消息帧"与"命名载荷"，版本 1 的旧帧仍可解码。
+- `TypedPayloadCodecs.find / findFor / unregister / count / typeNames`：诊断两端配置是否一致。
+- 测试：`typed_codec_test.cj` 6 例、`typed_remote_test.cj` 新增 `enumProtocolCrossesNodes`（两节点真实 TCP），
+  全量 724 → **728**。
+
+
 ### 💥 破坏性变更（2026-11-09，分布式收尾）
 - **删除 `cactor_cluster` 根包原型**：`cluster_support.cj`、`cluster_routing.cj`、`failover.cj`、`shard_region.cj`、`cluster_sharding.cj`
   共 1673 行，以及只演示它们的 `cactor_examples.cluster_sharding_demo`（414 行）。这些类型（`ClusterState`、`ShardCoordinator`、
