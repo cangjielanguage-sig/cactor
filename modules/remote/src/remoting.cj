@@ -89,6 +89,11 @@ public class RemoteAskCapacityException <: Exception {
     }
 }
 
+/** 对端状态满额时明确失败，不删除身份历史来腾出空间。 */
+public class RemotePeerCapacityException <: Exception {
+    public init(limit: Int64) { super("远程对端状态已达容量上限 ${limit}") }
+}
+
 /** 远程层参数 */
 public struct RemotingSettings {
     /** 节点心跳间隔 */
@@ -106,6 +111,8 @@ public struct RemotingSettings {
     /** 通道序号/去重状态按管理器生命周期保留，满额拒绝新通道。 */
     public let maxOutboundReliableChannels: Int64
     public let maxInboundReliableChannels: Int64
+    /** 身份与握手挑战分别最多保留的地址数。 */
+    public let maxKnownPeers: Int64
     /** 本管理器经典及类型化远程 ask 共用的并发上限 */
     public let maxPendingAsks: Int64
     /** 可靠投递：最老的未确认消息超过这个时长仍未确认，放弃该节点的全部通道并投递 Terminated */
@@ -143,7 +150,12 @@ public struct RemotingSettings {
     public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
         resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration,
         secureCookie: Option<String>, transportSecurity: Option<TransportSecurity>, maxPendingAsks!: Int64 = 1024,
-        maxOutboundReliableChannels!: Int64 = 4096, maxInboundReliableChannels!: Int64 = 4096) {
+        maxOutboundReliableChannels!: Int64 = 4096, maxInboundReliableChannels!: Int64 = 4096,
+        maxKnownPeers!: Int64 = 4096) {
+        if (maxKnownPeers <= 0) {
+            throw IllegalArgumentException("已知对端数量上限必须为正数")
+        }
+        this.maxKnownPeers = maxKnownPeers
         if (maxOutboundReliableChannels <= 0 || maxInboundReliableChannels <= 0) {
             throw IllegalArgumentException("可靠通道数量上限必须为正数")
         }
@@ -186,35 +198,47 @@ public struct RemotingSettings {
     public func withLimits(maxUnacked: Int64, giveUpAfter: Duration): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
-            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels)
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
+            maxKnownPeers: maxKnownPeers)
     }
 
     /** 设置经典及类型化远程 ask 共用的并发上限，满额不发送 */
     public func withAskLimit(limit: Int64): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: limit,
-            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels)
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
+            maxKnownPeers: maxKnownPeers)
     }
 
     /** 设置共享密钥，其余不变（集群内所有节点须相同） */
     public func withSecureCookie(cookie: String): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, Some(cookie), transportSecurity, maxPendingAsks: maxPendingAsks,
-            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels)
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
+            maxKnownPeers: maxKnownPeers)
     }
 
     /** 设置传输加密，其余不变（集群内所有节点须一致：加密节点拒绝明文连接） */
     public func withTransportSecurity(security: TransportSecurity): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, Some(security), maxPendingAsks: maxPendingAsks,
-            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels)
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
+            maxKnownPeers: maxKnownPeers)
     }
 
     /** 不回收去重状态；满额拒绝新通道，已有通道不受影响。 */
     public func withChannelLimits(outbound: Int64, inbound: Int64): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
-            maxOutboundReliableChannels: outbound, maxInboundReliableChannels: inbound)
+            maxOutboundReliableChannels: outbound, maxInboundReliableChannels: inbound, maxKnownPeers: maxKnownPeers)
+    }
+
+    /** 限制身份与出站握手挑战表；满额拒绝新地址，不驱逐历史。 */
+    public func withPeerLimit(limit: Int64): RemotingSettings {
+        RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
+            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
+            maxKnownPeers: limit)
     }
 
     /** 启用 TLS（E65），等同 withTransportSecurity(tls) */
@@ -562,7 +586,7 @@ class RemoteHandshake <: TransportHandshake {
             return core.rejectHandshake("来自 ${addr} 的握手鉴权失败")
         }
         if (!core.admitPeer(addr, uid, inbound: true)) {
-            return core.rejectHandshake("${addr}#${uid} 已被隔离")
+            return core.rejectHandshake("${addr}#${uid} 已被隔离或对端状态容量已满")
         }
         let reply = "${HELLO_ACK_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${mac}"
         Some(("${reply}|${core.macOf(reply)}".toArray(), quarantineKey(addr, uid)))
@@ -584,7 +608,7 @@ class RemoteHandshake <: TransportHandshake {
             return false
         }
         if (!core.admitPeer(peer.toString(), uid)) {
-            core.rejectHandshake("${peer.toString()}#${uid} 已被隔离") |> ignoreRejected
+            core.rejectHandshake("${peer.toString()}#${uid} 已被隔离或对端状态容量已满") |> ignoreRejected
             return false
         }
         true
@@ -684,6 +708,9 @@ public class RemotingCore {
             if (outChannels.size > s.maxOutboundReliableChannels || inChannels.size > s.maxInboundReliableChannels) {
                 throw IllegalArgumentException("可靠通道预算不能低于已保留的通道数量")
             }
+            if (peerUids.size > s.maxKnownPeers || lastHelloMac.size > s.maxKnownPeers) {
+                throw IllegalArgumentException("对端预算不能低于已保留的身份或握手挑战数量")
+            }
             settings = s
         }
     }
@@ -734,6 +761,9 @@ public class RemotingCore {
 
     func rememberHello(peer: String, mac: String): Unit {
         synchronized(lock) {
+            if (!lastHelloMac.contains(peer) && lastHelloMac.size >= settings.maxKnownPeers) {
+                throw RemotePeerCapacityException(settings.maxKnownPeers)
+            }
             lastHelloMac[peer] = mac
         }
     }
@@ -781,8 +811,12 @@ public class RemotingCore {
                         (true, Some(old))
                     case Some(_) => (true, None<UInt64>)
                     case None =>
-                        peerUids[addr] = uid
-                        (true, None<UInt64>)
+                        if (peerUids.size >= settings.maxKnownPeers) {
+                            (false, None<UInt64>)
+                        } else {
+                            peerUids[addr] = uid
+                            (true, None<UInt64>)
+                        }
                 }
             }
         }
