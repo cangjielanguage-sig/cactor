@@ -111,7 +111,7 @@ public struct RemotingSettings {
     /** 通道序号/去重状态按管理器生命周期保留，满额拒绝新通道。 */
     public let maxOutboundReliableChannels: Int64
     public let maxInboundReliableChannels: Int64
-    /** 身份与握手挑战分别最多保留的地址数。 */
+    /** 身份、握手挑战和隔离表各自最多保留的条目数。 */
     public let maxKnownPeers: Int64
     /** 本管理器经典及类型化远程 ask 共用的并发上限 */
     public let maxPendingAsks: Int64
@@ -233,7 +233,7 @@ public struct RemotingSettings {
             maxOutboundReliableChannels: outbound, maxInboundReliableChannels: inbound, maxKnownPeers: maxKnownPeers)
     }
 
-    /** 限制身份与出站握手挑战表；满额拒绝新地址，不驱逐历史。 */
+    /** 限制身份、出站握手挑战与隔离表；满额不驱逐历史。 */
     public func withPeerLimit(limit: Int64): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
@@ -677,6 +677,8 @@ public class RemotingCore {
     // 身份与隔离（E7′）：地址 -> 最近一次握手 / 心跳 / ACK 得知的启动标识；被隔离的 "地址#uid"
     private let peerUids = HashMap<String, UInt64>()
     private let quarantined = HashSet<String>()
+    // 隔离记录满额时无法安全遗忘任何 UID，关闭后续身份准入直到替换管理器实例。
+    private var peerAdmissionClosed: Bool = false
     // 连接方：目标地址 -> 最近一次 HELLO 的 mac（校验 ACK 的回显）
     private let lastHelloMac = HashMap<String, String>()
 
@@ -708,7 +710,8 @@ public class RemotingCore {
             if (outChannels.size > s.maxOutboundReliableChannels || inChannels.size > s.maxInboundReliableChannels) {
                 throw IllegalArgumentException("可靠通道预算不能低于已保留的通道数量")
             }
-            if (peerUids.size > s.maxKnownPeers || lastHelloMac.size > s.maxKnownPeers) {
+            if (peerUids.size > s.maxKnownPeers || lastHelloMac.size > s.maxKnownPeers ||
+                quarantined.size > s.maxKnownPeers) {
                 throw IllegalArgumentException("对端预算不能低于已保留的身份或握手挑战数量")
             }
             settings = s
@@ -801,14 +804,18 @@ public class RemotingCore {
 
     func admitPeer(addr: String, uid: UInt64, inbound!: Bool): Bool {
         let (admitted, previous) = synchronized(lock) {
-            if (quarantined.contains(quarantineKey(addr, uid))) {
+            if (peerAdmissionClosed || quarantined.contains(quarantineKey(addr, uid))) {
                 (false, None<UInt64>)
             } else {
                 match (peerUids.get(addr)) {
                     case Some(old) where old != uid =>
-                        quarantined.add(quarantineKey(addr, old))
-                        peerUids[addr] = uid
-                        (true, Some(old))
+                        if (!quarantined.contains(quarantineKey(addr, old)) && quarantined.size >= settings.maxKnownPeers) {
+                            (false, None<UInt64>)
+                        } else {
+                            quarantined.add(quarantineKey(addr, old))
+                            peerUids[addr] = uid
+                            (true, Some(old))
+                        }
                     case Some(_) => (true, None<UInt64>)
                     case None =>
                         if (peerUids.size >= settings.maxKnownPeers) {
@@ -846,7 +853,7 @@ public class RemotingCore {
         let uid = synchronized(lock) {
             let u = peerUids.get(addrText)
             if (let Some(x) <- u) {
-                quarantined.add(quarantineKey(addrText, x))
+                quarantineLocked(quarantineKey(addrText, x))
             }
             u
         }
@@ -873,7 +880,7 @@ public class RemotingCore {
         let (already, current) = synchronized(lock) {
             let k = quarantineKey(addrText, uid)
             let a = quarantined.contains(k)
-            quarantined.add(k)
+            quarantineLocked(k)
             (a, peerUids.get(addrText))
         }
         if (already) {
@@ -892,6 +899,22 @@ public class RemotingCore {
                 case None => false
             }
         }
+    }
+
+    /** 仅在持有 lock 时调用；满额后整体拒绝身份准入，不能遗忘旧隔离换取容量。 */
+    private func quarantineLocked(k: String): Unit {
+        if (quarantined.contains(k)) {
+            return
+        }
+        if (quarantined.size >= settings.maxKnownPeers) {
+            peerAdmissionClosed = true
+        } else {
+            quarantined.add(k)
+        }
+    }
+
+    func isPeerAdmissionClosed(): Bool {
+        synchronized(lock) { peerAdmissionClosed }
     }
 
     func quarantinedCount(): Int64 {
@@ -1813,6 +1836,11 @@ extend SimpleRemoteManager {
     }
 
     /** 已隔离的实例数 */
+    /** 隔离表溢出后的保护状态；扩容与 stop/start 不会清除此状态。 */
+    public func isPeerAdmissionClosed(): Bool {
+        core.isPeerAdmissionClosed()
+    }
+
     public func quarantinedCount(): Int64 {
         core.quarantinedCount()
     }

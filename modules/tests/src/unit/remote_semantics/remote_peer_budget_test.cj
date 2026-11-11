@@ -62,6 +62,61 @@ public class RemotePeerBudgetTest {
     }
 
     @TestCase
+    public func fullQuarantineTableRejectsRestartWithoutReplacingCurrentIdentity(): Unit {
+        let wire = PeerBudgetWire()
+        let s = RemotingSettings.defaults().withPeerLimit(1)
+        let m = nodeWith(wire, s)
+        try {
+            @Expect(wire.admit(2, 1), true)
+            @Expect(wire.admit(2, 2), true)
+            @Expect(m.quarantinedCount(), 1)
+            @Expect(wire.admit(2, 3), false)
+            @Expect(wire.admit(2, 2), true)
+            @Expect(wire.admit(2, 1), false)
+            @Expect(m.isPeerAdmissionClosed(), false)
+            m.configure(s.withPeerLimit(2))
+            @Expect(wire.admit(2, 3), true)
+            @Expect(m.quarantinedCount(), 2)
+            @ExpectThrows[IllegalArgumentException](m.configure(s))
+            @Expect(wire.admit(2, 2), false)
+        } finally { m.stop() }
+    }
+
+    @TestCase
+    public func quarantineOverflowClosesAdmissionWithoutEvictingHistory(): Unit {
+        let wire = PeerBudgetWire()
+        let m = nodeWith(wire, RemotingSettings.defaults().withPeerLimit(2))
+        let address = NetworkAddress("127.0.0.1", 2)
+        try {
+            @Expect(wire.admit(2, 1), true)
+            m.quarantine(address, 1, "removed")
+            m.quarantine(address, 1, "duplicate")
+            @Expect(m.isPeerAdmissionClosed(), false)
+            @Expect(m.quarantinedCount(), 1)
+            @Expect(wire.admit(2, 2), true)
+            let done = AtomicInt64(0)
+            for (i in 0..50) {
+                spawn {
+                    m.quarantine(address, UInt64(100 + i), "retired")
+                    done.fetchAdd(1)
+                }
+            }
+            @Expect(awaitCondition(T5S, { => done.load() == 50 }), true)
+            @Expect(m.quarantinedCount(), 2)
+            @Expect(m.isPeerAdmissionClosed(), true)
+            @Expect(wire.admit(2, 1), false)
+            @Expect(wire.admit(2, 2), false)
+            @Expect(wire.admit(3, 1), false)
+            m.stop()
+            m.configure(RemotingSettings.defaults().withPeerLimit(100))
+            m.start()
+            @Expect(m.isPeerAdmissionClosed(), true)
+            @Expect(wire.admit(2, 3), false)
+            @Expect(m.quarantinedCount(), 2)
+        } finally { m.stop() }
+    }
+
+    @TestCase
     public func challengeBudgetRejectsNewAddressesAndSurvivesRestart(): Unit {
         let wire = PeerBudgetWire()
         let s = RemotingSettings.defaults().withPeerLimit(1)
