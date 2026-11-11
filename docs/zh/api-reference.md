@@ -2371,6 +2371,19 @@ node.start()
 
 这些是每个 TCP 实例的连接槽限制，不限制操作系统监听队列、多个传输实例合计、可靠通道表、帧/队列/编解码临时内存总字节；不能由此宣称节点内存有界。DA3 的可靠通道与全局字节预算仍待实现。
 
+### 可靠通道数量预算（v2.34）
+
+```cangjie
+let settings = RemotingSettings.defaults().withChannelLimits(2048, 4096)
+node.configure(settings) // start 之前调用
+```
+
+出站按“地址 + 目标 Actor”计数，入站按可靠信封的通道身份计数；两者默认各 **4096**，必须为正。`withLimits` 的 `maxUnacked` 仍是每通道消息上限，`withAskLimit` 仍是 ask 并发上限，所有设置构造器保留通道预算。
+
+`node.reliableChannelStats()` 返回 `ReliableChannelStats`：`outboundChannels`、`inboundChannels` 为当前状态槽数；`outboundRejected`、`inboundRejected` 为累计拒绝发送尝试/收到信封次数（包含重发，并非唯一消息数）。出站满额拒绝新目标，不登记通道或增加未确认消息，同时计入 `reliableDeliveryStats().overflowDropped`；入站满额不登记代数、不投递、不 ACK，发送端会重发直至成功或其放弃期限。已有通道仍可工作，同一入站通道前缀的新代可在满额时替换旧代，旧代重放继续丢弃。
+
+**ACK 或空闲不会回收去重/序号状态**，stop/start 同一管理器也不重置；否则旧信封可能重复投递。任一预算调低到已保留槽数以下会抛 `IllegalArgumentException`，保留原配置；不能靠删除既有状态恢复容量。大量短命目标或对端重启会积累槽位，与成员生命周期绑定的安全回收仍待实现。预算包含业务及系统可靠通道，高扇出与远程 watch/death 必须计入容量规划。拒绝不等于业务完成，写操作仍需幂等键；普通 tell 与 ask 不占这些可靠通道槽。此限制不涵盖已知对端、隔离表、全节点字节与跨管理器总数，DA3 仍部分完成。
+
 ### 管理端点（`ManagementServer`）
 
 ```cangjie

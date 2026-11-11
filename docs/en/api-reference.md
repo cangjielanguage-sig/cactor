@@ -2190,6 +2190,14 @@ Rejection counters accumulate over the lifetime of the instance, including stop/
 
 These limits apply per TCP instance. They do not bound OS listen backlogs, totals across transport instances, reliable-channel tables, or global bytes allocated to frames, queues and codecs. DA3 reliable-channel and node-wide byte budgets remain open.
 
+### Reliable channel budgets (v2.34)
+
+Configure before start with `RemotingSettings.defaults().withChannelLimits(2048, 4096)`. Outbound channels are keyed by destination address and actor name; inbound slots retain channel identity and deduplication state. Defaults are **4096 each**, both strictly positive. Other settings builders preserve these limits; `withLimits` still controls per-channel unacknowledged messages and `withAskLimit` controls ask concurrency.
+
+`node.reliableChannelStats()` returns `ReliableChannelStats` with current `outboundChannels` / `inboundChannels` and cumulative `outboundRejected` / `inboundRejected`. Rejection counters count send attempts or received envelopes, including retransmissions, rather than unique messages. Outbound rejection also increments delivery `overflowDropped`, without creating a channel or adding an unacknowledged message. Inbound rejection creates no generation state, delivers nothing and sends no ACK. The sender retries until admission or its give-up deadline. Existing channels continue; a newer generation for an existing inbound prefix replaces its predecessor even at capacity, while old-generation replay stays rejected.
+
+ACKs, idle time and stop/start of the same manager do not erase channel sequence/deduplication state. Lowering either budget below retained slot counts throws `IllegalArgumentException` before replacing the previous settings. Capacity is not recovered by unsafe eviction. Short-lived targets and peer reincarnations consume retained slots; safe lifecycle-based reclamation remains pending. Business and system reliable channels share the budget: account for remote watch/death and high fan-out. Rejection is not business completion; writes still need idempotency keys. Ordinary tell and ask do not occupy these reliable slots. Known peers, quarantine tables, node-wide bytes and totals across managers remain outside these bounds; DA3 is still partial.
+
 ## Related Links
 
 - [Architecture Design](architecture.md) — CActor's layered architecture

@@ -103,6 +103,9 @@ public struct RemotingSettings {
     public let ackInterval: Duration
     /** 可靠投递：每个通道最多保存的未确认消息数（接收端乱序缓冲同样以此为上限）；满了丢弃新消息并计数 */
     public let maxUnacked: Int64
+    /** 通道序号/去重状态按管理器生命周期保留，满额拒绝新通道。 */
+    public let maxOutboundReliableChannels: Int64
+    public let maxInboundReliableChannels: Int64
     /** 本管理器经典及类型化远程 ask 共用的并发上限 */
     public let maxPendingAsks: Int64
     /** 可靠投递：最老的未确认消息超过这个时长仍未确认，放弃该节点的全部通道并投递 Terminated */
@@ -139,7 +142,13 @@ public struct RemotingSettings {
 
     public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
         resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration,
-        secureCookie: Option<String>, transportSecurity: Option<TransportSecurity>, maxPendingAsks!: Int64 = 1024) {
+        secureCookie: Option<String>, transportSecurity: Option<TransportSecurity>, maxPendingAsks!: Int64 = 1024,
+        maxOutboundReliableChannels!: Int64 = 4096, maxInboundReliableChannels!: Int64 = 4096) {
+        if (maxOutboundReliableChannels <= 0 || maxInboundReliableChannels <= 0) {
+            throw IllegalArgumentException("可靠通道数量上限必须为正数")
+        }
+        this.maxOutboundReliableChannels = maxOutboundReliableChannels
+        this.maxInboundReliableChannels = maxInboundReliableChannels
         if (maxPendingAsks <= 0) {
             throw IllegalArgumentException("maxPendingAsks 必须为正数: ${maxPendingAsks}")
         }
@@ -176,30 +185,56 @@ public struct RemotingSettings {
     /** 换掉可靠投递的上限与放弃时长，其余不变 */
     public func withLimits(maxUnacked: Int64, giveUpAfter: Duration): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks)
+            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels)
     }
 
     /** 设置经典及类型化远程 ask 共用的并发上限，满额不发送 */
     public func withAskLimit(limit: Int64): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: limit)
+            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: limit,
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels)
     }
 
     /** 设置共享密钥，其余不变（集群内所有节点须相同） */
     public func withSecureCookie(cookie: String): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, Some(cookie), transportSecurity, maxPendingAsks: maxPendingAsks)
+            maxUnacked, giveUpAfter, Some(cookie), transportSecurity, maxPendingAsks: maxPendingAsks,
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels)
     }
 
     /** 设置传输加密，其余不变（集群内所有节点须一致：加密节点拒绝明文连接） */
     public func withTransportSecurity(security: TransportSecurity): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, secureCookie, Some(security), maxPendingAsks: maxPendingAsks)
+            maxUnacked, giveUpAfter, secureCookie, Some(security), maxPendingAsks: maxPendingAsks,
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels)
+    }
+
+    /** 不回收去重状态；满额拒绝新通道，已有通道不受影响。 */
+    public func withChannelLimits(outbound: Int64, inbound: Int64): RemotingSettings {
+        RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
+            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
+            maxOutboundReliableChannels: outbound, maxInboundReliableChannels: inbound)
     }
 
     /** 启用 TLS（E65），等同 withTransportSecurity(tls) */
     public func withTls(tls: RemoteTls): RemotingSettings {
         withTransportSecurity(tls)
+    }
+}
+
+/** 可靠通道槽与拒绝次数；拒绝按信封/发送尝试累计，不代表唯一消息数。 */
+public struct ReliableChannelStats {
+    public let outboundChannels: Int64
+    public let inboundChannels: Int64
+    public let outboundRejected: Int64
+    public let inboundRejected: Int64
+
+    public init(outboundChannels: Int64, inboundChannels: Int64, outboundRejected: Int64, inboundRejected: Int64) {
+        this.outboundChannels = outboundChannels
+        this.inboundChannels = inboundChannels
+        this.outboundRejected = outboundRejected
+        this.inboundRejected = inboundRejected
     }
 }
 
@@ -608,6 +643,8 @@ public class RemotingCore {
     let resent = AtomicInt64(0)
     let duplicatesDropped = AtomicInt64(0)
     let unreachableEvents = AtomicInt64(0)
+    let outboundChannelRejected = AtomicInt64(0)
+    let inboundChannelRejected = AtomicInt64(0)
     let overflowDropped = AtomicInt64(0)
     let gaveUp = AtomicInt64(0)
     let peerRestarts = AtomicInt64(0)
@@ -642,7 +679,13 @@ public class RemotingCore {
     }
 
     func configure(s: RemotingSettings): Unit {
-        settings = s
+        synchronized(lock) {
+            // 缩容不能靠删除序号/去重状态完成，必须在覆盖旧设置前拒绝。
+            if (outChannels.size > s.maxOutboundReliableChannels || inChannels.size > s.maxInboundReliableChannels) {
+                throw IllegalArgumentException("可靠通道预算不能低于已保留的通道数量")
+            }
+            settings = s
+        }
     }
 
     private func localAddress(): NetworkAddress {
@@ -1216,28 +1259,33 @@ public class RemotingCore {
 
     /**
      * 可靠地发送到远程 Actor（按序、恰好一次；对端重启后未确认的消息在新通道重发，跨重启为至少一次）。
-     * 通道已有 maxUnacked 条未确认消息时丢弃这条并计数（不抛异常，与 tell 一致）
+     * 新通道数量或通道未确认消息达到上限时丢弃并计数；ACK 不清除序号状态。
      */
     func sendReliable(target: RemoteActorRef, message: Message, senderInfo: String): Unit {
         let addr = target.getTargetAddress()
         let k = key(addr.toString(), target.getActorName())
         let limit = settings.maxUnacked
         let queued = synchronized(lock) {
-            let ch = match (outChannels.get(k)) {
-                case Some(c) => c
-                case None =>
-                    let c = OutChannel(newChannelId(target.getActorName()), addr, target.getActorName())
-                    outChannels[k] = c
-                    c
-            }
-            if (ch.unacked.size >= limit) {
+            if (!outChannels.contains(k) && outChannels.size >= settings.maxOutboundReliableChannels) {
+                outboundChannelRejected.fetchAdd(1)
                 None<(OutChannel, ReliableEnvelope)>
             } else {
-                let seq = ch.nextSeq
-                ch.nextSeq++
-                let p = PendingMessage(seq, message, senderInfo, MonoTime.now())
-                ch.unacked.add(p)
-                Some((ch, envelopeOf(ch, p)))
+                let ch = match (outChannels.get(k)) {
+                    case Some(c) => c
+                    case None =>
+                        let c = OutChannel(newChannelId(target.getActorName()), addr, target.getActorName())
+                        outChannels[k] = c
+                        c
+                }
+                if (ch.unacked.size >= limit) {
+                    None<(OutChannel, ReliableEnvelope)>
+                } else {
+                    let seq = ch.nextSeq
+                    ch.nextSeq++
+                    let p = PendingMessage(seq, message, senderInfo, MonoTime.now())
+                    ch.unacked.add(p)
+                    Some((ch, envelopeOf(ch, p)))
+                }
             }
         }
         match (queued) {
@@ -1245,7 +1293,7 @@ public class RemotingCore {
             case None =>
                 overflowDropped.fetchAdd(1)
                 overflowLog.tryLog({ text => log_remoting.warn(text) }, { =>
-                    "可靠通道 ${k} 已有 ${limit} 条未确认消息，丢弃新消息 ${message.messageType()}"
+                    "可靠通道 ${k} 准入失败（通道数量或未确认消息达到上限），丢弃新消息 ${message.messageType()}"
                 })
         }
     }
@@ -1269,6 +1317,13 @@ public class RemotingCore {
         } catch (_: Exception) {
             // 连接失败：由重发任务稍后重试
             ()
+        }
+    }
+
+    func channelStats(): ReliableChannelStats {
+        synchronized(lock) {
+            ReliableChannelStats(outChannels.size, inChannels.size,
+                outboundChannelRejected.load(), inboundChannelRejected.load())
         }
     }
 
@@ -1351,6 +1406,22 @@ public class RemotingCore {
         let deliverable = ArrayList<ReliableEnvelope>()
         let bufferLimit = settings.maxUnacked
         synchronized(lock) {
+            // 先准入再登记代数，拒绝不能污染 inLatestGen 或删除已有去重状态。
+            var replacing = false
+            if (let Some((prefix, gen)) <- splitChannelId(e.channelId)) {
+                if (let Some((latest, oldId)) <- inLatestGen.get(prefix)) {
+                    if (gen < latest) {
+                        duplicatesDropped.fetchAdd(1)
+                        return
+                    }
+                    replacing = gen > latest && inChannels.contains(oldId)
+                }
+            }
+            if (!inChannels.contains(e.channelId) && !replacing &&
+                inChannels.size >= settings.maxInboundReliableChannels) {
+                inboundChannelRejected.fetchAdd(1)
+                return
+            }
             if (!admitGeneration(e.channelId)) {
                 // 旧一代通道在途的信封：发送端已经在新通道重发，丢弃即可
                 duplicatesDropped.fetchAdd(1)
@@ -1614,7 +1685,7 @@ public class RemotingCore {
 }
 
 extend SimpleRemoteManager {
-    /** 调整心跳、重发等参数（在 start 之前调用；含传输加密的设置在 start 之后调用会抛 IllegalStateException） */
+    /** start 前配置；加密设置在启动后抛 IllegalStateException，通道预算低于已有槽数抛 IllegalArgumentException。 */
     public func configure(settings: RemotingSettings): Unit {
         if (settings.transportSecurity.isSome() && isStarted()) {
             throw IllegalStateException("传输加密须在 start 之前配置")
@@ -1710,6 +1781,11 @@ extend SimpleRemoteManager {
     /** 已隔离的实例数 */
     public func quarantinedCount(): Int64 {
         core.quarantinedCount()
+    }
+
+    /** 通道槽与容量拒绝诊断，拒绝次数包含重发。 */
+    public func reliableChannelStats(): ReliableChannelStats {
+        core.channelStats()
     }
 
     /** 可靠投递的完整统计（含溢出丢弃、放弃、对端重启次数） */
