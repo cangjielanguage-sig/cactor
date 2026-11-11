@@ -1,6 +1,6 @@
 [package]
 name = "cactor_examples"
-version = "1.2.0"
+version = "1.2.1"
 description = "示例程序"
 cjc-version = "1.2.0"
 output-type = "static"

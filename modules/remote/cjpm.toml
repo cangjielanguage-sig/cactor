@@ -1,10 +1,27 @@
 [package]
 name = "cactor_remote"
-version = "1.2.0"
+version = "1.2.1"
 description = "远程通信：传输抽象与远程管理（实验性，尚未接入真实网络）"
 cjc-version = "1.2.0"
+license = ["MIT"]
+repository = "https://gitcode.com/Cangjie-SIG/cactor.git"
 output-type = "static"
 
 [dependencies]
 cactor_foundation = { path = "../foundation" }
 cactor_core = { path = "../core" }
+
+# remote 直接 import stdx（TLS/加密），模块自身声明 stdx 静态库路径：
+# workspace 里根 cjpm.toml 也会提供同样的 path-option，重复声明无副作用；
+# 但脱离 workspace（例如发布后在中心仓被单独构建）时只有这里能保证 stdx 可用。
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.aarch64-unknown-linux-gnu.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.aarch64-apple-darwin.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.x86_64-apple-darwin.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]

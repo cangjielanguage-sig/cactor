@@ -31,6 +31,7 @@ Agent 只写“做什么”，调度、隔离与容错交给 CActor。
 - [架构设计](#架构设计)
 - [示例程序](#示例程序)
 - [测试](#测试)
+- [发布到中心仓](#发布到中心仓)
 - [当前限制](#当前限制)
 - [路线图](#路线图)
 - [文档](#文档)
@@ -156,7 +157,33 @@ cjpm build
 
 ## 在项目中使用
 
-目前通过本地路径引用 CActor 的模块。在你的 `cjpm.toml` 中添加：
+### 从仓颉中心仓安装（推荐）
+
+CActor 的 12 个库模块已发布到 [仓颉中心仓](https://pkg.cangjie-lang.cn)，版本统一为 `1.2.1`：
+
+```toml
+[dependencies]
+cactor          = "1.2.1"   # 门面 API（cactor / cactor.api / cactor.config）
+cactor_core     = "1.2.1"   # Actor、Message 等核心类型
+cactor_patterns = "1.2.1"   # Ask 等模式（按需）
+```
+
+可用的模块：`cactor_foundation`、`cactor_core`、`cactor_runtime`、`cactor`、`cactor_patterns`、
+`cactor_testkit`、`cactor_streams`、`cactor_remote`、`cactor_persistence`、`cactor_cluster`、
+`cactor_xstate`、`cactor_macros`。
+
+用到 `cactor_remote` / `cactor_cluster`（TLS 依赖 stdx）时，构建前需把环境变量 `CANGJIE_STDX_PATH`
+指向本机 stdx 静态库目录（如 `$HOME/.cangjie/stdx-1.2.0.1/macos_aarch64_cjnative/static/stdx`）：
+
+```bash
+export CANGJIE_STDX_PATH=...
+cjpm build
+```
+
+产物里已经带了 `[target.*.bin-dependencies] path-option = ["${CANGJIE_STDX_PATH}"]`，消费方不必再改
+`cjpm.toml`；漏设这个变量会报 `imports package 'stdx.crypto.common' ... but it is not added as a dependency`。
+
+### 本地路径引用（开发本仓库时）
 
 ```toml
 [dependencies]
@@ -441,16 +468,50 @@ workspace 目前共有 366 个测试用例（`tools/ci.sh`），在仓颉 1.2.0 
 
 ---
 
+## 发布到中心仓
+
+`tools/publish.sh` 负责把 12 个库模块按依赖顺序发布到 https://pkg.cangjie-lang.cn 。它把模块拷到
+workspace 之外、把 path 依赖改写成中心仓版本号后再 `cjpm bundle` + `cjpm publish`，因为 cjpm
+既不允许发布 workspace，也要求发布产物的依赖是版本号。
+
+```bash
+# 一次性配置全局 token（写入 $CANGJIE_HOME/tools/config/cangjie-repo.toml 的 [repository.home]）
+sed -i '' 's/^token = .*/token = "<你的 token>"/' "$CANGJIE_HOME/tools/config/cangjie-repo.toml"
+
+source tools/env.sh
+tools/publish.sh                 # 按依赖顺序发布全部 12 个模块（版本取 modules/foundation/cjpm.toml）
+tools/publish.sh core runtime    # 只发布指定模块
+```
+
+三个容易踩的坑（脚本已处理）：
+
+1. **不能把 `[replace]` 带进产物**。cjpm 会把 `cjpm.toml` 一起打进 artifact，若其中写着
+   `[replace] x = { path = "/绝对/路径" }`，别的机器上就会报
+   `the path '/...' does not exist which is listed in 'replace' field`。因此暂存目录的依赖一律从中心仓解析。
+2. **索引是异步生成的**。发布成功后约 1–3 分钟索引里才会出现新版本，期间消费方解析报
+   `no available version for module 'x' by require '1.2.1'`；`cjpm` 还会把旧索引缓存在
+   `~/.cjpm/repository/index/<org>/<2>/<2>/<name>` 且不再回源。脚本会轮询索引并清理本机缓存。
+3. **`cjpm publish` 的 lint 门禁**。它的 bundle 用本机 cjlint 默认规则集，`G.FUN.02`（未使用参数）
+   会把大量接口实现桩判成 MANDATORY 违规。脚本默认 `--skip-lint`（`LINT=1` 可开启严格模式），
+   代码风格由 `tools/ci.sh` 把关。
+
+发布前请确认 `modules/<m>/README.md` 存在（artifact 根目录必须有 README），并把各模块
+`cjpm.toml` 的 `version` 一起升版本——中心仓不允许同名同版本覆盖，也没有删除/撤回命令。
+
+---
+
 ## 路线图
 
 完整路线图见 [ROADMAP.md](ROADMAP.md)。版本规划概要：
 
 - [x] **1.2.0**：升级到仓颉 1.2.0；拆分为多模块 workspace；核心运行时、经典与类型化 API 语义（监督树、watch、become、定时器、Stash 等）；基于 std.net 的远程与文件持久化；可复现的基准测试
+- [x] **1.2.1**：12 个库模块发布到仓颉中心仓（`cactor_*` 1.2.1），修复发布产物携带 `[replace]` 绝对路径的问题
+
 - [ ] **1.3.0 收敛**：删除死代码与重复实现；统一日志、配置、ask 与 Scheduler；真实 JSON；API 快照；测试去掉 `sleep`；空闲机器上复测基准
 - [ ] **1.4.0 新 API 与 HTTP**：`actorSystem {}` / `spawn` / `ask` 新入口，`@Actor` / `@Message` 宏，Ktor 风格 HTTP 服务端与 Actor 融合
 - [ ] **1.5.0 性能与可靠远程**：Native HTTP 引擎、扇出优化、远程 ask / watch、可靠投递、TLS
 - [ ] **1.6.0 集群与生产化**：成员协议、Singleton、脑裂处理；HTTP 客户端、WebSocket、生产插件
-- [ ] **2.0.0**：分片、持久化插件接口、API 冻结并发布到中心仓
+- [ ] **2.0.0**：分片、持久化插件接口、API 冻结
 
 ---
 

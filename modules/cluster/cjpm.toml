@@ -1,8 +1,10 @@
 [package]
 name = "cactor_cluster"
-version = "1.2.0"
+version = "1.2.1"
 description = "集群：成员管理、分片、路由、故障转移（实验性）"
 cjc-version = "1.2.0"
+license = ["MIT"]
+repository = "https://gitcode.com/Cangjie-SIG/cactor.git"
 output-type = "static"
 
 [dependencies]

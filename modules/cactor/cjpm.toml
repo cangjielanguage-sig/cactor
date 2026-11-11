@@ -1,8 +1,10 @@
 [package]
 name = "cactor"
-version = "1.2.0"
+version = "1.2.1"
 description = "门面模块：统一对外 API（cactor / cactor.api / cactor.config）"
 cjc-version = "1.2.0"
+license = ["MIT"]
+repository = "https://gitcode.com/Cangjie-SIG/cactor.git"
 output-type = "static"
 
 [dependencies]

@@ -13,7 +13,11 @@ cjpm test                  # 全部测试
 tools/ci.sh                # 构建 + 模块分层检查 + 全部测试（提交前必须通过）
 tools/ci.sh --bench        # 另跑基准
 python3 tools/check_module_deps.py   # 模块依赖方向检查
+tools/publish.sh           # 发布 12 个库模块到仓颉中心仓（详见 README「发布到中心仓」）
 ```
+
+发布相关：模块版本必须一起升（中心仓不允许同名同版本覆盖、无撤回命令）；artifact 会打包
+`cjpm.toml`，所以暂存 manifest 绝不能含 `[replace]` 或绝对路径（`tools/publish.sh` 有守卫）。
 
 示例可执行文件在 `./target/release/bin/`，如 `cactor_examples.chat_room`。
 示例日志用 `CACTOR_LOG_LEVEL=error` 静音。

@@ -1,8 +1,10 @@
 [package]
 name = "cactor_persistence"
-version = "1.2.0"
+version = "1.2.1"
 description = "持久化：事件溯源（文件日志 v2：序号、CRC32、fsync 组提交）、快照、持久状态、持久化查询"
 cjc-version = "1.2.0"
+license = ["MIT"]
+repository = "https://gitcode.com/Cangjie-SIG/cactor.git"
 output-type = "static"
 
 [dependencies]
