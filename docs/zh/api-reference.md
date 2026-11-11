@@ -2003,180 +2003,37 @@ broadcastRouter.route(StringMessage("Broadcast message"))
 
 ## 12. 测试框架
 
-测试框架提供 Actor 系统的测试支持，包括虚拟时间和消息探针。
-
-### 包引入
+测试工具统一位于 `cactor_testkit`，原 `cactor_integration.testing` 已删除。
 
 ```cangjie
-import cactor_integration.testing.{
-    TestActorSystem, TestProbe, TestTimeController,
-    TestExpectation
+import cactor_testkit.{ActorTestKit, TestProbe, BehaviorTestKit, TestInbox, ManualTime}
+```
+
+### 真实运行时：ActorTestKit 与 TestProbe
+
+`ActorTestKit(name)` 创建真实 Actor 系统，提供 `actorOf`、`spawnTyped`、`createTestProbe` 和 `shutdown`。测试结束时必须调用 `shutdown()`。
+
+```cangjie
+let kit = ActorTestKit("example-test")
+try {
+    let target = kit.actorOf({ => MyActor() }, "target")
+    let probe = kit.createTestProbe("reply")
+    probe.send(target, StringMessage("test"))
+    let reply = probe.expectMsgType<StringMessage>(Duration.second * 3)
+    @Expect(reply.getContent(), "response")
+    probe.expectNoMsg(Duration.millisecond * 100)
+} finally {
+    kit.shutdown()
 }
 ```
 
-### TestActorSystem
+`TestProbe.expectMsg(timeout)` 返回消息，`expectMsgType<T>(timeout)` 同时检查类型；超时或类型不符抛 `TestKitAssertionException`。`reply` 向最近一条消息的 sender 回复，`receiveN(n, timeout)` 等待多条消息。等待运行时条件使用 `awaitCondition` / `awaitAssert`，避免固定 sleep。
 
-测试专用的 Actor 系统：
+### 同步行为：BehaviorTestKit 与 ManualTime
 
-```cangjie
-public class TestActorSystem {
-    public init(name: String)
+`BehaviorTestKit<T>(behavior)` 用 `run(message)` 推进一个回合，`retrieveAllEffects()` 检查 spawn、watch、停止等效果；`childInbox<U>(name)` 与 `TestInbox<T>` 检查类型化消息。`kit.manualTime()` 或 `kit.timePasses(duration)` 推进虚拟时钟，随后 `runAll()` 处理已排入自身 inbox 的消息。**ManualTime 只驱动同步行为测试，不驱动真实 Actor 系统的调度器**（E52 尚未完成）。
 
-    /**
-     * 创建测试 Actor
-     */
-    public func actorOf(factory: () -> Actor, name: String): ActorRef
-
-    /**
-     * 创建测试探针
-     */
-    public func createTestProbe(): TestProbe
-
-    /**
-     * 获取时间控制器
-     */
-    public func getTimeController(): TestTimeController
-
-    /**
-     * 终止测试系统
-     */
-    public func terminate(): Unit
-
-    public func getName(): String
-    public func isTerminated(): Bool
-    public func getUnderlyingSystem(): CActorSystem
-}
-```
-
-### TestProbe
-
-测试探针，用于验证消息接收：
-
-```cangjie
-public class TestProbe {
-    /**
-     * 创建测试探针
-     */
-    public static func create(testSystem: TestActorSystem): TestProbe
-
-    /**
-     * 期望接收特定消息
-     * @param expectedMessage 期望的消息
-     * @param timeout 超时时间
-     * @return 期望结果
-     */
-    public func expectMessage(
-        expectedMessage: Message,
-        timeout: Duration
-    ): TestExpectation<Message>
-
-    /**
-     * 期望在指定时间内不接收任何消息
-     */
-    public func expectNoMessage(duration: Duration): TestExpectation<Unit>
-
-    /**
-     * 期望接收任意消息
-     */
-    public func expectAnyMessage(timeout: Duration): TestExpectation<Message>
-
-    /**
-     * 获取探针的 ActorRef
-     */
-    public func getRef(): ActorRef
-
-    /**
-     * 获取已接收的消息数量
-     */
-    public func getReceivedMessageCount(): Int32
-
-    /**
-     * 清理资源
-     */
-    public func cleanup(): Unit
-}
-```
-
-### TestTimeController
-
-虚拟时间控制器：
-
-```cangjie
-public class TestTimeController {
-    public init()
-
-    /**
-     * 获取当前虚拟时间（纳秒）
-     */
-    public func getCurrentTime(): Int64
-
-    /**
-     * 推进虚拟时间
-     */
-    public func advanceTime(duration: Duration): Unit
-
-    /**
-     * 重置时间
-     */
-    public func reset(): Unit
-}
-```
-
-### TestExpectation
-
-```cangjie
-public enum TestExpectation<T> {
-    | Success(T)
-    | Timeout
-    | UnexpectedMessage(Message)
-    | Error(Exception)
-
-    public func isSuccess(): Bool
-    public func getValue(): Option<T>
-    public func toString(): String
-}
-```
-
-### 测试示例
-
-```cangjie
-// 创建测试系统
-let testSystem = TestActorSystem("TestSystem")
-
-// 创建被测试的 Actor
-let actor = testSystem.actorOf({ => MyActor() }, "test-actor")
-
-// 创建探针
-let probe = testSystem.createTestProbe()
-
-// 发送消息
-actor.tell(StringMessage("test"), Some(probe.getRef().path.toString()))
-
-// 期望接收消息
-let result = probe.expectMessage(StringMessage("response"), Duration.second * 1)
-match (result) {
-    case TestExpectation.Success(msg) => println("测试通过")
-    case TestExpectation.Timeout => println("超时")
-    case TestExpectation.UnexpectedMessage(msg) =>
-        println("收到意外消息: ${msg.messageType()}")
-    case TestExpectation.Error(ex) =>
-        println("错误: ${ex.message}")
-}
-
-// 期望不接收消息
-let noMsg = probe.expectNoMessage(Duration.millisecond * 100)
-if (noMsg.isSuccess()) {
-    println("正确：没有收到消息")
-}
-
-// 使用虚拟时间
-let timeController = testSystem.getTimeController()
-timeController.advanceTime(Duration.second * 5)
-
-// 清理
-probe.cleanup()
-testSystem.terminate()
-```
+兼容的 `TestActorRefFactory` / `TestActorContext` 用于同步经典 Actor 测试。其 watch、行为切换、定时器与选择操作会明确抛异常，不模拟成功；需要这些能力时使用真实运行时或行为测试工具。
 
 ### 探针的终止断言与日志断言（E62）
 
@@ -2261,6 +2118,85 @@ shell 侧可以 `touch <dir>/node-2.ready` 直接参与同一个 barrier（协�
 ---
 
 ## 13. 类型安全 Actor
+
+### 持久化 reminder（v2.30）
+
+`cactor_persistence.reminders` 提供 `DurableReminders.behavior(persistenceId, store, deliver, pollInterval: ..., nowMillis: ...)`。它复用异步 `DurableStateBehavior`：启动先恢复，登记、替换、撤销、确认都在存储成功后回复；默认按 UTC 毫秒和一秒轮询，测试可注入时钟。`deliver` 应快速 tell 到业务 Actor，不能阻塞或做长 IO；重启时重新注入当前路由，不持久化 ActorRef 或闭包。
+
+```cangjie
+// business 是本地业务 Actor 的 TypedActorRef<ReminderDelivery>。
+let reminders = typedSystem.actorOf(DurableReminders.behavior(
+    PersistenceId.of("Reminder", "tenant-1"), FileDurableStateStore("/data/reminders"),
+    { delivery => business.tell(delivery) }), "reminders")
+let registered = TypedAsk.ask<ReminderCommand, Int64>(reminders, { replyTo =>
+    ReminderCommand.Register(ReminderDefinition("daily", "stable-business-key", dueAtMillis,
+        periodMillis: 86400000), replyTo)
+}, Duration.second * 5)
+```
+
+| 命令 | 回复及行为 |
+|---|---|
+| `Register(definition, replyTo)` | 落盘后回复递增的 generation；同名替换产生新代次 |
+| `Remove(name, replyTo)` | 落盘后 true；不存在返回 false |
+| `Get(replyTo)` | 当前提醒数组的副本 |
+| `Acknowledge(name, generation, dueAtMillis, replyTo)` | 匹配当前代次和到期时间且已到期时才接受；落盘后 true，过期/重复确认 false |
+| `Tick` | 检查到期提醒；生产由行为内部定时器驱动 |
+
+业务提交副作用后再发送确认。一次性提醒（periodMillis 为 0）确认后删除；周期提醒确认后推进到原周期序列中严格晚于当前时间的下一时刻，错过的周期合并。确认前每轮轮询都可重发，进程重启后仍重发；`(PersistenceId, name, generation, dueAtMillis)` 可作为业务幂等键。取消或替换不撤回已投递消息，旧代次确认不能删除新登记；同一代次不同到期时间的旧确认不能推进新周期。投递与业务副作用不构成原子事务，语义是至少一次，业务必须去重。
+
+每个 PersistenceId 必须有唯一活跃写者。文件存储不提供跨进程锁、复制、选主或自动故障转移；集群部署须由外部所有权协议保障单写者，并在新宿主提供可访问的持久存储和新路由。此接口按表扫描并整体写入状态，适合有限的每实体提醒，不是无限规模的全局调度器。跨节点投递需应用提供可编解码协议与路由；内部含回复引用的命令不能直接当作通用网络协议。墙钟回拨会推迟触发；进程离线时不会执行任务。轮询间隔限制重发频率，但不提供下游背压；慢业务需要有界邮箱或有界去重队列。
+
+`deliver` 抛异常会沿现有持久化行为失败路径终止当前实例；需要自动恢复时，将该行为包在监督退避策略中，并确保恢复后仍为唯一写者。至少一次投递以实例持续运行或最终恢复为前提，长时间离线不会执行任务。
+
+三进程恢复示例：在根目录构建后运行 `bash tools/reminder_demo.sh`，独立执行登记、恢复投递并确认、再次恢复验证已删除。
+
+
+### 异步退避重试（v2.29）
+
+从 `cactor_core.typed` 导入 `TypedRetry`，从 `cactor_core.supervision` 导入 `BackoffPolicy`。例如，假设 `remote` 是已发现的类型化服务引用，重试同一个幂等读请求：
+
+```cangjie
+let token = AskCancellationToken()
+let pending = TypedRetry.run<StringMessage>({ attempt =>
+    TypedAsk.askRemote<StringMessage, StringMessage>(remote, StringMessage("read"),
+        Duration.second, cancellation: Some(token))
+}, 3, BackoffPolicy(Duration.millisecond * 100, Duration.second, randomFactor: 0.2),
+    cancellation: Some(token),
+    shouldRetry: { error => (error as TypedAskTimeoutException).isSome() })
+```
+
+`maxAttempts` 必须为正并包含首次调用；`attempt` 从 1 计。操作须迅速返回 Promise，不能在操作工厂中阻塞 `get`。仅失败才重试，前次完成后才调度下一次；默认筛选所有异常，但取消异常始终终止，次数耗尽保留末次失败。筛选器或调度器抛异常时直接结束。`BackoffPolicy` 仅提供延迟、封顶及抖动，`maxRestarts` / `resetBackoffAfter` 不适用于单次请求，次数由 `maxAttempts` 决定。与监督策略一致，抖动向上附加，最终延迟可略超 `maxBackoff`。
+
+生产默认用 Timer；测试可用 `schedule: { delay, action => time.schedule(delay, action) }` 注入 ManualTime。取消会清理等待中的重试任务；要结束正在等待的 ask，应把同一令牌同时传给 ask 和 retry。本接口不提供总 deadline，每次操作须自行保证超时；一个永不完成的 Promise 不会触发重试。令牌取消可能与工厂执行竞争，不保证撤回已经开始的操作。
+
+网络超时可能发生在远端执行之后，重试不提供 exactly-once。写请求需沿每次尝试复用稳定幂等键并在业务侧去重；不要每次重试生成新事务标识。只读请求或幂等命令适合默认重试组合。
+
+### 可取消 ask（v2.28）
+
+本地与跨节点 ask 都接受可选的 `cancellation: Some(token)`：
+
+```cangjie
+let token = AskCancellationToken()
+let pending = TypedAsk.askRemote<StringMessage, StringMessage>(
+    remote, StringMessage("ping"), 3.seconds, cancellation: Some(token))
+// 用户取消会话时：
+token.cancel()
+// pending 以 TypedAskCancelledException 失败，可在 onComplete / recover 中处理。
+```
+
+本地调用同样支持 `TypedAsk.ask<Cmd, Reply>(ref, factory, timeout, cancellation: Some(token))`。一个令牌可控制多条请求，取消不可逆且幂等；`isCancellationRequested()` 查询取消状态。预取消跳过工厂和发送；工厂内取消也跳过发送。并发取消与实际投递之间仍有竞态，已发送的请求可能继续在目标节点执行。取消结束调用方等待，不撤回请求、不回滚远端副作用、不终止目标；需要停止业务操作时应在协议中另设取消命令。
+
+回复、超时、发送失败与取消以最先完成 Promise 者为准；后续回复不能覆盖结果。完成时取消超时定时器并解除令牌订阅；远程一次性回复引用随 Promise 完成变为 terminated，沿既有维护周期清理回复入口。`map` / `recover` 派生结果不提供反向取消，应将令牌传入原始 ask。
+
+
+### 分布式协议期望（v2.27）
+
+为跨节点服务选择稳定、版本化的协议名，在两端创建 Actor 时设置 `TypedProps().withProtocolTypeName("app.Worker.v1")`，服务 key 使用 `ServiceKey<WorkerMsg>("workers", protocolTypeName: Some("app.Worker.v1"))`。`registerTyped` 要求被登记引用声明相同名称，`findTyped` / `findAllTyped` 将名称放入发现引用；服务身份仍由 key.id 决定。普通 enum 使用既有 `TypedPayloadCodecs.register<T>`，也可通过 `declareTypeName<T>` 声明诊断名称。
+
+目标声明期望时，接收端比较信封标签或可推导的载荷类型名：明确错配计入 Unhandled 并限速告警；无法推导名称则计入 `TypedTypeExpectations` 的 unverified，继续由原有 `as T` 检查载荷。名称不是鉴权或 schema 验证。顶层与子 Actor 引用均保留期望；未声明期望的默认路径不增加注册表查询。
+
+`TypedPayloadBoxCodec` v3 新增 kind 3，保存 Message 的显式协议名；新端继续读取 v1/v2，旧端不能读取 kind 3。使用该功能前须升级通信两端。enum 仍需两端注册兼容 codec；协议名相同不代表字节格式兼容。
+
 
 ### 包引入
 
@@ -2388,9 +2324,17 @@ let stats = node.reliableDeliveryStats()
 |---|---|
 | `RemotingSettings(heartbeat, phi, pause, resend, ack[, maxUnacked, giveUpAfter])` | 五参构造的上限与放弃时长取默认值 20000 条、6 小时（同 Akka） |
 | `settings.withLimits(maxUnacked, giveUpAfter)` | 只换可靠投递的上限与放弃时长 |
+| `settings.withAskLimit(limit)` | 设置经典/类型化远程 ask 共用的并发上限，默认 1024，必须为正；其他配置构建方法保留该值 |
+| `node.pendingAskCount()` | 经典 `node.ask` 当前在途数量 |
+| `node.pendingTypedAskCount()` | 类型化远程 ask 当前在途数量；与经典数量之和受 `maxPendingAsks` 限制 |
+| `node.replyEntryCount()` | 普通发送方回复入口与类型化临时入口总数；类型化请求终态立即注销 |
+| `node.ask(target, message, timeout)` | 正超时必需；满额以 `RemoteAskCapacityException` 完成失败而不发送；未启动/已停止以 `IllegalStateException` 完成失败 |
 | `tellReliable(target, message[, sender])` | 通道已有 `maxUnacked` 条未确认消息时丢弃这条并计入 `overflowDropped`，不抛异常 |
 | `reliableDeliveryStats(): ReliableDeliveryStats` | 完整统计；旧的 `reliableStats()` 三元组保留 |
 
+- `TypedAsk.askRemote` 经 `SimpleRemoteManager` 的 `RemoteActorRef` 发送时，也受容量与停止管理；保留原 sender 的本地代理转发同样接入。成功、超时、取消及发送失败都即时注销 `$typedask-<启动标识>-<序号>`，`stop()` 立即完成在途失败，不等原超时。`PromiseActorRef.fail(cause)/onComplete(callback)` 供远程层注入终态处理。自定义 ActorRef、本地 fallback、手工可靠转发不会自动获得同一管理器生命周期；两端仍需提供实际载荷编解码。`askRemote` 的非正超时直接抛 `IllegalArgumentException`，计时器创建失败完成失败并解除取消订阅；取消不撤回已发送业务。
+- 经典 ask 的 `$ask-<启动标识>-<序号>` 与本地发送方的 `$ref<路径>#<启动标识>-<序号>` 均带管理器启动标识，避免同址新实例重置序号后误收旧回复。名称是内部不透明字符串，远端按收到的 sender 原样回复，无新增帧版本；不提供认证或业务幂等。
+- 经典 `node.ask` 的成功、超时、发送/计时器异常均统一注销临时入口并归还容量；`node.stop()` 先释放全部在途入口，再在锁外完成失败，原超时无需到期。回复与停止竞争时以 Promise 首次完成为准；停止不撤回已发送请求或远端副作用。非正超时在登记和发送前直接抛 `IllegalArgumentException`。默认 1024 是经典与类型化共用的限制，可在启动前 `configure(RemotingSettings.defaults().withAskLimit(256))` 调整；不提供全节点传输内存预算。`RemoteAskCapacityException.limit` 可用于观察容量配置；并发满额可搭配 `TypedRetry` 选择性退避，停止不应无限重试。
 - `tell` / `sendMessage` 只入出站队列、不阻塞：连接与重连在该地址的写线程里进行；对端不可达或队列满（64 MB）时丢弃并计数
   （`TcpTransport.getDroppedFrames()`），不抛异常。控制消息用 `sendControl(addr, actor, message)` 走优先通道。
 - 对端重启后，未确认的消息在新通道重发：跨重启是**至少一次**。
@@ -2527,7 +2471,7 @@ let settings = ClusterSettings.defaults().withPruneTombstonesAfter(Duration.hour
 
 | 情形 | 行为 |
 |---|---|
-| 本地 Actor 作为远程消息的发送方 | 登记回复入口 `$ref<路径>#<序号>`；Actor 终止后每秒清扫注销，`replyEntryCount()` 不随请求数增长 |
+| 本地 Actor 作为远程消息的发送方 | 普通发送方使用 `$ref<路径>#<启动标识>-<序号>` 并每秒清扫终止引用；类型化 ask 的一次性回复引用使用独立临时入口并在终态即时注销，`replyEntryCount()` 计入两类 |
 | 同一路径上重建的 Actor 发远程消息 | 换新入口、注销旧入口：回复送到新实例；发给旧实例的迟到回复计为不可投递 |
 | AskInbox 作为远程发送方 | 无法判断终止，入口空闲 `REPLY_ENTRY_IDLE_TTL_MS`（10 分钟）后注销 |
 | 分片 / 单例的 ask 超时 | Promise 以 `TypedAskTimeoutException` 失败，迟到的回复被丢弃 |

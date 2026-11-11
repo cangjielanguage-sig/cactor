@@ -60,9 +60,17 @@ public class TypedEnvelope<T> <: Message & PayloadCarrier {
  */
 public class TypedPayloadBox <: Message & PayloadCarrier {
     public let payload: Any
+    /**
+     * 类型期望（可选）：发布方声明的协议类型名。
+     *
+     * None = 没有声明：接收端沿用引入本机制之前的行为（`as T` 兜底，不匹配才算未处理）。
+     * 声明了则接收端按名字比对，不符即拒收（计入未处理 + 限速告警）。
+     */
+    public let typeTag: Option<TypedTypeTag>
 
-    public init(payload: Any) {
+    public init(payload: Any, typeTag!: Option<TypedTypeTag> = None<TypedTypeTag>) {
         this.payload = payload
+        this.typeTag = typeTag
     }
 
     public func messageType(): String {
@@ -113,21 +121,45 @@ class SignalEnvelope <: Message {
 }
 
 /**
+ * 携带类型期望的类型化引用（非泛型接口）。
+ *
+ * 集群 Receptionist 等非泛型边界用它读取引用上声明的协议类型名（"注册时把 T 的类型名记下来"）。
+ * 接口刻意不泛型：泛型接口的转换会在运行时查类型信息。
+ */
+public interface TypeExpectationCarrier {
+    /** 本引用发出的消息声明的协议类型名（None = 未声明） */
+    func typeExpectation(): Option<TypedTypeTag>
+}
+
+/**
  * 由经典引用支撑的类型化引用
  */
-public class ClassicTypedRef<T> <: TypedActorRef<T> {
+public class ClassicTypedRef<T> <: TypedActorRef<T> & TypeExpectationCarrier {
     public let classic: ActorRef
-    public init(classic: ActorRef) {
+    /**
+     * 类型期望（可选）：本引用发出的消息声明的协议类型名。
+     *
+     * 声明了就随消息带上（接收端据此校验），没声明就沿用旧行为。发送侧不做任何运行期类型查找，
+     * 因此 tell 的开销与引入本机制之前相同。
+     */
+    public let typeTag: Option<TypedTypeTag>
+
+    public init(classic: ActorRef, typeTag!: Option<TypedTypeTag> = None<TypedTypeTag>) {
         this.classic = classic
+        this.typeTag = typeTag
     }
 
     public func tell(message: T): Unit {
-        classic.tell(TypedPayloadBox(message))
+        classic.tell(TypedPayloadBox(message, typeTag: typeTag))
     }
 
     /** 带发送方发送（接收方可以用经典上下文 reply） */
     public func tell(message: T, sender: ActorRef): Unit {
-        classic.tell(TypedPayloadBox(message), sender)
+        classic.tell(TypedPayloadBox(message, typeTag: typeTag), sender)
+    }
+
+    public func typeExpectation(): Option<TypedTypeTag> {
+        typeTag
     }
 
     public func pathString(): String {
@@ -154,30 +186,48 @@ public struct TypedProps {
     public let dispatcher: String
     public let mailboxCapacity: Int64
     public let overflow: MailboxOverflow
+    /**
+     * 本 Actor 的协议类型名（可选）：声明后，收到的消息若带的类型名与之不符，一律拒收
+     * （不投递、计入未处理、限速告警）。不声明 = 不做类型期望校验（旧行为）。
+     */
+    public let protocolTypeName: Option<String>
 
     public init() {
-        this("default", 0, MailboxOverflow.DropNew)
+        this("default", 0, MailboxOverflow.DropNew, None<String>)
     }
 
     init(dispatcher: String, mailboxCapacity: Int64, overflow: MailboxOverflow) {
+        this(dispatcher, mailboxCapacity, overflow, None<String>)
+    }
+
+    init(dispatcher: String, mailboxCapacity: Int64, overflow: MailboxOverflow, protocolTypeName: Option<String>) {
         this.dispatcher = dispatcher
         this.mailboxCapacity = mailboxCapacity
         this.overflow = overflow
+        this.protocolTypeName = protocolTypeName
+    }
+
+    /** 声明本 Actor 的协议类型名：收到的消息类型名与之不符时拒收（类型期望校验） */
+    public func withProtocolTypeName(name: String): TypedProps {
+        if (name.isEmpty()) {
+            throw IllegalArgumentException("协议类型名不能为空")
+        }
+        TypedProps(dispatcher, mailboxCapacity, overflow, Some(name))
     }
 
     /** "default"（共享线程池）或 "blocking"（独立线程池，用于会阻塞的 Actor） */
     public func withDispatcher(name: String): TypedProps {
-        TypedProps(name, mailboxCapacity, overflow)
+        TypedProps(name, mailboxCapacity, overflow, protocolTypeName)
     }
 
     /** 有界邮箱：超过容量的消息被丢弃并计为死信 */
     public func withBoundedMailbox(capacity: Int64): TypedProps {
-        TypedProps(dispatcher, capacity, MailboxOverflow.DropNew)
+        TypedProps(dispatcher, capacity, MailboxOverflow.DropNew, protocolTypeName)
     }
 
     /** 有界邮箱，并指定邮箱满时的处理方式 */
     public func withBoundedMailbox(capacity: Int64, overflow: MailboxOverflow): TypedProps {
-        TypedProps(dispatcher, capacity, overflow)
+        TypedProps(dispatcher, capacity, overflow, protocolTypeName)
     }
 }
 
@@ -287,7 +337,8 @@ public struct TypedSpawn {
         // 冷路径（每 Actor 一次）：上下文工厂留在 core，因为它需要 internal 的 SupervisionRules。
         // 热路径（每消息）全部经 h 的用户包闭包，不经 core 泛型代码。
         let cold = TypedColdHooksImpl<U>(rules)
-        var p = PropsFactory.create<Actor>({ => TypedActorAdapter(h, cold, behavior, rules, system) })
+        let protocolTag = typedTypeTagOf(typedProps.protocolTypeName)
+        var p = PropsFactory.create<Actor>({ => TypedActorAdapter(h, cold, behavior, rules, system, protocolTag) })
         p = p.withSupervisorStrategy(TypedDeciderStrategy(rules))
         if (typedProps.dispatcher != "default") {
             p = p.withDispatcher(typedProps.dispatcher)
@@ -362,18 +413,20 @@ class TypedActorAdapter <: Actor {
     private let initialAny: Any
     private let rules: SupervisionRules
     private let typedSystem: Option<TypedActorSystem>
+    private let protocolTag: Option<TypedTypeTag>
     private var behaviorAny: Any
     private var ctxValue: Option<Any> = None<Any>
     private var started: Bool = false
     private var stopping: Bool = false
     private var stoppedCallback: Option<() -> Unit> = None<() -> Unit>
 
-    init(hooks: TypedHooks, cold: TypedColdHooks, initial: Any, rules: SupervisionRules, typedSystem: Option<TypedActorSystem>) {
+    init(hooks: TypedHooks, cold: TypedColdHooks, initial: Any, rules: SupervisionRules, typedSystem: Option<TypedActorSystem>, protocolTag: Option<TypedTypeTag>) {
         this.hooks = hooks
         this.cold = cold
         this.initialAny = initial
         this.rules = rules
         this.typedSystem = typedSystem
+        this.protocolTag = protocolTag
         this.behaviorAny = initial
     }
 
@@ -434,6 +487,9 @@ class TypedActorAdapter <: Actor {
         }
         match (message) {
             case p: TypedPayloadBox =>
+                if (!acceptsProtocol(p)) {
+                    return MessageResult.Unhandled
+                }
                 deliverAny(p.payload, c)
             // watchWith 的自定义消息由 Cell 换好、以 TypedPayloadBox 送达；这里只剩未登记消息的 Terminated 信号
             case t: Terminated =>
@@ -461,6 +517,32 @@ class TypedActorAdapter <: Actor {
             case _ =>
                 deliverAny(message, c)
         }
+    }
+
+    private func acceptsProtocol(box: TypedPayloadBox): Bool {
+        let expected = match (protocolTag) {
+            case Some(tag) => tag.typeName
+            case None => return true
+        }
+        let actual = match (box.typeTag) {
+            case Some(tag) => Some(tag.typeName)
+            case None => match (box.payload as Message) {
+                case Some(m) => Some(m.messageType())
+                case None => TypedPayloadCodecs.typeNameOfValue(box.payload)
+            }
+        }
+        match (actual) {
+            case Some(name) =>
+                if (name != expected) {
+                    let detail = "类型化协议不匹配：期望 ${expected}，收到 ${name}"
+                    TypedTypeExpectations.recordMismatch(detail)
+                    protocolMismatchLog.tryLog({ s => typedLifecycleLog.warn(s) }, { => detail })
+                    return false
+                }
+                TypedTypeExpectations.recordChecked()
+            case None => TypedTypeExpectations.recordUnverified()
+        }
+        true
     }
 
     private func deliverAny(payload: Any, c: Any): MessageResult {
@@ -609,7 +691,7 @@ class ClassicTypedContext<T> <: TypedActorContext<T> & SupervisionHost {
                 "$t${anonymousSeq}"
         }
         let ref = classic.actorOf(TypedSpawn.props<U>(behavior, typedSystem, props, carriedHooksOf(behavior)), childName)
-        ClassicTypedRef<U>(ref)
+        ClassicTypedRef<U>(ref, typeTag: typedTypeTagOf(props.protocolTypeName))
     }
 
     public func stop<U>(child: TypedActorRef<U>): Unit {

@@ -302,7 +302,9 @@ public class ShardingRememberEntitiesTest {
             let n = nodes[i]
             let addr = n.address()
             ClusterSharding(n.cluster, n.kit.system, n.remote, "rem", 32,
-                { id => RememberedEntity(id, addr, ledger, startLog) }, ShardingSettings.remembering(reps[i]))
+                { id => RememberedEntity(id, addr, ledger, startLog) },
+                // 本例精确核对宕机恢复次数；自动负载迁移会额外启动实体，另由再平衡用例覆盖。
+                ShardingSettings.remembering(reps[i]).withRebalance(RebalancePolicy.disabled()))
         })
         for (e in 0..30) {
             regions[0].tell("r${e}", StringMessage("x"))

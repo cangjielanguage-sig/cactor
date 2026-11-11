@@ -1,6 +1,6 @@
 /*
  * CActor Foundation - 日志门面
- * 只依赖 std；后端可替换（默认写 stderr，cactor_integration 可接 stdx.logger）。
+ * 只依赖 std；后端可替换（默认写 stderr）。
  * 关闭的级别只做一次原子读取，不拼接消息。
  */
 package cactor_foundation.log

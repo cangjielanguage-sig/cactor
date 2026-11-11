@@ -23,16 +23,14 @@ LAYERS = {
     "cactor_streams": 5,
     "cactor_testkit": 5,
     "cactor_cluster": 5,
-    "cactor_distribution": 6,
     "cactor_xstate": 6,
-    "cactor_integration": 6,
     "cactor_tests": 7,
     "cactor_examples": 7,
 }
 
 # stdx（外部二进制依赖，需要 OpenSSL 等运行环境）只允许出现在这些模块：
 # 运行时内核（foundation / core / runtime / persistence …）保持零外部依赖，加密等能力经接口注入（E65 TransportSecurity）
-STDX_ALLOWED = {"cactor_remote", "cactor_cluster", "cactor_distribution", "cactor_integration",
+STDX_ALLOWED = {"cactor_remote", "cactor_cluster",
                 "cactor_tests", "cactor_examples"}
 
 IMPORT_RE = re.compile(

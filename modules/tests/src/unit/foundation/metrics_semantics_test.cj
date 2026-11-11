@@ -1,15 +1,19 @@
 /*
- * CActor Integration - 直方图与百分位语义（E45，P15）
+ * CActor Tests - 直方图与百分位语义（迁自 integration 模块，E45/P15）
  *
  *   - 大于全部上界的观测计入 +Inf 桶（此前直接丢弃）；累积计数单调不减，+Inf == _count
  *   - Prometheus 文本：累积的 _bucket{le=...}、le="+Inf"、_sum、_count
  *   - 百分位先排序再取（此前按插入顺序取下标）
+ *
+ * 真值实现已随 integration 模块删除下沉到 foundation：
+ *   modules/foundation/src/monitoring/histogram.cj
  */
-package cactor_integration.monitoring
+package cactor_tests.unit.foundation
 
 import std.unittest.*
 import std.unittest.testmacro.*
 import std.convert.*
+import cactor_foundation.monitoring.*
 
 @Test
 public class MetricsSemanticsTest {

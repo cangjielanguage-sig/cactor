@@ -4,7 +4,7 @@
  * 发送方：远程消息中的发送方编码为 "remote://host:port/name"。对端 Actor 用 context.reply 回复时，
  * 回复经网络送回该名称（本地 Actor 作为发送方时会自动注册一个回复入口）。
  *
- * 远程 ask：注册一次性的回复入口 "$ask-N"，收到回复或超时后注销。
+ * 远程 ask：回复入口带节点启动标识与序号，所有终态及停机后注销。
  *
  * 远程 watch（对标 Akka 远程死亡监视）：
  * - 节点级：监视方定期向被监视节点发送 PING，对方回 PONG；用 Phi Accrual 检测器判断节点是否可达。
@@ -40,7 +40,7 @@ import std.convert.*
 import std.math.*
 import cactor_core.actor.*
 import cactor_core.message.*
-import cactor_core.typed.{TypedPromise, TypedAskTimeoutException}
+import cactor_core.typed.{TypedPromise, TypedAskTimeoutException, PromiseActorRef}
 import cactor_core.dsl.{AskInbox}
 import cactor_foundation.network.{NetworkAddress, NetworkTransport, TransportHandshake, TransportSecurity, TcpTransport}
 import cactor_foundation.hashing.{hmacSha256, toHex, fromHex, constantTimeEquals}
@@ -80,6 +80,15 @@ public func parseRemoteSender(text: String): Option<(NetworkAddress, String)> {
 let DEFAULT_MAX_UNACKED: Int64 = 20000
 let DEFAULT_GIVE_UP_AFTER: Duration = Duration.hour * 6
 
+/** 远程 ask 容量已满：请求尚未发送，调用方可据此决定退避或拒绝业务请求。 */
+public class RemoteAskCapacityException <: Exception {
+    public let limit: Int64
+    public init(limit: Int64) {
+        super("远程 ask 已达并发上限 ${limit}")
+        this.limit = limit
+    }
+}
+
 /** 远程层参数 */
 public struct RemotingSettings {
     /** 节点心跳间隔 */
@@ -94,6 +103,8 @@ public struct RemotingSettings {
     public let ackInterval: Duration
     /** 可靠投递：每个通道最多保存的未确认消息数（接收端乱序缓冲同样以此为上限）；满了丢弃新消息并计数 */
     public let maxUnacked: Int64
+    /** 本管理器经典及类型化远程 ask 共用的并发上限 */
+    public let maxPendingAsks: Int64
     /** 可靠投递：最老的未确认消息超过这个时长仍未确认，放弃该节点的全部通道并投递 Terminated */
     public let giveUpAfter: Duration
     /**
@@ -128,7 +139,11 @@ public struct RemotingSettings {
 
     public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration,
         resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration,
-        secureCookie: Option<String>, transportSecurity: Option<TransportSecurity>) {
+        secureCookie: Option<String>, transportSecurity: Option<TransportSecurity>, maxPendingAsks!: Int64 = 1024) {
+        if (maxPendingAsks <= 0) {
+            throw IllegalArgumentException("maxPendingAsks 必须为正数: ${maxPendingAsks}")
+        }
+        this.maxPendingAsks = maxPendingAsks
         if (maxUnacked <= 0) {
             throw IllegalArgumentException("maxUnacked 必须为正数: ${maxUnacked}")
         }
@@ -161,19 +176,25 @@ public struct RemotingSettings {
     /** 换掉可靠投递的上限与放弃时长，其余不变 */
     public func withLimits(maxUnacked: Int64, giveUpAfter: Duration): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, secureCookie, transportSecurity)
+            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks)
+    }
+
+    /** 设置经典及类型化远程 ask 共用的并发上限，满额不发送 */
+    public func withAskLimit(limit: Int64): RemotingSettings {
+        RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
+            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: limit)
     }
 
     /** 设置共享密钥，其余不变（集群内所有节点须相同） */
     public func withSecureCookie(cookie: String): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, Some(cookie), transportSecurity)
+            maxUnacked, giveUpAfter, Some(cookie), transportSecurity, maxPendingAsks: maxPendingAsks)
     }
 
     /** 设置传输加密，其余不变（集群内所有节点须一致：加密节点拒绝明文连接） */
     public func withTransportSecurity(security: TransportSecurity): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
-            maxUnacked, giveUpAfter, secureCookie, Some(security))
+            maxUnacked, giveUpAfter, secureCookie, Some(security), maxPendingAsks: maxPendingAsks)
     }
 
     /** 启用 TLS（E65），等同 withTransportSecurity(tls) */
@@ -314,7 +335,8 @@ let REPLY_SWEEP_INTERVAL: Duration = Duration.second
 
 /**
  * 回复入口（N7、v1 B6）：本地 Actor 作为远程消息的发送方时登记，对端 reply 按名称送回。
- * 名称带实例序号（"$ref<路径>#n"）：同一路径上重建的 Actor 是新实例、换新名称，
+ * 名称带节点启动标识与实例序号（"$ref<路径>#uid-n"）：隔离同址重启后的旧回复；
+ * 同一路径上重建的 Actor 是新实例、换新名称，
  * 发给旧实例的迟到回复找不到入口、计为不可投递，而不是投给已死的旧 Cell 或串到新实例。
  */
 class ReplyEntry {
@@ -556,6 +578,8 @@ public class RemotingCore {
     private let running = AtomicBool(false)
     private let incarnation: UInt64
     private let askSeq = AtomicInt64(0)
+    private let pendingAsks = HashMap<String, TypedPromise<Message>>()
+    private let pendingTypedAsks = HashMap<String, PromiseActorRef>()
 
     // 已暴露的 Actor：名称 -> 引用
     private let exposed = HashMap<String, ActorRef>()
@@ -830,7 +854,28 @@ public class RemotingCore {
     }
 
     func stop(): Unit {
-        running.store(false)
+        let pending = ArrayList<TypedPromise<Message>>()
+        let typed = ArrayList<PromiseActorRef>()
+        synchronized(lock) {
+            running.store(false)
+            for ((name, promise) in pendingAsks) {
+                receiver.unregisterHandler(name)
+                pending.add(promise)
+            }
+            for ((name, reply) in pendingTypedAsks) {
+                receiver.unregisterHandler(name)
+                typed.add(reply)
+            }
+            pendingAsks.clear()
+            pendingTypedAsks.clear()
+        }
+        // 完成 Promise 会调用应用回调，必须在锁外，且所有入口先释放。
+        for (promise in pending) {
+            promise.tryFailure(IllegalStateException("远程管理器已停止"))
+        }
+        for (reply in typed) {
+            reply.fail(IllegalStateException("远程管理器已停止"))
+        }
     }
 
     // ---------------- 暴露与发送方 ----------------
@@ -886,7 +931,7 @@ public class RemotingCore {
                             e.lastUsed.store(now)
                             e.name
                         case old =>
-                            let e = ReplyEntry(ref, "$ref${ref.path.getPath()}#${replySeq.fetchAdd(1) + 1}", key,
+                            let e = ReplyEntry(ref, "$ref${ref.path.getPath()}#${incarnation}-${replySeq.fetchAdd(1) + 1}", key,
                                 hasObservableLifecycle(ref), now)
                             if (let Some(o) <- old) {
                                 replyByName.remove(o.name)
@@ -936,34 +981,96 @@ public class RemotingCore {
 
     func replyEntryCount(): Int64 {
         synchronized(lock) {
-            replyByName.size
+            replyByName.size + pendingTypedAsks.size
         }
     }
 
     // ---------------- 远程 ask ----------------
 
-    /** 向远程 Actor 发送请求并等待其 reply；超时后 Promise 以 TypedAskTimeoutException 失败 */
+    /** 经典远程 ask 的在途数量，不含 TypedAsk 的发送方回复入口 */
+    func pendingAskCount(): Int64 {
+        synchronized(lock) { pendingAsks.size }
+    }
+
+    func pendingTypedAskCount(): Int64 {
+        synchronized(lock) { pendingTypedAsks.size }
+    }
+
+    /** 类型化 ask 的专用临时入口；终态即时注销，不等待周期清扫。 */
+    func sendTypedAsk(target: RemoteActorRef, message: Message, reply: PromiseActorRef): Unit {
+        let name = "$typedask-${incarnation}-${askSeq.fetchAdd(1) + 1}"
+        synchronized(lock) {
+            if (reply.isTerminated()) { return }
+            if (!running.load()) { throw IllegalStateException("远程管理器未运行") }
+            if (pendingAsks.size + pendingTypedAsks.size >= settings.maxPendingAsks) {
+                throw RemoteAskCapacityException(settings.maxPendingAsks)
+            }
+            pendingTypedAsks[name] = reply
+            receiver.registerHandler(name, { m: Message, _: Option<String> => reply.tell(m) })
+        }
+        reply.onComplete({ =>
+            synchronized(lock) {
+                pendingTypedAsks.remove(name)
+                receiver.unregisterHandler(name)
+            }
+        })
+        // 取消/停止可能先于回调登记；立即回收之后不再发送。
+        if (!reply.isTerminated()) {
+            try {
+                sender.sendMessage(target.getTargetAddress(), target.getActorName(), message,
+                    Some(encodeRemoteSender(localAddress(), name)))
+            } catch (e: Exception) {
+                reply.fail(e)
+            }
+        }
+    }
+
+    /** 向远程 Actor 发送请求；所有终态统一回收入口，停机立即失败 */
     public func ask(target: RemoteActorRef, message: Message, timeout: Duration): TypedPromise<Message> {
+        if (timeout <= Duration.Zero) {
+            throw IllegalArgumentException("远程 ask timeout 必须为正数")
+        }
         let promise = TypedPromise<Message>()
-        let name = "$ask-${askSeq.fetchAdd(1) + 1}"
+        let name = "$ask-${incarnation}-${askSeq.fetchAdd(1) + 1}"
         let rcv = receiver
-        rcv.registerHandler(name, { m: Message, _: Option<String> =>
-            rcv.unregisterHandler(name)
-            promise.trySuccess(m)
-            ()
+        let rejection: Option<Exception> = synchronized(lock) {
+            if (!running.load()) {
+                Some<Exception>(IllegalStateException("远程管理器未运行"))
+            } else if (pendingAsks.size + pendingTypedAsks.size >= settings.maxPendingAsks) {
+                Some<Exception>(RemoteAskCapacityException(settings.maxPendingAsks))
+            } else {
+                pendingAsks[name] = promise
+                rcv.registerHandler(name, { m: Message, _: Option<String> =>
+                    promise.trySuccess(m)
+                    ()
+                })
+                None<Exception>
+            }
+        }
+        if (let Some(e) <- rejection) {
+            promise.tryFailure(e)
+            return promise
+        }
+        promise.onComplete({ _ =>
+            synchronized(lock) {
+                pendingAsks.remove(name)
+                rcv.unregisterHandler(name)
+            }
         })
+        if (promise.isCompleted()) { return promise }
         let targetText = "${target.getTargetAddress().toString()}/${target.getActorName()}"
-        let timer = Timer.once(timeout, { =>
-            rcv.unregisterHandler(name)
-            promise.tryFailure(TypedAskTimeoutException("远程 ask ${targetText} 在 ${timeout} 内没有回复"))
-            ()
-        })
-        promise.onComplete({ _ => timer.cancel() })
         try {
-            sender.sendMessage(target.getTargetAddress(), target.getActorName(), message,
-                Some(encodeRemoteSender(localAddress(), name)))
+            let timer = Timer.once(timeout, { =>
+                promise.tryFailure(TypedAskTimeoutException("远程 ask ${targetText} 在 ${timeout} 内没有回复"))
+                ()
+            })
+            // 即使 stop/回复先于回调登记完成，onComplete 也会立即取消计时器。
+            promise.onComplete({ _ => timer.cancel() })
+            if (!promise.isCompleted()) {
+                sender.sendMessage(target.getTargetAddress(), target.getActorName(), message,
+                    Some(encodeRemoteSender(localAddress(), name)))
+            }
         } catch (e: Exception) {
-            rcv.unregisterHandler(name)
             promise.tryFailure(e)
         }
         promise
@@ -1570,6 +1677,16 @@ extend SimpleRemoteManager {
     /** 隔离指定实例（"地址#uid"）：地址上已换成新实例时不影响新实例（见 RemotingCore.quarantineInstance） */
     public func quarantine(address: NetworkAddress, uid: UInt64, reason: String): Unit {
         core.quarantineInstance(address.toString(), uid, reason)
+    }
+
+    /** 类型化远程 ask 在途数量；与经典 ask 共用 maxPendingAsks。 */
+    public func pendingTypedAskCount(): Int64 {
+        core.pendingTypedAskCount()
+    }
+
+    /** 经典远程 ask 的在途数量；不包含 TypedAsk 的 replyEntryCount */
+    public func pendingAskCount(): Int64 {
+        core.pendingAskCount()
     }
 
     /**

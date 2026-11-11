@@ -27,5 +27,4 @@ public import cactor_core.dsl.*
 // === 高级功能 (按需导入) ===
 // 用户需要时显式导入：
 // import cactor_patterns.*      // Ask模式、路由、断路器等
-// import cactor_distribution.*  // 远程、集群、持久化等
-// import cactor_integration.*   // 监控、日志、配置等
+// import cactor_remote.*        // 远程、集群、持久化等

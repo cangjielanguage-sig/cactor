@@ -1,583 +1,70 @@
 # CActor Package & Module Structure
 
-CActor is a cjpm **workspace** made of 15 Cangjie **modules**. In Cangjie, a module is the tree formed by a root package and all of its subpackages, and the root package name must equal the module name. Cyclic dependencies are forbidden between packages and between modules.
+CActor is a cjpm workspace with **14 modules**, listed in the root `cjpm.toml`. A module contains its root package and subpackages. Dependencies must be acyclic; module manifests define the exact edges and `tools/check_module_deps.py` enforces layering.
 
-## Layout
+## Modules and direct dependencies
 
-```
-cactor/
-├── cjpm.toml                 # [workspace]: members + shared compile options
-├── tools/check_module_deps.py  # module layering check
-└── modules/
-    ├── foundation/           # module cactor_foundation
-    │   ├── cjpm.toml         # [package] name = "cactor_foundation"
-    │   └── src/
-    │       ├── pkg.cj        # root package cactor_foundation
-    │       └── queue/ ...    # subpackage cactor_foundation.queue
-    ├── core/  runtime/  patterns/  cactor/  macros/  streams/
-    ├── remote/  persistence/  cluster/  distribution/  xstate/
-    └── integration/  tests/  examples/
-```
+Dependency names below omit the `cactor_` prefix except for the facade, `cactor`.
 
-## Modules and dependencies
+| Directory | Module | Direct dependencies | Purpose |
+|---|---|---|---|
+| foundation | `cactor_foundation` | none | Queues, network abstractions, configuration, logging, monitoring, circuit breakers |
+| macros | `cactor_macros` | none | Actor, message and state machine macros |
+| core | `cactor_core` | foundation | Actors, messages, supervision, typed behaviors and protocols |
+| runtime | `cactor_runtime` | foundation, core | Actor cells, mailboxes, scheduling and lifecycle |
+| patterns | `cactor_patterns` | foundation, core | Ask, routing, backpressure and SpawnProtocol |
+| remote | `cactor_remote` | foundation, core | TCP, handshakes, quarantine, reliable delivery and TLS |
+| persistence | `cactor_persistence` | foundation, core | Journals, snapshots, classic and typed persistence |
+| cactor | `cactor` | core, runtime | System facade and management HTTP API |
+| streams | `cactor_streams` | macros, foundation, core, cactor | Stream DSL; E60 demand propagation and cancellation remain unfinished |
+| cluster | `cactor_cluster` | foundation, core, remote, cactor | Membership, sharding, singleton, service discovery and distributed data |
+| xstate | `cactor_xstate` | foundation, core, cactor | Experimental state machines; no cluster dependency |
+| testkit | `cactor_testkit` | foundation, core, runtime, cactor | TestProbe, BehaviorTestKit, ManualTime, ProcessBarrier and other testing tools |
+| tests | `cactor_tests` | foundation, core, runtime, patterns, remote, persistence, cactor, testkit, macros, cluster | Unit and integration tests |
+| examples | `cactor_examples` | All library modules and macros (excluding tests) | Runnable examples and benchmarks |
 
-| Layer | Module | Files / lines | Direct deps | Notes |
-|---|---|---|---|---|
-| L0 | `cactor_foundation` | 35 / 9,323 | — | queues, memory, serialization, network, config, DI, monitoring, circuit breaker |
-| L0 | `cactor_macros` | 1 / 695 | — | macro package |
-| L1 | `cactor_core` | 31 / 6,756 | foundation | Actor / ActorRef / Message / Supervision / Typed abstractions, `DeadLetterRef` |
-| L2 | `cactor_runtime` | 63 / 16,238 | foundation, core | actor cell (own mailbox + serial scheduling), mailbox, dispatcher, guardian, lifecycle |
-| L2 | `cactor_remote` | 2 / 285 | foundation, core | remoting (experimental) |
-| L2 | `cactor_persistence` | 8 / 2,021 | core | event sourcing, snapshots, CQRS (experimental) |
-| L3 | `cactor_patterns` | 11 / 2,984 | foundation, core | ask, routing, backpressure; re-exports the circuit breaker |
-| L4 | `cactor` | 16 / 2,132 | core, runtime | facade: `cactor` / `cactor.api.*` / `cactor.config.*` |
-| L5 | `cactor_streams` | 6 / 2,541 | core, cactor | streams DSL |
-| L5 | `cactor_cluster` | 6 / 2,004 | foundation, core, remote, cactor | cluster, sharding, routing, failover (experimental) |
-| L6 | `cactor_distribution` | 4 / 654 | core, remote, persistence, cluster | umbrella: re-exports the three + streaming |
-| L6 | `cactor_xstate` | 17 / 4,852 | core, cactor, cluster | state machines |
-| L6 | `cactor_integration` | 28 / 8,107 | foundation, core, runtime, cactor | logging, metrics, config + 11 integration programs |
-| L7 | `cactor_tests` | 38 / 5,021 | core, runtime, cactor | @Test cases |
-| L7 | `cactor_examples` | 61 / 13,891 | many | 38 runnable examples |
+## Dependency direction and package paths
 
-Dependency direction (bottom-up, acyclic; enforced by `cjpm` and `tools/check_module_deps.py`):
+`modules/<directory>/src/` contains the module's package tree. The main composition paths are:
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ L7   cactor_tests          cactor_examples                              │
-├─────────────────────────────────────────────────────────────────────────┤
-│ L6   cactor_distribution   cactor_xstate         cactor_integration     │
-├─────────────────────────────────────────────────────────────────────────┤
-│ L5   cactor_cluster        cactor_streams                               │
-├─────────────────────────────────────────────────────────────────────────┤
-│ L4   cactor (facade)                                                    │
-├─────────────────────────────────────────────────────────────────────────┤
-│ L3   cactor_patterns                                                    │
-├─────────────────────────────────────────────────────────────────────────┤
-│ L2   cactor_runtime        cactor_remote         cactor_persistence     │
-├─────────────────────────────────────────────────────────────────────────┤
-│ L1   cactor_core                                                        │
-├─────────────────────────────────────────────────────────────────────────┤
-│ L0   cactor_foundation     cactor_macros                                │
-└─────────────────────────────────────────────────────────────────────────┘
+```text
+foundation → core → runtime → cactor
+                  → patterns
+                  → remote → cluster
+                  → persistence
+cactor → streams / xstate / testkit
+these modules → tests / examples
 ```
 
-Each module depends only on lower layers; see the table above for exact edges.
+Arrows show composition from lower to higher layers. Macros are independent. stdx is allowed only in remoting and higher layers; lower layers receive capabilities through interfaces such as `TransportSecurity`.
 
-## Visibility conventions
+Common entry points:
 
-- **Module public API** lives in `public` packages (the default) as `public` declarations.
-- **Module internals** are declared `protected package`: visible only inside the module, and importing them from another module is a compile error. Currently protected in `cactor_runtime`: actor, context, guardian, registry, message, monitoring, execution, scheduler, mailbox.lockfree, mailbox.ringbuffer, dispatcher.batch_processing / optimized / work_stealing.
-- **Re-export**: a module's root package exposes its API with `public import`. For example, `cactor_patterns` re-exports `cactor_foundation.circuit_breaker.*`, and `cactor_distribution` re-exports `cactor_remote.*`, `cactor_persistence.*` and `cactor_cluster.*`.
-- **Test files**: a same-package `xxx_test.cj` can access `internal` members and is only compiled by `cjpm test` (verified on 1.2.0).
+- `cactor_core.typed`: behaviors, references, ask and protocol codecs. Plain enums cross the network through `TypedPayloadCodecs`.
+- `cactor_cluster.membership`: real membership, `ClusterSharding`, `ClusterSingleton` and `ClusterReceptionist`.
+- `cactor_cluster.ddata`: CRDTs and Replicator; `cactor_cluster.ops`: management and fault injection routes.
+- `cactor_persistence.typed`: `EventSourcedBehavior` and `DurableStateBehavior`.
+- `cactor_foundation.logging` / `cactor_foundation.monitoring`: logging and monitoring, including the migrated `Histogram` / `calculatePercentile`.
+- `cactor_testkit`: runtime and synchronous behavior testing. The compatibility `TestActorContext` rejects watch, behavior switching and timers; use `ActorTestKit` or the relevant behavior testing tool for these operations.
 
-## Commands
+## Removed modules
+
+`cactor_distribution` and `cactor_integration` have been removed. Depend directly on remote / persistence / cluster. The umbrella streaming prototype and duplicate logging, configuration and monitoring implementations are gone. Histogram utilities moved to foundation, testing helpers to testkit, and tests to the tests module. See [CHANGELOG](../../CHANGELOG.md). The `modules/tests/src/integration/` test directory remains.
+
+## Visibility
+
+Public packages expose public declarations. A `protected package` is visible only inside its module. Modules can re-export public APIs through `public import`. Same-package `*_test.cj` files can access internal members and compile only during testing.
+
+## Build and verification
+
+Run from the workspace root to inherit optimization and stdx settings:
 
 ```bash
-cjpm build                                        # build the whole workspace
-cjpm build -m modules/core                        # build one member (and its deps)
-cjpm check                                        # check deps, print package compile order
-cjpm tree --depth 1                               # show the package dependency tree
-cjpm test                                         # run @Test in all modules
-python3 tools/check_module_deps.py                # module layering check
-cjpm run --name cactor_examples.hello_world_demo  # run an example from the workspace root
+source tools/env.sh
+cjpm build
+cjpm test
+python3 tools/check_module_deps.py
+tools/ci.sh
 ```
 
-## Actual package tree
-
-Generated from the real `modules/*/src` directories; the number in parentheses is the count of `.cj` files in that package:
-
-```
-modules/foundation/src/            # module cactor_foundation
-├── abstractions/  (2)
-├── circuit_breaker/  (2)
-├── config/  (3)
-├── contracts/  (2)
-├── di/  (2)
-├── memory/  (5)
-├── monitoring/  (4)
-├── network/  (2)
-├── queue/  (6)
-├── serialization/  (5)
-└── simple_config/  (1)
-
-modules/core/src/            # module cactor_core
-├── actor/  (3)
-├── config/  (2)
-├── context/  (2)
-├── error/  (2)
-├── guardian/  (2)
-├── memory/  (1)
-├── message/  (6)
-├── supervision/  (5)
-├── system/  (3)
-└── typed/  (4)
-
-modules/runtime/src/            # module cactor_runtime
-├── actor/  (2)
-├── context/  (2)
-├── dispatcher/  (3)
-│   ├── adaptive/  (1)
-│   ├── advanced/  (1)
-│   ├── batch_processing/  (2)
-│   ├── dynamic/  (1)
-│   ├── factory/  (2)
-│   ├── monitoring/  (3)
-│   ├── optimized/  (2)
-│   └── work_stealing/  (2)
-├── events/  (2)
-├── execution/  (1)
-├── guardian/  (4)
-├── lifecycle/  (2)
-├── mailbox/  (5)
-│   ├── advanced/  (1)
-│   ├── batching/  (2)
-│   ├── factory/  (1)
-│   ├── lockfree/  (1)
-│   ├── queue/  (2)
-│   └── ringbuffer/  (2)
-├── message/  (2)
-├── monitoring/  (1)
-├── registry/  (2)
-├── scheduler/  (1)
-├── supervision/  (3)
-├── system/  (3)
-├── typed/  (4)
-└── wrappers/  (1)
-
-modules/patterns/src/            # module cactor_patterns
-├── ask/  (4)
-├── backpressure/  (2)
-└── routing/  (2)
-    ├── advanced/  (1)
-    └── factory/  (1)
-
-modules/cactor/src/            # module cactor
-├── api/  (5)
-│   ├── config/  (2)
-│   ├── extensions/  (4)
-│   └── public/  (2)
-└── config/  (1)
-    └── file/  (1)
-
-modules/macros/src/            # module cactor_macros
-
-modules/streams/src/            # module cactor_streams
-├── core/  (3)
-├── dsl/  (1)
-└── unified/  (1)
-
-modules/remote/src/            # module cactor_remote
-
-modules/persistence/src/            # module cactor_persistence
-
-modules/cluster/src/            # module cactor_cluster
-
-modules/distribution/src/            # module cactor_distribution
-└── streaming/  (3)
-
-modules/xstate/src/            # module cactor_xstate
-├── core/  (1)
-│   ├── actor/  (1)
-│   ├── engine/  (1)
-│   ├── factory/  (1)
-│   ├── machine/  (1)
-│   └── types/  (3)
-├── enterprise/  (1)
-│   ├── distributed/  (1)
-│   └── event_sourcing/  (1)
-├── features/  (1)
-│   ├── hierarchical/  (1)
-│   └── parallel/  (1)
-└── lang/  (1)
-    └── macros/  (1)
-
-modules/integration/src/            # module cactor_integration
-├── configuration/  (2)
-├── logging/  (4)
-├── monitoring/  (6)
-└── testing/  (4)
-    ├── enhanced_dispatcher_test/  (1)
-    ├── plan10_actorcontext_test/  (1)
-    ├── plan10_advanced_supervision_test/  (1)
-    ├── plan10_api_test/  (1)
-    ├── plan10_cactor_runtime_test/  (1)
-    ├── plan10_comprehensive_test/  (1)
-    ├── plan10_router_test/  (1)
-    ├── simple_benchmark_test/  (1)
-    ├── simple_plan10_test/  (1)
-    ├── simple_realistic_benchmark/  (1)
-    └── unified_cactor_system_test/  (1)
-
-modules/tests/src/            # module cactor_tests
-├── integration/  (4)
-└── unit/  (1)
-    ├── core/  (1)
-    └── runtime/  (1)
-
-modules/examples/src/            # module cactor_examples
-└── <45  example packages>/
-```
-
-## Appendix: original layered design diagrams
-
-These are the pre-modularization design diagrams, kept as an architectural reference. `src/<layer>/` now maps to `modules/<layer>/src/` and `cactor.<layer>` to `cactor_<layer>`. Some directories (e.g. `foundation/concurrency/`) were planned in the design but never implemented that way; the actual tree above is authoritative.
-
-### 📦 Overall Package Structure
-
-CActor adopts a 6-layer modular architecture with clear responsibilities and boundaries for each layer:
-
-```
-src/
-├── cactor.cj                    # Main package export file
-├── foundation/                  # Foundation Layer
-├── core/                       # Core Layer
-├── runtime/                    # Runtime Layer
-├── patterns/                   # Patterns Layer
-├── distribution/               # Distribution Layer
-├── integration/                # Integration Layer
-├── api/                        # API Layer
-├── macros/                     # Macro system
-├── config/                     # Configuration files
-└── examples/                   # Example code
-```
-
-### 🏗️ Detailed Package Structure
-
-#### 1. Foundation Layer
-
-```
-foundation/
-├── pkg.cj                      # Package export file
-├── concurrency/                # Concurrency primitives
-│   ├── pkg.cj
-│   ├── lockfree_queue.cj      # Lock-free queue implementation
-│   ├── spsc_queue.cj          # Single Producer Single Consumer queue
-│   ├── mpsc_queue.cj          # Multiple Producer Single Consumer queue
-│   ├── atomic_operations.cj    # Atomic operations wrapper
-│   └── thread_pool.cj         # Thread pool implementation
-├── serialization/              # Serialization framework
-│   ├── pkg.cj
-│   ├── serializer.cj          # Serialization interface
-│   ├── json_serializer.cj     # JSON serializer
-│   ├── binary_serializer.cj   # Binary serializer
-│   └── serialization_manager.cj # Serialization manager
-├── network/                    # Network communication
-│   ├── pkg.cj
-│   ├── network_transport.cj    # Network transport interface
-│   ├── tcp_transport.cj       # TCP transport implementation
-│   ├── udp_transport.cj       # UDP transport implementation
-│   └── connection_pool.cj     # Connection pool
-└── memory/                     # Memory management
-    ├── pkg.cj
-    ├── object_pool.cj         # Object pool
-    ├── memory_pool.cj         # Memory pool
-    ├── numa_memory_pool.cj    # NUMA-aware memory pool
-    └── smart_gc.cj            # Smart garbage collection
-```
-
-#### 2. Core Layer
-
-```
-core/
-├── pkg.cj                      # Package export file
-├── actor/                      # Actor abstractions
-│   ├── pkg.cj
-│   ├── actor.cj               # Actor interface
-│   ├── actor_ref.cj           # Actor reference
-│   ├── actor_path.cj          # Actor path
-│   ├── props.cj               # Actor properties
-│   └── actor_lifecycle.cj     # Actor lifecycle
-├── message/                    # Message abstractions
-│   ├── pkg.cj
-│   ├── message.cj             # Message interface
-│   ├── envelope.cj            # Message envelope
-│   ├── string_message.cj      # String message
-│   ├── json_message.cj        # JSON message
-│   ├── network_message.cj     # Network message
-│   ├── zerocopy_message.cj    # Zero-copy message
-│   ├── enhanced_message.cj    # Enhanced message
-│   └── message_serializer.cj  # Message serializer
-├── system/                     # System abstractions
-│   ├── pkg.cj
-│   ├── actor_system.cj        # Actor system interface
-│   ├── system_guardian.cj     # System guardian
-│   └── dead_letters.cj        # Dead letter handling
-├── context/                    # Context
-│   ├── pkg.cj
-│   ├── actor_context.cj       # Actor context interface
-│   └── context_impl.cj        # Context implementation
-├── supervision/                # Supervision strategies
-│   ├── pkg.cj
-│   ├── supervision_strategy.cj # Supervision strategy
-│   ├── supervision_directive.cj # Supervision directive
-│   └── fault_handling.cj      # Fault handling
-└── config/                     # Core configuration
-    ├── pkg.cj
-    ├── actor_config.cj        # Actor configuration
-    ├── mailbox_config.cj      # Mailbox configuration
-    ├── dispatcher_config.cj   # Dispatcher configuration
-    └── supervision_config.cj  # Supervision configuration
-```
-
-#### 3. Runtime Layer
-
-```
-runtime/
-├── pkg.cj                      # Package export file
-├── cactor_runtime.cj          # Main runtime manager
-├── plan10_cactor_runtime.cj   # Plan10 runtime implementation
-├── dispatcher/                 # Dispatcher implementations
-│   ├── pkg.cj
-│   ├── message_dispatcher.cj   # Dispatcher interface
-│   ├── thread_pool_dispatcher.cj # Thread pool dispatcher
-│   ├── work_stealing_dispatcher.cj # Work-stealing dispatcher
-│   ├── pinned_dispatcher.cj    # Pinned thread dispatcher
-│   ├── numa_dispatcher.cj     # NUMA-aware dispatcher
-│   ├── batch_processing/      # Batch processing
-│   │   ├── batch_processor.cj
-│   │   └── batch_config.cj
-│   └── advanced/              # Advanced dispatchers
-│       ├── foundation_based_dispatcher.cj
-│       └── adaptive_dispatcher.cj
-├── mailbox/                    # Mailbox implementations
-│   ├── pkg.cj
-│   ├── mailbox.cj             # Mailbox interface
-│   ├── unbounded_mailbox.cj   # Unbounded mailbox
-│   ├── bounded_mailbox.cj     # Bounded mailbox
-│   ├── priority_mailbox.cj    # Priority mailbox
-│   ├── foundation_mailbox.cj  # Foundation mailbox
-│   └── mailbox_factory.cj     # Mailbox factory
-├── actor/                      # Runtime actors
-│   ├── pkg.cj
-│   ├── high_performance_actor.cj # High-performance actor
-│   └── actor_system_impl.cj   # Actor system implementation
-├── context/                    # Runtime context
-│   ├── pkg.cj
-│   ├── pooled_actor_context.cj # Pooled actor context
-│   └── context_factory.cj     # Context factory
-├── lifecycle/                  # Lifecycle management
-│   ├── pkg.cj
-│   ├── lifecycle_manager.cj   # Lifecycle manager
-│   └── actor_lifecycle_state.cj # Actor lifecycle state
-├── monitoring/                 # Runtime monitoring
-│   ├── pkg.cj
-│   ├── actor_system_metrics.cj # System metrics
-│   └── performance_monitor.cj  # Performance monitor
-├── guardian/                   # Guardian implementations
-│   ├── pkg.cj
-│   ├── runtime_system_guardian.cj # System guardian
-│   └── runtime_user_guardian.cj # User guardian
-├── registry/                   # Actor registry
-│   ├── pkg.cj
-│   └── simple_actor_registry.cj # Simple registry
-├── supervision/                # Supervision implementation
-│   ├── pkg.cj
-│   └── supervision_manager.cj  # Supervision manager
-├── events/                     # Event system
-│   ├── pkg.cj
-│   ├── actor_event_bus.cj     # Actor event bus
-│   └── simple_actor_event_bus.cj # Simple event bus
-└── message/                    # Runtime messages
-    ├── pkg.cj
-    └── batch_message_processor.cj # Batch message processor
-```
-
-#### 4. Patterns Layer
-
-```
-patterns/
-├── pkg.cj                      # Package export file
-├── ask/                        # Ask pattern
-│   ├── pkg.cj
-│   ├── ask_pattern.cj         # Ask pattern implementation
-│   ├── ask_future.cj          # Ask future
-│   └── ask_timeout.cj         # Ask timeout handling
-├── routing/                    # Routing patterns
-│   ├── pkg.cj
-│   ├── router.cj              # Router interface
-│   ├── round_robin_router.cj  # Round-robin router
-│   ├── random_router.cj       # Random router
-│   ├── consistent_hash_router.cj # Consistent hash router
-│   └── advanced/              # Advanced routing
-│       ├── advanced_routing.cj
-│       └── load_balancer.cj
-├── circuit_breaker/            # Circuit breaker pattern
-│   ├── pkg.cj
-│   ├── circuit_breaker.cj     # Circuit breaker implementation
-│   └── circuit_breaker_config.cj # Circuit breaker configuration
-├── supervision/                # Supervision patterns
-│   ├── pkg.cj
-│   ├── supervision_patterns.cj # Supervision patterns
-│   └── fault_tolerance.cj     # Fault tolerance
-└── backpressure/              # Backpressure patterns
-    ├── pkg.cj
-    ├── backpressure_strategy.cj # Backpressure strategy
-    └── flow_control.cj        # Flow control
-```
-
-#### 5. Distribution Layer
-
-```
-distribution/
-├── pkg.cj                      # Package export file
-├── remote/                     # Remote communication
-│   ├── pkg.cj
-│   ├── remote_actor_ref.cj    # Remote actor reference
-│   ├── remote_transport.cj    # Remote transport
-│   └── remote_deployment.cj   # Remote deployment
-├── cluster/                    # Cluster management
-│   ├── pkg.cj
-│   ├── cluster_manager.cj     # Cluster manager
-│   ├── node_discovery.cj      # Node discovery
-│   ├── cluster_state.cj       # Cluster state
-│   ├── failover.cj            # Failover
-│   └── sharding.cj            # Sharding support
-├── persistence/                # Persistence
-│   ├── pkg.cj
-│   ├── persistent_actor.cj    # Persistent actor
-│   ├── event_store.cj         # Event store
-│   ├── snapshot.cj            # Snapshot mechanism
-│   └── recovery.cj            # Recovery mechanism
-└── streaming/                  # Stream processing
-    ├── pkg.cj
-    ├── stream_processing.cj   # Stream processing
-    ├── stream_builder.cj      # Stream builder
-    └── reactive_streams.cj    # Reactive streams
-```
-
-#### 6. Integration Layer
-
-```
-integration/
-├── pkg.cj                      # Package export file
-├── monitoring/                 # Monitoring integration
-│   ├── pkg.cj
-│   ├── metrics.cj             # Metrics collection
-│   ├── distributed_tracing.cj # Distributed tracing
-│   ├── memory_monitor.cj      # Memory monitoring
-│   └── performance_analyzer.cj # Performance analyzer
-├── logging/                    # Logging integration
-│   ├── pkg.cj
-│   ├── actor_logger.cj        # Actor logger
-│   └── structured_logging.cj  # Structured logging
-├── configuration/              # Configuration management
-│   ├── pkg.cj
-│   ├── config_manager.cj      # Configuration manager
-│   └── hot_reload.cj          # Hot reload
-└── testing/                    # Testing framework
-    ├── pkg.cj
-    ├── test_actor_system.cj   # Test actor system
-    ├── test_probe.cj          # Test probe
-    ├── simple_benchmark.cj    # Simple benchmark
-    ├── simple_benchmark_test/ # Benchmark test
-    ├── plan10_comprehensive_test/ # Comprehensive test
-    ├── plan10_cactor_runtime_test/ # Runtime test
-    └── plan10_api_test/       # API test
-```
-
-#### 7. API Layer
-
-```
-api/
-├── pkg.cj                      # Package export file
-├── cactor.cj                  # Unified API entry
-├── cactor_system_api.cj       # Actor system API
-├── config/                     # API configuration
-│   ├── pkg.cj
-│   ├── mailbox_config_api.cj  # Mailbox configuration API
-│   ├── dispatcher_config_api.cj # Dispatcher configuration API
-│   └── supervision_config_api.cj # Supervision configuration API
-└── public/                     # Public APIs
-    ├── pkg.cj
-    ├── cactor_factory.cj      # CActor factory
-    └── cactor_system_builder.cj # System builder
-```
-
-#### 8. Other Modules
-
-```
-macros/                         # Macro system
-├── actor_dsl_macros.cj        # Actor DSL macros
-
-config/                         # Configuration files
-└── file/
-    ├── config_loader.cj       # Configuration loader
-    └── actor_system_config.cj # System configuration
-
-examples/                       # Example code
-├── hello_world/               # Basic examples
-├── api_demo/                  # API demonstration
-├── benchmark_demo/            # Performance examples
-├── advanced_dispatcher_examples/ # Advanced dispatcher examples
-├── advanced_mailbox_examples/ # Advanced mailbox examples
-└── configuration_usage_test/  # Configuration usage test
-```
-
-### 🔗 Package Dependencies
-
-#### Dependency Hierarchy
-
-```
-API Layer
-    ↓ (depends on)
-Integration Layer
-    ↓ (depends on)
-Distribution Layer
-    ↓ (depends on)
-Patterns Layer
-    ↓ (depends on)
-Runtime Layer
-    ↓ (depends on)
-Core Layer
-    ↓ (depends on)
-Foundation Layer
-```
-
-#### Package Import Rules
-
-1. **Downward Dependencies**: Upper layers can import lower layer packages
-2. **No Upward Dependencies**: Lower layers cannot import upper layer packages
-3. **Same Layer Dependencies**: Packages within the same layer can import each other
-4. **API Isolation**: Users only import API layer, not directly using Core layer
-
-### 📋 Package Responsibilities
-
-#### Foundation Layer
-- **Responsibility**: Provide infrastructure and utilities
-- **Characteristics**: Zero dependencies, can be used independently
-- **Contains**: Concurrency primitives, serialization, network, memory management
-
-#### Core Layer
-- **Responsibility**: Define core abstractions and interfaces
-- **Characteristics**: Pure abstractions, no concrete implementations
-- **Contains**: Actor, message, system, context abstractions
-
-#### Runtime Layer
-- **Responsibility**: Provide high-performance execution engine
-- **Characteristics**: Concrete implementations, performance optimized
-- **Contains**: Dispatchers, mailboxes, lifecycle management
-
-#### Patterns Layer
-- **Responsibility**: Implement common Actor patterns
-- **Characteristics**: Optional features, use as needed
-- **Contains**: Ask, routing, circuit breaker, backpressure
-
-#### Distribution Layer
-- **Responsibility**: Provide distributed capabilities
-- **Characteristics**: Enterprise-grade features
-- **Contains**: Remote communication, cluster, persistence, stream processing
-
-#### Integration Layer
-- **Responsibility**: Provide integration and tooling
-- **Characteristics**: Development and operations support
-- **Contains**: Monitoring, logging, configuration, testing
-
-#### API Layer
-- **Responsibility**: Provide unified external interface
-- **Characteristics**: Simple and easy to use, hide complexity
-- **Contains**: Unified API, configuration API, public API
-
----
-
-**CActor package structure design ensures clear separation of concerns and high modularity!** 🚀
-
+Check layering before adding imports; avoid bringing runtime dependencies into core through testkit or the facade.

@@ -19,9 +19,17 @@ import cactor_core.message.{Message, MessageResult}
 /** 服务标识 */
 public class ServiceKey<T> {
     public let id: String
+    public let protocolTypeName: Option<String>
 
-    public init(id: String) {
+    public init(id: String, protocolTypeName!: Option<String> = None<String>) {
+        // 在创建 key 时验证，避免查找过程中才抛出配置错误。
+        if (let Some(name) <- protocolTypeName) {
+            if (name.isEmpty()) {
+                throw IllegalArgumentException("服务协议类型名不能为空")
+            }
+        }
         this.id = id
+        this.protocolTypeName = protocolTypeName
     }
 
     public func toString(): String {

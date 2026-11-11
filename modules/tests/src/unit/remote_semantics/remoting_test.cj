@@ -1,7 +1,7 @@
 /*
  * Copyright (c) 2024. All rights reserved.
  * CActor - R6 测试：跨节点回复、远程 ask、远程 watch（Actor 停止 / 节点故障）、可靠投递（故障注入）
- * 全部使用本机回环 TCP 上的两个真实节点。
+ * 跨节点交互使用本机回环 TCP；发送异常与跨实例旧回复采用显式传输注入。
  */
 package cactor_tests.unit.remote_semantics
 
@@ -12,8 +12,8 @@ import std.collection.*
 import std.unittest.*
 import std.unittest.testmacro.*
 import cactor_core.actor.{Actor, ActorRef, ActorContext, Terminated}
-import cactor_core.message.{Message, MessageResult, StringMessage}
-import cactor_core.typed.{TypedAskTimeoutException}
+import cactor_core.message.{Message, MessageResult, StringMessage, NetworkMessage, NetworkMessageSerializer}
+import cactor_core.typed.*
 import cactor_foundation.network.{NetworkAddress, NetworkTransport, TcpTransport, TransportProtocol, TransportHandshake}
 import cactor_remote.*
 import cactor_testkit.*
@@ -65,6 +65,7 @@ class LossyTransport <: NetworkTransport {
     private let lock = Mutex()
     private let rnd: Random
     let dropped = AtomicInt64(0)
+    let sent = AtomicInt64(0)
 
     init(dropRate: Float64, seed: UInt64) {
         this.inner = TcpTransport(NetworkAddress("127.0.0.1", 0))
@@ -83,6 +84,7 @@ class LossyTransport <: NetworkTransport {
     public func isActive(): Bool { inner.isActive() }
 
     public func send(address: NetworkAddress, data: Array<UInt8>): Unit {
+        sent.fetchAdd(1)
         let drop = synchronized(lock) { rnd.nextFloat64() < dropRate }
         if (drop) {
             dropped.fetchAdd(1)
@@ -98,6 +100,244 @@ func node(): SimpleRemoteManager {
         Duration.millisecond * 50, Duration.millisecond * 5))
     m.start()
     m
+}
+
+/** 发送异常注入，不替代其余用例的真实 TCP。 */
+class AskFailingTransport <: NetworkTransport {
+    let sends = AtomicInt64(0)
+    let active = AtomicBool(false)
+    public func start(): Unit { active.store(true) }
+    public func stop(): Unit { active.store(false) }
+    public func isActive(): Bool { active.load() }
+    public func getLocalAddress(): NetworkAddress { NetworkAddress("127.0.0.1", 1) }
+    public func setDataHandler(handler: (Array<UInt8>) -> Unit): Unit {}
+    public func send(address: NetworkAddress, data: Array<UInt8>): Unit {
+        sends.fetchAdd(1)
+        throw IllegalStateException("injected-send-failure")
+    }
+}
+
+/** 同址新实例重放旧回复；数据仍经过真实网络消息序列化与接收分发。 */
+class AskReplayTransport <: NetworkTransport {
+    let active = AtomicBool(false)
+    let frames = ArrayList<NetworkMessage>()
+    let codec = NetworkMessageSerializer()
+    var handler: Option<(Array<UInt8>) -> Unit> = None<(Array<UInt8>) -> Unit>
+    public func start(): Unit { active.store(true) }
+    public func stop(): Unit { active.store(false) }
+    public func isActive(): Bool { active.load() }
+    public func getLocalAddress(): NetworkAddress { NetworkAddress("127.0.0.1", 1) }
+    public func setDataHandler(h: (Array<UInt8>) -> Unit): Unit { handler = Some(h) }
+    public func send(address: NetworkAddress, data: Array<UInt8>): Unit { frames.add(codec.deserialize(data)) }
+    func lastReplyName(): String {
+        let (_, name) = parseRemoteSender(frames[frames.size - 1].sender.getOrThrow()).getOrThrow()
+        name
+    }
+    func reply(name: String, text: String): Unit {
+        handler.getOrThrow()(codec.serialize(NetworkMessage(name, StringMessage(text), None<String>)))
+    }
+}
+
+func limitedAskNode(limit: Int64,
+    transport!: NetworkTransport = TcpTransport(NetworkAddress("127.0.0.1", 0))): SimpleRemoteManager {
+    let m = SimpleRemoteManager(transport)
+    m.configure(RemotingSettings.defaults().withAskLimit(limit))
+    m.start()
+    m
+}
+
+@Test
+public class RemoteAskLifecycleTest {
+    @TestCase
+    public func validatesLimitTimeoutAndStoppedAdmission(): Unit {
+        let settings = RemotingSettings.defaults().withAskLimit(3)
+            .withLimits(10, Duration.minute).withSecureCookie("test-cookie")
+        @Expect(settings.maxPendingAsks, 3)
+        @ExpectThrows[IllegalArgumentException](settings.withAskLimit(0))
+        @ExpectThrows[IllegalArgumentException](settings.withAskLimit(-1))
+        let a = SimpleRemoteManager(NetworkAddress("127.0.0.1", 0), TransportProtocol.TCP)
+        let target = a.remoteActorOf(NetworkAddress("127.0.0.1", 1), "missing")
+        @ExpectThrows[IllegalArgumentException](a.ask(target, StringMessage("zero"), Duration.Zero))
+        @ExpectThrows[IllegalArgumentException](a.ask(target, StringMessage("negative"), Duration.second * -1))
+        @ExpectThrows[IllegalStateException](a.ask(target, StringMessage("stopped"), T5S).get(T5S))
+        @Expect(a.pendingAskCount(), 0)
+    }
+
+    @TestCase
+    public func rejectsAtCapacityAndReusesCapacityAfterReply(): Unit {
+        let kit = ActorTestKit("rm-ask-limit")
+        let transport = LossyTransport(0.0, 42u64)
+        let a = limitedAskNode(1, transport: transport)
+        let b = node()
+        try {
+            let senders = TestInbox<ActorRef>("limit-senders")
+            let target = kit.spawnTyped<StringMessage>(TypedBehaviors.receive<StringMessage>({ ctx, _ =>
+                senders.tell(ctx.toClassic().getOrThrow().senderRef().getOrThrow())
+                TypedBehaviors.same<StringMessage>()
+            }), "held")
+            b.exposeActor("held", target.toClassic().getOrThrow())
+            b.exposeActor("echo", kit.actorOf({ => Echo() }, "echo"))
+            let remote = a.remoteActorOf(b.getLocalAddress(), "held")
+            let first = a.ask(remote, StringMessage("held"), Duration.minute)
+            @Expect(awaitCondition(T5S, { => senders.hasMessages() }), true)
+            @Expect(a.pendingAskCount(), 1)
+            let sent = transport.sent.load()
+            @ExpectThrows[RemoteAskCapacityException](a.ask(remote, StringMessage("rejected"), T5S).get(T5S))
+            @Expect(transport.sent.load(), sent)
+            senders.receiveMessage().tell(StringMessage("accepted"))
+            @Expect((first.get(T5S) as StringMessage).getOrThrow().getContent(), "accepted")
+            @Expect(awaitCondition(T5S, { => a.pendingAskCount() == 0 }), true)
+            let echoed = a.ask(a.remoteActorOf(b.getLocalAddress(), "echo"), StringMessage("again"), T5S)
+            @Expect((echoed.get(T5S) as StringMessage).getOrThrow().getContent(), "echo:again")
+            @Expect(awaitCondition(T5S, { => a.pendingAskCount() == 0 }), true)
+        } finally {
+            a.stop()
+            b.stop()
+            kit.shutdown()
+        }
+    }
+
+    @TestCase
+    public func timeoutReleasesCapacityAndLateReplyCannotCompleteNextAsk(): Unit {
+        let kit = ActorTestKit("rm-ask-late")
+        let a = limitedAskNode(1)
+        let b = node()
+        try {
+            let senders = TestInbox<ActorRef>("late-senders")
+            let target = kit.spawnTyped<StringMessage>(TypedBehaviors.receive<StringMessage>({ ctx, _ =>
+                senders.tell(ctx.toClassic().getOrThrow().senderRef().getOrThrow())
+                TypedBehaviors.same<StringMessage>()
+            }), "held")
+            b.exposeActor("held", target.toClassic().getOrThrow())
+            let remote = a.remoteActorOf(b.getLocalAddress(), "held")
+            let first = a.ask(remote, StringMessage("first"), Duration.millisecond * 100)
+            @Expect(awaitCondition(T5S, { => senders.hasMessages() }), true)
+            let oldSender = senders.receiveMessage()
+            @ExpectThrows[TypedAskTimeoutException](first.get(T5S))
+            @Expect(awaitCondition(T5S, { => a.pendingAskCount() == 0 }), true)
+            let second = a.ask(remote, StringMessage("second"), Duration.minute)
+            @Expect(awaitCondition(T5S, { => senders.hasMessages() }), true)
+            oldSender.tell(StringMessage("late-first"))
+            senders.receiveMessage().tell(StringMessage("second"))
+            @Expect((second.get(T5S) as StringMessage).getOrThrow().getContent(), "second")
+            @ExpectThrows[TypedAskTimeoutException](first.get(T5S))
+            @Expect(awaitCondition(T5S, { => a.pendingAskCount() == 0 }), true)
+        } finally {
+            a.stop()
+            b.stop()
+            kit.shutdown()
+        }
+    }
+
+    @TestCase
+    public func shutdownCompletesAllAndAllowsCallbackReentry(): Unit {
+        let kit = ActorTestKit("rm-ask-stop")
+        let a = limitedAskNode(2)
+        let b = node()
+        try {
+            b.exposeActor("silent", kit.actorOf({ => Silent() }, "silent"))
+            let remote = a.remoteActorOf(b.getLocalAddress(), "silent")
+            let first = a.ask(remote, StringMessage("one"), Duration.minute)
+            let second = a.ask(remote, StringMessage("two"), Duration.minute)
+            let reentered = AtomicBool(false)
+            first.onComplete({ _ =>
+                a.stop()
+                reentered.store(a.pendingAskCount() == 0 &&
+                    a.ask(remote, StringMessage("after-stop"), T5S).isCompleted())
+            })
+            a.stop()
+            @Expect(first.isCompleted() && second.isCompleted(), true)
+            @ExpectThrows[IllegalStateException](first.get(T5S))
+            @ExpectThrows[IllegalStateException](second.get(T5S))
+            @Expect(reentered.load(), true)
+            @Expect(a.pendingAskCount(), 0)
+        } finally {
+            a.stop()
+            b.stop()
+            kit.shutdown()
+        }
+    }
+
+    @TestCase
+    public func replyNamesAreIsolatedAcrossManagerInstances(): Unit {
+        let kit = ActorTestKit("rm-reply-incarnation")
+        let oldWire = AskReplayTransport()
+        let newWire = AskReplayTransport()
+        let oldManager = limitedAskNode(1, transport: oldWire)
+        let newManager = limitedAskNode(1, transport: newWire)
+        try {
+            let destination = NetworkAddress("127.0.0.1", 2)
+            let probe = kit.createTestProbe()
+            let oldRemote = oldManager.remoteActorOf(destination, "held")
+            let oldAsk = oldManager.ask(oldRemote, StringMessage("old"), Duration.minute)
+            let oldAskName = oldWire.lastReplyName()
+            oldRemote.tell(StringMessage("old-sender"), probe.ref)
+            let oldSenderName = oldWire.lastReplyName()
+            oldManager.stop()
+            @Expect(oldAsk.isCompleted(), true)
+            let newRemote = newManager.remoteActorOf(destination, "held")
+            let current = newManager.ask(newRemote, StringMessage("current"), Duration.minute)
+            let newAskName = newWire.lastReplyName()
+            newRemote.tell(StringMessage("new-sender"), probe.ref)
+            let newSenderName = newWire.lastReplyName()
+            @Expect(oldAskName != newAskName, true)
+            @Expect(oldSenderName != newSenderName, true)
+            newWire.reply(oldAskName, "stale-ask")
+            newWire.reply(newAskName, "current-ask")
+            @Expect((current.get(T5S) as StringMessage).getOrThrow().getContent(), "current-ask")
+            newWire.reply(oldSenderName, "stale-sender")
+            newWire.reply(newSenderName, "current-sender")
+            @Expect(probe.expectMsgType<StringMessage>(T5S).getContent(), "current-sender")
+            @Expect(newManager.pendingAskCount(), 0)
+        } finally {
+            oldManager.stop()
+            newManager.stop()
+            kit.shutdown()
+        }
+    }
+
+    @TestCase
+    public func sendFailureReleasesEveryAttempt(): Unit {
+        let transport = AskFailingTransport()
+        let a = limitedAskNode(1, transport: transport)
+        try {
+            let target = a.remoteActorOf(NetworkAddress("127.0.0.1", 2), "echo")
+            for (_ in 0..3) {
+                let result = a.ask(target, StringMessage("failure"), Duration.minute)
+                @Expect(result.isCompleted(), true)
+                @ExpectThrows[IllegalStateException](result.get(T5S))
+                @Expect(a.pendingAskCount(), 0)
+            }
+            @Expect(transport.sends.load(), 3)
+        } finally { a.stop() }
+    }
+
+    @TestCase
+    public func stopRacesWithAdmissionWithoutLeavingWaiters(): Unit {
+        let kit = ActorTestKit("rm-ask-race")
+        let b = node()
+        try {
+            b.exposeActor("echo", kit.actorOf({ => Echo() }, "echo"))
+            for (_ in 0..20) {
+                let a = limitedAskNode(1)
+                try {
+                    let stop = spawn { a.stop() }
+                    let result = a.ask(a.remoteActorOf(b.getLocalAddress(), "echo"), StringMessage("race"), Duration.minute)
+                    stop.get(T5S)
+                    @Expect(result.isCompleted(), true)
+                    try {
+                        @Expect((result.get(T5S) as StringMessage).getOrThrow().getContent(), "echo:race")
+                    } catch (e: Exception) {
+                        @Expect((e as TypedAskTimeoutException).isNone(), true)
+                    }
+                    @Expect(a.pendingAskCount(), 0)
+                } finally { a.stop() }
+            }
+        } finally {
+            b.stop()
+            kit.shutdown()
+        }
+    }
 }
 
 @Test

@@ -171,36 +171,17 @@ main(): Int64 {
 
 ---
 
-## 四、12 个模块，按需依赖
+## 四、11 个库模块，按需依赖
 
-CActor 是一个 cjpm workspace。库本身拆成 12 个模块，依赖方向**只能由上层指向下层**：
+CActor 是一个 cjpm workspace。库本身拆成 11 个模块，依赖方向**只能由上层指向下层**：
 
-```
-            用户代码 / 示例 / 测试
-                     │
-   ┌────────┬────────┼─────────┬──────────┐
-   ▼        ▼        ▼         ▼          ▼
-streams  distribution  xstate  integration  testkit
-             │
-   ┌─────────┼──────────┐
-   ▼         ▼          ▼
-remote   persistence  cluster
-   │         │          │
-   └─────────┴────┬─────┘
-                  ▼
-               cactor（门面）
-                  │
-                  ▼
-           cactor_patterns（Ask / Router / Backpressure）
-                  │
-                  ▼
-           cactor_runtime（Mailbox / Dispatcher / Guardian / Registry）
-                  │
-                  ▼
-           cactor_core（Actor / ActorRef / Message / Supervision / Typed）
-                  │
-                  ▼
-           cactor_foundation（Queue / Serialization / Memory / Network / DI / CircuitBreaker）
+```text
+foundation → core → runtime → cactor
+                  → patterns
+                  → remote → cluster
+                  → persistence
+cactor → streams / xstate / testkit
+独立宏模块：macros；最上层消费者：tests / examples
 ```
 
 | 模块 | 包名 | 职责 | 状态 |
@@ -210,25 +191,27 @@ remote   persistence  cluster
 | runtime | `cactor_runtime` | mailbox、dispatcher、guardian、registry、生命周期管理 | 可用 |
 | patterns | `cactor_patterns` | Ask、路由、背压 | 可用 |
 | cactor | `cactor` | 统一对外门面（`CActor`、`CActorSystem`、`ActorProps` 等） | 可用 |
-| testkit | `cactor_testkit` | TestActorSystem、TestProbe、断言工具 | 可用 |
+| testkit | `cactor_testkit` | ActorTestKit、TestProbe、BehaviorTestKit、ManualTime、断言工具 | 可用 |
 | streams | `cactor_streams` | 流处理 DSL、背压、15+ 操作符 | 实验性 |
 | remote | `cactor_remote` | 基于 std.net 的 TCP 远程通信 | 原型 |
 | persistence | `cactor_persistence` | 事件溯源、快照、CQRS | 原型 |
 | cluster | `cactor_cluster` | 成员协议、分片、Singleton、分布式发布订阅、CRDT | 原型 |
-| distribution | `cactor_distribution` | 聚合 remote / persistence / cluster 的重导出模块 | 原型 |
 | xstate | `cactor_xstate` | XState 风格状态机，可与 Actor 组合 | 实验性 |
 
-> 另外还有 `cactor_macros`（宏，独立）、`cactor_integration`（日志/指标/配置集成）、`cactor_tests` 和 `cactor_examples`，它们不属于这 12 个库模块。
+> 另外还有 `cactor_macros`（宏，独立）、`cactor_tests` 和 `cactor_examples`。`distribution` / `integration` 聚合与重复模块已删除；直接使用 remote / persistence / cluster、foundation 与 testkit。精确依赖见[包结构](package-structure.md)。
 
 **按需依赖**是这套分层最实际的价值：
 
 ```toml
 [dependencies]
-cactor          = { path = ".../modules/cactor" }        # 门面，通常只需要它
-cactor_core     = { path = ".../modules/core" }          # 想直接用核心类型时
-cactor_patterns = { path = ".../modules/patterns" }      # 需要 Ask / Router / 背压时
-cactor_testkit  = { path = ".../modules/testkit" }       # 写测试时
+cactor          = "1.2.1"   # 门面，通常只需要它（仓颉中心仓）
+cactor_core     = "1.2.1"   # 想直接用核心类型时
+cactor_patterns = "1.2.1"   # 需要 Ask / Router / 背压时
+cactor_testkit  = "1.2.1"   # 写测试时
 ```
+
+开发本仓库时也可以改成本地路径（`cactor = { path = ".../modules/cactor" }`）；发布用的版本是中心仓
+`1.2.1`，12 个库模块版本一致，`tools/publish.sh` 负责按依赖顺序发布。
 
 只写单机 Actor 就只依赖 `cactor`（和按需的 `patterns`）；不用流处理就不会把 Streams 拉进构建。
 

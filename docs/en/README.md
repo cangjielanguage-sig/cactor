@@ -33,7 +33,7 @@ CActor adopts a 6-layer modular architecture, ensuring clear separation of conce
 3. **Runtime Layer**: Provides high-performance execution engine
 4. **Patterns Layer**: Implements common Actor patterns
 5. **Distribution Layer**: Provides distributed capabilities
-6. **Integration Layer**: Provides monitoring, logging integration features
+6. **Testing tools**: Runtime probes, synchronous behavior tests and process barriers
 7. **API Layer**: Provides unified external interface
 
 ### Layer-to-module mapping
@@ -44,8 +44,8 @@ CActor adopts a 6-layer modular architecture, ensuring clear separation of conce
 | Core | `cactor_core` |
 | Runtime | `cactor_runtime` |
 | Patterns | `cactor_patterns` |
-| Distribution | `cactor_distribution`, `cactor_streams`, `cactor_xstate` |
-| Integration | `cactor_integration` |
+| Extensions | `cactor_streams`, `cactor_xstate` |
+| Testing tools | `cactor_testkit` |
 | API | `cactor` (facade module) |
 
 See [Package and Module Structure](package-structure.md) for module dependencies.

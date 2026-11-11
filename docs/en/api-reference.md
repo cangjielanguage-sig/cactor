@@ -1855,144 +1855,82 @@ let routerRef = RouterActorRef(router, "worker-pool")
 
 ## 13. Testing Framework
 
-### Package
+All testing tools are in `cactor_testkit`; `cactor_integration.testing` has been removed.
 
 ```cangjie
-import cactor_integration.testing.TestActorSystem
-import cactor_integration.testing.TestProbe
+import cactor_testkit.{ActorTestKit, TestProbe, BehaviorTestKit, TestInbox, ManualTime}
 ```
 
-### TestActorSystem
+### Runtime tests
 
-A lightweight actor system for testing.
+`ActorTestKit(name)` owns a real Actor system. It provides `actorOf`, `spawnTyped`, `createTestProbe` and `shutdown`.
 
 ```cangjie
-public class TestActorSystem {
-    public init(name: String)
-
-    // Create actors
-    public func actorOf(factory: () -> Actor, name: String): ActorRef
-
-    // Create a test probe
-    public func createTestProbe(): TestProbe
-
-    // Access time control
-    public func getTimeController(): TestTimeController
-
-    // Lifecycle
-    public func terminate(): Unit
-    public func getName(): String
-    public func isTerminated(): Bool
-    public func getUnderlyingSystem(): CActorSystem
+let kit = ActorTestKit("test-system")
+try {
+    let target = kit.actorOf({ => MyActor() }, "target")
+    let probe = kit.createTestProbe("reply")
+    probe.send(target, StringMessage("test"))
+    let reply = probe.expectMsgType<StringMessage>(Duration.second * 3)
+    @Expect(reply.getContent(), "response")
+    probe.expectNoMsg(Duration.millisecond * 100)
+} finally {
+    kit.shutdown()
 }
 ```
 
-### TestProbe
+`TestProbe.expectMsg(timeout)` returns a message; `expectMsgType<T>(timeout)` also checks its type. Failures throw `TestKitAssertionException`. Use `reply` for the most recent sender, `receiveN` for multiple messages, and `watch` / `expectTerminated` for lifecycle assertions. Wait for runtime conditions with `awaitCondition` / `awaitAssert` rather than fixed sleeps.
 
-Captures and asserts on messages received by an actor.
+### Synchronous behavior tests
 
-```cangjie
-public class TestProbe {
-    // Create a new probe
-    public static func create(testSystem: TestActorSystem): TestProbe
+`BehaviorTestKit<T>(behavior)` executes one turn with `run(message)`. Inspect effects with `retrieveAllEffects()` and messages with `TestInbox<T>` / `childInbox<U>(name)`. Advance the synchronous clock through `manualTime()` or `timePasses(duration)`, then process queued messages with `runAll()`. **ManualTime does not drive the scheduler of a real Actor system** (E52 remains unfinished).
 
-    // Assertion: expect a specific message within timeout
-    public func expectMessage(
-        expectedMessage: Message,
-        timeout: Duration
-    ): TestExpectation<Message>
+The compatibility `TestActorRefFactory` / `TestActorContext` support synchronous classic Actor tests. Watch, behavior switching, timers and selection explicitly throw instead of simulating success. Use the runtime kit or behavior kit for these capabilities.
 
-    // Assertion: expect NO message for the given duration
-    public func expectNoMessage(duration: Duration): TestExpectation<Unit>
-
-    // Assertion: expect any message within timeout
-    public func expectAnyMessage(timeout: Duration): TestExpectation<Message>
-
-    // Get the ActorRef for sending messages to the probe
-    public func getRef(): ActorRef
-
-    // Cleanup
-    public func cleanup(): Unit
-
-    // Statistics
-    public func getReceivedMessageCount(): Int32
-}
-```
-
-### TestExpectation<T>
-
-Result type for probe assertions.
-
-```cangjie
-public enum TestExpectation<T> {
-    | Success(T)
-    | Timeout
-    | UnexpectedMessage(Message)
-    | Error(Exception)
-
-    public func isSuccess(): Bool
-    public func getValue(): Option<T>
-    public func toString(): String
-}
-```
-
-### TestTimeController
-
-Controls virtual time for deterministic testing.
-
-```cangjie
-public class TestTimeController {
-    public init()
-
-    // Get current virtual time (nanoseconds)
-    public func getCurrentTime(): Int64
-
-    // Advance virtual time by duration
-    public func advanceTime(duration: Duration): Unit
-
-    // Reset to real time
-    public func reset(): Unit
-}
-```
-
-### Example
-
-```cangjie
-let testSystem = TestActorSystem("test-system")
-let probe = testSystem.createTestProbe()
-
-// Send a message
-workerActor.tell(workMessage)
-
-// Expect a specific response
-let result = probe.expectMessage(
-    ExpectedResponseMessage(),
-    Duration.second * 5
-)
-match (result) {
-    case TestExpectation.Success(msg) =>
-        println("Test passed: ${msg.messageType()}")
-    case TestExpectation.Timeout =>
-        println("Test failed: timeout")
-    case TestExpectation.UnexpectedMessage(msg) =>
-        println("Test failed: unexpected message ${msg.messageType()}")
-    case TestExpectation.Error(ex) =>
-        println("Test failed: ${ex.message}")
-}
-
-// Expect no message
-let result2 = probe.expectNoMessage(Duration.millisecond * 100)
-
-// Verify count
-let count = probe.getReceivedMessageCount()
-println("Received ${count} messages")
-
-testSystem.terminate()
-```
+`LoggingTestKit` captures logs and restores the global sink on `close()`. `BlackholeTransport` injects transport faults; `ProcessBarrier` coordinates independent OS processes through a shared directory. See the [Chinese reference](../zh/api-reference.md) for their detailed contracts.
 
 ---
 
 ## 14. API Extensions
+
+### Durable reminders (v2.30)
+
+`cactor_persistence.reminders.DurableReminders.behavior(persistenceId, store, deliver, pollInterval: ..., nowMillis: ...)` uses the asynchronous durable-state engine. Register, replace, remove and acknowledge reply only after persistence succeeds. Time is absolute UTC milliseconds; the default polling interval is one second. Inject the current routing callback again after restart; references and closures are not persisted. The callback should promptly tell a business actor.
+
+`ReminderCommand.Register(ReminderDefinition(name, payload, dueAtMillis, periodMillis: ...), replyTo)` replies with a new monotonic generation. Period zero means one-shot. `Remove(name, replyTo)` replies whether removal occurred; `Get(replyTo)` returns a defensive copy. After committing business effects, acknowledge using `Acknowledge(name, generation, dueAtMillis, replyTo)`. A matching, due occurrence is deleted or advanced only after persistence; stale, duplicate or early acknowledgements return false. Missed periodic ticks coalesce to the first future occurrence on the original schedule.
+
+Unacknowledged occurrences are redelivered on each poll and after restart. Deduplicate business effects using `(PersistenceId, name, generation, dueAtMillis)`. Replacement or removal cannot recall deliveries already sent. Delivery and business effects are not atomic: this is at-least-once, not exactly-once.
+
+Provide exactly one active writer per PersistenceId. File storage supplies neither cross-process locking nor replication, leader election or automatic failover. Cluster ownership, accessible storage on the replacement host, wire codecs and routing are application responsibilities. The internal command protocol carries reply references and is not a generic remote wire protocol. Each update writes the whole table and polling scans it; use bounded per-entity tables. Wall-clock rollback delays firing; offline processes do not run tasks. Polling bounds the retry rate, not downstream queue growth; slow consumers need a bounded mailbox or deduplicating queue.
+
+A throwing delivery callback follows the persistence engine's failure path and terminates the current instance. Wrap the behavior in backoff supervision when automatic recovery is required, while preserving unique ownership. Eventual redelivery requires a running or eventually recovered instance.
+
+After a root workspace build, run `bash tools/reminder_demo.sh` for three independent processes that register, recover/acknowledge, then verify deletion.
+
+
+### Asynchronous backoff retry (v2.29)
+
+`cactor_core.typed.TypedRetry.run<T>(operation, maxAttempts, backoff, cancellation: ..., shouldRetry: ..., schedule: ...)` takes an operation returning a `TypedPromise<T>`. Attempts start at 1 and the positive `maxAttempts` includes the initial call. The operation must return promptly; do not block on `get` inside it. Failed attempts schedule the next one using `BackoffPolicy.delayFor` (exponential delay, cap, jitter). Its supervision-specific maxRestarts and resetBackoffAfter are ignored; the request limit is maxAttempts. As in supervision, upward jitter can make the final delay slightly exceed maxBackoff. Attempts never overlap, and a pending promise does not trigger retries; use a per-attempt ask timeout.
+
+`shouldRetry` defaults to true, except `TypedAskCancelledException` is always terminal. Exhaustion preserves the last error. Synchronous operation errors use the same retry path; predicate or scheduling errors terminate the result. Timer is the default scheduler. Tests can inject `schedule: { delay, action => time.schedule(delay, action) }` with ManualTime.
+
+Pass the same `AskCancellationToken` to both retry and each ask to end an in-flight wait as well as subsequent attempts. Pre-cancellation skips the operation; cancellation removes a pending timer. Dispatch can race with cancellation, and sent work is not retracted. Timeout may occur after remote execution: retries do not provide exactly-once effects. Retry reads or idempotent commands, and keep the same business idempotency key across write attempts.
+
+### Cancellable ask (v2.28)
+
+Both `TypedAsk.ask` and `TypedAsk.askRemote` accept `cancellation: Some(token)` with an `AskCancellationToken`. Share one token across requests and call `token.cancel()` to fail pending asks with `TypedAskCancelledException`. Cancellation is irreversible and idempotent; `isCancellationRequested()` reports its state. A pre-cancelled token skips request creation and dispatch; cancellation inside a local request factory also skips dispatch.
+
+Cancellation ends the caller's wait. It does not retract messages, stop the target, or roll back remote effects. Dispatch can race with cancellation; define a business cancellation message when remote work must stop. Reply, timeout, send failure and cancellation compete to complete the promise once. Completion cancels the timeout timer and removes the token subscription. Remote reply entries follow the existing terminated-reference cleanup cycle. Pass the token to the original ask; `map` and `recover` do not provide reverse cancellation of an upstream operation.
+
+
+### Distributed protocol expectations (v2.27)
+
+Declare a stable protocol name with `TypedProps().withProtocolTypeName("app.Worker.v1")` and `ServiceKey<WorkerMsg>("workers", protocolTypeName: Some("app.Worker.v1"))`. Registration requires a matching declared reference; discovered references carry the name. Service identity remains key.id. Top-level and child references preserve expectations. Plain enums still require compatible registered payload codecs on both ends.
+
+Receivers with an expectation reject explicit mismatches as Unhandled, increment diagnostics and rate-limit warnings. Unknown names count as unverified and continue to the existing `as T` payload check. Names provide compatibility diagnostics, not authentication or schema validation. The default path without an expectation avoids registry lookup.
+
+Codec v3 retains explicit Message tags using kind 3 and still reads v1/v2. Old nodes cannot read kind 3; upgrade both endpoints before using it.
+
 
 ### Package
 
@@ -2210,6 +2148,21 @@ println("Current state: ${breaker.getState()}")
 ```
 
 ---
+
+## 16. Classic remote ask admission and shutdown
+
+`RemotingSettings.defaults().withAskLimit(256)` configures a positive per-manager limit for `SimpleRemoteManager.ask`; the default is 1024. Other settings builders preserve it. Configure before starting the manager.
+
+- `pendingAskCount()` reports active classic remote asks. `pendingTypedAskCount()` reports typed remote asks; their sum shares `maxPendingAsks` (default 1024). `replyEntryCount()` includes ordinary sender entries and typed temporary entries.
+- Capacity rejection completes the returned Promise with `RemoteAskCapacityException` without sending; its `limit` field identifies the configured ceiling. A stopped or unstarted manager returns a Promise failed with `IllegalStateException`.
+- Zero or negative timeouts throw `IllegalArgumentException` before registration or sending.
+- Reply, timeout, timer setup failure and send failure share cleanup of the handler and capacity. `stop()` releases all pending entries and completes their Promises outside the manager lock, without waiting for their original deadlines. Replies racing with stop follow first-completion-wins semantics.
+
+Both classic ask (`$ask-<incarnation>-<sequence>`) and local sender reply (`$ref<path>#<incarnation>-<sequence>`) entry names include the manager incarnation. Recreating a manager at the same address cannot reuse a previous incarnation's reply name. Names remain opaque strings echoed through the existing sender protocol; no new frame version is required. This provides reply correlation, not authentication or business deduplication.
+
+This bounds both classic asks and `TypedAsk.askRemote` sent through a manager's `RemoteActorRef`. A local proxy that preserves the original sender is covered too. Typed reply entries use `$typedask-<incarnation>-<sequence>` and are removed immediately after reply, timeout, cancellation, or send failure; stopping the manager fails outstanding asks without waiting for their deadlines. `PromiseActorRef.fail(cause)` and `onComplete(callback)` let the remote layer attach this lifecycle. Custom actor references, local fallback, and manually reliable forwarding do not automatically gain that manager lifecycle. Nonpositive askRemote timeouts throw `IllegalArgumentException` before registration; timer creation errors fail the promise and unsubscribe cancellation.
+
+This changes formerly unbounded admission. It does not bound every transport queue or total node memory. Stopping the caller does not withdraw remote side effects. Use selective backoff for capacity rejection and business idempotency for retried writes.
 
 ## Related Links
 

@@ -94,6 +94,7 @@ guard tools/cluster_chaos.sh | grep -E "✓|通过|失败"
 guard tools/journal_crash_demo.sh | tail -2
 # 类型化持久化：三个系统先后共用一个目录，64 个购物车并发写入后恢复一件不少、结账快照、删除不回退（E44）
 CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.typed_persistence_demo | tail -1
+guard bash tools/reminder_demo.sh | tail -3
 # 分布式数据：3 节点并发读写 + 四种 GC 配置各一轮，无崩溃、全部收敛（E43）
 guard tools/ddata_stress.sh 4 5 | tail -1
 # 20 秒稳定性自检：收发零丢失、故障全部重启、子 Actor 全部停止、静止存活堆不增长
@@ -104,7 +105,7 @@ python3 - <<'EOF'
 import os, re, sys
 FUNC = re.compile(r'^\s*(?:public |private |protected |internal |static |open |override |redef |operator )*func\s+(\w+)')
 KEEP = re.compile(r'^(print|display|show|dump)', re.I)
-libs = ['foundation', 'core', 'runtime', 'patterns', 'remote', 'persistence', 'cluster', 'distribution', 'streams', 'xstate', 'testkit', 'cactor']
+libs = ['foundation', 'core', 'runtime', 'patterns', 'remote', 'persistence', 'cluster', 'streams', 'xstate', 'testkit', 'cactor']
 bad = []
 for m in libs:
     for dp, _, fs in os.walk(os.path.join('modules', m, 'src')):

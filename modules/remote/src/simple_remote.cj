@@ -12,7 +12,7 @@ import std.collection.*
 import std.sync.*
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.{Message, NetworkMessage, NetworkMessageSerializer}
-import cactor_core.typed.{TypedActorRef, ClassicTypedRef, ensureTypedPayloadCodecRegistered}
+import cactor_core.typed.{TypedActorRef, ClassicTypedRef, ensureTypedPayloadCodecRegistered, PromiseActorRef}
 import cactor_foundation.network.{NetworkTransport, NetworkAddress, TransportFactory, TransportProtocol}
 import cactor_foundation.logging.{Logger, Logging}
 
@@ -407,7 +407,13 @@ public class RemoteActorRef <: ActorRef {
 
     /** 带发送方发送：对端 Actor 用 context.reply 回复时，回复会经网络送回 sender */
     public func tell(message: Message, sender: ActorRef): Unit {
-        manager.sendMessage(targetAddress, actorName, message, Some(manager.core.senderInfoFor(sender)))
+        match (sender) {
+            case reply: PromiseActorRef =>
+                // 保留本地代理转发的 ask 生命周期；准入失败通过原 Promise 返回。
+                try { manager.core.sendTypedAsk(this, message, reply) }
+                catch (e: Exception) { reply.fail(e) }
+            case _ => manager.sendMessage(targetAddress, actorName, message, Some(manager.core.senderInfoFor(sender)))
+        }
     }
 
     public func equals(other: ActorRef): Bool {

@@ -7,6 +7,56 @@
 
 ## [未发布]
 
+### ✨ 新增与修复（计划 v2.32：类型化远程 ask 预算与停机）
+
+- `TypedAsk.askRemote` 经 `RemoteActorRef` 发送时与经典 ask 共用 `maxPendingAsks`，默认 1024。满额 `RemoteAskCapacityException` 且不发送；`pendingAskCount` 保持经典计数，新增 `pendingTypedAskCount`；`replyEntryCount` 包含类型化临时入口。保留 sender 的本地代理转发也接入；普通 tell、本地 fallback 与自定义引用保留。
+- 成功、超时、取消、发送异常即时注销类型化回复入口，stop 在锁外完成所有在途失败。`PromiseActorRef.fail/onComplete` 支持远程生命周期；非正 askRemote 超时直接抛 IllegalArgumentException，Timer 创建异常完成失败并解除取消订阅。首次完成语义与远端副作用边界保持。
+- 新增 7 个回归，覆盖混合容量/拒绝不发送/成功复用、取消/停机重入、迟到回复、错误类型、发送异常、本地 fallback/代理及 20 次停止竞争；验收结果见实施计划第 34 批。DA2 完成后总进度仍按 30.5/44=69.32%、加权 69.5% 计，不重复折算已有能力。
+
+### 🛠️ 修复与 API（计划 v2.31：远程 ask 资源与停机保障）
+
+- 经典 `SimpleRemoteManager.ask` 增加统一在途登记：成功、超时、计时器创建异常、发送异常均注销临时回复入口并归还容量。`stop()` 立即结束等待并在锁外完成 Promise；停止与回复竞争遵循首次完成，不撤回远端副作用。
+- 新增 `RemotingSettings.maxPendingAsks`、`withAskLimit(limit)`、`SimpleRemoteManager.pendingAskCount()` 及 `RemoteAskCapacityException.limit`。**行为变更**：经典远程 ask 默认上限 1024，满额失败且不发送；非正超时在登记前抛 `IllegalArgumentException`。该上限不覆盖 `TypedAsk.askRemote` 或整个节点的传输内存。
+- 新增容量拒绝/成功释放、超时/迟到回复隔离、停机/回调重入、20 次停止竞争及发送异常注入等 7 个回归；新增同址新管理器的旧网络帧重放，在旧实现确认旧 ask 回复与发送方回复均串入新入口。两类入口名加入节点启动标识，阻断跨实例撞名，消息线格式保持兼容；最终 `source tools/env.sh && cjHeapSize=2GB tools/ci.sh` 完整通过：全量 766/766、8 进程集群两轮各 137/137、宏负例 14/14、TLS/故障恢复/日志 kill -9/三进程提醒/DData/soak/库输出检查。一次 LLVM llc 139 退出与重跑证据见实施计划 §3.7。新增分布式边界审查 §3.11，保持总计划 30.5/44=69.32%、加权 69.5%，不因加固已完成条目重复计分。
+
+### ✨ 新增（2026-11-11，计划 v2.30：持久化提醒）
+
+- `cactor_persistence.reminders`：新增 `ReminderDefinition`、`ReminderDelivery`、`ReminderCommand` 与 `DurableReminders.behavior`，复用异步持久状态引擎，登记/替换/撤销/确认在存储成功后回复。未确认到期消息在每轮和恢复后重发，确认后删除一次性提醒或合并错过的周期并推进。
+- 单调持久代次与到期时间拒绝旧确认；业务按 `(PersistenceId, name, generation, dueAtMillis)` 去重。只提供至少一次投递，取消不撤回已发消息。每个标识要求唯一活跃写者，文件存储不提供跨进程所有权、复制和自动故障转移；集群路由和共享存储由应用提供。
+- 验证：`source tools/env.sh && cjHeapSize=2GB tools/ci.sh` 全部通过：全量 759/759、8 进程集群两轮各 137/137、宏负例 14/14、三进程提醒恢复、TLS/黑洞/宕机恢复、日志 kill -9、DData、soak 与库输出检查。修正 remember-entities 宕机恢复测试的前置条件：该专测关闭自动再平衡，精确恢复计数和启动次数断言继续保留，定向及额外 5 次重复验证通过。
+- 进度复算：E61 六类能力中三类落地，按 🟡 半项计，折合 30.5/44=69.32%；加权 69.5%。纠正旧表阶段 5 将已完成权重 12 误记 13 的偏差（旧基线应为 67.5%，本批增加 2）。流式回复、HTTP/LLM 与编排仍待实现。
+- 新增 4 个真实运行时/磁盘恢复测试、1 个真实双节点 TCP 幂等重发/业务确认测试及三进程 `tools/reminder_demo.sh` 自检并接入 CI。支持注入 UTC 时钟；内部定时器随行为生命周期清理。API 文档明确状态表扫描成本、墙钟回拨和网络协议边界。
+
+
+### ✨ 新增（2026-11-11，计划 v2.29：异步退避重试）
+
+- `cactor_core.typed.TypedRetry.run<T>(operation, maxAttempts, backoff, ...)`：操作返回 Promise，每次完成失败后才安排下一次；尝试编号从 1 计，总尝试上限包含首次。复用 `BackoffPolicy.delayFor` 的指数退避、封顶和抖动，仅采用延迟参数，不采用监督的重启次数/稳定期复位语义。
+- 支持 `shouldRetry` 失败筛选、`cancellation` 共享令牌及 `schedule` 调度注入；预取消跳过操作，取消清理等待中的定时任务。同步工厂异常按普通失败处理，筛选/调度异常直接结束，`TypedAskCancelledException` 不重试，次数耗尽保留末次错误。正在等待的 ask 应传入同一令牌。
+- 验证：新增 8 例（7 个本地/虚拟时间/Timer + 1 个真实 TCP 重试），全量 **754/754**。一次完整 `cjHeapSize=2GB tools/ci.sh` 通过：两轮 8 进程集群各 136/136，以及 TLS/重启/黑洞/日志 kill -9/ddata/稳定性/println 门禁；本轮未复验默认堆配置。
+- 新增虚拟时间测试和真实 Timer/TCP 回归。重试不是 exactly-once；超时不证明远端未执行，写操作须采用稳定幂等键或业务去重。E61 仅取消与重试两类完成，整体折算百分比保持不变。
+
+
+### ✨ 新增（2026-11-11，计划 v2.28：可取消分布式 ask）
+
+- `AskCancellationToken`（`cancel` / `isCancellationRequested`）可控制一组本地或跨节点 ask；`TypedAsk.ask` / `askRemote` 增加可选命名参数 `cancellation`，取消以 `TypedAskCancelledException` 结束等待。旧调用不传令牌时行为不变。
+- 预取消跳过工厂和发送，工厂内取消跳过发送；取消与回复/超时以最先完成的结果为准。完成解除订阅并取消定时器，远程回复引用经既有 terminated 清理回收。取消不撤回已发送请求、不停止目标或回滚副作用。
+- E61 仅 ask 取消子项完成；流式回复、异步退避重试、持久 reminder、HTTP/LLM 与编排示例仍待实现，不按整项完成记账。
+- 验证：新增 8 例，全量 746/746。默认 CI 在并行 CRDT 旧用例出现 OOM（load >150）；以 `cjHeapSize=2GB` 复验 8 进程两轮各 135/135，并续跑全部剩余示例/故障/println 检查通过。默认配置的单次完整 CI 未全绿，失败与复验日志已写入计划。
+
+
+### ✨ 新增（2026-11-11，分布式协议期望，计划 v2.27）
+
+- `TypedProps.withProtocolTypeName(name)`、`ServiceKey<T>(id, protocolTypeName: Some(name))` 和 `TypedPayloadCodecs.declareTypeName<T>` 提供可选稳定协议名；顶层/子 Actor 引用及集群发现引用保留名称。登记前拒绝引用与 key 的名称错配，接收端对明确错配返回 Unhandled、计数并限速告警；未知名称继续交给原有 `as T` 校验并记 unverified，默认未声明期望时不查注册表。名称仅用于诊断与兼容检查，不是鉴权，也不改变服务注册的 id 命名空间。
+- `TypedTypeExpectations` 提供检查、错配与未验证统计。`TypedPayloadBoxCodec` v3 保留 Message 显式协议名；仍读取 v1/v2，新增 kind 3 需要通信两端升级。普通 enum 仍须注册编解码器。
+- 新增三个 codec 测试及一个真实三节点服务发现/协议错配测试；全量 738/738，完整 `tools/ci.sh` 通过。单例迁移测试等待所有存活代理的成员视图收敛后再测迁移后的 tell，遵循至多一次契约。
+
+### 💥 破坏性变更（2026-11-11，删除重复聚合模块）
+
+- 删除 `cactor_distribution` 和 `cactor_integration` 及其 workspace 依赖。分布式功能直接使用 remote / persistence / cluster；重复日志、配置、监控实现删除，`Histogram` / `calculatePercentile` 迁至 `cactor_foundation.monitoring`，同步 `TestActorRef` 等辅助迁至 `cactor_testkit`，语义测试迁入 tests。
+- 示例改用 `ActorTestKit` / `TestProbe`；原 `TestActorSystem` / `TestTimeController` 文档替换为真实 API。兼容 `TestActorContext` 的 watch、行为切换、选择与调度明确抛异常，避免虚假成功或立刻执行定时任务；需要真实能力时用运行时或 BehaviorTestKit。ManualTime 尚不驱动真实运行时（E52）。
+- E48 仍为部分完成，streams 收敛待 E60；不提高整项完成比例。计划总进度 30/44≈68%，加权 68.5/100≈69%，既定分布式清单 32/32=100%。
+
+
 ### ✨ 新增（2026-11-10，跨节点类型化 ask）
 
 - `TypedAsk.askRemote<Req, Res>(target, request, timeout)`：跨节点类型化请求-响应。请求经 `TypedPayloadBox` 过线，
@@ -844,6 +894,29 @@
 - 序列化优化和多格式支持
 - 可视化监控工具
 - 云原生支持
+
+## [1.2.1] - 2026-11-10
+
+### 🚀 发布
+
+- 12 个库模块（`cactor_foundation` / `cactor_macros` / `cactor_core` / `cactor_runtime` / `cactor` /
+  `cactor_patterns` / `cactor_testkit` / `cactor_streams` / `cactor_remote` / `cactor_persistence` /
+  `cactor_cluster` / `cactor_xstate`）发布到[仓颉中心仓](https://pkg.cangjie-lang.cn)，统一 1.2.1。
+- 每个模块补齐 `README.md`、`license = ["MIT"]` 与 `repository` 元数据（artifact 根目录必须有 README，否则 bundle 直接失败）。
+
+### 🐛 修复
+
+- **发布产物不再携带 `[replace]` 绝对路径**：cjpm 会把 `cjpm.toml` 打包进 artifact，早先为了让构建用本地源码
+  注入的 `[replace] x = { path = "/发布机/绝对/路径" }` 会让其他机器构建直接失败
+  （`the path '/...' does not exist which is listed in 'replace' field`）。`tools/publish.sh` 改为
+  path 依赖→中心仓版本号、不带 `[replace]`，并加守卫拒绝含 `[replace]`/绝对路径的暂存 manifest。
+- `cactor_remote` / `cactor_cluster` 在模块自己的 `cjpm.toml` 里声明 stdx 的 `[target.*.bin-dependencies]`
+  `path-option`，脱离 workspace 后不再报 `imports package 'stdx.crypto.common' ... but it is not added as a dependency`。
+
+### 🛠 工具
+
+- `tools/publish.sh`：按依赖顺序发布、等待中心仓索引生成（索引异步、cjpm 会缓存旧索引且不回源）、
+  发布前清理本机索引缓存、bundle 失败自动重试；默认 `--skip-lint`（`LINT=1` 严格模式）。
 
 ## [1.2.0] - 2026-10-28
 

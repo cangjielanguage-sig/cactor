@@ -357,64 +357,15 @@ When an actor fails, its supervision strategy decides what to do: `Resume` (igno
 
 ## Architecture
 
-The project is a cjpm workspace of 15 modules under `modules/`. Dependencies only point from higher layers to lower ones:
+The project is a cjpm workspace of 14 modules under `modules/`. Capabilities compose from lower layers upward; dependencies point downward. See the [package guide](docs/en/package-structure.md) for exact dependencies.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                          User code                              │
-│   usually goes through the cactor facade; modules can also be   │
-│   used directly when needed                                     │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-     ┌──────────────┬───────────┴──────┬───────────────────┐
-     ▼              ▼                  ▼                   ▼
-┌───────────┐ ┌──────────────┐ ┌───────────────┐ ┌───────────────┐
-│  Streams  │ │ Distribution │ │    XState     │ │  Integration  │
-├───────────┤ ├──────────────┤ ├───────────────┤ ├───────────────┤
-│ • DSL     │ │ • Sharding   │ │ • Machines    │ │ • Logging     │
-│ • Back-   │ │ • Remoting   │ │ • Parallel    │ │ • Metrics     │
-│  pressure │ │ • Persistence│ │   states      │ │ • Config      │
-│ Experim.  │ │ Prototype    │ │ Experimental  │ │               │
-└───────────┘ └──────────────┘ └───────────────┘ └───────────────┘
-     │              │                  │                   │
-     └──────────────┴────────┬─────────┴───────────────────┘
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor (facade API)                         │
-│   CActor.system() | CActorSystem | ActorProps                   │
-│   CActorFactory | CActorSystemBuilder                           │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor_patterns                             │
-│   Ask | Router | Backpressure                                   │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor_runtime                              │
-│   CActorRuntime | Mailbox | Dispatcher | Guardian               │
-│   Registry | ActorLifecycleManager                              │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor_core                                 │
-│   Actor | ActorRef | Props | ActorSystem                        │
-│   Message | ActorContext | Supervision                          │
-│   TypedBehavior | TypedActorRef                                 │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor_foundation                           │
-│   Queue | Serializer | Memory | Monitoring                      │
-│   Network | Config | DI | CircuitBreaker                        │
-└─────────────────────────────────────────────────────────────────┘
-
-cactor_macros is a standalone macro module; cactor_tests and
-cactor_examples sit at the top.
+```text
+foundation → core → runtime → cactor
+                  → patterns
+                  → remote → cluster
+                  → persistence
+cactor → streams / xstate / testkit
+Standalone macros: macros; top-level consumers: tests / examples
 ```
 
 | Module | Package | Responsibility |
@@ -426,12 +377,11 @@ cactor_examples sit at the top.
 | cactor | `cactor` | Public facade API (`cactor`, `cactor.api`, `cactor.config`) |
 | macros | `cactor_macros` | Actor DSL macros |
 | streams | `cactor_streams` | Stream processing DSL |
-| remote | `cactor_remote` | Remoting (prototype) |
-| persistence | `cactor_persistence` | Event sourcing, snapshots, CQRS (prototype) |
-| cluster | `cactor_cluster` | Cluster, sharding, failover (prototype) |
-| distribution | `cactor_distribution` | Umbrella: re-exports remote / persistence / cluster, plus streaming (prototype) |
+| remote | `cactor_remote` | TCP, reliable delivery, remote ask/watch, TLS |
+| persistence | `cactor_persistence` | Journals, snapshots, typed persistence |
+| cluster | `cactor_cluster` | Membership, sharding, singleton, discovery, distributed data |
+| testkit | `cactor_testkit` | Runtime probes, synchronous behavior tests, fault testing |
 | xstate | `cactor_xstate` | State machines |
-| integration | `cactor_integration` | Logging, metrics and config integration, plus integration test programs |
 | tests | `cactor_tests` | Unit and integration tests |
 | examples | `cactor_examples` | Example programs |
 

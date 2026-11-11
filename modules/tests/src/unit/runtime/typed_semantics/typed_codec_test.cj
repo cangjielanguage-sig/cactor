@@ -15,14 +15,15 @@ import std.collection.*
 import std.convert.*
 import std.unittest.*
 import std.unittest.testmacro.*
-import cactor_core.message.{Message, StringMessage, MessageCodecRegistry, SerializationException, DeserializationException}
+import cactor_core.message.{Message, StringMessage, MessageSerializer, MessageCodecRegistry, SerializationException, DeserializationException}
 import cactor_core.typed.*
 
 @Test
 public class TypedPayloadCodecTest {
     @TestCase
     public func roundTripsMessagePayload(): Unit {
-        @Expect(ensureTypedPayloadCodecRegistered(), true)
+        ensureTypedPayloadCodecRegistered()
+        @Expect(MessageCodecRegistry.isRegistered(TYPED_PAYLOAD_BOX_TYPE), true)
         let codec = match (MessageCodecRegistry.get(TYPED_PAYLOAD_BOX_TYPE)) {
             case Some(c) => c
             case None => throw Exception("类型化消息 codec 没有注册")
@@ -134,6 +135,56 @@ public class TypedPayloadCodecTest {
         }
         TypedPayloadCodecs.unregister("tests.Shape.Dup")
         @Expect(failed, true)
+    }
+
+    @TestCase
+    public func roundTripsExplicitMessageTagAndRejectsTruncatedFrame(): Unit {
+        let codec = TypedPayloadBoxCodec()
+        let encoded = codec.encode(TypedPayloadBox(StringMessage("带标签"),
+            typeTag: Some(TypedTypeTag("tests.Echo.v1"))))
+        let box = (codec.decode(encoded, codec.version()) as TypedPayloadBox).getOrThrow()
+        @Expect(box.typeTag.getOrThrow().typeName, "tests.Echo.v1")
+        @Expect((box.payload as StringMessage).getOrThrow().getContent(), "带标签")
+        var failed = false
+        try {
+            codec.decode(encoded.slice(0, encoded.size - 1), codec.version())
+        } catch (_: DeserializationException) {
+            failed = true
+        }
+        @Expect(failed, true)
+    }
+
+    @TestCase
+    public func readsLegacyMessageFrames(): Unit {
+        let codec = TypedPayloadBoxCodec()
+        let legacy = MessageSerializer().serialize(StringMessage("旧版"))
+        let v1 = (codec.decode(legacy, 1) as TypedPayloadBox).getOrThrow()
+        @Expect((v1.payload as StringMessage).getOrThrow().getContent(), "旧版")
+        let frame = ArrayList<UInt8>()
+        frame.add(1u8)
+        for (b in legacy) { frame.add(b) }
+        let v2 = (codec.decode(frame.toArray(), 2) as TypedPayloadBox).getOrThrow()
+        @Expect(v2.typeTag.isNone(), true)
+        @Expect((v2.payload as StringMessage).getOrThrow().getContent(), "旧版")
+    }
+
+    @TestCase
+    public func preservesEnumProtocolAlias(): Unit {
+        let codec = TypedPayloadBoxCodec()
+        TypedPayloadCodecs.register<Shape>(typeName: "tests.Shape.Tagged",
+            encode: { s => encodeShape(s) }, decode: { b => decodeShape(b) })
+        try {
+            let frame = codec.encode(TypedPayloadBox(Shape.Named("协议别名"),
+                typeTag: Some(TypedTypeTag("tests.Draw.v2"))))
+            let box = (codec.decode(frame, codec.version()) as TypedPayloadBox).getOrThrow()
+            @Expect(box.typeTag.getOrThrow().typeName, "tests.Draw.v2")
+            match ((box.payload as Shape).getOrThrow()) {
+                case Shape.Named(s) => @Expect(s, "协议别名")
+                case _ => @Fail("应当是 Named")
+            }
+        } finally {
+            TypedPayloadCodecs.unregister("tests.Shape.Tagged")
+        }
     }
 
     @TestCase

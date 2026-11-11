@@ -64,7 +64,7 @@ public class TypedActorSystemImpl <: TypedActorSystem {
             throw IllegalStateException("Actor 系统 ${systemName} 已终止")
         }
         let classic = runtime.actorOf(TypedSpawn.props<U>(behavior, Some<TypedActorSystem>(this), props, hooks), name)
-        ClassicTypedRef<U>(classic)
+        ClassicTypedRef<U>(classic, typeTag: typedTypeTagOf(props.protocolTypeName))
     }
 
     /** 兼容旧接口 */

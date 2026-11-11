@@ -360,63 +360,15 @@ Actor 失败时，由监督策略决定如何处理：`Resume`（忽略并继续
 
 ## 架构设计
 
-项目是一个 cjpm workspace，由 `modules/` 下的 15 个模块组成。依赖只能从上层指向下层：
+项目是一个 cjpm workspace，由 `modules/` 下的 14 个模块组成。能力从底层向上组合，依赖只能指向下层；精确依赖见[包结构](docs/zh/package-structure.md)。
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                           用户代码                              │
-│        一般通过 cactor 门面使用，需要时直接引用各模块              │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-     ┌──────────────┬───────────┴──────┬───────────────────┐
-     ▼              ▼                  ▼                   ▼
-┌───────────┐ ┌──────────────┐ ┌───────────────┐ ┌───────────────┐
-│  Streams  │ │ Distribution │ │    XState     │ │  Integration  │
-│ (流处理)  │ │  (分布式)    │ │   (状态机)    │ │    (集成)     │
-├───────────┤ ├──────────────┤ ├───────────────┤ ├───────────────┤
-│ • 流 DSL  │ │ • 集群分片   │ │ • 状态机定义  │ │ • 日志        │
-│ • 背压    │ │ • 远程通信   │ │ • 并行状态    │ │ • 指标        │
-│           │ │ • 持久化     │ │               │ │ • 配置        │
-│ 实验性    │ │ 原型         │ │ 实验性        │ │               │
-└───────────┘ └──────────────┘ └───────────────┘ └───────────────┘
-     │              │                  │                   │
-     └──────────────┴────────┬─────────┴───────────────────┘
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor（门面 API）                          │
-│   CActor.system() | CActorSystem | ActorProps                   │
-│   CActorFactory | CActorSystemBuilder                           │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor_patterns（通用模式）                 │
-│   Ask | Router | Backpressure                                   │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor_runtime（运行时）                    │
-│   CActorRuntime | Mailbox | Dispatcher | Guardian               │
-│   Registry | ActorLifecycleManager                              │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor_core（核心抽象）                     │
-│   Actor | ActorRef | Props | ActorSystem                        │
-│   Message | ActorContext | Supervision                          │
-│   TypedBehavior | TypedActorRef                                 │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     cactor_foundation（基础设施）               │
-│   Queue | Serializer | Memory | Monitoring                      │
-│   Network | Config | DI | CircuitBreaker                        │
-└─────────────────────────────────────────────────────────────────┘
-
-cactor_macros 是独立的宏模块；cactor_tests 和 cactor_examples 位于最上层。
+```text
+foundation → core → runtime → cactor
+                  → patterns
+                  → remote → cluster
+                  → persistence
+cactor → streams / xstate / testkit
+独立宏模块：macros；最上层：tests / examples
 ```
 
 | 模块 | 包名 | 职责 |
@@ -428,12 +380,11 @@ cactor_macros 是独立的宏模块；cactor_tests 和 cactor_examples 位于最
 | cactor | `cactor` | 对外统一 API（`cactor`、`cactor.api`、`cactor.config`） |
 | macros | `cactor_macros` | Actor DSL 宏 |
 | streams | `cactor_streams` | 流处理 DSL |
-| remote | `cactor_remote` | 远程通信（原型） |
-| persistence | `cactor_persistence` | 事件溯源、快照、CQRS（原型） |
-| cluster | `cactor_cluster` | 集群、分片、故障转移（原型） |
-| distribution | `cactor_distribution` | 聚合模块：重导出 remote / persistence / cluster，含 streaming（原型） |
+| remote | `cactor_remote` | TCP、可靠通道、远程 ask/watch、TLS |
+| persistence | `cactor_persistence` | 日志、快照、类型化持久化 |
+| cluster | `cactor_cluster` | 成员协议、分片、单例、服务发现与分布式数据 |
+| testkit | `cactor_testkit` | 运行时探针、同步行为测试与故障测试工具 |
 | xstate | `cactor_xstate` | 状态机 |
-| integration | `cactor_integration` | 日志、指标、配置集成，以及集成测试程序 |
 | tests | `cactor_tests` | 单元测试与集成测试 |
 | examples | `cactor_examples` | 示例程序 |
 

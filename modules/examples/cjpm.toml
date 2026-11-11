@@ -17,7 +17,7 @@ cactor_persistence = { path = "../persistence" }
 cactor_remote = { path = "../remote" }
 cactor_cluster = { path = "../cluster" }
 cactor_xstate = { path = "../xstate" }
-cactor_integration = { path = "../integration" }
+cactor_testkit = { path = "../testkit" }
 
 [package.package-configuration."cactor_examples.advanced_mailbox_examples"]
 output-type = "executable"
@@ -188,6 +188,9 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.ddata_stress"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.durable_reminder_demo"]
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.typed_persistence_demo"]

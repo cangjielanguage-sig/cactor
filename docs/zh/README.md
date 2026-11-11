@@ -44,8 +44,8 @@ CActor采用6层模块化架构，确保清晰的职责分离和高度的可扩�
 | Core | `cactor_core` |
 | Runtime | `cactor_runtime` |
 | Patterns | `cactor_patterns` |
-| Distribution | `cactor_distribution`、`cactor_streams`、`cactor_xstate` |
-| Integration | `cactor_integration` |
+| 扩展 | `cactor_streams`、`cactor_xstate` |
+| 测试工具 | `cactor_testkit` |
 | API | `cactor`（门面模块） |
 
 详细的模块依赖见 [包与模块结构](package-structure.md)。

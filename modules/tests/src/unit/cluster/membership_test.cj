@@ -348,6 +348,13 @@ public class ClusterSingletonTest {
         let nextOldest = if (singletons[1].isRunningHere()) { nodes[1].address() } else { nodes[2].address() }
         // 迁移前 node1 的成员记录中更老的那个就是 nextOldest
         @Expect(nodes[1].cluster.oldest().getOrThrow().address, nextOldest)
+        // 新宿主启动不代表其他代理已更新成员视图；普通 tell 不保证宕机窗口内的投递。
+        // 本用例验证迁移后的通信，须等两个存活节点都移除旧宿主并认定同一个最老成员。
+        @Expect(awaitCondition(CLUSTER_WAIT, { =>
+            allUp([nodes[1], nodes[2]], 2) &&
+            nodes[1].cluster.oldest().getOrThrow().address == nextOldest &&
+            nodes[2].cluster.oldest().getOrThrow().address == nextOldest
+        }), true)
         rec.clear()
         singletons[1].tell(StringMessage("after-1"))
         singletons[2].tell(StringMessage("after-2"))

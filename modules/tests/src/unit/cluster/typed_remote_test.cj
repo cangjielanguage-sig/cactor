@@ -18,8 +18,14 @@ import std.unittest.*
 import std.unittest.testmacro.*
 import std.convert.*
 import cactor_core.message.{Message, MessageResult, StringMessage, DeserializationException}
+import std.sync.*
+import cactor_core.supervision.{BackoffPolicy}
+import cactor_core.actor.{ActorRef}
 import cactor_core.typed.*
 import cactor_testkit.*
+import cactor_persistence.{MemoryDurableStateStore}
+import cactor_persistence.typed.{PersistenceId}
+import cactor_persistence.reminders.*
 
 /** 类型化协议最常见的形态：不实现 Message 的普通 enum */
 enum Traffic {
@@ -180,6 +186,146 @@ public class TypedRemoteTest {
         b.close()
     }
 
+    /** 取消发起方等待后，远端仍可处理请求；迟到回复不改变结果，回复入口最终清理。 */
+    @TestCase
+    public func typedRemoteAskCancellationReleasesReplyEntry(): Unit {
+        let a = CNode("tqc-a")
+        let b = CNode("tqc-b")
+        try {
+            a.join([a.addr()], FAST)
+            b.join([a.addr()], FAST)
+            @Expect(awaitCondition(CLUSTER_WAIT, { => allUp2([a, b], 2) }), true)
+            let senders = TestInbox<ActorRef>("held-senders")
+            let received = EventRecorder()
+            let behavior = TypedBehaviors.receive<StringMessage>({ ctx, msg =>
+                if (let Some(sender) <- ctx.toClassic().getOrThrow().senderRef()) {
+                    senders.tell(sender)
+                }
+                received.record(msg.getContent())
+                TypedBehaviors.same<StringMessage>()
+            })
+            let target = b.kit.spawnTyped<StringMessage>(behavior, "cancel-ask")
+            b.remote.exposeActor("cancel-ask", target.toClassic().getOrThrow())
+            let remote = a.remote.typedRemoteActorOf<StringMessage>(b.addr(), "cancel-ask")
+            let before = a.remote.replyEntryCount()
+            let token = AskCancellationToken()
+            let p = TypedAsk.askRemote<StringMessage, StringMessage>(remote, StringMessage("held"),
+                Duration.second * 30, cancellation: Some(token))
+            @Expect(received.await("held", CLUSTER_WAIT), true)
+            @Expect(senders.hasMessages(), true)
+            @Expect(a.remote.replyEntryCount() > before, true)
+            @Expect(token.cancel(), true)
+            var cancelled = false
+            try { p.get(CLUSTER_WAIT) } catch (_: TypedAskCancelledException) { cancelled = true }
+            @Expect(cancelled, true)
+            senders.receiveMessage().tell(StringMessage("late"))
+            @Expect(awaitCondition(CLUSTER_WAIT, { => a.remote.replyEntryCount() == before }), true)
+            @Expect((p.outcome().getOrThrow().failure().getOrThrow() as TypedAskCancelledException).isSome(), true)
+            // 已取消令牌不会再发一条网络请求或登记回复入口。
+            let skipped = TypedAsk.askRemote<StringMessage, StringMessage>(remote, StringMessage("skipped"),
+                Duration.second, cancellation: Some(token))
+            @Expect((skipped.outcome().getOrThrow().failure().getOrThrow() as TypedAskCancelledException).isSome(), true)
+            @Expect(a.remote.replyEntryCount(), before)
+        } finally {
+            a.close()
+            b.close()
+        }
+    }
+
+    /** 首次响应丢失后重试同一个幂等读请求，第二次沿真实 TCP 回复。 */
+    @TestCase
+    public func typedRemoteAskRetriesAfterMissingReply(): Unit {
+        let a = CNode("retry-a")
+        let b = CNode("retry-b")
+        try {
+            a.join([a.addr()], FAST)
+            b.join([a.addr()], FAST)
+            @Expect(awaitCondition(CLUSTER_WAIT, { => allUp2([a, b], 2) }), true)
+            let calls = AtomicInt64(0)
+            let behavior = TypedBehaviors.receive<StringMessage>({ ctx, _ =>
+                if (calls.fetchAdd(1) > 0) {
+                    ctx.toClassic().getOrThrow().reply(StringMessage("read-result"))
+                }
+                TypedBehaviors.same<StringMessage>()
+            })
+            let target = b.kit.spawnTyped<StringMessage>(behavior, "retry-read")
+            b.remote.exposeActor("retry-read", target.toClassic().getOrThrow())
+            let remote = a.remote.typedRemoteActorOf<StringMessage>(b.addr(), "retry-read")
+            let token = AskCancellationToken()
+            let retried = TypedRetry.run<StringMessage>({ _ =>
+                TypedAsk.askRemote<StringMessage, StringMessage>(remote, StringMessage("read"),
+                    Duration.second, cancellation: Some(token))
+            }, 3, BackoffPolicy(Duration.millisecond * 10, Duration.millisecond * 50, randomFactor: 0.0),
+                cancellation: Some(token), shouldRetry: { e => (e as TypedAskTimeoutException).isSome() })
+            @Expect(retried.get(CLUSTER_WAIT).getContent(), "read-result")
+            @Expect(calls.load(), 2)
+            token.cancel()
+            @Expect(retried.get(CLUSTER_WAIT).getContent(), "read-result")
+        } finally {
+            a.close()
+            b.close()
+        }
+    }
+
+    /** 远端已提交但回复丢失：提醒重发同一去重键，业务只提交一次，确认后才删除。 */
+    @TestCase
+    public func durableReminderRedeliversAcrossTcpUntilBusinessAcknowledges(): Unit {
+        let a = CNode("reminder-a")
+        let b = CNode("reminder-b")
+        try {
+            a.join([a.addr()], FAST)
+            b.join([a.addr()], FAST)
+            @Expect(awaitCondition(CLUSTER_WAIT, { => allUp2([a, b], 2) }), true)
+            let deliveries = AtomicInt64(0)
+            let commits = AtomicInt64(0)
+            let seen = EventRecorder()
+            let business = b.kit.spawnTyped<StringMessage>(TypedBehaviors.receive<StringMessage>({ ctx, msg =>
+                if (!seen.contains(msg.getContent())) {
+                    seen.record(msg.getContent())
+                    commits.fetchAdd(1)
+                }
+                if (deliveries.fetchAdd(1) > 0) {
+                    ctx.toClassic().getOrThrow().reply(StringMessage("committed"))
+                }
+                TypedBehaviors.same<StringMessage>()
+            }), "reminder-business")
+            b.remote.exposeActor("reminder-business", business.toClassic().getOrThrow())
+            let remote = a.remote.typedRemoteActorOf<StringMessage>(b.addr(), "reminder-business")
+            let pending = TestInbox<ReminderDelivery>("reminder-deliveries")
+            let reminders = a.kit.spawnTyped<ReminderCommand>(DurableReminders.behavior(PersistenceId("tcp-reminder"),
+                MemoryDurableStateStore(), { d => pending.tell(d) }, pollInterval: Duration.hour,
+                nowMillis: { => 100 }), "reminders")
+            let generation = TypedAsk.ask<ReminderCommand, Int64>(reminders, { r =>
+                ReminderCommand.Register(ReminderDefinition("work", "payload", 100), r)
+            }, CLUSTER_WAIT).get(CLUSTER_WAIT)
+            reminders.tell(ReminderCommand.Tick)
+            @Expect(awaitCondition(CLUSTER_WAIT, { => pending.hasMessages() }), true)
+            let first = pending.receiveMessage()
+            let key = "tcp-reminder:${first.definition.name}:${first.generation}:${first.definition.dueAtMillis}"
+            let lost = TypedAsk.askRemote<StringMessage, StringMessage>(remote, StringMessage(key), Duration.second)
+            @ExpectThrows[TypedAskTimeoutException](lost.get(CLUSTER_WAIT))
+            @Expect(commits.load(), 1)
+            reminders.tell(ReminderCommand.Tick)
+            @Expect(awaitCondition(CLUSTER_WAIT, { => pending.hasMessages() }), true)
+            let repeated = pending.receiveMessage()
+            @Expect(repeated.generation, generation)
+            @Expect(repeated.definition.dueAtMillis, first.definition.dueAtMillis)
+            let repeatedKey = "tcp-reminder:${repeated.definition.name}:${repeated.generation}:${repeated.definition.dueAtMillis}"
+            @Expect(TypedAsk.askRemote<StringMessage, StringMessage>(remote, StringMessage(repeatedKey),
+                CLUSTER_WAIT).get(CLUSTER_WAIT).getContent(), "committed")
+            @Expect(commits.load(), 1)
+            @Expect(deliveries.load(), 2)
+            @Expect(TypedAsk.ask<ReminderCommand, Bool>(reminders, { r => ReminderCommand.Acknowledge(
+                repeated.definition.name, repeated.generation, repeated.definition.dueAtMillis, r)
+            }, CLUSTER_WAIT).get(CLUSTER_WAIT), true)
+            @Expect(TypedAsk.ask<ReminderCommand, Array<ReminderDelivery>>(reminders,
+                { r => ReminderCommand.Get(r) }, CLUSTER_WAIT).get(CLUSTER_WAIT).size, 0)
+        } finally {
+            a.close()
+            b.close()
+        }
+    }
+
     /** 普通 enum 协议（不实现 Message）经命名编解码器跨节点传输 */
     @TestCase
     public func enumProtocolCrossesNodes(): Unit {
@@ -212,6 +358,40 @@ public class TypedRemoteTest {
         a.close()
         b.close()
         TypedPayloadCodecs.unregister("tests.Traffic")
+    }
+
+    /** 协议别名随发现引用过线；相同载荷类型、错误协议名也必须拒收。 */
+    @TestCase
+    public func typedReceptionistChecksDeclaredProtocolAcrossNodes(): Unit {
+        let rs = receptionistCluster("typed-tag", FAST)
+        try {
+            let rec = EventRecorder()
+            let key = ServiceKey<StringMessage>("tagged-echo", protocolTypeName: Some("tests.Echo.v1"))
+            let ref = rs[1].node.kit.system.typed().actorOf<StringMessage>(typedRecorder("n1", rec),
+                "tagged-echo", TypedProps().withProtocolTypeName("tests.Echo.v1"))
+            let registrationMismatch = ServiceKey<StringMessage>("tagged-echo", protocolTypeName: Some("tests.Other.v1"))
+            var refused = false
+            try {
+                rs[1].receptionist.registerTyped<StringMessage>(registrationMismatch, ref)
+            } catch (_: IllegalArgumentException) {
+                refused = true
+            }
+            @Expect(refused, true)
+            @Expect(rs[1].receptionist.localRegistrationCount(), 0)
+            rs[1].receptionist.registerTyped<StringMessage>(key, ref)
+            let probe = rs[0].receptionist
+            @Expect(awaitCondition(CLUSTER_WAIT, { => probe.findTyped<StringMessage>(key).size == 1 }), true)
+            let before = TypedTypeExpectations.mismatchCount()
+            let wrong = probe.findTyped<StringMessage>(registrationMismatch)[0]
+            wrong.tell(StringMessage("拒收"))
+            @Expect(awaitCondition(CLUSTER_WAIT, { => TypedTypeExpectations.mismatchCount() > before }), true)
+            probe.findTyped<StringMessage>(key)[0].tell(StringMessage("接受"))
+            @Expect(rec.await("n1:接受", CLUSTER_WAIT), true)
+            @Expect(rec.snapshot().contains("n1:拒收"), false)
+            @Expect(TypedTypeExpectations.lastMismatchText().contains("tests.Other.v1"), true)
+        } finally {
+            closeAll([rs[0].node, rs[1].node, rs[2].node])
+        }
     }
 
     /** 集群 Receptionist 的类型化入口：跨节点 register/find，find 到的引用可以直接 tell */

@@ -23,7 +23,7 @@ import std.sort.*
 import cactor.api.{CActorSystem}
 import cactor_core.actor.{Actor, ActorContext, ActorRef, Terminated}
 import cactor_core.message.{Message, MessageResult}
-import cactor_core.typed.{ServiceKey, TypedActorRef, ClassicTypedRef}
+import cactor_core.typed.{ServiceKey, TypedActorRef, ClassicTypedRef, TypeExpectationCarrier, typedTypeTagOf}
 import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.logging.{Logging}
 import cactor_remote.{SimpleRemoteManager}
@@ -241,6 +241,19 @@ public class ClusterReceptionist {
      * 一次性回复引用（PromiseRef 等）没有经典路径，无法跨节点寻址。
      */
     public func registerTyped<T>(key: ServiceKey<T>, ref: TypedActorRef<T>): Unit {
+        if (let Some(expected) <- key.protocolTypeName) {
+            match (ref as TypeExpectationCarrier) {
+                case Some(carrier) =>
+                    match (carrier.typeExpectation()) {
+                        case Some(tag) =>
+                            if (tag.typeName != expected) {
+                                throw IllegalArgumentException("服务 ${key.id} 的协议名与 Actor 引用不一致")
+                            }
+                        case None => throw IllegalArgumentException("声明协议名的服务需要带协议名的 Actor 引用")
+                    }
+                case None => throw IllegalArgumentException("声明协议名的服务需要带协议名的 Actor 引用")
+            }
+        }
         match (ref.toClassic()) {
             case Some(classic) => register(key.id, classic)
             case None => throw IllegalArgumentException(
@@ -263,7 +276,7 @@ public class ClusterReceptionist {
     public func findTyped<T>(key: ServiceKey<T>): Array<TypedActorRef<T>> {
         let out = ArrayList<TypedActorRef<T>>()
         for (r in find(key.id)) {
-            out.add(ClassicTypedRef<T>(r))
+            out.add(ClassicTypedRef<T>(r, typeTag: typedTypeTagOf(key.protocolTypeName)))
         }
         out.toArray()
     }
@@ -272,7 +285,7 @@ public class ClusterReceptionist {
     public func findAllTyped<T>(key: ServiceKey<T>): Array<TypedActorRef<T>> {
         let out = ArrayList<TypedActorRef<T>>()
         for (r in findAll(key.id)) {
-            out.add(ClassicTypedRef<T>(r))
+            out.add(ClassicTypedRef<T>(r, typeTag: typedTypeTagOf(key.protocolTypeName)))
         }
         out.toArray()
     }

@@ -41,6 +41,7 @@ git remote add upstream https://github.com/ORIGINAL_OWNER/cactor.git
 
 # 4. 安装依赖
 # 确保已安装仓颉 (Cangjie) 1.2.0+
+source tools/env.sh
 cjpm build
 ```
 
@@ -65,7 +66,7 @@ git checkout -b fix/issue-number-description
 cjpm build
 
 # 运行性能测试
-./target/release/bin/cactor_integration.testing.simple_realistic_benchmark
+./target/release/bin/cactor_examples.real_benchmark
 
 # 运行功能测试
 ./target/release/bin/cactor_examples.hello_world
@@ -136,8 +137,10 @@ src/
 ├── core/           # 核心Actor功能
 ├── runtime/        # 运行时实现
 ├── patterns/       # Actor模式
-├── distribution/   # 分布式功能
-├── integration/    # 集成和测试
+├── remote/         # 远程通信
+├── persistence/    # 持久化
+├── cluster/        # 集群能力
+├── testkit/        # 测试工具
 └── api/           # 对外API
 ```
 

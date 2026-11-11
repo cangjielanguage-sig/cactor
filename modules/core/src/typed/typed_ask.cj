@@ -2,7 +2,7 @@
  * CActor Core.Typed - 请求-响应（对标 Akka Typed AskPattern）
  *
  * TypedAsk.ask 创建一个一次性的 replyTo 引用（不占用 Actor），目标 Actor 用它回复；
- * 超时后 Promise 以 TypedAskTimeoutException 失败，之后到达的回复被丢弃。
+ * 超时或主动取消后 Promise 失败，之后到达的回复被丢弃；取消不撤回目标已收到的请求。
  */
 package cactor_core.typed
 
@@ -45,6 +45,66 @@ public enum AskOutcome<T> {
 public class TypedAskTimeoutException <: Exception {
     public init(message: String) {
         super(message)
+    }
+}
+
+/** 主动结束 ask 等待；不撤回已发出的消息，也不终止目标 Actor。 */
+public class TypedAskCancelledException <: Exception {
+    public init(message: String) {
+        super(message)
+    }
+}
+
+/**
+ * 可复用于一组 ask 的取消令牌。取消不可逆，订阅在 ask 完成时解除。
+ * 锁只保护订阅集合，完成 Promise 和执行用户回调均在锁外进行。
+ */
+public class AskCancellationToken {
+    private let lock = Mutex()
+    private var cancelled = false
+    private var sequence: Int64 = 0
+    private let listeners = HashMap<Int64, () -> Unit>()
+
+    public init() {}
+
+    public func isCancellationRequested(): Bool {
+        synchronized(lock) { cancelled }
+    }
+
+    /** 首次取消返回 true；重复取消返回 false。 */
+    public func cancel(): Bool {
+        let pending = synchronized(lock) {
+            if (cancelled) { return false }
+            cancelled = true
+            let callbacks = listeners.values().toArray()
+            listeners.clear()
+            callbacks
+        }
+        for (callback in pending) { callback() }
+        true
+    }
+
+    func bind<T>(promise: TypedPromise<T>, targetPath: String): Unit {
+        let callback = { =>
+            promise.tryFailure(TypedAskCancelledException("ask ${targetPath} 已取消"))
+            ()
+        }
+        let id = synchronized(lock) {
+            if (cancelled) { None<Int64> }
+            else {
+                sequence++
+                listeners[sequence] = callback
+                Some(sequence)
+            }
+        }
+        match (id) {
+            case None => callback()
+            case Some(key) =>
+                promise.onComplete({ _ =>
+                    synchronized(lock) { listeners.remove(key) }
+                    ()
+                })
+        }
     }
 }
 
@@ -385,8 +445,16 @@ public class PromiseActorRef <: ActorRef {
         Int32(actorPath.getPath().hashCode() & 0x7FFFFFFF)
     }
 
+    /** 远程管理器停止或发送失败时结束等待，仍遵循首次完成语义。 */
+    public func fail(cause: Exception): Bool { promise.tryFailure(cause) }
+
+    /** 生命周期通知在 Promise 锁外执行；已完成时立即调用。 */
+    public func onComplete(callback: () -> Unit): Unit {
+        promise.onComplete({ _ => callback() })
+    }
+
     /**
-     * Promise 已完成（收到回复或超时）即视为终止（E12′）：一次性的回复引用不会再收消息，
+     * Promise 已完成（收到回复、超时或取消）即视为终止（E12′）：一次性的回复引用不会再收消息，
      * 远程层据此注销为它登记的回复入口（经分片 / 单例的 ask 每次都会登记一个）
      */
     public func isTerminated(): Bool {
@@ -407,24 +475,31 @@ public struct TypedAsk {
     /**
      * 向 target 发送 createRequest(replyTo) 生成的请求，返回响应的 Promise。
      * 在 timeout 内没有回复时 Promise 以 TypedAskTimeoutException 失败。
+     * cancellation 可共享；取消以 TypedAskCancelledException 完成等待，不撤回已发送请求。
+     * 取消与回复/超时竞争，以最先完成 Promise 的结果为准。
      *
      * 示例：
      *   let p = TypedAsk.ask<Cmd, Int64>(counter, { replyTo => GetCount(replyTo) }, Duration.second)
      *   let n = p.get(Duration.second)
      */
     public static func ask<Req, Res>(target: TypedActorRef<Req>, createRequest: (TypedActorRef<Res>) -> Req,
-        timeout: Duration): TypedPromise<Res> {
+        timeout: Duration, cancellation!: Option<AskCancellationToken> = None<AskCancellationToken>): TypedPromise<Res> {
         let promise = TypedPromise<Res>()
+        let targetPath = target.pathString()
+        if (let Some(token) <- cancellation) { token.bind(promise, targetPath) }
+        if (promise.isCompleted()) { return promise }
         let path = nextPath()
         let replyTo = PromiseRef<Res>(promise, path)
-        let targetPath = target.pathString()
         let timer = Timer.once(timeout, { =>
             promise.tryFailure(TypedAskTimeoutException("ask ${targetPath} 在 ${timeout} 内没有回复"))
             ()
         })
         promise.onComplete({ _ => timer.cancel() })
         try {
-            target.tell(createRequest(replyTo))
+            if (!promise.isCompleted()) {
+                let request = createRequest(replyTo)
+                if (!promise.isCompleted()) { target.tell(request) }
+            }
         } catch (e: Exception) {
             promise.tryFailure(e)
         }
@@ -449,26 +524,33 @@ public struct TypedAsk {
      *   let reply = p.get(Duration.second)
      */
     public static func askRemote<Req, Res>(target: TypedActorRef<Req>, request: Req,
-        timeout: Duration): TypedPromise<Res> {
+        timeout: Duration, cancellation!: Option<AskCancellationToken> = None<AskCancellationToken>): TypedPromise<Res> {
+        if (timeout <= Duration.Zero) { throw IllegalArgumentException("askRemote timeout 必须为正数") }
         let raw = TypedPromise<Any>()
+        let targetPath = target.pathString()
+        if (let Some(token) <- cancellation) { token.bind(raw, targetPath) }
+        if (raw.isCompleted()) {
+            return TypedPromises.failed<Res>(raw.outcome().getOrThrow().failure().getOrThrow())
+        }
         let path = "/temp/remote-ask-${remoteSeq.fetchAdd(1) + 1}"
         let replyTo = PromiseActorRef(raw, path)
-        let targetPath = target.pathString()
-        let timer = Timer.once(timeout, { =>
-            raw.tryFailure(TypedAskTimeoutException("跨节点 ask ${targetPath} 在 ${timeout} 内没有回复"))
-            ()
-        })
-        raw.onComplete({ _ => timer.cancel() })
-        match (target.toClassic()) {
-            case Some(classic) =>
-                // 回复引用作为 sender：远程层会为它登记回复入口，回复沿网络直接回到本节点
-                try {
-                    classic.tell(TypedPayloadBox(request), replyTo)
-                } catch (e: Exception) {
-                    raw.tryFailure(e)
-                }
-            case None =>
-                raw.tryFailure(IllegalArgumentException("askRemote 的目标必须由 Actor 承载（toClassic() 为空）：${targetPath}"))
+        try {
+            let timer = Timer.once(timeout, { =>
+                raw.tryFailure(TypedAskTimeoutException("跨节点 ask ${targetPath} 在 ${timeout} 内没有回复"))
+                ()
+            })
+            raw.onComplete({ _ => timer.cancel() })
+            match (target.toClassic()) {
+                case Some(classic) =>
+                    if (!raw.isCompleted()) {
+                        classic.tell(TypedPayloadBox(request), replyTo)
+                    }
+                case None =>
+                    raw.tryFailure(IllegalArgumentException("askRemote 的目标必须由 Actor 承载（toClassic() 为空）：${targetPath}"))
+                    ()
+            }
+        } catch (e: Exception) {
+            raw.tryFailure(e)
         }
         raw.map<Res>({ a =>
             match (a as Res) {

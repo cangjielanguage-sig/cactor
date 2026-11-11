@@ -16,8 +16,8 @@
  * 都不满足时在**发送侧**抛 SerializationException：这不是限制，而是把"这条消息能不能跨节点"
  * 变成用户看得见的选择——闭包、连接、ActorRef 本来就不该被悄悄送去网络。
  *
- * 线上格式（codec 版本 2）：首字节 kind，1 = 嵌套消息帧，2 = 命名载荷（[i32 名字长度][名字][负载]）。
- * 版本 1 的旧帧没有 kind 字节，解码时按 kind 1 处理，因此滚动升级期间新旧节点可以互读。
+ * 线上格式：v2 的 kind 1 = 嵌套消息帧，kind 2 = 命名载荷；v3 增加 kind 3 = 带协议标记的嵌套消息。
+ * 新解码器保留 v1/v2 支持。显式协议标记的 Message 载荷要求两端均升级到 v3，不支持旧节点读取 kind 3。
  */
 package cactor_core.typed
 
@@ -27,6 +27,126 @@ import cactor_core.message.{Message, MessageSerializer, MessageCodec, MessageCod
 
 /** 线上名称：与 TypedPayloadBox.messageType() 保持一致 */
 public let TYPED_PAYLOAD_BOX_TYPE: String = "TypedPayloadBox"
+
+/**
+ * 类型期望（type expectation）：一条消息声明的"我本来该是什么类型"。
+ *
+ * 类型化载荷仍由接收侧 `as T` 校验；协议名为显式声明的分布式边界额外提供诊断依据。
+ * 声明不匹配时拒收（不投递、计入未处理、限速告警）。协议名不能替代载荷类型检查或身份认证。
+ *
+ * 类型名从哪来（约定）：
+ * - 命名载荷（注册了编解码器的类型）：编解码器的 typeName；
+ * - Message 载荷：messageType()（MessageSerializer 本来就把类型名写进了线上帧）；
+ * - 显式声明：引用上挂的 TypedTypeTag（发布方声明；跨节点时随命名载荷帧的尾部一起过线）。
+ *
+ * 类型期望是**可选**的：没有声明就没有校验，行为与引入本机制之前完全一致。
+ */
+public class TypedTypeTag {
+    /** 协议类型名（双方约定的字符串，建议带包名） */
+    public let typeName: String
+
+    public init(typeName: String) {
+        if (typeName.isEmpty()) {
+            throw IllegalArgumentException("类型期望的类型名不能为空")
+        }
+        this.typeName = typeName
+    }
+
+    public func toString(): String {
+        "TypedTypeTag(${typeName})"
+    }
+
+    public func equals(other: TypedTypeTag): Bool {
+        typeName == other.typeName
+    }
+}
+
+/** 由协议类型名构造类型期望（空名 = 不声明，沿用旧行为） */
+public func typedTypeTagOf(typeName: Option<String>): Option<TypedTypeTag> {
+    match (typeName) {
+        case Some(n) =>
+            if (n.isEmpty()) {
+                None<TypedTypeTag>
+            } else {
+                Some(TypedTypeTag(n))
+            }
+        case None => None<TypedTypeTag>
+    }
+}
+
+/**
+ * 类型期望的可观测计数（进程级）。
+ *
+ * - checked：按类型名校验通过的消息数；
+ * - mismatch：类型名对不上、被拒收的消息数（这些消息同时计入 Actor 的未处理消息数，会进死信）；
+ * - unverified：声明了期望但消息没有可比对的名字（无从校验，放行）。
+ *
+ * 拒收的原文放在 lastMismatchText()，供测试与运维定位。
+ */
+public class TypedTypeExpectations {
+    private static let lock: Mutex = Mutex()
+    private static var checkedValue: Int64 = 0
+    private static var mismatchValue: Int64 = 0
+    private static var unverifiedValue: Int64 = 0
+    private static var lastMismatchTextValue: String = ""
+
+    /** 校验通过一条 */
+    public static func recordChecked(): Unit {
+        synchronized(lock) {
+            checkedValue++
+        }
+    }
+
+    /** 类型不符拒收一条（detail 记入 lastMismatchText，供观测） */
+    public static func recordMismatch(detail: String): Unit {
+        synchronized(lock) {
+            mismatchValue++
+            lastMismatchTextValue = detail
+        }
+    }
+
+    /** 声明了期望但消息没有类型名：无从校验，放行 */
+    public static func recordUnverified(): Unit {
+        synchronized(lock) {
+            unverifiedValue++
+        }
+    }
+
+    public static func checkedCount(): Int64 {
+        synchronized(lock) {
+            checkedValue
+        }
+    }
+
+    public static func mismatchCount(): Int64 {
+        synchronized(lock) {
+            mismatchValue
+        }
+    }
+
+    public static func unverifiedCount(): Int64 {
+        synchronized(lock) {
+            unverifiedValue
+        }
+    }
+
+    /** 最近一次类型不符的描述（没有则为空串） */
+    public static func lastMismatchText(): String {
+        synchronized(lock) {
+            lastMismatchTextValue
+        }
+    }
+
+    /** 清零（仅测试用） */
+    public static func resetForTest(): Unit {
+        synchronized(lock) {
+            checkedValue = 0
+            mismatchValue = 0
+            unverifiedValue = 0
+            lastMismatchTextValue = ""
+        }
+    }
+}
 
 /**
  * 命名载荷的编解码器：把"不是 Message 的类型"变成字节。
@@ -88,6 +208,8 @@ class TypedPayloadCodecImpl<T> <: TypedPayloadCodec {
  */
 public class TypedPayloadCodecs {
     private static let codecs: ArrayList<TypedPayloadCodec> = ArrayList<TypedPayloadCodec>()
+    // 仅声明类型名（不提供编解码器）的条目：与编解码器共享同一份类型名空间
+    private static let declared: ArrayList<DeclaredTypeName> = ArrayList<DeclaredTypeName>()
     private static let lock: Mutex = Mutex()
 
     public static func register(codec: TypedPayloadCodec): Unit {
@@ -109,6 +231,48 @@ public class TypedPayloadCodecs {
             throw IllegalArgumentException("载荷类型名不能为空")
         }
         register(TypedPayloadCodecImpl<T>(typeName, encode, decode))
+    }
+
+    /**
+     * 只声明一个类型名（不提供编解码器）：类型名与编解码器共用同一份命名空间，
+     * 重复声明直接拒绝（与编解码器重名同样抛 IllegalStateException）。
+     *
+     * 用途：本节点内的类型化协议也需要一个稳定的名字（例如集群 Receptionist 登记服务时记录的类型名），
+     * 但它不需要跨节点传输，因此不必写编解码闭包。
+     */
+    public static func declareTypeName<T>(typeName!: String): Unit {
+        if (typeName.isEmpty()) {
+            throw IllegalArgumentException("类型名不能为空")
+        }
+        let matcher: (Any) -> Bool = { v => v is T }
+        synchronized(lock) {
+            if (codecs.any({ c => c.typeName() == typeName })) {
+                throw IllegalStateException("类型名 ${typeName} 已被编解码器占用")
+            }
+            for (d in declared) {
+                if (d.name == typeName) {
+                    throw IllegalStateException("类型名 ${typeName} 已声明过")
+                }
+            }
+            declared.add(DeclaredTypeName(typeName, matcher))
+        }
+    }
+
+    /** 按值查协议类型名：先找编解码器，再找仅声明的类型名（都没命中则没有类型名） */
+    public static func typeNameOfValue(value: Any): Option<String> {
+        synchronized(lock) {
+            for (c in codecs) {
+                if (c.matches(value)) {
+                    return Some(c.typeName())
+                }
+            }
+            for (d in declared) {
+                if (d.matcher(value)) {
+                    return Some(d.name)
+                }
+            }
+        }
+        None<String>
     }
 
     public static func unregister(typeName: String): Bool {
@@ -151,10 +315,17 @@ public class TypedPayloadCodecs {
         }
     }
 
-    /** 已注册的线上类型名（按注册顺序），用于诊断两端配置是否一致 */
+    /** 已注册的线上类型名（编解码器 + 仅声明的，按注册顺序），用于诊断两端配置是否一致 */
     public static func typeNames(): Array<String> {
         synchronized(lock) {
-            codecs.map { c => c.typeName() }.toArray()
+            let out = ArrayList<String>()
+            for (c in codecs) {
+                out.add(c.typeName())
+            }
+            for (d in declared) {
+                out.add(d.name)
+            }
+            out.toArray()
         }
     }
 
@@ -162,7 +333,19 @@ public class TypedPayloadCodecs {
     public static func clearForTest(): Unit {
         synchronized(lock) {
             codecs.clear()
+            declared.clear()
         }
+    }
+}
+
+/** 仅声明类型名的条目（没有编解码器，只用于类型名的匹配与查询） */
+class DeclaredTypeName {
+    let name: String
+    let matcher: (Any) -> Bool
+
+    init(name: String, matcher: (Any) -> Bool) {
+        this.name = name
+        this.matcher = matcher
     }
 }
 
@@ -179,7 +362,7 @@ public class TypedPayloadBoxCodec <: MessageCodec {
     public init() {}
 
     public func version(): Int64 {
-        2
+        3
     }
 
     public func encode(message: Message): Array<UInt8> {
@@ -190,9 +373,19 @@ public class TypedPayloadBoxCodec <: MessageCodec {
         match (box.payload as Message) {
             case Some(payload) =>
                 let out = ArrayList<UInt8>()
-                out.add(PAYLOAD_KIND_MESSAGE)
-                for (b in MessageSerializer().serialize(payload)) {
-                    out.add(b)
+                let frame = MessageSerializer().serialize(payload)
+                match (box.typeTag) {
+                    case Some(tag) =>
+                        // v3 的 kind 3 用长度隔离内层帧，避免把协议标记交给载荷的解码器。
+                        out.add(3u8)
+                        putInt32(out, Int32(frame.size))
+                        for (b in frame) { out.add(b) }
+                        let tagBytes = tag.typeName.toArray()
+                        putInt32(out, Int32(tagBytes.size))
+                        for (b in tagBytes) { out.add(b) }
+                    case None =>
+                        out.add(PAYLOAD_KIND_MESSAGE)
+                        for (b in frame) { out.add(b) }
                 }
                 out.toArray()
             case None =>
@@ -209,6 +402,17 @@ public class TypedPayloadBoxCodec <: MessageCodec {
                         putInt32(out, Int32(bytes.size))
                         for (b in bytes) {
                             out.add(b)
+                        }
+                        // 类型期望（可选）：发布方声明的类型名随消息过线，接收端据此拒收协议不符的消息。
+                        // 旧解码器按长度切片取 body，会忽略这段尾部，因此滚动升级期间新旧节点可以互读。
+                        match (box.typeTag) {
+                            case Some(tag) =>
+                                let tagBytes = tag.typeName.toArray()
+                                putInt32(out, Int32(tagBytes.size))
+                                for (b in tagBytes) {
+                                    out.add(b)
+                                }
+                            case None => ()
                         }
                         out.toArray()
                     case None =>
@@ -236,6 +440,21 @@ public class TypedPayloadBoxCodec <: MessageCodec {
         // 写成 case PAYLOAD_KIND_MESSAGE 会把所有取值都吃掉（踩过一次）。
         match (payload[0]) {
             case 1u8 => decode(payload.slice(1, payload.size - 1))
+            case 3u8 =>
+                if (version < 3) {
+                    throw DeserializationException("带协议标记的嵌套消息需要 codec v3")
+                }
+                let bodyLength = Int64(readInt32(payload, 1))
+                if (bodyLength < 0 || bodyLength > payload.size - 5) {
+                    throw DeserializationException("类型化信封的嵌套消息不完整")
+                }
+                let tagOffset = 5 + bodyLength
+                let tagLength = Int64(readInt32(payload, tagOffset))
+                if (tagLength <= 0 || tagLength != payload.size - tagOffset - 4) {
+                    throw DeserializationException("类型化信封的协议标记不完整")
+                }
+                let tag = TypedTypeTag(String.fromUtf8(payload.slice(tagOffset + 4, tagLength)))
+                TypedPayloadBox(MessageSerializer().deserialize(payload.slice(5, bodyLength)), typeTag: Some(tag))
             case 2u8 =>
                 var offset = 1
                 let nameLength = Int64(readInt32(payload, offset))
@@ -251,8 +470,26 @@ public class TypedPayloadBoxCodec <: MessageCodec {
                     throw DeserializationException("类型化信封的载荷数据不完整：类型 ${name}")
                 }
                 let body = payload.slice(offset, bodyLength)
+                offset += bodyLength
+                // 可选的类型期望（发送方声明的类型名）：没有就用帧里的载荷类型名（它同样随消息过线）
+                var tag: Option<TypedTypeTag> = None<TypedTypeTag>
+                if (payload.size > offset) {
+                    let tagLength = Int64(readInt32(payload, offset))
+                    offset += 4
+                    if (tagLength < 0 || payload.size < offset + tagLength) {
+                        throw DeserializationException("类型化信封的类型期望标记不完整：类型 ${name}")
+                    }
+                    let tagName = String.fromUtf8(payload.slice(offset, tagLength))
+                    if (!tagName.isEmpty()) {
+                        tag = Some(TypedTypeTag(tagName))
+                    }
+                }
+                let effectiveTag = match (tag) {
+                    case Some(t) => t
+                    case None => TypedTypeTag(name)
+                }
                 match (TypedPayloadCodecs.find(name)) {
-                    case Some(codec) => TypedPayloadBox(codec.decode(body))
+                    case Some(codec) => TypedPayloadBox(codec.decode(body), typeTag: Some(effectiveTag))
                     case None => throw DeserializationException(
                         "没有注册载荷类型 ${name} 的编解码器：两端 TypedPayloadCodecs 配置不一致")
                 }
