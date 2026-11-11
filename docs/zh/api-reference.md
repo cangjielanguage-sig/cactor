@@ -2335,7 +2335,7 @@ let stats = node.reliableDeliveryStats()
 - `TypedAsk.askRemote` 经 `SimpleRemoteManager` 的 `RemoteActorRef` 发送时，也受容量与停止管理；保留原 sender 的本地代理转发同样接入。成功、超时、取消及发送失败都即时注销 `$typedask-<启动标识>-<序号>`，`stop()` 立即完成在途失败，不等原超时。`PromiseActorRef.fail(cause)/onComplete(callback)` 供远程层注入终态处理。自定义 ActorRef、本地 fallback、手工可靠转发不会自动获得同一管理器生命周期；两端仍需提供实际载荷编解码。`askRemote` 的非正超时直接抛 `IllegalArgumentException`，计时器创建失败完成失败并解除取消订阅；取消不撤回已发送业务。
 - 经典 ask 的 `$ask-<启动标识>-<序号>` 与本地发送方的 `$ref<路径>#<启动标识>-<序号>` 均带管理器启动标识，避免同址新实例重置序号后误收旧回复。名称是内部不透明字符串，远端按收到的 sender 原样回复，无新增帧版本；不提供认证或业务幂等。
 - 经典 `node.ask` 的成功、超时、发送/计时器异常均统一注销临时入口并归还容量；`node.stop()` 先释放全部在途入口，再在锁外完成失败，原超时无需到期。回复与停止竞争时以 Promise 首次完成为准；停止不撤回已发送请求或远端副作用。非正超时在登记和发送前直接抛 `IllegalArgumentException`。默认 1024 是经典与类型化共用的限制，可在启动前 `configure(RemotingSettings.defaults().withAskLimit(256))` 调整；不提供全节点传输内存预算。`RemoteAskCapacityException.limit` 可用于观察容量配置；并发满额可搭配 `TypedRetry` 选择性退避，停止不应无限重试。
-- `tell` / `sendMessage` 只入出站队列、不阻塞：连接与重连在该地址的写线程里进行；对端不可达或队列满（64 MB）时丢弃并计数
+- `tell` / `sendMessage` 只入出站队列、不阻塞：连接与重连在该地址的写线程里进行；对端不可达、队列满（64 MB）或新目标超出实例级预算时丢弃并计数
   （`TcpTransport.getDroppedFrames()`），不抛异常。控制消息用 `sendControl(addr, actor, message)` 走优先通道。
 - 对端重启后，未确认的消息在新通道重发：跨重启是**至少一次**。
 - 每条连接先握手交换身份（地址 + 启动标识）。`RemotingSettings.withSecureCookie("...")` 后握手带 HMAC-SHA256，
@@ -2343,6 +2343,33 @@ let stats = node.reliableDeliveryStats()
   须重启才能重新通信；也可 `quarantine(address, reason)` 手动隔离，`isQuarantined(address)` 查询。
 - `RemotingSettings.defaults()`：心跳 1 s、φ 阈值 10、容忍停顿 10 s（同 Akka）。
 - 最老的未确认消息超过 `giveUpAfter`：放弃发往该节点的全部消息（计入 `gaveUp`），监视该节点上 Actor 的本地 Actor 收到 `Terminated`。
+
+### TCP 实例级连接预算（v2.33）
+
+```cangjie
+import cactor_foundation.network.{TcpTransport, TcpTransportLimits, NetworkAddress}
+import cactor_remote.SimpleRemoteManager
+
+let transport = TcpTransport(NetworkAddress("127.0.0.1", 2552), limits: TcpTransportLimits(
+    maxOutboundAssociations: 128,
+    maxInboundConnections: 128,
+    idleRetireAfter: Duration.second * 30))
+let node = SimpleRemoteManager(transport)
+node.start()
+```
+
+`TcpTransportLimits` 默认出站关联 256、入站连接 256、空闲期限 10 秒，均须为正；带 `connectTimeout` 的原构造也支持 `limits:`。配置在构造时确定，不动态抢占已有连接。满额时新出站目标不创建关联/写协程，普通与优先帧都丢弃；已有目标仍可发送。入站连接在 TLS/协议握手之前占位，未完成握手也计入，满额立即关闭。
+
+| 诊断 API | 含义 |
+|---|---|
+| `getAssociationCount()` | 当前出站关联槽数 |
+| `getInboundConnectionCount()` | 当前受管入站连接数，包含握手中连接 |
+| `getOutboundCapacityRejections()` | 因新目标容量满额丢弃的帧数，同时计入 `getDroppedFrames()` |
+| `getInboundCapacityRejections()` | 因容量满额关闭的入站连接数，停止竞争不算容量拒绝 |
+
+拒绝计数按传输实例累计，stop 不归零；stop 清空当前连接。空闲期限从写协程完成上一批后等待无数据开始计时；已连接关联现在也回收，**先关 socket 再归还名额**，后续发送重新连接。持续有数据的目标不会因年龄被抢占。高扇出应用应显式设置预算，并处理 tell 的 best effort 丢帧语义；可靠层能重发尚未确认的数据，但超过其放弃期限仍会失败。
+
+这些是每个 TCP 实例的连接槽限制，不限制操作系统监听队列、多个传输实例合计、可靠通道表、帧/队列/编解码临时内存总字节；不能由此宣称节点内存有界。DA3 的可靠通道与全局字节预算仍待实现。
 
 ### 管理端点（`ManagementServer`）
 

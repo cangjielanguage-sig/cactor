@@ -102,9 +102,10 @@ public class AssociationTest {
         alive.start()
         client.send(alive.getLocalAddress(), bytesOf("y"))
         @Expect(waitUntil(Duration.second * 5, { => got.load() == 1 }), true)
-        // 已连接的关联空闲时不退出（保留连接）
-        sleep(Duration.millisecond * 400)
-        @Expect(client.getAssociationCount() >= 1, true)
+        // 已连接的空闲关联也会回收，下一次发送重新连接。
+        @Expect(waitUntil(Duration.second * 5, { => client.getAssociationCount() == 0 }), true)
+        client.send(alive.getLocalAddress(), bytesOf("z"))
+        @Expect(waitUntil(Duration.second * 5, { => got.load() == 2 }), true)
         client.stop()
         alive.stop()
     }

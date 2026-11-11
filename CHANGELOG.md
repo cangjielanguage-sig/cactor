@@ -7,6 +7,13 @@
 
 ## [未发布]
 
+### ✨ 新增与行为变更（计划 v2.33：TCP 实例级连接预算）
+
+- 新增 `cactor_foundation.network.TcpTransportLimits`，可在两个 `TcpTransport` 构造方法中以 `limits:` 注入。出站关联/入站连接默认各 256，空闲期限默认 10 秒；所有配置必须为正。满额出站新目标丢帧并计入总丢帧及容量拒绝，已有目标仍可发；普通和优先帧共用预算。
+- 入站连接在启动 TLS/协议握手协程前准入，未完成握手也占用名额，满额立即关闭。新增 `getOutboundCapacityRejections`、`getInboundCapacityRejections`、`getInboundConnectionCount`；计数按实例累计，stop 清空当前连接。
+- **行为变更**：原先已连接关联可无限空闲；现在空闲满期限也关闭，先关 socket 再归还关联槽，下次发送重新连接。旧构造调用保持源码兼容，但高扇出应用需要显式设置预算，不能再依赖无限目标/连接。仍是 best effort 传输，不保证容量拒绝的业务自动重试。
+- 新增 5 个真实 TCP/并发回归，并更新原关联回收用例验证重连。DA3 只部分完成：可靠通道数量、全节点字节预算等仍未落地；计划进度保持 69.32%、加权 69.5%，不重复计分。验收记录见实施计划第 35 批。
+
 ### ✨ 新增与修复（计划 v2.32：类型化远程 ask 预算与停机）
 
 - `TypedAsk.askRemote` 经 `RemoteActorRef` 发送时与经典 ask 共用 `maxPendingAsks`，默认 1024。满额 `RemoteAskCapacityException` 且不发送；`pendingAskCount` 保持经典计数，新增 `pendingTypedAskCount`；`replyEntryCount` 包含类型化临时入口。保留 sender 的本地代理转发也接入；普通 tell、本地 fallback 与自定义引用保留。

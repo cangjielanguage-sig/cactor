@@ -292,7 +292,7 @@ let WRITE_CHUNK_BYTES: Int64 = 256 * 1024
 /** 连接失败后的退避：100 ms 起翻倍，封顶 5 s，连上后复位 */
 let RECONNECT_BACKOFF_MIN: Duration = Duration.millisecond * 100
 let RECONNECT_BACKOFF_MAX: Duration = Duration.second * 5
-/** 没有连接、也没有待发数据超过这个时长，关联退出并从传输中移除（防止伪造或失效地址堆积写线程） */
+/** 空闲且没有待发数据超过这个时长，连接关闭、关联退出并从传输中移除。 */
 let IDLE_RETIRE_AFTER: Duration = Duration.second * 10
 
 // 丢帧可能成批出现：每 5 分钟逐条记前 10 条
@@ -344,7 +344,7 @@ class FrameQueue {
  *   写线程先写控制帧；普通数据按 WRITE_CHUNK_BYTES 分段写，段间再检查控制队列。
  * - 队列有界：超过上限丢弃新帧并计数（与 Akka 出站队列满时丢弃一致）。
  * - 连接失败：本批帧丢弃并计数（至多一次；需要可靠的由远程层的可靠投递重发），按指数退避重连。
- * - 没有连接且空闲超过 idleRetireAfter：写线程退出、关联从传输中移除，下次发送重新建立。
+ * - 空闲超过 idleRetireAfter：关闭连接、写线程退出，下次发送重新建立。
  * - 写失败：关闭连接，下一批重新连接（对端重启后自动恢复）。
  */
 class OutboundConnection {
@@ -434,13 +434,13 @@ class OutboundConnection {
 
     /**
      * 取走两条队列中的全部帧；没有数据时等待。
-     * 没有连接时最多等 idleRetireAfter，超时返回 Idle（写线程据此退出）；已关闭且无数据返回 Exit
+     * 空闲最多等 idleRetireAfter，超时返回 Idle（连接与写线程一并释放）；已关闭且无数据返回 Exit
      */
     private func takeBatch(): Taken {
         let idleDeadline = MonoTime.now() + idleRetireAfter
         synchronized(lock) {
             while (control.frames == 0 && pending.frames == 0 && !closed) {
-                if (socket.isNone() && MonoTime.now() >= idleDeadline) {
+                if (MonoTime.now() >= idleDeadline) {
                     return Taken.Idle
                 }
                 writerWaiting = true
@@ -505,7 +505,7 @@ class OutboundConnection {
         }
     }
 
-    /** 空闲且没有连接：退出并从传输中移除（入队与退出在同一把锁下互斥，不会丢帧） */
+    /** 空闲时退出；入队与退出在同一把锁下互斥，不会遗失已经准入的帧。 */
     private func tryRetire(): Bool {
         let ok = synchronized(lock) {
             if (control.frames == 0 && pending.frames == 0) {
@@ -516,6 +516,8 @@ class OutboundConnection {
             }
         }
         if (ok) {
+            // 先关闭 socket 再归还关联槽，避免空闲回收与新建交叠突破连接预算。
+            disconnect()
             onRetire(this)
         }
         ok
@@ -683,13 +685,13 @@ class OutboundConnection {
                 release(p)
             }
         } finally {
-            let wasClosed = synchronized(lock) {
+            let shouldDisconnect = synchronized(lock) {
                 writerDone = true
                 cond.notifyAll()
-                closed
+                closed || retired
             }
             // close() 只等 1 秒：写线程若当时正卡在 connect，连上后由这里关闭
-            if (wasClosed) {
+            if (shouldDisconnect) {
                 disconnect()
             }
         }
@@ -737,9 +739,24 @@ class FrameReader {
     }
 }
 
-/**
- * TCP 传输
- */
+/** TCP 实例级连接预算；数量限制不等于全节点字节预算。 */
+public struct TcpTransportLimits {
+    public let maxOutboundAssociations: Int64
+    public let maxInboundConnections: Int64
+    public let idleRetireAfter: Duration
+
+    public init(maxOutboundAssociations!: Int64 = 256, maxInboundConnections!: Int64 = 256,
+        idleRetireAfter!: Duration = Duration.second * 10) {
+        if (maxOutboundAssociations <= 0 || maxInboundConnections <= 0 || idleRetireAfter <= Duration.Zero) {
+            throw IllegalArgumentException("TCP 连接预算和空闲期限必须为正数")
+        }
+        this.maxOutboundAssociations = maxOutboundAssociations
+        this.maxInboundConnections = maxInboundConnections
+        this.idleRetireAfter = idleRetireAfter
+    }
+}
+
+/** TCP 传输：按实例限制关联/连接数量，空闲关闭后按需重连。 */
 public class TcpTransport <: NetworkTransport {
     private let requestedAddress: NetworkAddress
     private var boundPort: Int32
@@ -754,7 +771,10 @@ public class TcpTransport <: NetworkTransport {
     private var handshake: Option<TransportHandshake> = None<TransportHandshake>
     private var security: Option<TransportSecurity> = None<TransportSecurity>
     private let connectTimeout: Duration
-    // 包内可调（测试用）：没有连接的空闲关联多久后退出
+    private let limits: TcpTransportLimits
+    private let outboundRejections = AtomicInt64(0)
+    private let inboundRejections = AtomicInt64(0)
+    // 包内可调（测试用）：空闲关联多久后退出，已连接关联同样回收
     var idleRetireAfter: Duration = IDLE_RETIRE_AFTER
 
     // 统计
@@ -762,11 +782,13 @@ public class TcpTransport <: NetworkTransport {
     private let framesReceived: AtomicInt64 = AtomicInt64(0)
     private let counters: TransportCounters = TransportCounters()
 
-    public init(localAddress: NetworkAddress) {
-        this(localAddress, Duration.second * 3)
+    public init(localAddress: NetworkAddress, limits!: TcpTransportLimits = TcpTransportLimits()) {
+        this(localAddress, Duration.second * 3, limits: limits)
     }
 
-    public init(localAddress: NetworkAddress, connectTimeout: Duration) {
+    public init(localAddress: NetworkAddress, connectTimeout: Duration, limits!: TcpTransportLimits = TcpTransportLimits()) {
+        this.limits = limits
+        this.idleRetireAfter = limits.idleRetireAfter
         this.requestedAddress = localAddress
         this.boundPort = localAddress.port
         this.isRunning = AtomicBool(false)
@@ -874,7 +896,14 @@ public class TcpTransport <: NetworkTransport {
         let frame = encodeFrame(data)
         // 关联可能恰好因长期连不上而退出：换一个新关联再试一次
         for (_ in 0..2) {
-            match (association(address).enqueue(frame, priority)) {
+            let conn = match (association(address)) {
+                case Some(c) => c
+                case None =>
+                    outboundRejections.fetchAdd(1)
+                    counters.framesDropped.fetchAdd(1)
+                    return
+            }
+            match (conn.enqueue(frame, priority)) {
                 case Enqueued.Accepted =>
                     framesSent.fetchAdd(1)
                     return
@@ -981,9 +1010,20 @@ public class TcpTransport <: NetworkTransport {
     /** 连接失败次数（每次尝试计一次，含退避后的重试） */
     public func getConnectFailures(): Int64 { counters.connectFailures.load() }
 
-    /** 当前的出站关联数（长期连不上且没有新数据的关联会自动退出） */
+    /** 当前出站关联数；空闲时关闭连接并自动归还容量。 */
     public func getAssociationCount(): Int64 {
         synchronized(mutex) { outbound.size }
+    }
+
+    /** 出站新目标因实例级容量满额而丢弃的帧数（也计入 getDroppedFrames）。 */
+    public func getOutboundCapacityRejections(): Int64 { outboundRejections.load() }
+
+    /** 入站因容量满额关闭的连接数；停止竞争不计入容量拒绝。 */
+    public func getInboundCapacityRejections(): Int64 { inboundRejections.load() }
+
+    /** 包含握手中连接的当前入站数。 */
+    public func getInboundConnectionCount(): Int64 {
+        synchronized(mutex) { inbound.size }
     }
 
     /** 实际执行的 write 系统调用次数（与 getFramesSent 对比可看出合并效果） */
@@ -992,27 +1032,33 @@ public class TcpTransport <: NetworkTransport {
     }
 
     /** 取或建目标地址的关联：只操作内存，不做网络操作 */
-    private func association(address: NetworkAddress): OutboundConnection {
+    private func association(address: NetworkAddress): Option<OutboundConnection> {
         let key = address.toString()
         let me = this
-        let (conn, created) = synchronized(mutex) {
+        let selected: Option<(OutboundConnection, Bool)> = synchronized(mutex) {
             // 与 stop() 的"清空关联表"互斥：停止之后不再建新关联（否则写线程泄漏）
             if (!isRunning.load()) {
                 throw IllegalStateException("TCP 传输未启动")
             }
             match (outbound.get(key)) {
-                case Some(existing) => (existing, false)
+                case Some(existing) => Some((existing, false))
                 case None =>
-                    let c = OutboundConnection(address, connectTimeout, idleRetireAfter, counters, { retired => me.removeAssociation(retired) },
-                        { => me.currentHandshake() }, { => me.currentSecurity() })
-                    outbound.add(key, c)
-                    (c, true)
+                    if (outbound.size >= limits.maxOutboundAssociations) {
+                        None<(OutboundConnection, Bool)>
+                    } else {
+                        let c = OutboundConnection(address, connectTimeout, idleRetireAfter, counters, { retired => me.removeAssociation(retired) },
+                            { => me.currentHandshake() }, { => me.currentSecurity() })
+                        outbound.add(key, c)
+                        Some((c, true))
+                    }
             }
         }
-        if (created) {
-            conn.startWriter()
+        match (selected) {
+            case Some((conn, created)) =>
+                if (created) { conn.startWriter() }
+                Some(conn)
+            case None => None<OutboundConnection>
         }
-        conn
     }
 
     private func removeAssociation(conn: OutboundConnection): Unit {
@@ -1032,9 +1078,21 @@ public class TcpTransport <: NetworkTransport {
                 let raw = s.accept()
                 raw.noDelay = true
                 let client = Channel(raw)
-                synchronized(mutex) {
-                    inbound.add(client)
+                let admitted = synchronized(mutex) {
+                    if (!isRunning.load()) { false }
+                    else if (inbound.size >= limits.maxInboundConnections) {
+                        inboundRejections.fetchAdd(1)
+                        false
+                    } else {
+                        inbound.add(client)
+                        true
+                    }
                 }
+                if (!admitted) {
+                    client.close()
+                    continue
+                }
+                // 先占预算，再启动握手协程：慢速握手也不能无限占用连接。
                 // 加密握手与应用层握手都在该连接自己的协程里做：慢速或恶意的对端不会卡住 accept
                 spawn {
                     readLoop(client)

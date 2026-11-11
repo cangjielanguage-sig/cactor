@@ -2164,6 +2164,32 @@ This bounds both classic asks and `TypedAsk.askRemote` sent through a manager's 
 
 This changes formerly unbounded admission. It does not bound every transport queue or total node memory. Stopping the caller does not withdraw remote side effects. Use selective backoff for capacity rejection and business idempotency for retried writes.
 
+### TCP connection budgets (v2.33)
+
+```cangjie
+import cactor_foundation.network.{TcpTransport, TcpTransportLimits, NetworkAddress}
+import cactor_remote.SimpleRemoteManager
+
+let transport = TcpTransport(NetworkAddress("127.0.0.1", 2552), limits: TcpTransportLimits(
+    maxOutboundAssociations: 128,
+    maxInboundConnections: 128,
+    idleRetireAfter: Duration.second * 30))
+let node = SimpleRemoteManager(transport)
+node.start()
+```
+
+`TcpTransportLimits` defaults to 256 outbound associations, 256 inbound connections, and 10 seconds of idle time. All values must be positive. Both existing constructors accept the optional named `limits:` argument, including the constructor with a connect timeout. Limits are fixed at construction and do not evict busy connections.
+
+A new outbound destination at capacity drops the frame without creating an association or writer. Existing destinations remain usable; priority frames share the same destination budget. Inbound admission happens before TLS/protocol handshakes, so unfinished handshakes occupy slots too. Excess accepted connections are closed immediately.
+
+- `getAssociationCount()` and `getInboundConnectionCount()` report current managed outbound/inbound slots; inbound includes handshakes.
+- `getOutboundCapacityRejections()` counts capacity-dropped frames, also included in `getDroppedFrames()`.
+- `getInboundCapacityRejections()` counts capacity-rejected connections; stop races do not count as capacity rejection.
+
+Rejection counters accumulate over the lifetime of the instance, including stop/start. Stop clears current connections. Idle time starts when the writer waits for data after its preceding batch. Connected idle associations now close their socket before releasing their slot; a later send reconnects. Busy destinations are not evicted just because they are old. Applications with high fan-out should configure their budget and handle best effort drops. The reliable layer may resend unacknowledged messages, subject to its give-up deadline.
+
+These limits apply per TCP instance. They do not bound OS listen backlogs, totals across transport instances, reliable-channel tables, or global bytes allocated to frames, queues and codecs. DA3 reliable-channel and node-wide byte budgets remain open.
+
 ## Related Links
 
 - [Architecture Design](architecture.md) — CActor's layered architecture
