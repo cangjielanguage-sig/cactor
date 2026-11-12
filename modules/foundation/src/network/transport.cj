@@ -300,6 +300,46 @@ let dropLog: LogRateLimiter = LogRateLimiter(10, Duration.minute * 5)
 
 /** 关联的统计，由 TcpTransport 持有、各关联共享 */
 class TransportCounters {
+    let pendingBytes = AtomicInt64(0)
+    let controlBytes = AtomicInt64(0)
+    let byteRejections = AtomicInt64(0)
+    // 入站正在解码的帧字节：所有入站连接合计
+    let inboundBytes = AtomicInt64(0)
+    let inboundByteRejections = AtomicInt64(0)
+
+    func reserveBytes(n: Int64, priority: Bool, limit: Int64): Bool {
+        let used = if (priority) { controlBytes } else { pendingBytes }
+        while (true) {
+            let old = used.load()
+            if (n > limit - old) {
+                byteRejections.fetchAdd(1)
+                return false
+            }
+            if (used.compareAndSwap(old, old + n)) { return true }
+        }
+        false
+    }
+
+    func releaseBytes(n: Int64, priority: Bool): Unit {
+        if (priority) { controlBytes.fetchSub(n) } else { pendingBytes.fetchSub(n) }
+    }
+
+    /** 入站帧字节预算：满额时拒绝该连接（对端要么超发，要么慢到我们读不过来） */
+    func reserveInboundBytes(n: Int64, limit: Int64): Bool {
+        while (true) {
+            let old = inboundBytes.load()
+            if (n > limit - old) {
+                inboundByteRejections.fetchAdd(1)
+                return false
+            }
+            if (inboundBytes.compareAndSwap(old, old + n)) { return true }
+        }
+        false
+    }
+
+    func releaseInboundBytes(n: Int64): Unit {
+        inboundBytes.fetchSub(n)
+    }
     let framesDropped = AtomicInt64(0)
     let connectFailures = AtomicInt64(0)
     let writes = AtomicInt64(0)
@@ -330,7 +370,9 @@ class FrameQueue {
     var buf: ByteBuffer
     var frames: Int64 = 0
 
-    init(capacity: Int64) {
+    let priority: Bool
+    init(capacity: Int64, priority!: Bool = false) {
+        this.priority = priority
         this.buf = ByteBuffer(capacity)
     }
 }
@@ -352,13 +394,14 @@ class OutboundConnection {
     private let connectTimeout: Duration
     private let idleRetireAfter: Duration
     private let counters: TransportCounters
+    private let limits: TcpTransportLimits
     private let onRetire: (OutboundConnection) -> Unit
     private let handshakeOf: () -> Option<TransportHandshake>
     private let securityOf: () -> Option<TransportSecurity>
     private let lock: Mutex = Mutex()
     private let cond: Condition
-    private var control: FrameQueue = FrameQueue(4 * 1024)
-    private var controlSpare: FrameQueue = FrameQueue(4 * 1024)
+    private var control: FrameQueue = FrameQueue(4 * 1024, priority: true)
+    private var controlSpare: FrameQueue = FrameQueue(4 * 1024, priority: true)
     private var pending: FrameQueue = FrameQueue(64 * 1024)
     private var pendingSpare: FrameQueue = FrameQueue(64 * 1024)
     private var socket: Option<Channel> = None<Channel>
@@ -368,12 +411,14 @@ class OutboundConnection {
     private var writerWaiting: Bool = false
 
     init(address: NetworkAddress, connectTimeout: Duration, idleRetireAfter: Duration, counters: TransportCounters,
+        limits: TcpTransportLimits,
         onRetire: (OutboundConnection) -> Unit, handshakeOf: () -> Option<TransportHandshake>,
         securityOf: () -> Option<TransportSecurity>) {
         this.address = address
         this.connectTimeout = connectTimeout
         this.idleRetireAfter = idleRetireAfter
         this.counters = counters
+        this.limits = limits
         this.onRetire = onRetire
         this.handshakeOf = handshakeOf
         this.securityOf = securityOf
@@ -400,7 +445,16 @@ class OutboundConnection {
             if (q.buf.size + frame.size > limit) {
                 return Enqueued.Dropped
             }
-            q.buf.append(frame)
+            let globalLimit = if (priority) { limits.maxControlPendingBytes } else { limits.maxPendingBytes }
+            if (!counters.reserveBytes(frame.size, priority, globalLimit)) {
+                return Enqueued.Dropped
+            }
+            try {
+                q.buf.append(frame)
+            } catch (e: Exception) {
+                counters.releaseBytes(frame.size, priority)
+                throw e
+            }
             q.frames++
             if (writerWaiting) {
                 cond.notifyAll()
@@ -453,6 +507,8 @@ class OutboundConnection {
             if (closed && socket.isNone()) {
                 // 关闭时还没连上：不再为这批数据去连接
                 let n = control.frames + pending.frames
+                counters.releaseBytes(control.buf.size, true)
+                counters.releaseBytes(pending.buf.size, false)
                 control.buf.clear()
                 control.frames = 0
                 pending.buf.clear()
@@ -486,6 +542,7 @@ class OutboundConnection {
 
     private func release(q: FrameQueue): Unit {
         synchronized(lock) {
+            counters.releaseBytes(q.buf.size, q.priority)
             q.buf.clear()
             q.frames = 0
         }
@@ -686,6 +743,13 @@ class OutboundConnection {
             }
         } finally {
             let shouldDisconnect = synchronized(lock) {
+                // 异常退出也归还已取出的双缓冲批次，防止预算永久耗尽。
+                for (q in [control, controlSpare, pending, pendingSpare]) {
+                    counters.releaseBytes(q.buf.size, q.priority)
+                    q.buf.clear()
+                    q.frames = 0
+                }
+                retired = true
                 writerDone = true
                 cond.notifyAll()
                 closed || retired
@@ -694,6 +758,7 @@ class OutboundConnection {
             if (shouldDisconnect) {
                 disconnect()
             }
+            onRetire(this)
         }
     }
 }
@@ -743,10 +808,26 @@ class FrameReader {
 public struct TcpTransportLimits {
     public let maxOutboundAssociations: Int64
     public let maxInboundConnections: Int64
+    /** 所有出站关联合计，包含排队和正在连接/写出的帧；两种帧分别预算。 */
+    public let maxPendingBytes: Int64
+    public let maxControlPendingBytes: Int64
+    /** 所有入站连接合计的在途解码字节。 */
+    public let maxInboundPendingBytes: Int64
     public let idleRetireAfter: Duration
 
     public init(maxOutboundAssociations!: Int64 = 256, maxInboundConnections!: Int64 = 256,
-        idleRetireAfter!: Duration = Duration.second * 10) {
+        idleRetireAfter!: Duration = Duration.second * 10,
+        maxPendingBytes!: Int64 = 256 * 1024 * 1024, maxControlPendingBytes!: Int64 = 16 * 1024 * 1024,
+        maxInboundPendingBytes!: Int64 = 64 * 1024 * 1024) {
+        if (maxPendingBytes <= 0 || maxControlPendingBytes <= 0) {
+            throw IllegalArgumentException("TCP 出站帧字节预算必须为正数")
+        }
+        if (maxInboundPendingBytes <= 0) {
+            throw IllegalArgumentException("TCP 入站帧字节预算必须为正数")
+        }
+        this.maxPendingBytes = maxPendingBytes
+        this.maxControlPendingBytes = maxControlPendingBytes
+        this.maxInboundPendingBytes = maxInboundPendingBytes
         if (maxOutboundAssociations <= 0 || maxInboundConnections <= 0 || idleRetireAfter <= Duration.Zero) {
             throw IllegalArgumentException("TCP 连接预算和空闲期限必须为正数")
         }
@@ -1005,6 +1086,16 @@ public class TcpTransport <: NetworkTransport {
     public func getSendFailures(): Int64 { counters.framesDropped.load() }
 
     /** 同 getSendFailures */
+    /** 保留的帧字节含写出批次，不含缓冲容量、编解码临时数组或 socket 缓冲。 */
+    public func getPendingBytes(): Int64 { counters.pendingBytes.load() }
+    public func getControlPendingBytes(): Int64 { counters.controlBytes.load() }
+    public func getByteCapacityRejections(): Int64 { counters.byteRejections.load() }
+
+    /** 入站在途解码字节（所有入站连接合计） */
+    public func getInboundPendingBytes(): Int64 { counters.inboundBytes.load() }
+    /** 因入站字节预算满额而关闭的连接数 */
+    public func getInboundByteRejections(): Int64 { counters.inboundByteRejections.load() }
+
     public func getDroppedFrames(): Int64 { counters.framesDropped.load() }
 
     /** 连接失败次数（每次尝试计一次，含退避后的重试） */
@@ -1046,7 +1137,7 @@ public class TcpTransport <: NetworkTransport {
                     if (outbound.size >= limits.maxOutboundAssociations) {
                         None<(OutboundConnection, Bool)>
                     } else {
-                        let c = OutboundConnection(address, connectTimeout, idleRetireAfter, counters, { retired => me.removeAssociation(retired) },
+                        let c = OutboundConnection(address, connectTimeout, idleRetireAfter, counters, limits, { retired => me.removeAssociation(retired) },
                             { => me.currentHandshake() }, { => me.currentSecurity() })
                         outbound.add(key, c)
                         Some((c, true))
@@ -1147,8 +1238,14 @@ public class TcpTransport <: NetworkTransport {
                     log_transport.debug("TCP 收到非法帧长度 ${len}，关闭连接")
                     break
                 }
+                // 入站在途字节也要预算：每个连接一次可读 16 MB，连接数上限不能替代字节上限
+                if (!counters.reserveInboundBytes(len, limits.maxInboundPendingBytes)) {
+                    log_transport.warn("TCP 入站字节预算已满，关闭该入站连接")
+                    break
+                }
                 let payload = Array<UInt8>(len, repeat: 0)
                 if (len > 0 && !reader.readFully(payload)) {
+                    counters.releaseInboundBytes(len)
                     break
                 }
                 framesReceived.fetchAdd(1)
@@ -1160,6 +1257,7 @@ public class TcpTransport <: NetworkTransport {
                         log_transport.error("TCP 数据处理回调失败: ${e.message}")
                     }
                 }
+                counters.releaseInboundBytes(len)
             }
         } catch (e: Exception) {
             // 对端断开或传输已停止

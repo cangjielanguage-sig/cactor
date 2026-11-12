@@ -79,6 +79,10 @@ public func parseRemoteSender(text: String): Option<(NetworkAddress, String)> {
 // 默认值同 Akka：system-message-buffer-size = 20000，give-up-system-message-after = 6 h
 let DEFAULT_MAX_UNACKED: Int64 = 20000
 let DEFAULT_GIVE_UP_AFTER: Duration = Duration.hour * 6
+// 全节点未确认消息上限：每通道 20000 × 通道数不可接受，节点总量必须另有上限
+let DEFAULT_MAX_TOTAL_UNACKED: Int64 = 200000
+// 全节点入站乱序缓冲上限
+let DEFAULT_MAX_INBOUND_BUFFERED: Int64 = 200000
 
 /** 远程 ask 容量已满：请求尚未发送，调用方可据此决定退避或拒绝业务请求。 */
 public class RemoteAskCapacityException <: Exception {
@@ -113,6 +117,10 @@ public struct RemotingSettings {
     public let maxInboundReliableChannels: Int64
     /** 身份、握手挑战和隔离表各自最多保留的条目数。 */
     public let maxKnownPeers: Int64
+    /** 全节点未确认消息上限（所有出站通道合计）。每通道的上限不能替代它：通道数多时总量仍会失控。 */
+    public let maxTotalUnacked: Int64
+    /** 全节点入站乱序缓冲上限（所有入站通道合计）。 */
+    public let maxInboundBuffered: Int64
     /** 本管理器经典及类型化远程 ask 共用的并发上限 */
     public let maxPendingAsks: Int64
     /** 可靠投递：最老的未确认消息超过这个时长仍未确认，放弃该节点的全部通道并投递 Terminated */
@@ -151,11 +159,17 @@ public struct RemotingSettings {
         resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration,
         secureCookie: Option<String>, transportSecurity: Option<TransportSecurity>, maxPendingAsks!: Int64 = 1024,
         maxOutboundReliableChannels!: Int64 = 4096, maxInboundReliableChannels!: Int64 = 4096,
-        maxKnownPeers!: Int64 = 4096) {
+        maxKnownPeers!: Int64 = 4096, maxTotalUnacked!: Int64 = DEFAULT_MAX_TOTAL_UNACKED,
+        maxInboundBuffered!: Int64 = DEFAULT_MAX_INBOUND_BUFFERED) {
         if (maxKnownPeers <= 0) {
             throw IllegalArgumentException("已知对端数量上限必须为正数")
         }
         this.maxKnownPeers = maxKnownPeers
+        if (maxTotalUnacked <= 0 || maxInboundBuffered <= 0) {
+            throw IllegalArgumentException("全节点消息预算必须为正数")
+        }
+        this.maxTotalUnacked = maxTotalUnacked
+        this.maxInboundBuffered = maxInboundBuffered
         if (maxOutboundReliableChannels <= 0 || maxInboundReliableChannels <= 0) {
             throw IllegalArgumentException("可靠通道数量上限必须为正数")
         }
@@ -199,7 +213,7 @@ public struct RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
             maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
-            maxKnownPeers: maxKnownPeers)
+            maxKnownPeers: maxKnownPeers, maxTotalUnacked: maxTotalUnacked, maxInboundBuffered: maxInboundBuffered)
     }
 
     /** 设置经典及类型化远程 ask 共用的并发上限，满额不发送 */
@@ -207,7 +221,7 @@ public struct RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: limit,
             maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
-            maxKnownPeers: maxKnownPeers)
+            maxKnownPeers: maxKnownPeers, maxTotalUnacked: maxTotalUnacked, maxInboundBuffered: maxInboundBuffered)
     }
 
     /** 设置共享密钥，其余不变（集群内所有节点须相同） */
@@ -215,7 +229,7 @@ public struct RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, Some(cookie), transportSecurity, maxPendingAsks: maxPendingAsks,
             maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
-            maxKnownPeers: maxKnownPeers)
+            maxKnownPeers: maxKnownPeers, maxTotalUnacked: maxTotalUnacked, maxInboundBuffered: maxInboundBuffered)
     }
 
     /** 设置传输加密，其余不变（集群内所有节点须一致：加密节点拒绝明文连接） */
@@ -223,14 +237,15 @@ public struct RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, Some(security), maxPendingAsks: maxPendingAsks,
             maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
-            maxKnownPeers: maxKnownPeers)
+            maxKnownPeers: maxKnownPeers, maxTotalUnacked: maxTotalUnacked, maxInboundBuffered: maxInboundBuffered)
     }
 
     /** 不回收去重状态；满额拒绝新通道，已有通道不受影响。 */
     public func withChannelLimits(outbound: Int64, inbound: Int64): RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
-            maxOutboundReliableChannels: outbound, maxInboundReliableChannels: inbound, maxKnownPeers: maxKnownPeers)
+            maxOutboundReliableChannels: outbound, maxInboundReliableChannels: inbound, maxKnownPeers: maxKnownPeers,
+            maxTotalUnacked: maxTotalUnacked, maxInboundBuffered: maxInboundBuffered)
     }
 
     /** 限制身份、出站握手挑战与隔离表；满额不驱逐历史。 */
@@ -238,7 +253,18 @@ public struct RemotingSettings {
         RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
             maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
             maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
-            maxKnownPeers: limit)
+            maxKnownPeers: limit, maxTotalUnacked: maxTotalUnacked, maxInboundBuffered: maxInboundBuffered)
+    }
+
+    /**
+     * 设置全节点消息预算：所有出站通道的未确认消息合计、所有入站通道的乱序缓冲合计。
+     * 每通道的上限只约束单通道；通道数多时总量仍会失控，必须另有节点级上限
+     */
+    public func withNodeBudget(totalUnacked: Int64, inboundBuffered: Int64): RemotingSettings {
+        RemotingSettings(heartbeatInterval, phiThreshold, acceptableHeartbeatPause, resendInterval, ackInterval,
+            maxUnacked, giveUpAfter, secureCookie, transportSecurity, maxPendingAsks: maxPendingAsks,
+            maxOutboundReliableChannels: maxOutboundReliableChannels, maxInboundReliableChannels: maxInboundReliableChannels,
+            maxKnownPeers: maxKnownPeers, maxTotalUnacked: totalUnacked, maxInboundBuffered: inboundBuffered)
     }
 
     /** 启用 TLS（E65），等同 withTransportSecurity(tls) */
@@ -276,15 +302,21 @@ public struct ReliableDeliveryStats {
     public let gaveUp: Int64
     /** 发现对端重启（启动标识变化）的次数，含 ACK 与 PONG 两条途径 */
     public let peerRestarts: Int64
+    /** 节点级预算满额而丢弃的消息数（所有出站通道的未确认消息合计达到上限） */
+    public let nodeBudgetDropped: Int64
+    /** 因启动标识不匹配（对端已换代）而拒绝的旧代信封数 */
+    public let staleGenerationRejected: Int64
 
     public init(resent: Int64, duplicatesDropped: Int64, unacked: Int64, overflowDropped: Int64, gaveUp: Int64,
-        peerRestarts: Int64) {
+        peerRestarts: Int64, nodeBudgetDropped!: Int64 = 0, staleGenerationRejected!: Int64 = 0) {
         this.resent = resent
         this.duplicatesDropped = duplicatesDropped
         this.unacked = unacked
         this.overflowDropped = overflowDropped
         this.gaveUp = gaveUp
         this.peerRestarts = peerRestarts
+        this.nodeBudgetDropped = nodeBudgetDropped
+        this.staleGenerationRejected = staleGenerationRejected
     }
 }
 
@@ -480,6 +512,23 @@ func splitChannelId(id: String): Option<(String, Int64)> {
     }
 }
 
+/**
+ * 从通道前缀解析出 (发送端地址, 发送端启动标识)。
+ * 前缀形如 "地址/目标/启动标识"：地址段不含 '/', 启动标识是最后一段。
+ * 不是这个形式（例如测试替身用的 "source"）时返回 None
+ */
+func parseChannelPrefix(prefix: String): Option<(String, UInt64)> {
+    let parts = prefix.split("/")
+    if (parts.size < 3) {
+        return None<(String, UInt64)>
+    }
+    let uid = match (UInt64.tryParse(parts[parts.size - 1])) {
+        case Some(u) => u
+        case None => return None<(String, UInt64)>
+    }
+    Some((parts[0], uid))
+}
+
 class InChannel {
     var expected: Int64 = 1
     let buffer = HashMap<Int64, ReliableEnvelope>()
@@ -662,6 +711,10 @@ public class RemotingCore {
     private let inLatestGen = HashMap<String, (Int64, String)>()
     private let pendingAcks = HashMap<String, (String, Int64)>()
     private let channelGen = AtomicInt64(0)
+    // 全节点消息量：所有出站通道的未确认消息合计、所有入站通道的乱序缓冲合计。
+    // 每通道上限只约束单通道；通道数多时总量仍会失控，必须另有节点级计数
+    private let totalUnacked = AtomicInt64(0)
+    private let totalInboundBuffered = AtomicInt64(0)
 
     // 统计
     let resent = AtomicInt64(0)
@@ -673,6 +726,10 @@ public class RemotingCore {
     let gaveUp = AtomicInt64(0)
     let peerRestarts = AtomicInt64(0)
     let handshakesRejected = AtomicInt64(0)
+    // 节点级预算满额而丢弃的消息数
+    let nodeBudgetDropped = AtomicInt64(0)
+    // 因对端启动标识已被隔离而拒绝的旧代信封数
+    let staleGenerationRejected = AtomicInt64(0)
 
     // 身份与隔离（E7′）：地址 -> 最近一次握手 / 心跳 / ACK 得知的启动标识；被隔离的 "地址#uid"
     private let peerUids = HashMap<String, UInt64>()
@@ -839,6 +896,9 @@ public class RemotingCore {
                     ()
                 }
             }
+            // 旧实例的入站通道与乱序缓冲可以安全回收：旧启动标识已隔离、当前标识已知，
+            // 旧实例的在途信封会被拒，不会再被投一次。隔离记录本身保留
+            reclaimInboundOf(addr) |> ignoreCount
             terminateWatchersOf(addr)
         }
         admitted
@@ -934,6 +994,10 @@ public class RemotingCore {
             }
             for (k in keys) {
                 outChannels.remove(k)
+            }
+            // 通道连同未确认消息一起丢弃：节点级预算同步归还
+            if (n > 0) {
+                totalUnacked.fetchSub(n)
             }
             n
         }
@@ -1316,7 +1380,7 @@ public class RemotingCore {
 
     /**
      * 可靠地发送到远程 Actor（按序、恰好一次；对端重启后未确认的消息在新通道重发，跨重启为至少一次）。
-     * 新通道数量或通道未确认消息达到上限时丢弃并计数；ACK 不清除序号状态。
+     * 新通道数量、通道未确认消息或节点级未确认总量达到上限时丢弃并计数；ACK 不清除序号状态。
      */
     func sendReliable(target: RemoteActorRef, message: Message, senderInfo: String): Unit {
         let addr = target.getTargetAddress()
@@ -1325,6 +1389,10 @@ public class RemotingCore {
         let queued = synchronized(lock) {
             if (!outChannels.contains(k) && outChannels.size >= settings.maxOutboundReliableChannels) {
                 outboundChannelRejected.fetchAdd(1)
+                None<(OutChannel, ReliableEnvelope)>
+            } else if (totalUnacked.load() >= settings.maxTotalUnacked) {
+                // 节点级上限：通道数多时每通道上限挡不住总量
+                nodeBudgetDropped.fetchAdd(1)
                 None<(OutChannel, ReliableEnvelope)>
             } else {
                 let ch = match (outChannels.get(k)) {
@@ -1341,6 +1409,7 @@ public class RemotingCore {
                     ch.nextSeq++
                     let p = PendingMessage(seq, message, senderInfo, MonoTime.now())
                     ch.unacked.add(p)
+                    totalUnacked.fetchAdd(1)
                     Some((ch, envelopeOf(ch, p)))
                 }
             }
@@ -1350,7 +1419,7 @@ public class RemotingCore {
             case None =>
                 overflowDropped.fetchAdd(1)
                 overflowLog.tryLog({ text => log_remoting.warn(text) }, { =>
-                    "可靠通道 ${k} 准入失败（通道数量或未确认消息达到上限），丢弃新消息 ${message.messageType()}"
+                    "可靠通道 ${k} 准入失败（通道数量、未确认消息或节点级总量达到上限），丢弃新消息 ${message.messageType()}"
                 })
         }
     }
@@ -1412,7 +1481,12 @@ public class RemotingCore {
             let out = ArrayList<(OutChannel, ReliableEnvelope)>()
             for ((_, c) in outChannels) {
                 if (c.id == channelId) {
+                    let before = c.unacked.size
                     c.unacked.removeIf({ p => p.seq <= upTo })
+                    // 已确认的消息不再占用节点级未确认预算
+                    if (c.unacked.size < before) {
+                        totalUnacked.fetchSub(before - c.unacked.size)
+                    }
                     match ((c.peerUid, peerUid)) {
                         case (Some(old), Some(u)) where old != u =>
                             peerRestarts.fetchAdd(1)
@@ -1446,8 +1520,9 @@ public class RemotingCore {
                 match (inLatestGen.get(prefix)) {
                     case Some((latest, _)) where latest > gen => false
                     case Some((latest, oldId)) where latest < gen =>
-                        inChannels.remove(oldId)
-                        pendingAcks.remove(oldId)
+                        // 换代：旧通道的乱序缓冲不再需要，但去重水位要留下，
+                        // 否则旧代迟到��封会被当成新消息再投一次
+                        reclaimInChannel(oldId)
                         inLatestGen[prefix] = (gen, channelId)
                         true
                     case Some(_) => true
@@ -1459,10 +1534,71 @@ public class RemotingCore {
         }
     }
 
+    /** 回收一个入站通道的乱序缓冲（换代或对端换代时用），返回回收的条数 */
+    private func reclaimInChannel(channelId: String): Int64 {
+        match (inChannels.remove(channelId)) {
+            case Some(ch) =>
+                let n = ch.buffer.size
+                if (n > 0) {
+                    totalInboundBuffered.fetchSub(n)
+                }
+                pendingAcks.remove(channelId)
+                n
+            case None => 0
+        }
+    }
+
+    /**
+     * 回收某个对端地址的旧实例入站通道（对端重启后用）。
+     *
+     * 安全回收的前提：旧实例的启动标识已经被隔离、并且本节点已经知道该地址的当前启动标识。
+     * 只有两者都成立时才删去重状态——否则旧实例的在途信封会以"新通道"的身份被再投一次。
+     * 隔离记录本身不删：它是不可撤回的安全状态，删了就等于放行被隔离的实例。
+     */
+    private func reclaimInboundOf(addr: String): Int64 {
+        let current = synchronized(lock) { peerUids.get(addr) }
+        // 不知道当前启动标识时不能安全回收：无法区分旧实例的在途信封
+        if (current.isNone()) {
+            return 0
+        }
+        let currentUid = current.getOrThrow()
+        synchronized(lock) {
+            var reclaimed: Int64 = 0
+            let prefixes = ArrayList<String>()
+            for ((prefix, _) in inLatestGen) {
+                if (let Some((pa, uid)) <- parseChannelPrefix(prefix)) {
+                    // 只回收旧实例的通道：当前实例的通道还在用
+                    if (pa == addr && uid != currentUid) {
+                        prefixes.add(prefix)
+                    }
+                }
+            }
+            for (prefix in prefixes) {
+                match (inLatestGen.get(prefix)) {
+                    case Some((_, channelId)) =>
+                        reclaimed += reclaimInChannel(channelId)
+                        inLatestGen.remove(prefix)
+                    case None => ()
+                }
+            }
+            reclaimed
+        }
+    }
+
     private func onEnvelope(targetActor: String, e: ReliableEnvelope): Unit {
         let deliverable = ArrayList<ReliableEnvelope>()
         let bufferLimit = settings.maxUnacked
         synchronized(lock) {
+            // 被隔离的启动标识（对端重启后的旧实例、旧实例的在途信封）一律拒绝：
+            // 隔离记录是不可撤回的安全状态，回收通道时不能把它一并删掉
+            if (let Some((prefix, _)) <- splitChannelId(e.channelId)) {
+                if (let Some((addr, uid)) <- parseChannelPrefix(prefix)) {
+                    if (quarantined.contains(quarantineKey(addr, uid))) {
+                        staleGenerationRejected.fetchAdd(1)
+                        return
+                    }
+                }
+            }
             // 先准入再登记代数，拒绝不能污染 inLatestGen 或删除已有去重状态。
             var replacing = false
             if (let Some((prefix, gen)) <- splitChannelId(e.channelId)) {
@@ -1496,11 +1632,15 @@ public class RemotingCore {
                     deliverable.add(e)
                     ch.expected++
                     while (let Some(next) <- ch.buffer.remove(ch.expected)) {
+                        totalInboundBuffered.fetchSub(1)
                         deliverable.add(next)
                         ch.expected++
                     }
-                } else if (ch.buffer.size < bufferLimit) {
+                } else if (ch.buffer.size < bufferLimit &&
+                    totalInboundBuffered.load() < settings.maxInboundBuffered) {
+                    // 节点级乱序缓冲上限：通道数多时每通道上限挡不住总量
                     ch.buffer[e.seq] = e
+                    totalInboundBuffered.fetchAdd(1)
                 }
                 // 乱序缓冲已满时不缓存：发送端会重发，缺口补上后再按序收下
                 // 无论是否重复都确认，使发送端停止重发
@@ -1853,6 +1993,8 @@ extend SimpleRemoteManager {
     /** 可靠投递的完整统计（含溢出丢弃、放弃、对端重启次数） */
     public func reliableDeliveryStats(): ReliableDeliveryStats {
         ReliableDeliveryStats(core.resent.load(), core.duplicatesDropped.load(), core.unackedCount(),
-            core.overflowDropped.load(), core.gaveUp.load(), core.peerRestarts.load())
+            core.overflowDropped.load(), core.gaveUp.load(), core.peerRestarts.load(),
+            nodeBudgetDropped: core.nodeBudgetDropped.load(),
+            staleGenerationRejected: core.staleGenerationRejected.load())
     }
 }
