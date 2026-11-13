@@ -1,0 +1,431 @@
+# CActor 公开 API 快照：modules/cluster（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_cluster.ddata :: FieldReader.public func hasMore(): Bool
+cactor_cluster.ddata :: FieldReader.public func next(): String
+cactor_cluster.ddata :: FieldReader.public func nextInt(): Int64
+cactor_cluster.ddata :: FieldReader.public init(s: String)
+cactor_cluster.ddata :: FieldWriter.public func done(): String
+cactor_cluster.ddata :: FieldWriter.public func put(n: Int64): FieldWriter
+cactor_cluster.ddata :: FieldWriter.public func put(s: String): FieldWriter
+cactor_cluster.ddata :: FieldWriter.public init()
+cactor_cluster.ddata :: GCounter.public func cleanup(removed: String): GCounter
+cactor_cluster.ddata :: GCounter.public func componentCount(): Int64
+cactor_cluster.ddata :: GCounter.public func deltaFrom(before: GCounter): Option<GCounter>
+cactor_cluster.ddata :: GCounter.public func increment(node: String): GCounter
+cactor_cluster.ddata :: GCounter.public func increment(node: String, delta: Int64): GCounter
+cactor_cluster.ddata :: GCounter.public func merge(other: GCounter): GCounter
+cactor_cluster.ddata :: GCounter.public func modifiedByNodes(): Array<String>
+cactor_cluster.ddata :: GCounter.public func needsPruning(removed: String): Bool
+cactor_cluster.ddata :: GCounter.public func prune(removed: String, collapseInto: String): GCounter
+cactor_cluster.ddata :: GCounter.public func toString(): String
+cactor_cluster.ddata :: GCounter.public func value(): Int64
+cactor_cluster.ddata :: GCounter.public init()
+cactor_cluster.ddata :: GCounter.public operator func
+cactor_cluster.ddata :: GCounter.public operator func !=(other: GCounter): Bool
+cactor_cluster.ddata :: GSet.public func add(element: String): GSet
+cactor_cluster.ddata :: GSet.public func contains(element: String): Bool
+cactor_cluster.ddata :: GSet.public func deltaFrom(before: GSet): Option<GSet>
+cactor_cluster.ddata :: GSet.public func merge(other: GSet): GSet
+cactor_cluster.ddata :: GSet.public func size(): Int64
+cactor_cluster.ddata :: GSet.public func toArray(): Array<String>
+cactor_cluster.ddata :: GSet.public init()
+cactor_cluster.ddata :: GSet.public operator func
+cactor_cluster.ddata :: GSet.public operator func !=(other: GSet): Bool
+cactor_cluster.ddata :: LWWRegister.public func merge(other: LWWRegister<T>): LWWRegister<T>
+cactor_cluster.ddata :: LWWRegister.public func set(value: T, timestamp: Int64, node: String): LWWRegister<T>
+cactor_cluster.ddata :: LWWRegister.public init(value: T, timestamp: Int64, node: String)
+cactor_cluster.ddata :: LWWRegister.public let node: String
+cactor_cluster.ddata :: LWWRegister.public let timestamp: Int64
+cactor_cluster.ddata :: LWWRegister.public let value: T
+cactor_cluster.ddata :: ORSet.public func add(node: String, element: String): ORSet
+cactor_cluster.ddata :: ORSet.public func applyDelta(d: ORSetDelta): ORSet
+cactor_cluster.ddata :: ORSet.public func cleanup(removed: String): ORSet
+cactor_cluster.ddata :: ORSet.public func componentCount(): Int64
+cactor_cluster.ddata :: ORSet.public func contains(element: String): Bool
+cactor_cluster.ddata :: ORSet.public func deltaFrom(before: ORSet, origin: String): Option<ORSetDelta>
+cactor_cluster.ddata :: ORSet.public func elements(): Array<String>
+cactor_cluster.ddata :: ORSet.public func merge(other: ORSet): ORSet
+cactor_cluster.ddata :: ORSet.public func modifiedByNodes(): Array<String>
+cactor_cluster.ddata :: ORSet.public func needsPruning(removed: String): Bool
+cactor_cluster.ddata :: ORSet.public func prune(removed: String, collapseInto: String): ORSet
+cactor_cluster.ddata :: ORSet.public func remove(element: String): ORSet
+cactor_cluster.ddata :: ORSet.public func size(): Int64
+cactor_cluster.ddata :: ORSet.public init()
+cactor_cluster.ddata :: ORSet.public operator func
+cactor_cluster.ddata :: ORSet.public operator func !=(other: ORSet): Bool
+cactor_cluster.ddata :: ORSetDelta.public func isEmpty(): Bool
+cactor_cluster.ddata :: ORSetDelta.public let origin: String
+cactor_cluster.ddata :: ORSetDelta.public let originSeq: Int64
+cactor_cluster.ddata :: PNCounter.public func cleanup(removed: String): PNCounter
+cactor_cluster.ddata :: PNCounter.public func componentCount(): Int64
+cactor_cluster.ddata :: PNCounter.public func decrement(node: String, delta: Int64): PNCounter
+cactor_cluster.ddata :: PNCounter.public func deltaFrom(before: PNCounter): Option<PNCounter>
+cactor_cluster.ddata :: PNCounter.public func increment(node: String, delta: Int64): PNCounter
+cactor_cluster.ddata :: PNCounter.public func merge(other: PNCounter): PNCounter
+cactor_cluster.ddata :: PNCounter.public func modifiedByNodes(): Array<String>
+cactor_cluster.ddata :: PNCounter.public func needsPruning(removed: String): Bool
+cactor_cluster.ddata :: PNCounter.public func prune(removed: String, collapseInto: String): PNCounter
+cactor_cluster.ddata :: PNCounter.public func toString(): String
+cactor_cluster.ddata :: PNCounter.public func value(): Int64
+cactor_cluster.ddata :: PNCounter.public init()
+cactor_cluster.ddata :: PNCounter.public operator func
+cactor_cluster.ddata :: PNCounter.public operator func !=(other: PNCounter): Bool
+cactor_cluster.ddata :: ReadConsistency.| ReadAll(Duration)
+cactor_cluster.ddata :: ReadConsistency.| ReadLocal
+cactor_cluster.ddata :: ReadConsistency.| ReadMajority(Duration)
+cactor_cluster.ddata :: ReplicatedData.func merge(other: T): T
+cactor_cluster.ddata :: ReplicatedValue.public func digest(): String
+cactor_cluster.ddata :: ReplicatedValue.public func encode(): String
+cactor_cluster.ddata :: ReplicatedValue.public func kind(): String
+cactor_cluster.ddata :: ReplicatedValue.public func merge(other: ReplicatedValue): ReplicatedValue
+cactor_cluster.ddata :: ReplicatedValue.public func modifiedByNodes(): Array<String>
+cactor_cluster.ddata :: ReplicatedValue.public func needsPruning(removed: String): Bool
+cactor_cluster.ddata :: ReplicatedValue.public func nodeComponents(): Int64
+cactor_cluster.ddata :: ReplicatedValue.public func sameValue(other: ReplicatedValue): Bool
+cactor_cluster.ddata :: ReplicatedValue.public static func decode(text: String): ReplicatedValue
+cactor_cluster.ddata :: ReplicatedValue.| Counter(GCounter)
+cactor_cluster.ddata :: ReplicatedValue.| GSetValue(GSet)
+cactor_cluster.ddata :: ReplicatedValue.| ORSetValue(ORSet)
+cactor_cluster.ddata :: ReplicatedValue.| PNCounterValue(PNCounter)
+cactor_cluster.ddata :: ReplicatedValue.| Register(LWWRegister<String>)
+cactor_cluster.ddata :: Replicator.public func addToSet(key: String, element: String): Unit
+cactor_cluster.ddata :: Replicator.public func addToSetAsync(key: String, element: String): Unit
+cactor_cluster.ddata :: Replicator.public func addToSetWith(key: String, element: String, consistency: WriteConsistency): TypedPromise<Unit>
+cactor_cluster.ddata :: Replicator.public func afterPendingUpdates(callback: ()->Unit): Unit
+cactor_cluster.ddata :: Replicator.public func bytesSent(): Int64
+cactor_cluster.ddata :: Replicator.public func configurePruning(interval!: ?Duration = None, maxDissemination!: ?Duration = None, markerTimeToLive!: ?Duration = None): Unit
+cactor_cluster.ddata :: Replicator.public func counterValue(key: String): Int64
+cactor_cluster.ddata :: Replicator.public func deltaStats(): ReplicatorDeltaStats
+cactor_cluster.ddata :: Replicator.public func get(key: String): Option<ReplicatedValue>
+cactor_cluster.ddata :: Replicator.public func getWith(key: String, consistency: ReadConsistency): TypedPromise<Option<ReplicatedValue>>
+cactor_cluster.ddata :: Replicator.public func incrementCounter(key: String, delta: Int64): Unit
+cactor_cluster.ddata :: Replicator.public func incrementCounterWith(key: String, delta: Int64, consistency: WriteConsistency): TypedPromise<Unit>
+cactor_cluster.ddata :: Replicator.public func join(peer: NetworkAddress): Unit
+cactor_cluster.ddata :: Replicator.public func keys(): Array<String>
+cactor_cluster.ddata :: Replicator.public func leave(peer: NetworkAddress): Unit
+cactor_cluster.ddata :: Replicator.public func nodeRemoved(node: String): Unit
+cactor_cluster.ddata :: Replicator.public func pruningStats(): (Int64, Int64, Int64)
+cactor_cluster.ddata :: Replicator.public func registerValue(key: String): Option<String>
+cactor_cluster.ddata :: Replicator.public func removeFromSet(key: String, element: String): Unit
+cactor_cluster.ddata :: Replicator.public func removeFromSetAsync(key: String, element: String): Unit
+cactor_cluster.ddata :: Replicator.public func setDeltaPropagation(enabled: Bool): Unit
+cactor_cluster.ddata :: Replicator.public func setElements(key: String): Array<String>
+cactor_cluster.ddata :: Replicator.public func setMembership(isLeader: ()->Bool, memberNodes: ()->Array<String>): Unit
+cactor_cluster.ddata :: Replicator.public func setRegister(key: String, value: String): Unit
+cactor_cluster.ddata :: Replicator.public func stats(): (Int64, Int64, Int64)
+cactor_cluster.ddata :: Replicator.public func stop(): Unit
+cactor_cluster.ddata :: Replicator.public func subscribe(key: String, callback: (ReplicatedValue)->Unit): Unit
+cactor_cluster.ddata :: Replicator.public func update(key: String, initial: ReplicatedValue, modify: (ReplicatedValue)->ReplicatedValue): Unit
+cactor_cluster.ddata :: Replicator.public func updateAsync(key: String, initial: ReplicatedValue, modify: (ReplicatedValue)->ReplicatedValue): Unit
+cactor_cluster.ddata :: Replicator.public func updateWith(key: String, initial: ReplicatedValue, modify: (ReplicatedValue)->ReplicatedValue, consistency: WriteConsistency): TypedPromise<Unit>
+cactor_cluster.ddata :: Replicator.public init(system: CActorSystem, manager: SimpleRemoteManager, gossipInterval: Duration)
+cactor_cluster.ddata :: Replicator.public init(system: CActorSystem, manager: SimpleRemoteManager, gossipInterval: Duration, selfNode: String)
+cactor_cluster.ddata :: Replicator.public let selfNode: String
+cactor_cluster.ddata :: ReplicatorConsistencyException.public init(message: String)
+cactor_cluster.ddata :: ReplicatorDeltaStats.public init(deltaPushes: Int64, fullPushes: Int64, deltasApplied: Int64, gaps: Int64)
+cactor_cluster.ddata :: ReplicatorDeltaStats.public let deltaPushes: Int64
+cactor_cluster.ddata :: ReplicatorDeltaStats.public let deltasApplied: Int64
+cactor_cluster.ddata :: ReplicatorDeltaStats.public let fullPushes: Int64
+cactor_cluster.ddata :: ReplicatorDeltaStats.public let gaps: Int64
+cactor_cluster.ddata :: WriteConsistency.| WriteAll(Duration)
+cactor_cluster.ddata :: WriteConsistency.| WriteLocal
+cactor_cluster.ddata :: WriteConsistency.| WriteMajority(Duration)
+cactor_cluster.ddata :: public class FieldReader
+cactor_cluster.ddata :: public class FieldWriter
+cactor_cluster.ddata :: public class GCounter <: ReplicatedData<GCounter>& Equatable<GCounter>
+cactor_cluster.ddata :: public class GSet <: ReplicatedData<GSet>& Equatable<GSet>
+cactor_cluster.ddata :: public class LWWRegister<T> <: ReplicatedData<LWWRegister<T>>
+cactor_cluster.ddata :: public class ORSet <: ReplicatedData<ORSet>& Equatable<ORSet>
+cactor_cluster.ddata :: public class ORSetDelta
+cactor_cluster.ddata :: public class PNCounter <: ReplicatedData<PNCounter>& Equatable<PNCounter>
+cactor_cluster.ddata :: public class Replicator
+cactor_cluster.ddata :: public class ReplicatorConsistencyException <: Exception
+cactor_cluster.ddata :: public enum ReadConsistency
+cactor_cluster.ddata :: public enum ReplicatedValue
+cactor_cluster.ddata :: public enum WriteConsistency
+cactor_cluster.ddata :: public interface ReplicatedData<T>
+cactor_cluster.ddata :: public let DEFAULT_PRUNING_DISSEMINATION: Duration
+cactor_cluster.ddata :: public let DEFAULT_PRUNING_INTERVAL: Duration
+cactor_cluster.ddata :: public let DEFAULT_PRUNING_MARKER_TTL: Duration
+cactor_cluster.ddata :: public let REPLICATOR_PROTOCOL_VERSION: String
+cactor_cluster.ddata :: public struct ReplicatorDeltaStats
+cactor_cluster.membership :: AcquisitionHealth.public func toString(): String
+cactor_cluster.membership :: AcquisitionHealth.public init(hosted: Int64, acquiring: Int64, slow: Int64, oldestMs: Int64, pendingMembers: Array<String>, slowWarnings: Int64)
+cactor_cluster.membership :: AcquisitionHealth.public let acquiring: Int64
+cactor_cluster.membership :: AcquisitionHealth.public let hosted: Int64
+cactor_cluster.membership :: AcquisitionHealth.public let oldestMs: Int64
+cactor_cluster.membership :: AcquisitionHealth.public let pendingMembers: Array<String>
+cactor_cluster.membership :: AcquisitionHealth.public let slow: Int64
+cactor_cluster.membership :: AcquisitionHealth.public let slowWarnings: Int64
+cactor_cluster.membership :: Cluster.public func awaitUp(timeout: Duration): Bool
+cactor_cluster.membership :: Cluster.public func down(address: String): Unit
+cactor_cluster.membership :: Cluster.public func gossipCount(): Int64
+cactor_cluster.membership :: Cluster.public func isDownedBySbr(): Bool
+cactor_cluster.membership :: Cluster.public func isTerminated(): Bool
+cactor_cluster.membership :: Cluster.public func isUp(): Bool
+cactor_cluster.membership :: Cluster.public func joinRejection(): Option<String>
+cactor_cluster.membership :: Cluster.public func leader(): Option<String>
+cactor_cluster.membership :: Cluster.public func leave(): Unit
+cactor_cluster.membership :: Cluster.public func members(): Array<Member>
+cactor_cluster.membership :: Cluster.public func membershipStats(): (Int64, Int64, Int64)
+cactor_cluster.membership :: Cluster.public func oldest(): Option<Member>
+cactor_cluster.membership :: Cluster.public func selfMember(): Option<Member>
+cactor_cluster.membership :: Cluster.public func selfUniqueAddress(): String
+cactor_cluster.membership :: Cluster.public func shutdown(): Unit
+cactor_cluster.membership :: Cluster.public func state(): ClusterSnapshot
+cactor_cluster.membership :: Cluster.public func stateAndTerminated(): (ClusterSnapshot, Bool)
+cactor_cluster.membership :: Cluster.public func subscribe(callback: (ClusterEvent)->Unit): Unit
+cactor_cluster.membership :: Cluster.public init(system: CActorSystem, remote: SimpleRemoteManager, seeds: Array<NetworkAddress>, settings: ClusterSettings)
+cactor_cluster.membership :: Cluster.public let selfAddress: String
+cactor_cluster.membership :: Cluster.public let selfUid: UInt64
+cactor_cluster.membership :: ClusterEvent.public func toString(): String
+cactor_cluster.membership :: ClusterEvent.| LeaderChanged(Option<String>)
+cactor_cluster.membership :: ClusterEvent.| MemberDowned(Member)
+cactor_cluster.membership :: ClusterEvent.| MemberExited(Member)
+cactor_cluster.membership :: ClusterEvent.| MemberJoined(Member)
+cactor_cluster.membership :: ClusterEvent.| MemberLeft(Member)
+cactor_cluster.membership :: ClusterEvent.| MemberRemoved(Member)
+cactor_cluster.membership :: ClusterEvent.| MemberUp(Member)
+cactor_cluster.membership :: ClusterEvent.| ReachableMember(Member)
+cactor_cluster.membership :: ClusterEvent.| UnreachableMember(Member)
+cactor_cluster.membership :: ClusterReceptionist.public func deregister(service: String, ref: ActorRef): Unit
+cactor_cluster.membership :: ClusterReceptionist.public func deregisterTyped<T>(key: ServiceKey<T>, ref: TypedActorRef<T>): Unit
+cactor_cluster.membership :: ClusterReceptionist.public func find(service: String): Array<ActorRef>
+cactor_cluster.membership :: ClusterReceptionist.public func findAll(service: String): Array<ActorRef>
+cactor_cluster.membership :: ClusterReceptionist.public func findAllTyped<T>(key: ServiceKey<T>): Array<TypedActorRef<T>>
+cactor_cluster.membership :: ClusterReceptionist.public func findTyped<T>(key: ServiceKey<T>): Array<TypedActorRef<T>>
+cactor_cluster.membership :: ClusterReceptionist.public func localRegistrationCount(): Int64
+cactor_cluster.membership :: ClusterReceptionist.public func register(service: String, ref: ActorRef): Unit
+cactor_cluster.membership :: ClusterReceptionist.public func registerTyped<T>(key: ServiceKey<T>, ref: TypedActorRef<T>): Unit
+cactor_cluster.membership :: ClusterReceptionist.public func subscribe(service: String, callback: (Array<ActorRef>)->Unit): Unit
+cactor_cluster.membership :: ClusterReceptionist.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, replicator: Replicator)
+cactor_cluster.membership :: ClusterReplicatorBinding.public static func bind(cluster: Cluster, replicator: Replicator): Unit
+cactor_cluster.membership :: ClusterSettings.public func withJoinCompatibility(key: String, value: String): ClusterSettings
+cactor_cluster.membership :: ClusterSettings.public func withPruneTombstonesAfter(d: Duration): ClusterSettings
+cactor_cluster.membership :: ClusterSettings.public func withSeedNodeTimeout(d: Duration): ClusterSettings
+cactor_cluster.membership :: ClusterSettings.public init(gossipInterval: Duration, heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration, autoDownUnreachableAfter: Option<Duration>)
+cactor_cluster.membership :: ClusterSettings.public init(gossipInterval: Duration, heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration, downing: DowningStrategy)
+cactor_cluster.membership :: ClusterSettings.public init(gossipInterval: Duration, heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration, downing: DowningStrategy, seedNodeTimeout: Duration)
+cactor_cluster.membership :: ClusterSettings.public let acceptableHeartbeatPause: Duration
+cactor_cluster.membership :: ClusterSettings.public let downing: DowningStrategy
+cactor_cluster.membership :: ClusterSettings.public let gossipInterval: Duration
+cactor_cluster.membership :: ClusterSettings.public let heartbeatInterval: Duration
+cactor_cluster.membership :: ClusterSettings.public let joinCompatibility: Array<(String, String)>
+cactor_cluster.membership :: ClusterSettings.public let phiThreshold: Float64
+cactor_cluster.membership :: ClusterSettings.public let pruneTombstonesAfter: Duration
+cactor_cluster.membership :: ClusterSettings.public let seedNodeTimeout: Duration
+cactor_cluster.membership :: ClusterSettings.public static func defaults(): ClusterSettings
+cactor_cluster.membership :: ClusterSettings.public static func fromConfig(cfg: LayeredConfig): ClusterSettings
+cactor_cluster.membership :: ClusterSettings.public static func withKeepMajority(stableAfter: Duration): ClusterSettings
+cactor_cluster.membership :: ClusterSharding.public func acquisitionHealth(): AcquisitionHealth
+cactor_cluster.membership :: ClusterSharding.public func ask(entityId: String, message: Message, timeout: Duration): TypedPromise<Message>
+cactor_cluster.membership :: ClusterSharding.public func busiestShards(n: Int64): Array<Int64>
+cactor_cluster.membership :: ClusterSharding.public func localEntityCount(): Int64
+cactor_cluster.membership :: ClusterSharding.public func localEntityIds(): Array<String>
+cactor_cluster.membership :: ClusterSharding.public func ownerCount(): Int64
+cactor_cluster.membership :: ClusterSharding.public func passivatedCount(): Int64
+cactor_cluster.membership :: ClusterSharding.public func rebalance(): Unit
+cactor_cluster.membership :: ClusterSharding.public func rebalanceShard(shardId: Int64, targetAddress: String): Unit
+cactor_cluster.membership :: ClusterSharding.public func restartedCount(): Int64
+cactor_cluster.membership :: ClusterSharding.public func shardLoad(): Map<Int64, Int64>
+cactor_cluster.membership :: ClusterSharding.public func shardStats(): (Int64, Int64, Int64)
+cactor_cluster.membership :: ClusterSharding.public func stats(): (Int64, Int64, Int64, Int64, Int64)
+cactor_cluster.membership :: ClusterSharding.public func stop(): Unit
+cactor_cluster.membership :: ClusterSharding.public func tell(entityId: String, message: Message): Unit
+cactor_cluster.membership :: ClusterSharding.public func tell(entityId: String, message: Message, sender: ActorRef): Unit
+cactor_cluster.membership :: ClusterSharding.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, typeName: String, numberOfShards: Int64, entityFactory: (String)->Actor)
+cactor_cluster.membership :: ClusterSharding.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, typeName: String, numberOfShards: Int64, entityFactory: (String)->Actor, bufferSize: Int64)
+cactor_cluster.membership :: ClusterSharding.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, typeName: String, numberOfShards: Int64, entityFactory: (String)->Actor, settings: ShardingSettings)
+cactor_cluster.membership :: ClusterSharding.public let numberOfShards: Int64
+cactor_cluster.membership :: ClusterSharding.public let typeName: String
+cactor_cluster.membership :: ClusterSingleton.public func ask(message: Message, timeout: Duration): TypedPromise<Message>
+cactor_cluster.membership :: ClusterSingleton.public func droppedCount(): Int64
+cactor_cluster.membership :: ClusterSingleton.public func handOverCount(): Int64
+cactor_cluster.membership :: ClusterSingleton.public func isRunningHere(): Bool
+cactor_cluster.membership :: ClusterSingleton.public func location(): Option<String>
+cactor_cluster.membership :: ClusterSingleton.public func startCount(): Int64
+cactor_cluster.membership :: ClusterSingleton.public func stop(): Unit
+cactor_cluster.membership :: ClusterSingleton.public func tell(message: Message): Unit
+cactor_cluster.membership :: ClusterSingleton.public func tell(message: Message, sender: ActorRef): Unit
+cactor_cluster.membership :: ClusterSingleton.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: ()->Actor)
+cactor_cluster.membership :: ClusterSingleton.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: ()->Actor, bufferSize: Int64)
+cactor_cluster.membership :: ClusterSnapshot.public func member(address: String): Option<Member>
+cactor_cluster.membership :: ClusterSnapshot.public func statusOf(address: String): Option<MemberStatus>
+cactor_cluster.membership :: ClusterSnapshot.public func upCount(): Int64
+cactor_cluster.membership :: ClusterSnapshot.public let converged: Bool
+cactor_cluster.membership :: ClusterSnapshot.public let leader: Option<String>
+cactor_cluster.membership :: ClusterSnapshot.public let members: Array<Member>
+cactor_cluster.membership :: ClusterSnapshot.public let unreachable: Array<String>
+cactor_cluster.membership :: DistributedPubSub.public func localSubscriberCount(topic: String): Int64
+cactor_cluster.membership :: DistributedPubSub.public func publish(topic: String, message: Message): Int64
+cactor_cluster.membership :: DistributedPubSub.public func subscribe(topic: String, subscriber: ActorRef): Unit
+cactor_cluster.membership :: DistributedPubSub.public func subscribeAsync(topic: String, subscriber: ActorRef): TypedPromise<Unit>
+cactor_cluster.membership :: DistributedPubSub.public func subscriberNodes(topic: String): Array<String>
+cactor_cluster.membership :: DistributedPubSub.public func unsubscribe(topic: String, subscriber: ActorRef): Unit
+cactor_cluster.membership :: DistributedPubSub.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, replicator: Replicator)
+cactor_cluster.membership :: DowningStrategy.public func stableAfter(): Option<Duration>
+cactor_cluster.membership :: DowningStrategy.| AutoDownAfter(Duration)
+cactor_cluster.membership :: DowningStrategy.| KeepMajority(Duration)
+cactor_cluster.membership :: DowningStrategy.| KeepOldest(Duration)
+cactor_cluster.membership :: DowningStrategy.| NoDowning
+cactor_cluster.membership :: DowningStrategy.| StaticQuorum(Int64, Duration)
+cactor_cluster.membership :: Grain.func onActivate(ctx: GrainContext): Unit
+cactor_cluster.membership :: Grain.func onCall(request: Message, ctx: GrainContext): Message
+cactor_cluster.membership :: Grain.func onCallAsync(request: Message, ctx: GrainContext): TypedPromise<Message>
+cactor_cluster.membership :: Grain.func onDeactivate(ctx: GrainContext): Unit
+cactor_cluster.membership :: Grain.func reentrant(): Bool
+cactor_cluster.membership :: GrainCallException.public init(message: String)
+cactor_cluster.membership :: GrainContext.public let id: String
+cactor_cluster.membership :: GrainContext.public let kind: String
+cactor_cluster.membership :: GrainContext.public let node: String
+cactor_cluster.membership :: GrainTimeoutException.public init(message: String)
+cactor_cluster.membership :: Grains.public func activeIds(): Array<String>
+cactor_cluster.membership :: Grains.public func call(id: String, request: Message, timeout: Duration): Message
+cactor_cluster.membership :: Grains.public func callAsync(id: String, request: Message, timeout: Duration): TypedPromise<Message>
+cactor_cluster.membership :: Grains.public func ownerCount(): Int64
+cactor_cluster.membership :: Grains.public func stats(): (Int64, Int64, Int64, Int64)
+cactor_cluster.membership :: Grains.public func stop(): Unit
+cactor_cluster.membership :: Grains.public func tell(id: String, message: Message): Unit
+cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration)
+cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration, numberOfShards: Int64)
+cactor_cluster.membership :: Grains.public let kind: String
+cactor_cluster.membership :: Member.public func isOlderThan(other: Member): Bool
+cactor_cluster.membership :: Member.public func toString(): String
+cactor_cluster.membership :: Member.public func uniqueAddress(): String
+cactor_cluster.membership :: Member.public func withStatus(s: MemberStatus): Member
+cactor_cluster.membership :: Member.public init(address: String, status: MemberStatus, upNumber: Int64)
+cactor_cluster.membership :: Member.public init(address: String, status: MemberStatus, upNumber: Int64, uid: UInt64)
+cactor_cluster.membership :: Member.public let address: String
+cactor_cluster.membership :: Member.public let status: MemberStatus
+cactor_cluster.membership :: Member.public let uid: UInt64
+cactor_cluster.membership :: Member.public let upNumber: Int64
+cactor_cluster.membership :: MemberStatus.public func rank(): Int64
+cactor_cluster.membership :: MemberStatus.public func toString(): String
+cactor_cluster.membership :: MemberStatus.public operator func
+cactor_cluster.membership :: MemberStatus.public operator func !=(other: MemberStatus): Bool
+cactor_cluster.membership :: MemberStatus.public static func parse(s: String): MemberStatus
+cactor_cluster.membership :: MemberStatus.| Down
+cactor_cluster.membership :: MemberStatus.| Exiting
+cactor_cluster.membership :: MemberStatus.| Joining
+cactor_cluster.membership :: MemberStatus.| Leaving
+cactor_cluster.membership :: MemberStatus.| Removed
+cactor_cluster.membership :: MemberStatus.| Up
+cactor_cluster.membership :: RebalanceDecision.| Move(ShardMove)
+cactor_cluster.membership :: RebalanceDecision.| Skip(RebalanceSkipReason)
+cactor_cluster.membership :: RebalancePolicy.public func toString(): String
+cactor_cluster.membership :: RebalancePolicy.public func withCooldown(d: Duration): RebalancePolicy
+cactor_cluster.membership :: RebalancePolicy.public func withEnabled(on: Bool): RebalancePolicy
+cactor_cluster.membership :: RebalancePolicy.public func withMinEntityDelta(delta: Int64): RebalancePolicy
+cactor_cluster.membership :: RebalancePolicy.public func withRatioPercent(percent: Int64): RebalancePolicy
+cactor_cluster.membership :: RebalancePolicy.public func withReportTtl(d: Duration): RebalancePolicy
+cactor_cluster.membership :: RebalancePolicy.public init(enabled!: Bool = true, minEntityDelta!: Int64 = 5, ratioPercent!: Int64 = 150, cooldown!: Duration = 3.seconds, reportTtl!: Duration = 5.seconds)
+cactor_cluster.membership :: RebalancePolicy.public let cooldown: Duration
+cactor_cluster.membership :: RebalancePolicy.public let enabled: Bool
+cactor_cluster.membership :: RebalancePolicy.public let minEntityDelta: Int64
+cactor_cluster.membership :: RebalancePolicy.public let ratioPercent: Int64
+cactor_cluster.membership :: RebalancePolicy.public let reportTtl: Duration
+cactor_cluster.membership :: RebalancePolicy.public static func defaults(): RebalancePolicy
+cactor_cluster.membership :: RebalancePolicy.public static func disabled(): RebalancePolicy
+cactor_cluster.membership :: RebalanceSkipReason.| Balanced
+cactor_cluster.membership :: RebalanceSkipReason.| Cooldown
+cactor_cluster.membership :: RebalanceSkipReason.| Disabled
+cactor_cluster.membership :: RebalanceSkipReason.| MissingLoadReport
+cactor_cluster.membership :: RebalanceSkipReason.| NotEnoughMembers
+cactor_cluster.membership :: RebalanceSkipReason.| UnreachableMembers
+cactor_cluster.membership :: RebalanceView.public init(members: Array<String>, loads: Map<String, Map<Int64, Int64>>, unreachable!: Int64 = 0, lastMoveAtMs!: Int64 = Int64.Min / 2, nowMs!: Int64 = 0)
+cactor_cluster.membership :: RebalanceView.public let lastMoveAtMs: Int64
+cactor_cluster.membership :: RebalanceView.public let loads: Map<String, Map<Int64, Int64>>
+cactor_cluster.membership :: RebalanceView.public let members: Array<String>
+cactor_cluster.membership :: RebalanceView.public let nowMs: Int64
+cactor_cluster.membership :: RebalanceView.public let unreachable: Int64
+cactor_cluster.membership :: SbrDecision.| DownSelf
+cactor_cluster.membership :: SbrDecision.| DownUnreachable(Array<String>)
+cactor_cluster.membership :: SbrDecision.| NoAction
+cactor_cluster.membership :: ShardControl.public func messageType(): String
+cactor_cluster.membership :: ShardControl.public init(kind: String, from: String, protocolVersion: Int64, items: Array<(Int64, Int64)>)
+cactor_cluster.membership :: ShardControl.public let from: String
+cactor_cluster.membership :: ShardControl.public let items: Array<(Int64, Int64)>
+cactor_cluster.membership :: ShardControl.public let kind: String
+cactor_cluster.membership :: ShardControl.public let protocolVersion: Int64
+cactor_cluster.membership :: ShardLoadReport.public func messageType(): String
+cactor_cluster.membership :: ShardLoadReport.public init(nodeAddress: String, loads: Array<(Int64, Int64)>)
+cactor_cluster.membership :: ShardLoadReport.public let loads: Array<(Int64, Int64)>
+cactor_cluster.membership :: ShardLoadReport.public let nodeAddress: String
+cactor_cluster.membership :: ShardMove.public func toString(): String
+cactor_cluster.membership :: ShardMove.public init(shardId: Int64, source: String, target: String, entityCount: Int64, sourceTotal: Int64, targetTotal: Int64)
+cactor_cluster.membership :: ShardMove.public let entityCount: Int64
+cactor_cluster.membership :: ShardMove.public let shardId: Int64
+cactor_cluster.membership :: ShardMove.public let source: String
+cactor_cluster.membership :: ShardMove.public let sourceTotal: Int64
+cactor_cluster.membership :: ShardMove.public let target: String
+cactor_cluster.membership :: ShardMove.public let targetTotal: Int64
+cactor_cluster.membership :: ShardRebalance.public func messageType(): String
+cactor_cluster.membership :: ShardRebalance.public init(shardId: Int64, targetAddress: String)
+cactor_cluster.membership :: ShardRebalance.public let shardId: Int64
+cactor_cluster.membership :: ShardRebalance.public let targetAddress: String
+cactor_cluster.membership :: ShardingEnvelope.public func messageType(): String
+cactor_cluster.membership :: ShardingEnvelope.public init(entityId: String, payload: Message)
+cactor_cluster.membership :: ShardingEnvelope.public let entityId: String
+cactor_cluster.membership :: ShardingEnvelope.public let payload: Message
+cactor_cluster.membership :: ShardingSettings.public func withAcquireWarnAfter(after: Duration): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withBufferSize(size: Int64): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withPassivation(idle: Duration): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withRebalance(policy: RebalancePolicy): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10)
+cactor_cluster.membership :: ShardingSettings.public let acquireWarnAfter: Duration
+cactor_cluster.membership :: ShardingSettings.public let bufferSize: Int64
+cactor_cluster.membership :: ShardingSettings.public let passivateAfter: Option<Duration>
+cactor_cluster.membership :: ShardingSettings.public let rebalance: RebalancePolicy
+cactor_cluster.membership :: ShardingSettings.public let rememberEntities: Option<Replicator>
+cactor_cluster.membership :: ShardingSettings.public static func defaults(): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public static func passivating(idle: Duration): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public static func remembering(replicator: Replicator): ShardingSettings
+cactor_cluster.membership :: public class Cluster
+cactor_cluster.membership :: public class ClusterReceptionist
+cactor_cluster.membership :: public class ClusterReplicatorBinding
+cactor_cluster.membership :: public class ClusterSharding
+cactor_cluster.membership :: public class ClusterSingleton
+cactor_cluster.membership :: public class ClusterSnapshot
+cactor_cluster.membership :: public class DistributedPubSub
+cactor_cluster.membership :: public class GrainCallException <: Exception
+cactor_cluster.membership :: public class GrainContext
+cactor_cluster.membership :: public class GrainTimeoutException <: Exception
+cactor_cluster.membership :: public class Grains
+cactor_cluster.membership :: public class Member <: ToString
+cactor_cluster.membership :: public class RebalanceView
+cactor_cluster.membership :: public class ShardControl <: Message
+cactor_cluster.membership :: public class ShardLoadReport <: Message
+cactor_cluster.membership :: public class ShardRebalance <: Message
+cactor_cluster.membership :: public class ShardingEnvelope <: Message
+cactor_cluster.membership :: public class ShardingSettings
+cactor_cluster.membership :: public enum ClusterEvent <: ToString
+cactor_cluster.membership :: public enum DowningStrategy
+cactor_cluster.membership :: public enum MemberStatus <: ToString & Equatable<MemberStatus>
+cactor_cluster.membership :: public enum RebalanceDecision
+cactor_cluster.membership :: public enum RebalanceSkipReason
+cactor_cluster.membership :: public enum SbrDecision
+cactor_cluster.membership :: public func decideRebalance(view: RebalanceView, policy: RebalancePolicy): RebalanceDecision
+cactor_cluster.membership :: public func joinIncompatibility(mine: Array<(String, String)>, theirs: Option<HashMap<String, String>>): Option<String>
+cactor_cluster.membership :: public func mixHash(h: UInt64): UInt64
+cactor_cluster.membership :: public func rebalanceSkipText(r: RebalanceSkipReason): String
+cactor_cluster.membership :: public func rememberedEntitiesKey(typeName: String, shard: Int64): String
+cactor_cluster.membership :: public func sbrDecide(strategy: DowningStrategy, members: Array<Member>, unreachable: HashSet<String>): SbrDecision
+cactor_cluster.membership :: public func sbrDecide(strategy: DowningStrategy, members: Array<Member>, unreachable: HashSet<String>, indirect: HashSet<String>): SbrDecision
+cactor_cluster.membership :: public func shardOf(entityId: String, numberOfShards: Int64): Int64
+cactor_cluster.membership :: public func shardOwner(shard: Int64, members: Array<String>): Option<String>
+cactor_cluster.membership :: public func stableHash(s: String): UInt64
+cactor_cluster.membership :: public func uniqueAddressOf(address: String, uid: UInt64): String
+cactor_cluster.membership :: public interface Grain
+cactor_cluster.membership :: public let CLUSTER_GOSSIP_VERSION: String
+cactor_cluster.membership :: public let SHARDING_HASH_VERSION: String
+cactor_cluster.membership :: public let SHARDING_PROTOCOL_VERSION: Int64
+cactor_cluster.membership :: public let SINGLETON_HANDOVER_GRACE_MS: Int64
+cactor_cluster.membership :: public struct AcquisitionHealth <: ToString
+cactor_cluster.membership :: public struct ClusterSettings
+cactor_cluster.membership :: public struct RebalancePolicy <: ToString
+cactor_cluster.membership :: public struct ShardMove <: ToString
+cactor_cluster.ops :: public func attachClusterRoutes(mgmt: ManagementServer, cluster: Cluster, sharding!: Option<ClusterSharding>= None<ClusterSharding>): ManagementServer
+cactor_cluster.ops :: public func attachFaultInjectionRoutes(mgmt: ManagementServer, transport: BlackholeTransport, allowAll!: Bool = true): ManagementServer
+cactor_cluster.ops :: public func clusterStatusJson(cluster: Cluster): String
+cactor_cluster.ops :: public func faultInjectionJson(transport: BlackholeTransport): String
+cactor_cluster.ops :: public func shardingStatusJson(region: ClusterSharding): String

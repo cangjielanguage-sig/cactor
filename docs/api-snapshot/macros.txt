@@ -1,0 +1,20 @@
+# CActor 公开 API 快照：modules/macros（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_macros.actormacro :: public macro actor(attr: Tokens, input: Tokens): Tokens
+cactor_macros.actormacro :: public macro actor(input: Tokens): Tokens
+cactor_macros.actormacro :: public macro actorReceive(attr: Tokens, input: Tokens): Tokens
+cactor_macros.actormacro :: public macro actorReceive(input: Tokens): Tokens
+cactor_macros.common :: ActorAttr.public var cases: ArrayList<String>
+cactor_macros.common :: ActorAttr.public var hasCases: Bool
+cactor_macros.common :: ActorAttr.public var hasProtocol: Bool
+cactor_macros.common :: ActorAttr.public var protocol: String
+cactor_macros.common :: public class ActorAttr
+cactor_macros.common :: public func fail(what: String, method: String): Nothing
+cactor_macros.common :: public func hasModifier(f: FuncDecl, kind: TokenKind): Bool
+cactor_macros.common :: public func hasModifier(v: VarDecl, kind: TokenKind): Bool
+cactor_macros.common :: public func normalizeTypeName(text: String): String
+cactor_macros.common :: public func parseActorAttr(attr: Tokens, className: String, macroName: String): ActorAttr
+cactor_macros.common :: public func stripNewlines(tokens: Tokens): Tokens
+cactor_macros.message :: public macro Message(attr: Tokens, input: Tokens): Tokens
+cactor_macros.message :: public macro Message(input: Tokens): Tokens
+cactor_macros.statemachine :: public macro StateMachine(attr: Tokens, input: Tokens): Tokens

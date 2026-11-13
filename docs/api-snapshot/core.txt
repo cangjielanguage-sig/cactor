@@ -1,0 +1,1444 @@
+# CActor 公开 API 快照：modules/core（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_core.actor :: Actor.func onStarted(context: ActorContext): Unit
+cactor_core.actor :: Actor.func postRestart(reason: Exception): Unit
+cactor_core.actor :: Actor.func postStart(): Unit
+cactor_core.actor :: Actor.func postStop(): Unit
+cactor_core.actor :: Actor.func preRestart(reason: Exception): Unit
+cactor_core.actor :: Actor.func preStart(): Unit
+cactor_core.actor :: Actor.func preStop(): Unit
+cactor_core.actor :: Actor.func receive(message: Message, context: ActorContext): MessageResult
+cactor_core.actor :: Actor.func supervisorStrategy(): Option<SupervisionStrategy>
+cactor_core.actor :: Actor.prop description: String
+cactor_core.actor :: Actor.prop name: String
+cactor_core.actor :: ActorContext.func actorOf(creator: ()->Actor): ActorRef
+cactor_core.actor :: ActorContext.func actorOf(creator: ()->Actor, name: String): ActorRef
+cactor_core.actor :: ActorContext.func actorOf(props: Props<Actor>, name: String): ActorRef
+cactor_core.actor :: ActorContext.func become(behavior: Receive): Unit
+cactor_core.actor :: ActorContext.func become(behavior: Receive, discardOld: Bool): Unit
+cactor_core.actor :: ActorContext.func cancelReceiveTimeout(): Unit
+cactor_core.actor :: ActorContext.func child(name: String): Option<ActorRef>
+cactor_core.actor :: ActorContext.func children(): Array<ActorRef>
+cactor_core.actor :: ActorContext.func log(): Logger
+cactor_core.actor :: ActorContext.func lookup(path: String): Option<ActorRef>
+cactor_core.actor :: ActorContext.func parent(): Option<ActorRef>
+cactor_core.actor :: ActorContext.func reply(message: Message): Unit
+cactor_core.actor :: ActorContext.func send(target: ActorRef, message: Message): Unit
+cactor_core.actor :: ActorContext.func sender(): Option<String>
+cactor_core.actor :: ActorContext.func senderRef(): Option<ActorRef>
+cactor_core.actor :: ActorContext.func setReceiveTimeout(timeout: Duration): Unit
+cactor_core.actor :: ActorContext.func stash(): Unit
+cactor_core.actor :: ActorContext.func stop(ref: ActorRef): Unit
+cactor_core.actor :: ActorContext.func system(): ActorSystemView
+cactor_core.actor :: ActorContext.func unbecome(): Unit
+cactor_core.actor :: ActorContext.func unstashAll(): Unit
+cactor_core.actor :: ActorContext.func unwatch(ref: ActorRef): Unit
+cactor_core.actor :: ActorContext.func watch(ref: ActorRef): Unit
+cactor_core.actor :: ActorContext.func watchWith(ref: ActorRef, message: Message): Unit
+cactor_core.actor :: ActorContext.func withMdc(mdc: Map<String, String>, block: ()->Unit): Unit
+cactor_core.actor :: ActorContext.prop self: ActorRef
+cactor_core.actor :: ActorContext.prop timers: TimerScheduler
+cactor_core.actor :: ActorErrorException.public init(path: String, error: Error)
+cactor_core.actor :: ActorErrorException.public let error: Error
+cactor_core.actor :: ActorErrorException.public let path: String
+cactor_core.actor :: ActorFactory.func create(): T
+cactor_core.actor :: ActorFactory.func rawCreator(): ()->T
+cactor_core.actor :: ActorFailure.public init(actor: ActorRef, cause: Exception, failureCount: Int64, lastRestartAt!: Option<MonoTime>= None)
+cactor_core.actor :: ActorFailure.public let actor: ActorRef
+cactor_core.actor :: ActorFailure.public let cause: Exception
+cactor_core.actor :: ActorFailure.public let failureCount: Int64
+cactor_core.actor :: ActorFailure.public let lastRestartAt: Option<MonoTime>
+cactor_core.actor :: ActorFailure.public let timestamp: Int64
+cactor_core.actor :: ActorInitializationException.public init(path: String, cause: Exception)
+cactor_core.actor :: ActorInitializationException.public let cause: Exception
+cactor_core.actor :: ActorInitializationException.public let path: String
+cactor_core.actor :: ActorKilledException.public init(path: String)
+cactor_core.actor :: ActorLifecycleState.public func toInt64(): Int64
+cactor_core.actor :: ActorLifecycleState.public static func fromInt64(value: Int64): ActorLifecycleState
+cactor_core.actor :: ActorLifecycleState.| Created
+cactor_core.actor :: ActorLifecycleState.| Failed
+cactor_core.actor :: ActorLifecycleState.| Restarting
+cactor_core.actor :: ActorLifecycleState.| Running
+cactor_core.actor :: ActorLifecycleState.| Starting
+cactor_core.actor :: ActorLifecycleState.| Stopped
+cactor_core.actor :: ActorLifecycleState.| Stopping
+cactor_core.actor :: ActorPath.public func child(name: String): ActorPath
+cactor_core.actor :: ActorPath.public func equals(other: ActorPath): Bool
+cactor_core.actor :: ActorPath.public func getPath(): String
+cactor_core.actor :: ActorPath.public func getSystem(): String
+cactor_core.actor :: ActorPath.public func hashCode(): Int32
+cactor_core.actor :: ActorPath.public func parent(): Option<ActorPath>
+cactor_core.actor :: ActorPath.public func toString(): String
+cactor_core.actor :: ActorPath.public init(system: String, path: String)
+cactor_core.actor :: ActorRef.func equals(other: ActorRef): Bool
+cactor_core.actor :: ActorRef.func hashCode(): Int32
+cactor_core.actor :: ActorRef.func isTerminated(): Bool
+cactor_core.actor :: ActorRef.func pendingCount(): Int64
+cactor_core.actor :: ActorRef.func tell(message: Message): Unit
+cactor_core.actor :: ActorRef.func tell(message: Message, sender: ActorRef): Unit
+cactor_core.actor :: ActorRef.func tell(message: Message, sender: Option<String>): Unit
+cactor_core.actor :: ActorRef.operator func<<(message: Message): ActorRef
+cactor_core.actor :: ActorRef.prop path: ActorPath
+cactor_core.actor :: ActorSelection.func resolveOne(timeout: Duration): Option<ActorRef>
+cactor_core.actor :: ActorSelection.func tell(message: Message): Unit
+cactor_core.actor :: ActorSelection.func tell(message: Message, sender: Option<String>): Unit
+cactor_core.actor :: ActorSystemView.func actorOf(creator: ()->Actor, name: String): ActorRef
+cactor_core.actor :: ActorSystemView.func actorOf(props: Props<Actor>, name: String): ActorRef
+cactor_core.actor :: ActorSystemView.func deadLetterCount(): Int64
+cactor_core.actor :: ActorSystemView.func isTerminated(): Bool
+cactor_core.actor :: ActorSystemView.func lookup(path: String): Option<ActorRef>
+cactor_core.actor :: ActorSystemView.func stop(ref: ActorRef): Unit
+cactor_core.actor :: ActorSystemView.func terminate(): Unit
+cactor_core.actor :: ActorSystemView.prop name: String
+cactor_core.actor :: CActorFuture.func isCompleted(): Bool
+cactor_core.actor :: CActorFuture.func value(): Option<Result<T>>
+cactor_core.actor :: DeadLetterRef.public func droppedCount(): Int64
+cactor_core.actor :: DeadLetterRef.public func equals(other: ActorRef): Bool
+cactor_core.actor :: DeadLetterRef.public func hashCode(): Int32
+cactor_core.actor :: DeadLetterRef.public func tell(message: Message): Unit
+cactor_core.actor :: DeadLetterRef.public func tell(message: Message, sender: Option<String>): Unit
+cactor_core.actor :: DeadLetterRef.public init(id: String)
+cactor_core.actor :: DeadLetterRef.public prop path: ActorPath
+cactor_core.actor :: DeathPactException.public init(path: String)
+cactor_core.actor :: InvalidActorNameException.public init(message: String)
+cactor_core.actor :: Kill.public func messageType(): String
+cactor_core.actor :: Kill.public func priority(): Int32
+cactor_core.actor :: Kill.public init()
+cactor_core.actor :: LocalActorRef.func getActor(): Actor
+cactor_core.actor :: LocalActorRef.func getState(): ActorLifecycleState
+cactor_core.actor :: LocalActorRef.func restart(cause: Exception): Unit
+cactor_core.actor :: LocalActorRef.func resume(): Unit
+cactor_core.actor :: LocalActorRef.func stop(): Unit
+cactor_core.actor :: LocalActorRef.func suspend(): Unit
+cactor_core.actor :: MailboxFullException.public init(message: String)
+cactor_core.actor :: MailboxOverflow.| Block(Duration)
+cactor_core.actor :: MailboxOverflow.| DropNew
+cactor_core.actor :: MailboxOverflow.| Fail
+cactor_core.actor :: PoisonPill.public func messageType(): String
+cactor_core.actor :: PoisonPill.public func priority(): Int32
+cactor_core.actor :: PoisonPill.public init()
+cactor_core.actor :: Props.public func create(): T
+cactor_core.actor :: Props.public func creator(): ()->T
+cactor_core.actor :: Props.public func getDispatcher(): String
+cactor_core.actor :: Props.public func getDispatcherName(): String
+cactor_core.actor :: Props.public func getMailboxCapacity(): Int64
+cactor_core.actor :: Props.public func getMailboxOverflow(): MailboxOverflow
+cactor_core.actor :: Props.public func getMailboxType(): String
+cactor_core.actor :: Props.public func getSupervisionStrategy(): String
+cactor_core.actor :: Props.public func getSupervisorStrategy(): Option<SupervisionStrategy>
+cactor_core.actor :: Props.public func withBoundedMailbox(capacity: Int64): Props<T>
+cactor_core.actor :: Props.public func withBoundedMailbox(capacity: Int64, overflow: MailboxOverflow): Props<T>
+cactor_core.actor :: Props.public func withDispatcher(dispatcher: String): Props<T>
+cactor_core.actor :: Props.public func withMailbox(mailboxType: String): Props<T>
+cactor_core.actor :: Props.public func withSupervisionStrategy(strategy: String): Props<T>
+cactor_core.actor :: Props.public func withSupervisorStrategy(strategy: SupervisionStrategy): Props<T>
+cactor_core.actor :: Props.public init(factory: ActorFactory<T>)
+cactor_core.actor :: PropsFactory.public static func create<T>(creator: ()->T): Props<T>where T <: Actor
+cactor_core.actor :: PropsFactory.public static func createWithDispatcher<T>(creator: ()->T, dispatcher: String): Props<T>where T <: Actor
+cactor_core.actor :: ReceiveTimeout.public func messageType(): String
+cactor_core.actor :: ReceiveTimeout.public init()
+cactor_core.actor :: Result.| Failure(Exception)
+cactor_core.actor :: Result.| Success(T)
+cactor_core.actor :: SimpleActorFactory.public func create(): T
+cactor_core.actor :: SimpleActorFactory.public func rawCreator(): ()->T
+cactor_core.actor :: SimpleActorFactory.public init(creator: ()->T)
+cactor_core.actor :: SimpleFuture.public func get(): T
+cactor_core.actor :: SimpleFuture.public func isCompleted(): Bool
+cactor_core.actor :: SimpleFuture.public func value(): Option<Result<T>>
+cactor_core.actor :: SimpleFuture.public init()
+cactor_core.actor :: SimpleFuture.public init(result: Result<T>)
+cactor_core.actor :: SupervisionDirective.public func restartDelay(): Option<Duration>
+cactor_core.actor :: SupervisionDirective.| Escalate
+cactor_core.actor :: SupervisionDirective.| Restart
+cactor_core.actor :: SupervisionDirective.| RestartAfter(Duration)
+cactor_core.actor :: SupervisionDirective.| Resume
+cactor_core.actor :: SupervisionDirective.| Stop
+cactor_core.actor :: SupervisionStrategy.func appliesToAllChildren(): Bool
+cactor_core.actor :: SupervisionStrategy.func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.actor :: SupervisionStrategy.func restForOne(): Bool
+cactor_core.actor :: Terminated.public func messageType(): String
+cactor_core.actor :: Terminated.public init(actor: ActorRef)
+cactor_core.actor :: Terminated.public let actor: ActorRef
+cactor_core.actor :: TimerScheduler.func cancel(key: String): Unit
+cactor_core.actor :: TimerScheduler.func cancelAll(): Unit
+cactor_core.actor :: TimerScheduler.func isTimerActive(key: String): Bool
+cactor_core.actor :: TimerScheduler.func startSingleTimer(key: String, message: Message, delay: Duration): Unit
+cactor_core.actor :: TimerScheduler.func startTimerAtFixedRate(key: String, message: Message, interval: Duration): Unit
+cactor_core.actor :: TimerScheduler.func startTimerWithFixedDelay(key: String, message: Message, delay: Duration): Unit
+cactor_core.actor :: UnhandledMessage.public func messageType(): String
+cactor_core.actor :: UnhandledMessage.public init(message: Message, recipient: String)
+cactor_core.actor :: UnhandledMessage.public let message: Message
+cactor_core.actor :: UnhandledMessage.public let recipient: String
+cactor_core.actor :: UnsupportedContextException.public init(operation: String)
+cactor_core.actor :: public class ActorErrorException <: Exception
+cactor_core.actor :: public class ActorInitializationException <: Exception
+cactor_core.actor :: public class ActorKilledException <: Exception
+cactor_core.actor :: public class DeadLetterRef <: DeadLetterActorRef
+cactor_core.actor :: public class DeathPactException <: Exception
+cactor_core.actor :: public class InvalidActorNameException <: Exception
+cactor_core.actor :: public class Kill <: AutoReceivedMessage
+cactor_core.actor :: public class MailboxFullException <: Exception
+cactor_core.actor :: public class PoisonPill <: AutoReceivedMessage
+cactor_core.actor :: public class ReceiveTimeout <: NotInfluenceReceiveTimeout
+cactor_core.actor :: public class SimpleActorFactory<T> <: ActorFactory<T>where T <: Actor
+cactor_core.actor :: public class SimpleFuture<T>
+cactor_core.actor :: public class Terminated <: Message
+cactor_core.actor :: public class UnhandledMessage <: Message
+cactor_core.actor :: public class UnsupportedContextException <: Exception
+cactor_core.actor :: public enum ActorLifecycleState
+cactor_core.actor :: public enum MailboxOverflow
+cactor_core.actor :: public enum Result<T>
+cactor_core.actor :: public enum SupervisionDirective
+cactor_core.actor :: public func isAffinityWorkerThread(): Bool
+cactor_core.actor :: public func markAffinityWorkerThread(): Unit
+cactor_core.actor :: public interface Actor
+cactor_core.actor :: public interface ActorContext
+cactor_core.actor :: public interface ActorFactory<T>where T <: Actor
+cactor_core.actor :: public interface ActorRef
+cactor_core.actor :: public interface ActorSelection
+cactor_core.actor :: public interface ActorSystemView
+cactor_core.actor :: public interface CActorFuture<T>
+cactor_core.actor :: public interface DeadLetterActorRef <: ActorRef
+cactor_core.actor :: public interface LocalActorRef <: ActorRef
+cactor_core.actor :: public interface NotInfluenceReceiveTimeout <: Message
+cactor_core.actor :: public interface SupervisionStrategy
+cactor_core.actor :: public interface TimerScheduler
+cactor_core.actor :: public struct ActorFailure
+cactor_core.actor :: public struct ActorPath
+cactor_core.actor :: public struct Props<T>where T <: Actor
+cactor_core.actor :: public struct PropsFactory
+cactor_core.actor :: public type Receive
+cactor_core.config :: ActorConfiguration.func getDescription(): String
+cactor_core.config :: ActorConfiguration.func getDispatcherConfig(): DispatcherConfig
+cactor_core.config :: ActorConfiguration.func getMailboxConfig(): MailboxConfig
+cactor_core.config :: ActorConfiguration.func getName(): String
+cactor_core.config :: ActorConfiguration.func getRoutingConfig(): Option<RoutingConfig>
+cactor_core.config :: ActorConfiguration.func getSupervisionConfig(): SupervisionConfig
+cactor_core.config :: ActorConfigurationBuilder.public func build(): ActorConfiguration
+cactor_core.config :: ActorConfigurationBuilder.public func withDescription(description: String): ActorConfigurationBuilder
+cactor_core.config :: ActorConfigurationBuilder.public func withDispatcher(config: DispatcherConfig): ActorConfigurationBuilder
+cactor_core.config :: ActorConfigurationBuilder.public func withMailbox(config: MailboxConfig): ActorConfigurationBuilder
+cactor_core.config :: ActorConfigurationBuilder.public func withName(name: String): ActorConfigurationBuilder
+cactor_core.config :: ActorConfigurationBuilder.public func withRouting(config: RoutingConfig): ActorConfigurationBuilder
+cactor_core.config :: ActorConfigurationBuilder.public func withSupervision(config: SupervisionConfig): ActorConfigurationBuilder
+cactor_core.config :: ActorConfigurationBuilder.public init()
+cactor_core.config :: ActorConfigurationFactory.public static func createBatching(): ActorConfiguration
+cactor_core.config :: ActorConfigurationFactory.public static func createCritical(): ActorConfiguration
+cactor_core.config :: ActorConfigurationFactory.public static func createCustom(mailboxConfig: MailboxConfig, dispatcherConfig: DispatcherConfig, supervisionConfig: SupervisionConfig, routingConfig: Option<RoutingConfig>, name: String, description: String): ActorConfiguration
+cactor_core.config :: ActorConfigurationFactory.public static func createDefault(): ActorConfiguration
+cactor_core.config :: ActorConfigurationFactory.public static func createHighPerformance(): ActorConfiguration
+cactor_core.config :: ActorConfigurationFactory.public static func createPriority(comparator: (Message, Message)->Int32): ActorConfiguration
+cactor_core.config :: ActorConfigurationFactory.public static func createRouted(routerType: RouterType, routeeCount: Int32): ActorConfiguration
+cactor_core.config :: ActorConfigurationFactory.public static func createStashing(capacity: Int64, stashCapacity: Int64): ActorConfiguration
+cactor_core.config :: ConfigurationManager.public func clearConfigurations(): Unit
+cactor_core.config :: ConfigurationManager.public func getConfiguration(name: String): ActorConfiguration
+cactor_core.config :: ConfigurationManager.public func getConfigurationNames(): Array<String>
+cactor_core.config :: ConfigurationManager.public func getDefaultConfiguration(): ActorConfiguration
+cactor_core.config :: ConfigurationManager.public func hasConfiguration(name: String): Bool
+cactor_core.config :: ConfigurationManager.public func registerConfiguration(name: String, config: ActorConfiguration): Unit
+cactor_core.config :: ConfigurationManager.public func removeConfiguration(name: String): Bool
+cactor_core.config :: ConfigurationManager.public init()
+cactor_core.config :: DefaultActorConfiguration.public func getDescription(): String
+cactor_core.config :: DefaultActorConfiguration.public func getDispatcherConfig(): DispatcherConfig
+cactor_core.config :: DefaultActorConfiguration.public func getMailboxConfig(): MailboxConfig
+cactor_core.config :: DefaultActorConfiguration.public func getName(): String
+cactor_core.config :: DefaultActorConfiguration.public func getRoutingConfig(): Option<RoutingConfig>
+cactor_core.config :: DefaultActorConfiguration.public func getSupervisionConfig(): SupervisionConfig
+cactor_core.config :: DefaultActorConfiguration.public init(mailboxConfig: MailboxConfig, dispatcherConfig: DispatcherConfig, supervisionConfig: SupervisionConfig, routingConfig: Option<RoutingConfig>, name: String, description: String)
+cactor_core.config :: DispatcherConfig.public init(dispatcherType: DispatcherType, throughput: Int32, throughputDeadlineTime: Duration, executorConfig: ExecutorConfig, name: String)
+cactor_core.config :: DispatcherConfig.public let dispatcherType: DispatcherType
+cactor_core.config :: DispatcherConfig.public let executorConfig: ExecutorConfig
+cactor_core.config :: DispatcherConfig.public let name: String
+cactor_core.config :: DispatcherConfig.public let throughput: Int32
+cactor_core.config :: DispatcherConfig.public let throughputDeadlineTime: Duration
+cactor_core.config :: DispatcherConfig.public static func createPinned(): DispatcherConfig
+cactor_core.config :: DispatcherConfig.public static func createPinnedWithName(name: String): DispatcherConfig
+cactor_core.config :: DispatcherConfig.public static func createThreadPool(): DispatcherConfig
+cactor_core.config :: DispatcherConfig.public static func createThreadPoolWithName(name: String): DispatcherConfig
+cactor_core.config :: DispatcherConfig.public static func createWorkStealing(): DispatcherConfig
+cactor_core.config :: DispatcherConfig.public static func createWorkStealingWithName(name: String): DispatcherConfig
+cactor_core.config :: DispatcherType.| CallingThread
+cactor_core.config :: DispatcherType.| Custom
+cactor_core.config :: DispatcherType.| PinnedDispatcher
+cactor_core.config :: DispatcherType.| ThreadPool
+cactor_core.config :: DispatcherType.| WorkStealing
+cactor_core.config :: ExecutorConfig.public init(corePoolSize: Int32, maxPoolSize: Int32, keepAliveTime: Duration, queueCapacity: Int32)
+cactor_core.config :: ExecutorConfig.public let corePoolSize: Int32
+cactor_core.config :: ExecutorConfig.public let keepAliveTime: Duration
+cactor_core.config :: ExecutorConfig.public let maxPoolSize: Int32
+cactor_core.config :: ExecutorConfig.public let queueCapacity: Int32
+cactor_core.config :: ExecutorConfig.public static func createDefault(): ExecutorConfig
+cactor_core.config :: MailboxConfig.public init(mailboxType: MailboxType, capacity: Int64, pushTimeout: Duration, stashCapacity: Int64, name: String)
+cactor_core.config :: MailboxConfig.public let capacity: Int64
+cactor_core.config :: MailboxConfig.public let mailboxType: MailboxType
+cactor_core.config :: MailboxConfig.public let name: String
+cactor_core.config :: MailboxConfig.public let pushTimeout: Duration
+cactor_core.config :: MailboxConfig.public let stashCapacity: Int64
+cactor_core.config :: MailboxConfig.public static func createBounded(capacity: Int64): MailboxConfig
+cactor_core.config :: MailboxConfig.public static func createBoundedWithName(capacity: Int64, name: String): MailboxConfig
+cactor_core.config :: MailboxConfig.public static func createPriority(comparator: (Message, Message)->Int32): MailboxConfig
+cactor_core.config :: MailboxConfig.public static func createPriorityWithCapacity(comparator: (Message, Message)->Int32, capacity: Int64, name: String): MailboxConfig
+cactor_core.config :: MailboxConfig.public static func createStashing(capacity: Int64, stashCapacity: Int64): MailboxConfig
+cactor_core.config :: MailboxConfig.public static func createStashingWithName(capacity: Int64, stashCapacity: Int64, name: String): MailboxConfig
+cactor_core.config :: MailboxConfig.public static func createUnbounded(): MailboxConfig
+cactor_core.config :: MailboxConfig.public static func createUnboundedWithName(name: String): MailboxConfig
+cactor_core.config :: MailboxType.| Bounded
+cactor_core.config :: MailboxType.| Custom
+cactor_core.config :: MailboxType.| Priority
+cactor_core.config :: MailboxType.| Stashing
+cactor_core.config :: MailboxType.| Unbounded
+cactor_core.config :: RouterType.| Broadcast
+cactor_core.config :: RouterType.| ConsistentHashing
+cactor_core.config :: RouterType.| Custom
+cactor_core.config :: RouterType.| Random
+cactor_core.config :: RouterType.| RoundRobin
+cactor_core.config :: RoutingConfig.public init(routerType: RouterType, routeeCount: Int32, name: String)
+cactor_core.config :: RoutingConfig.public let name: String
+cactor_core.config :: RoutingConfig.public let routeeCount: Int32
+cactor_core.config :: RoutingConfig.public let routerType: RouterType
+cactor_core.config :: SupervisionConfig.public init(maxRetries: Int32, withinTimeRange: Duration, strategy: SupervisionStrategyType, name: String)
+cactor_core.config :: SupervisionConfig.public let maxRetries: Int32
+cactor_core.config :: SupervisionConfig.public let name: String
+cactor_core.config :: SupervisionConfig.public let strategy: SupervisionStrategyType
+cactor_core.config :: SupervisionConfig.public let withinTimeRange: Duration
+cactor_core.config :: SupervisionConfig.public static func createDefault(): SupervisionConfig
+cactor_core.config :: SupervisionConfig.public static func createDefaultWithName(name: String): SupervisionConfig
+cactor_core.config :: SupervisionDirective.| Escalate
+cactor_core.config :: SupervisionDirective.| Restart
+cactor_core.config :: SupervisionDirective.| Resume
+cactor_core.config :: SupervisionDirective.| Stop
+cactor_core.config :: SupervisionStrategyType.| AllForOne
+cactor_core.config :: SupervisionStrategyType.| Custom
+cactor_core.config :: SupervisionStrategyType.| OneForOne
+cactor_core.config :: public class ActorConfigurationBuilder
+cactor_core.config :: public class ActorConfigurationFactory
+cactor_core.config :: public class ConfigurationManager
+cactor_core.config :: public class DefaultActorConfiguration <: ActorConfiguration
+cactor_core.config :: public class DispatcherConfig
+cactor_core.config :: public class ExecutorConfig
+cactor_core.config :: public class MailboxConfig
+cactor_core.config :: public class RoutingConfig
+cactor_core.config :: public class SupervisionConfig
+cactor_core.config :: public enum DispatcherType
+cactor_core.config :: public enum MailboxType
+cactor_core.config :: public enum RouterType
+cactor_core.config :: public enum SupervisionDirective
+cactor_core.config :: public enum SupervisionStrategyType
+cactor_core.config :: public interface ActorConfiguration
+cactor_core.config :: public interface Mailbox
+cactor_core.config :: public interface MessageDispatcher
+cactor_core.config :: public interface Router
+cactor_core.dsl :: AskInbox.public func equals(other: ActorRef): Bool
+cactor_core.dsl :: AskInbox.public func get(timeout: Duration): Message
+cactor_core.dsl :: AskInbox.public func hashCode(): Int32
+cactor_core.dsl :: AskInbox.public func received(): Int64
+cactor_core.dsl :: AskInbox.public func tell(message: Message): Unit
+cactor_core.dsl :: AskInbox.public func tell(message: Message, sender: Option<String>): Unit
+cactor_core.dsl :: AskInbox.public func toString(): String
+cactor_core.dsl :: AskInbox.public func tryGet(timeout: Duration): Option<Message>
+cactor_core.dsl :: AskInbox.public init()
+cactor_core.dsl :: AskInbox.public prop path: ActorPath
+cactor_core.dsl :: AskInbox.public static func ask(target: ActorRef, message: Message): AskInbox
+cactor_core.dsl :: Behaviors.public static func contramap<In, T>(inner: TypedBehavior<T>, f: (In)->T): TypedBehavior<In>
+cactor_core.dsl :: Behaviors.public static func empty<T>(): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func filter<In>(inner: TypedBehavior<In>, p: (In)->Bool): TypedBehavior<In>
+cactor_core.dsl :: Behaviors.public static func ignore<T>(): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func intercept<T>(f: (TypedActorContext<T>, T, (T)->TypedBehavior<T>)->TypedBehavior<T>, behavior: TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func intercept<T>(interceptor: BehaviorInterceptor<T>, behavior: TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func logMessages<T>(behavior: TypedBehavior<T>, show: (T)->String): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func mapMessages<In, T>(inner: TypedBehavior<T>, f: (In)->T): TypedBehavior<In>
+cactor_core.dsl :: Behaviors.public static func monitor<T>(monitor: TypedActorRef<T>, behavior: TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func receive<T>(handler: (TypedActorContext<T>, T)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func receive<T>(handler: (TypedActorContext<T>, T)->TypedBehavior<T>, signalHandler: (TypedActorContext<T>, TypedSignal)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func receiveMessage<T>(handler: (T)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func receivePartial<T>(p: (T)->Bool, handler: (TypedActorContext<T>, T)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func same<T>(): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func setup<T>(factory: (TypedActorContext<T>)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func stopped<T>(): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func stopped<T>(postStop: ()->Unit): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func supervise<T>(behavior: TypedBehavior<T>): SupervisedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func transformMessages<In, T>(inner: TypedBehavior<T>, f: (In)->T): TypedBehavior<In>
+cactor_core.dsl :: Behaviors.public static func unhandled<T>(): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func withStash<T>(capacity: Int64, factory: (TypedStashBuffer<T>)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: Behaviors.public static func withTimers<T>(factory: (TypedTimerScheduler<T>)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.dsl :: DurationLiterals.prop hours: Duration
+cactor_core.dsl :: DurationLiterals.prop micros: Duration
+cactor_core.dsl :: DurationLiterals.prop millis: Duration
+cactor_core.dsl :: DurationLiterals.prop minutes: Duration
+cactor_core.dsl :: DurationLiterals.prop nanos: Duration
+cactor_core.dsl :: DurationLiterals.prop seconds: Duration
+cactor_core.dsl :: SupervisionRequestedException.public init(result: MessageResult)
+cactor_core.dsl :: SupervisionRequestedException.public let result: MessageResult
+cactor_core.dsl :: extend Int64 <: DurationLiterals
+cactor_core.dsl :: extend Int64.public prop hours: Duration
+cactor_core.dsl :: extend Int64.public prop micros: Duration
+cactor_core.dsl :: extend Int64.public prop millis: Duration
+cactor_core.dsl :: extend Int64.public prop minutes: Duration
+cactor_core.dsl :: extend Int64.public prop nanos: Duration
+cactor_core.dsl :: extend Int64.public prop seconds: Duration
+cactor_core.dsl :: public class AskInbox <: ActorRef
+cactor_core.dsl :: public class SupervisionRequestedException <: Exception
+cactor_core.dsl :: public func askInbox(): AskInbox
+cactor_core.dsl :: public func messageResultToBehavior<T>(result: MessageResult): TypedBehavior<T>
+cactor_core.dsl :: public func retry(attempts: Int64, body: ()->MessageResult): MessageResult
+cactor_core.dsl :: public func within(limit: Duration, name: String, body: ()->MessageResult): MessageResult
+cactor_core.dsl :: public interface DurationLiterals
+cactor_core.dsl :: public struct Behaviors
+cactor_core.error :: ActorErrorHandlingStrategy.public func canHandle(errorCode: CActorErrorCode): Bool
+cactor_core.error :: ActorErrorHandlingStrategy.public func getName(): String
+cactor_core.error :: ActorErrorHandlingStrategy.public func handleError(error: CActorException): ErrorHandlingResult
+cactor_core.error :: CActorErrorCode.| ActorCreationError
+cactor_core.error :: CActorErrorCode.| ActorMailboxFullError
+cactor_core.error :: CActorErrorCode.| ActorNotFoundError
+cactor_core.error :: CActorErrorCode.| ActorSupervisionError
+cactor_core.error :: CActorErrorCode.| ActorTerminatedError
+cactor_core.error :: CActorErrorCode.| ClusterJoinError
+cactor_core.error :: CActorErrorCode.| ClusterLeaveError
+cactor_core.error :: CActorErrorCode.| ClusterNodeUnreachableError
+cactor_core.error :: CActorErrorCode.| ClusterSplitBrainError
+cactor_core.error :: CActorErrorCode.| ConfigurationError
+cactor_core.error :: CActorErrorCode.| MessageDeserializationError
+cactor_core.error :: CActorErrorCode.| MessageFormatError
+cactor_core.error :: CActorErrorCode.| MessageRoutingError
+cactor_core.error :: CActorErrorCode.| MessageSerializationError
+cactor_core.error :: CActorErrorCode.| MessageTimeoutError
+cactor_core.error :: CActorErrorCode.| NetworkConnectionError
+cactor_core.error :: CActorErrorCode.| NetworkProtocolError
+cactor_core.error :: CActorErrorCode.| NetworkSecurityError
+cactor_core.error :: CActorErrorCode.| NetworkTimeoutError
+cactor_core.error :: CActorErrorCode.| PersistenceCorruptionError
+cactor_core.error :: CActorErrorCode.| PersistenceReadError
+cactor_core.error :: CActorErrorCode.| PersistenceStorageFullError
+cactor_core.error :: CActorErrorCode.| PersistenceWriteError
+cactor_core.error :: CActorErrorCode.| ResourceExhaustionError
+cactor_core.error :: CActorErrorCode.| SystemConfigurationError
+cactor_core.error :: CActorErrorCode.| SystemInitializationError
+cactor_core.error :: CActorErrorCode.| SystemOverloadError
+cactor_core.error :: CActorErrorCode.| SystemShutdownError
+cactor_core.error :: CActorErrorCode.| UnknownError
+cactor_core.error :: CActorErrorCode.| ValidationError
+cactor_core.error :: CActorException.public func addContext(key: String, value: String): Unit
+cactor_core.error :: CActorException.public func getContext(): HashMap<String, String>
+cactor_core.error :: CActorException.public func getContextValue(key: String): Option<String>
+cactor_core.error :: CActorException.public func getErrorCode(): CActorErrorCode
+cactor_core.error :: CActorException.public func getSeverity(): ErrorSeverity
+cactor_core.error :: CActorException.public func getTimestamp(): Int64
+cactor_core.error :: CActorException.public func toString(): String
+cactor_core.error :: CActorException.public init(code: CActorErrorCode, message: String)
+cactor_core.error :: CActorException.public init(code: CActorErrorCode, message: String, severity: ErrorSeverity)
+cactor_core.error :: DefaultErrorHandlingStrategy.public func canHandle(errorCode: CActorErrorCode): Bool
+cactor_core.error :: DefaultErrorHandlingStrategy.public func getName(): String
+cactor_core.error :: DefaultErrorHandlingStrategy.public func handleError(error: CActorException): ErrorHandlingResult
+cactor_core.error :: ErrorHandlingManager.public func getStatistics(): ErrorStatistics
+cactor_core.error :: ErrorHandlingManager.public func handleError(error: CActorException): ErrorHandlingResult
+cactor_core.error :: ErrorHandlingManager.public func printStatistics(): Unit
+cactor_core.error :: ErrorHandlingManager.public func registerStrategy(strategy: ErrorHandlingStrategy): Unit
+cactor_core.error :: ErrorHandlingManager.public func reset(): Unit
+cactor_core.error :: ErrorHandlingManager.public static func getInstance(): ErrorHandlingManager
+cactor_core.error :: ErrorHandlingResult.| Escalate
+cactor_core.error :: ErrorHandlingResult.| Ignore
+cactor_core.error :: ErrorHandlingResult.| Restart
+cactor_core.error :: ErrorHandlingResult.| Retry
+cactor_core.error :: ErrorHandlingResult.| Shutdown
+cactor_core.error :: ErrorHandlingStrategy.func canHandle(errorCode: CActorErrorCode): Bool
+cactor_core.error :: ErrorHandlingStrategy.func getName(): String
+cactor_core.error :: ErrorHandlingStrategy.func handleError(error: CActorException): ErrorHandlingResult
+cactor_core.error :: ErrorSeverity.| Critical
+cactor_core.error :: ErrorSeverity.| High
+cactor_core.error :: ErrorSeverity.| Info
+cactor_core.error :: ErrorSeverity.| Low
+cactor_core.error :: ErrorSeverity.| Medium
+cactor_core.error :: ErrorStatistics.public func toString(): String
+cactor_core.error :: ErrorStatistics.public init()
+cactor_core.error :: ErrorStatistics.public init(total: Int64, critical: Int64, high: Int64, medium: Int64, low: Int64, lastTime: Int64)
+cactor_core.error :: ErrorStatistics.public let criticalErrors: Int64
+cactor_core.error :: ErrorStatistics.public let highErrors: Int64
+cactor_core.error :: ErrorStatistics.public let lastErrorTime: Int64
+cactor_core.error :: ErrorStatistics.public let lowErrors: Int64
+cactor_core.error :: ErrorStatistics.public let mediumErrors: Int64
+cactor_core.error :: ErrorStatistics.public let totalErrors: Int64
+cactor_core.error :: public class ActorErrorHandlingStrategy <: ErrorHandlingStrategy
+cactor_core.error :: public class CActorException <: Exception
+cactor_core.error :: public class DefaultErrorHandlingStrategy <: ErrorHandlingStrategy
+cactor_core.error :: public class ErrorHandlingManager
+cactor_core.error :: public enum CActorErrorCode
+cactor_core.error :: public enum ErrorHandlingResult
+cactor_core.error :: public enum ErrorSeverity
+cactor_core.error :: public interface ErrorHandlingStrategy
+cactor_core.error :: public struct ErrorStatistics
+cactor_core.guardian :: CreateChildMessage.public func getChildName(): String
+cactor_core.guardian :: CreateChildMessage.public func getPayload(): String
+cactor_core.guardian :: CreateChildMessage.public func getProps(): Props<Actor>
+cactor_core.guardian :: CreateChildMessage.public func getType(): String
+cactor_core.guardian :: CreateChildMessage.public func messageType(): String
+cactor_core.guardian :: CreateChildMessage.public init(props: Props<Actor>, name: String)
+cactor_core.guardian :: GuardianActor.func createChild(props: Props<Actor>, name: String): ActorRef
+cactor_core.guardian :: GuardianActor.func findChild(name: String): Option<ActorRef>
+cactor_core.guardian :: GuardianActor.func getChildren(): Array<ActorRef>
+cactor_core.guardian :: GuardianActor.func getHealthStatus(): GuardianHealthStatus
+cactor_core.guardian :: GuardianActor.func getStats(): GuardianStats
+cactor_core.guardian :: GuardianActor.func handleFailure(failure: ActorFailure): Unit
+cactor_core.guardian :: GuardianActor.func restartChild(child: ActorRef, reason: Exception): Unit
+cactor_core.guardian :: GuardianActor.func stopChild(child: ActorRef): Unit
+cactor_core.guardian :: GuardianActor.func supervise(child: ActorRef, strategy: SupervisionStrategy): Unit
+cactor_core.guardian :: GuardianActor.prop guardianType: GuardianType
+cactor_core.guardian :: GuardianActor.prop parent: Option<ActorRef>
+cactor_core.guardian :: GuardianHealthStatus.public func toString(): String
+cactor_core.guardian :: GuardianHealthStatus.| Critical
+cactor_core.guardian :: GuardianHealthStatus.| Degraded
+cactor_core.guardian :: GuardianHealthStatus.| Healthy
+cactor_core.guardian :: GuardianHealthStatus.| Unhealthy
+cactor_core.guardian :: GuardianStats.public init(childCount: Int64, activeChildren: Int64, restartCount: Int64, stopCount: Int64, failureCount: Int64, lastFailureTime: Option<DateTime>, uptime: Duration)
+cactor_core.guardian :: GuardianStats.public let activeChildren: Int64
+cactor_core.guardian :: GuardianStats.public let childCount: Int64
+cactor_core.guardian :: GuardianStats.public let failureCount: Int64
+cactor_core.guardian :: GuardianStats.public let lastFailureTime: Option<DateTime>
+cactor_core.guardian :: GuardianStats.public let restartCount: Int64
+cactor_core.guardian :: GuardianStats.public let stopCount: Int64
+cactor_core.guardian :: GuardianStats.public let uptime: Duration
+cactor_core.guardian :: GuardianStats.public static func empty(): GuardianStats
+cactor_core.guardian :: GuardianType.public func toString(): String
+cactor_core.guardian :: GuardianType.| Custom(String)
+cactor_core.guardian :: GuardianType.| System
+cactor_core.guardian :: GuardianType.| User
+cactor_core.guardian :: RestartChildMessage.public func getChildRef(): ActorRef
+cactor_core.guardian :: RestartChildMessage.public func getPayload(): String
+cactor_core.guardian :: RestartChildMessage.public func getReason(): Exception
+cactor_core.guardian :: RestartChildMessage.public func getType(): String
+cactor_core.guardian :: RestartChildMessage.public func messageType(): String
+cactor_core.guardian :: RestartChildMessage.public init(child: ActorRef, reason: Exception)
+cactor_core.guardian :: StopChildMessage.public func getChildRef(): ActorRef
+cactor_core.guardian :: StopChildMessage.public func getPayload(): String
+cactor_core.guardian :: StopChildMessage.public func getType(): String
+cactor_core.guardian :: StopChildMessage.public func messageType(): String
+cactor_core.guardian :: StopChildMessage.public init(child: ActorRef)
+cactor_core.guardian :: public class CreateChildMessage <: Message
+cactor_core.guardian :: public class RestartChildMessage <: Message
+cactor_core.guardian :: public class StopChildMessage <: Message
+cactor_core.guardian :: public enum GuardianHealthStatus <: ToString
+cactor_core.guardian :: public enum GuardianType <: ToString
+cactor_core.guardian :: public interface GuardianActor <: Actor
+cactor_core.guardian :: public struct GuardianStats
+cactor_core.memory :: MemoryStats.public init(allocated: Int64, pooled: Int64, pools: Int64, usage: Int64)
+cactor_core.memory :: MemoryStats.public let allocatedObjects: Int64
+cactor_core.memory :: MemoryStats.public let memoryUsage: Int64
+cactor_core.memory :: MemoryStats.public let pooledObjects: Int64
+cactor_core.memory :: MemoryStats.public let totalPools: Int64
+cactor_core.memory :: SimpleMemoryManager.public func decrementAllocated(): Unit
+cactor_core.memory :: SimpleMemoryManager.public func getStats(): MemoryStats
+cactor_core.memory :: SimpleMemoryManager.public func incrementAllocated(): Unit
+cactor_core.memory :: SimpleMemoryManager.public static func getInstance(): SimpleMemoryManager
+cactor_core.memory :: SimpleMessagePool.public static func acquireStringMessage(): StringMessage
+cactor_core.memory :: SimpleMessagePool.public static func getInstance(): SimpleObjectPool
+cactor_core.memory :: SimpleMessagePool.public static func releaseStringMessage(msg: StringMessage): Unit
+cactor_core.memory :: SimpleObjectPool.public func acquireStringMessage(): Option<StringMessage>
+cactor_core.memory :: SimpleObjectPool.public func clear(): Unit
+cactor_core.memory :: SimpleObjectPool.public func getCapacity(): Int64
+cactor_core.memory :: SimpleObjectPool.public func getSize(): Int64
+cactor_core.memory :: SimpleObjectPool.public func releaseStringMessage(item: StringMessage): Unit
+cactor_core.memory :: SimpleObjectPool.public init(maxSize: Int64)
+cactor_core.memory :: public class SimpleMemoryManager
+cactor_core.memory :: public class SimpleMessagePool
+cactor_core.memory :: public class SimpleObjectPool
+cactor_core.memory :: public struct MemoryStats
+cactor_core.message :: CRC32.public func getValue(): UInt32
+cactor_core.message :: CRC32.public func reset(): Unit
+cactor_core.message :: CRC32.public func update(data: UInt8): Unit
+cactor_core.message :: CRC32.public init()
+cactor_core.message :: DeadLetter.public func getMessage(): Message
+cactor_core.message :: DeadLetter.public func getRecipient(): String
+cactor_core.message :: DeadLetter.public func getSender(): String
+cactor_core.message :: DeadLetter.public func messageType(): String
+cactor_core.message :: DeadLetter.public init(message: Message, sender: String, recipient: String)
+cactor_core.message :: DeserializationException.public init(message: String)
+cactor_core.message :: EnhancedMessageFactory.public func createEmptyMessage(messageType: UInt16, sourceActor: UInt64, targetActor: UInt64, size: UInt64): EnhancedZeroCopyMessage
+cactor_core.message :: EnhancedMessageFactory.public func createMessageWithData(messageType: UInt16, data: Array<UInt8>, sourceActor: UInt64, targetActor: UInt64): EnhancedZeroCopyMessage
+cactor_core.message :: EnhancedMessageFactory.public init(memoryPool: MemoryPool)
+cactor_core.message :: EnhancedZeroCopyMessage.public func getData(): Array<UInt8>
+cactor_core.message :: EnhancedZeroCopyMessage.public func getHopCount(): Int64
+cactor_core.message :: EnhancedZeroCopyMessage.public func getMessageType(): UInt16
+cactor_core.message :: EnhancedZeroCopyMessage.public func getPayloadSize(): UInt64
+cactor_core.message :: EnhancedZeroCopyMessage.public func getReferenceCount(): Int64
+cactor_core.message :: EnhancedZeroCopyMessage.public func getSendTimestamp(): Int64
+cactor_core.message :: EnhancedZeroCopyMessage.public func getSharedBuffer(): SharedMemoryBuffer
+cactor_core.message :: EnhancedZeroCopyMessage.public func getSourceActor(): UInt64
+cactor_core.message :: EnhancedZeroCopyMessage.public func getTargetActor(): UInt64
+cactor_core.message :: EnhancedZeroCopyMessage.public func incrementHopCount(): Unit
+cactor_core.message :: EnhancedZeroCopyMessage.public func release(): Unit
+cactor_core.message :: EnhancedZeroCopyMessage.public func retain(): Unit
+cactor_core.message :: EnhancedZeroCopyMessage.public func setSendTimestamp(timestamp: Int64): Unit
+cactor_core.message :: EnhancedZeroCopyMessage.public init(messageType: UInt16, sourceActor: UInt64, targetActor: UInt64, sharedBuffer: SharedMemoryBuffer, payloadSize: UInt64)
+cactor_core.message :: Envelope.public func getMessage(): Message
+cactor_core.message :: Envelope.public func getSender(): Option<String>
+cactor_core.message :: Envelope.public func getTimestamp(): Int64
+cactor_core.message :: Envelope.public init(message: Message, sender: Option<String>)
+cactor_core.message :: GlobalMessageSerializationManager.public static func getInstance(): MessageSerializationManager
+cactor_core.message :: HighPerformanceMessagePassing.public func getLatencyStats(): LatencyStats
+cactor_core.message :: HighPerformanceMessagePassing.public func getMemoryUsage(): MemoryUsageStats
+cactor_core.message :: HighPerformanceMessagePassing.public func getQueueSize(): Int64
+cactor_core.message :: HighPerformanceMessagePassing.public func getZeroCopyRatio(): Float64
+cactor_core.message :: HighPerformanceMessagePassing.public func receiveMessage(): Option<EnhancedZeroCopyMessage>
+cactor_core.message :: HighPerformanceMessagePassing.public func sendMessage(message: EnhancedZeroCopyMessage, targetActor: UInt64): Bool
+cactor_core.message :: HighPerformanceMessagePassing.public init(capacity: Int64, memoryPool: MemoryPool)
+cactor_core.message :: LatencyStats.public init(avgLatency: Float64, maxLatency: Int64, minLatency: Int64, p95Latency: Int64, p99Latency: Int64)
+cactor_core.message :: LatencyStats.public let avgLatency: Float64
+cactor_core.message :: LatencyStats.public let maxLatency: Int64
+cactor_core.message :: LatencyStats.public let minLatency: Int64
+cactor_core.message :: LatencyStats.public let p95Latency: Int64
+cactor_core.message :: LatencyStats.public let p99Latency: Int64
+cactor_core.message :: MemoryUsageStats.public init(totalAllocated: UInt64, currentUsage: UInt64, peakUsage: UInt64, poolEfficiency: Float64)
+cactor_core.message :: MemoryUsageStats.public let currentUsage: UInt64
+cactor_core.message :: MemoryUsageStats.public let peakUsage: UInt64
+cactor_core.message :: MemoryUsageStats.public let poolEfficiency: Float64
+cactor_core.message :: MemoryUsageStats.public let totalAllocated: UInt64
+cactor_core.message :: Message.func messageId(): String
+cactor_core.message :: Message.func messageType(): String
+cactor_core.message :: Message.func priority(): Int32
+cactor_core.message :: Message.func timestamp(): Int64
+cactor_core.message :: MessageCodec.func decode(payload: Array<UInt8>): Message
+cactor_core.message :: MessageCodec.func decode(payload: Array<UInt8>, version: Int64): Message
+cactor_core.message :: MessageCodec.func encode(message: Message): Array<UInt8>
+cactor_core.message :: MessageCodec.func encodeFor(message: Message, peerCapabilities: UInt64): (Int64, Array<UInt8>)
+cactor_core.message :: MessageCodec.func requiredCapabilities(message: Message): UInt64
+cactor_core.message :: MessageCodec.func version(): Int64
+cactor_core.message :: MessageCodecRegistry.public static func get(messageType: String): Option<MessageCodec>
+cactor_core.message :: MessageCodecRegistry.public static func isRegistered(messageType: String): Bool
+cactor_core.message :: MessageCodecRegistry.public static func register(messageType: String, codec: MessageCodec): Unit
+cactor_core.message :: MessageCodecRegistry.public static func register(messageType: String, codec: MessageCodec, owner: Object): Unit
+cactor_core.message :: MessageCodecRegistry.public static func unregister(messageType: String): Unit
+cactor_core.message :: MessageFieldReader.public func isAtEnd(): Bool
+cactor_core.message :: MessageFieldReader.public func readBool(): Bool
+cactor_core.message :: MessageFieldReader.public func readBoolMap(): HashMap<String, Bool>
+cactor_core.message :: MessageFieldReader.public func readBools(): Array<Bool>
+cactor_core.message :: MessageFieldReader.public func readFloat64(): Float64
+cactor_core.message :: MessageFieldReader.public func readFloat64Map(): HashMap<String, Float64>
+cactor_core.message :: MessageFieldReader.public func readFloat64s(): Array<Float64>
+cactor_core.message :: MessageFieldReader.public func readInt64(): Int64
+cactor_core.message :: MessageFieldReader.public func readInt64Map(): HashMap<String, Int64>
+cactor_core.message :: MessageFieldReader.public func readInt64s(): Array<Int64>
+cactor_core.message :: MessageFieldReader.public func readOptionBool(): Option<Bool>
+cactor_core.message :: MessageFieldReader.public func readOptionFloat64(): Option<Float64>
+cactor_core.message :: MessageFieldReader.public func readOptionInt64(): Option<Int64>
+cactor_core.message :: MessageFieldReader.public func readOptionString(): Option<String>
+cactor_core.message :: MessageFieldReader.public func readString(): String
+cactor_core.message :: MessageFieldReader.public func readStringMap(): HashMap<String, String>
+cactor_core.message :: MessageFieldReader.public func readStrings(): Array<String>
+cactor_core.message :: MessageFieldReader.public init(data: Array<UInt8>)
+cactor_core.message :: MessageFieldWriter.public func toArray(): Array<UInt8>
+cactor_core.message :: MessageFieldWriter.public func writeBool(v: Bool): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeBoolMap(v: HashMap<String, Bool>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeBools(v: Array<Bool>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeFloat64(v: Float64): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeFloat64Map(v: HashMap<String, Float64>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeFloat64s(v: Array<Float64>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeInt64(v: Int64): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeInt64Map(v: HashMap<String, Int64>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeInt64s(v: Array<Int64>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeOptionBool(v: Option<Bool>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeOptionFloat64(v: Option<Float64>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeOptionInt64(v: Option<Int64>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeOptionString(v: Option<String>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeString(v: String): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeStringMap(v: HashMap<String, String>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public func writeStrings(v: Array<String>): MessageFieldWriter
+cactor_core.message :: MessageFieldWriter.public init()
+cactor_core.message :: MessagePool.public func acquire(messageType: UInt16, payloadSize: UInt64, sourceActor: UInt64, targetActor: UInt64): ZeroCopyMessageImpl
+cactor_core.message :: MessagePool.public func acquireBatch(messageType: UInt16, payloadSize: UInt64, sourceActor: UInt64, targetActor: UInt64, batchSize: Int32): Array<ZeroCopyMessageImpl>
+cactor_core.message :: MessagePool.public func getPoolSize(): Int64
+cactor_core.message :: MessagePool.public func getStats(): MessagePoolStats
+cactor_core.message :: MessagePool.public func release(message: ZeroCopyMessageImpl): Unit
+cactor_core.message :: MessagePool.public func releaseBatch(messages: Array<ZeroCopyMessageImpl>): Unit
+cactor_core.message :: MessagePool.public init(capacity: Int64)
+cactor_core.message :: MessagePoolStats.public func getHitRate(): Float64
+cactor_core.message :: MessagePoolStats.public func getUtilization(): Float64
+cactor_core.message :: MessagePoolStats.public init(capacity: Int64, size: Int64, acquireCount: Int64, releaseCount: Int64, hitCount: Int64, missCount: Int64)
+cactor_core.message :: MessagePoolStats.public let acquireCount: Int64
+cactor_core.message :: MessagePoolStats.public let capacity: Int64
+cactor_core.message :: MessagePoolStats.public let hitCount: Int64
+cactor_core.message :: MessagePoolStats.public let missCount: Int64
+cactor_core.message :: MessagePoolStats.public let releaseCount: Int64
+cactor_core.message :: MessagePoolStats.public let size: Int64
+cactor_core.message :: MessageResult.| Escalate
+cactor_core.message :: MessageResult.| Handled
+cactor_core.message :: MessageResult.| Restart
+cactor_core.message :: MessageResult.| Stop
+cactor_core.message :: MessageResult.| Unhandled
+cactor_core.message :: MessageSerializationManager.public func deserialize(data: Array<UInt8>): Message
+cactor_core.message :: MessageSerializationManager.public func getSerializerName(): String
+cactor_core.message :: MessageSerializationManager.public func serialize(message: Message): Array<UInt8>
+cactor_core.message :: MessageSerializationManager.public init()
+cactor_core.message :: MessageSerializer.public func deserialize(data: Array<UInt8>): Message
+cactor_core.message :: MessageSerializer.public func getName(): String
+cactor_core.message :: MessageSerializer.public func serialize(message: Message): Array<UInt8>
+cactor_core.message :: MessageSerializer.public func serialize(message: Message, peerCapabilities: UInt64): Array<UInt8>
+cactor_core.message :: MessageSerializer.public init()
+cactor_core.message :: MessageSerializer.public static func requiredCapabilities(message: Message): UInt64
+cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>)
+cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64)
+cactor_core.message :: NetworkMessage.public let message: Message
+cactor_core.message :: NetworkMessage.public let messageId: String
+cactor_core.message :: NetworkMessage.public let sender: Option<String>
+cactor_core.message :: NetworkMessage.public let targetActor: String
+cactor_core.message :: NetworkMessage.public let timestamp: Int64
+cactor_core.message :: NetworkMessageException.public init(message: String)
+cactor_core.message :: NetworkMessageSerializer.public func deserialize(data: Array<UInt8>): NetworkMessage
+cactor_core.message :: NetworkMessageSerializer.public func serialize(networkMessage: NetworkMessage): Array<UInt8>
+cactor_core.message :: NetworkMessageSerializer.public func serialize(networkMessage: NetworkMessage, peerCapabilities: UInt64): Array<UInt8>
+cactor_core.message :: NetworkMessageSerializer.public init()
+cactor_core.message :: NetworkMessageTransport.public func getLocalAddress(): NetworkAddress
+cactor_core.message :: NetworkMessageTransport.public func isActive(): Bool
+cactor_core.message :: NetworkMessageTransport.public func send(address: NetworkAddress, networkMessage: NetworkMessage): Unit
+cactor_core.message :: NetworkMessageTransport.public func setMessageHandler(handler: (NetworkMessage)->Unit): Unit
+cactor_core.message :: NetworkMessageTransport.public func start(): Unit
+cactor_core.message :: NetworkMessageTransport.public func stop(): Unit
+cactor_core.message :: NetworkMessageTransport.public init(transport: NetworkTransport)
+cactor_core.message :: NetworkMessageTransportFactory.public static func createTcpTransport(localAddress: NetworkAddress): NetworkMessageTransport
+cactor_core.message :: NetworkMessageTransportFactory.public static func createUdpTransport(localAddress: NetworkAddress): NetworkMessageTransport
+cactor_core.message :: PingMessage.public func getId(): Int64
+cactor_core.message :: PingMessage.public func messageType(): String
+cactor_core.message :: PingMessage.public func timestamp(): Int64
+cactor_core.message :: PingMessage.public init(id: Int64)
+cactor_core.message :: PongMessage.public func getOriginalId(): Int64
+cactor_core.message :: PongMessage.public func messageType(): String
+cactor_core.message :: PongMessage.public func timestamp(): Int64
+cactor_core.message :: PongMessage.public init(originalId: Int64)
+cactor_core.message :: RemoteMessageSender.public func sendToRemoteActor(remoteAddress: NetworkAddress, targetActor: String, message: Message, sender: Option<String>): Unit
+cactor_core.message :: RemoteMessageSender.public func start(): Unit
+cactor_core.message :: RemoteMessageSender.public func stop(): Unit
+cactor_core.message :: RemoteMessageSender.public init(transport: NetworkMessageTransport)
+cactor_core.message :: RestartMessage.public func getCause(): Exception
+cactor_core.message :: RestartMessage.public func messageType(): String
+cactor_core.message :: RestartMessage.public init(cause: Exception)
+cactor_core.message :: ResumeMessage.public func messageType(): String
+cactor_core.message :: ResumeMessage.public init()
+cactor_core.message :: SerializationException.public init(message: String)
+cactor_core.message :: StopMessage.public func getReason(): String
+cactor_core.message :: StopMessage.public func messageType(): String
+cactor_core.message :: StopMessage.public init()
+cactor_core.message :: StopMessage.public init(reason: String)
+cactor_core.message :: StringMessage.public func getContent(): String
+cactor_core.message :: StringMessage.public func messageType(): String
+cactor_core.message :: StringMessage.public init(content: String)
+cactor_core.message :: SuspendMessage.public func messageType(): String
+cactor_core.message :: SuspendMessage.public init()
+cactor_core.message :: SystemMessage.func priority(): Int32
+cactor_core.message :: TerminatedMessage.public func getActor(): String
+cactor_core.message :: TerminatedMessage.public func getReason(): String
+cactor_core.message :: TerminatedMessage.public func messageType(): String
+cactor_core.message :: TerminatedMessage.public init(actor: String, reason: String)
+cactor_core.message :: UnsupportedWireFormatException.public init(messageType: String, message: String)
+cactor_core.message :: UnsupportedWireFormatException.public init(messageType: String, message: String, targetActor: Option<String>, senderPath: Option<String>)
+cactor_core.message :: UnsupportedWireFormatException.public let messageType: String
+cactor_core.message :: UnsupportedWireFormatException.public let senderPath: Option<String>
+cactor_core.message :: UnsupportedWireFormatException.public let targetActor: Option<String>
+cactor_core.message :: UserMessage.func priority(): Int32
+cactor_core.message :: WireIncompatibleException.public init(messageType: String, missingCapabilities: UInt64, message: String)
+cactor_core.message :: WireIncompatibleException.public let messageType: String
+cactor_core.message :: WireIncompatibleException.public let missingCapabilities: UInt64
+cactor_core.message :: WireProtocol.public static func describe(caps: UInt64): String
+cactor_core.message :: WireProtocol.public static func supports(caps: UInt64, required: UInt64): Bool
+cactor_core.message :: WireProtocol.public static let CAP_NONE: UInt64
+cactor_core.message :: WireProtocol.public static let CAP_TYPED_CODEC_V3: UInt64
+cactor_core.message :: WireProtocol.public static let CURRENT_VERSION: Int64
+cactor_core.message :: WireProtocol.public static let LEGACY_VERSION: Int64
+cactor_core.message :: WireProtocol.public static let LOCAL_CAPABILITIES: UInt64
+cactor_core.message :: WireProtocol.public static let MIN_SUPPORTED_VERSION: Int64
+cactor_core.message :: ZeroCopyMessageBuilder.public func build(): ZeroCopyMessageImpl
+cactor_core.message :: ZeroCopyMessageBuilder.public func withMessageType(messageType: UInt16): ZeroCopyMessageBuilder
+cactor_core.message :: ZeroCopyMessageBuilder.public func withPayload(payload: Array<UInt8>): ZeroCopyMessageBuilder
+cactor_core.message :: ZeroCopyMessageBuilder.public func withPayloadSize(payloadSize: UInt64): ZeroCopyMessageBuilder
+cactor_core.message :: ZeroCopyMessageBuilder.public func withSource(sourceActor: UInt64): ZeroCopyMessageBuilder
+cactor_core.message :: ZeroCopyMessageBuilder.public func withTarget(targetActor: UInt64): ZeroCopyMessageBuilder
+cactor_core.message :: ZeroCopyMessageBuilder.public init()
+cactor_core.message :: ZeroCopyMessageFactory.public func createBatchMessages(messageType: UInt16, payloadSize: UInt64, sourceActor: UInt64, targetActor: UInt64, batchSize: Int32): Array<ZeroCopyMessageImpl>
+cactor_core.message :: ZeroCopyMessageFactory.public func createEmptyMessage(messageType: UInt16, payloadSize: UInt64, sourceActor: UInt64, targetActor: UInt64): ZeroCopyMessageImpl
+cactor_core.message :: ZeroCopyMessageFactory.public func createMessage(messageType: UInt16, payloadSize: UInt64, sourceActor: UInt64, targetActor: UInt64): ZeroCopyMessageImpl
+cactor_core.message :: ZeroCopyMessageFactory.public func createMessageWithPayload(messageType: UInt16, payloadSize: UInt64, sourceActor: UInt64, targetActor: UInt64, payload: Array<UInt8>): ZeroCopyMessageImpl
+cactor_core.message :: ZeroCopyMessageFactory.public func getCreatedCount(): Int64
+cactor_core.message :: ZeroCopyMessageFactory.public init()
+cactor_core.message :: ZeroCopyMessageImpl.public func getChecksum(): UInt32
+cactor_core.message :: ZeroCopyMessageImpl.public func getMessageId(): UInt64
+cactor_core.message :: ZeroCopyMessageImpl.public func getMessageType(): UInt16
+cactor_core.message :: ZeroCopyMessageImpl.public func getMessageTypeString(): String
+cactor_core.message :: ZeroCopyMessageImpl.public func getPayload(): Option<Array<UInt8>>
+cactor_core.message :: ZeroCopyMessageImpl.public func getPayloadSize(): UInt64
+cactor_core.message :: ZeroCopyMessageImpl.public func getReferenceCount(): Int64
+cactor_core.message :: ZeroCopyMessageImpl.public func getSourceActor(): UInt64
+cactor_core.message :: ZeroCopyMessageImpl.public func getTargetActor(): UInt64
+cactor_core.message :: ZeroCopyMessageImpl.public func isValid(): Bool
+cactor_core.message :: ZeroCopyMessageImpl.public func release(): Unit
+cactor_core.message :: ZeroCopyMessageImpl.public func retain(): Unit
+cactor_core.message :: ZeroCopyMessageImpl.public init(messageType: UInt16, payloadSize: UInt64, sourceActor: UInt64, targetActor: UInt64, payload: Option<Array<UInt8>>)
+cactor_core.message :: public class CRC32
+cactor_core.message :: public class EnhancedMessageFactory
+cactor_core.message :: public class EnhancedZeroCopyMessage
+cactor_core.message :: public class GlobalMessageSerializationManager
+cactor_core.message :: public class HighPerformanceMessagePassing
+cactor_core.message :: public class MessageCodecRegistry
+cactor_core.message :: public class MessageFieldReader
+cactor_core.message :: public class MessageFieldWriter
+cactor_core.message :: public class MessagePool
+cactor_core.message :: public class MessageSerializationManager
+cactor_core.message :: public class MessageSerializer <: Serializer<Message>
+cactor_core.message :: public class NetworkMessageException <: Exception
+cactor_core.message :: public class NetworkMessageSerializer
+cactor_core.message :: public class NetworkMessageTransport
+cactor_core.message :: public class NetworkMessageTransportFactory
+cactor_core.message :: public class RemoteMessageSender
+cactor_core.message :: public class UnsupportedWireFormatException <: DeserializationException
+cactor_core.message :: public class WireIncompatibleException <: SerializationException
+cactor_core.message :: public class WireProtocol
+cactor_core.message :: public class ZeroCopyMessageBuilder
+cactor_core.message :: public class ZeroCopyMessageFactory
+cactor_core.message :: public class ZeroCopyMessageImpl
+cactor_core.message :: public enum MessageResult
+cactor_core.message :: public interface AutoReceivedMessage <: SystemMessage
+cactor_core.message :: public interface Message
+cactor_core.message :: public interface MessageCodec
+cactor_core.message :: public interface SystemMessage <: Message
+cactor_core.message :: public interface UserMessage <: Message
+cactor_core.message :: public open class DeserializationException <: Exception
+cactor_core.message :: public open class SerializationException <: Exception
+cactor_core.message :: public struct DeadLetter <: SystemMessage
+cactor_core.message :: public struct Envelope
+cactor_core.message :: public struct LatencyStats
+cactor_core.message :: public struct MemoryUsageStats
+cactor_core.message :: public struct MessagePoolStats
+cactor_core.message :: public struct NetworkMessage
+cactor_core.message :: public struct PingMessage <: UserMessage
+cactor_core.message :: public struct PongMessage <: UserMessage
+cactor_core.message :: public struct RestartMessage <: AutoReceivedMessage
+cactor_core.message :: public struct ResumeMessage <: SystemMessage
+cactor_core.message :: public struct StopMessage <: AutoReceivedMessage
+cactor_core.message :: public struct StringMessage <: UserMessage
+cactor_core.message :: public struct SuspendMessage <: SystemMessage
+cactor_core.message :: public struct TerminatedMessage <: SystemMessage
+cactor_core.supervision :: AdvancedSupervisionStrategyFactory.public static func createBackoffStrategy(initialDelay: Duration, maxDelay: Duration, maxRetries: Int32): BackoffSupervisionStrategy
+cactor_core.supervision :: AdvancedSupervisionStrategyFactory.public static func createCircuitBreakerStrategy(failureThreshold: Int32, timeWindow: Duration): OldCircuitBreakerSupervisionStrategy
+cactor_core.supervision :: AdvancedSupervisionStrategyFactory.public static func createExceptionBasedStrategy(): OneForOneStrategy
+cactor_core.supervision :: AdvancedSupervisionStrategyFactory.public static func createFailFastStrategy(): OneForOneStrategy
+cactor_core.supervision :: AdvancedSupervisionStrategyFactory.public static func createNeverGiveUpStrategy(): OneForOneStrategy
+cactor_core.supervision :: AdvancedSupervisor.public func addChild(child: ActorRef): Unit
+cactor_core.supervision :: AdvancedSupervisor.public func getChildren(): Array<ActorRef>
+cactor_core.supervision :: AdvancedSupervisor.public func getFailureHistory(): Array<ActorFailure>
+cactor_core.supervision :: AdvancedSupervisor.public func getSupervisionMetrics(): SupervisionMetrics
+cactor_core.supervision :: AdvancedSupervisor.public func getSupervisionStrategy(): SupervisionStrategy
+cactor_core.supervision :: AdvancedSupervisor.public func handleFailure(failure: ActorFailure): Unit
+cactor_core.supervision :: AdvancedSupervisor.public func removeChild(child: ActorRef): Unit
+cactor_core.supervision :: AdvancedSupervisor.public init(strategy: SupervisionStrategy, maxHistorySize: Int32)
+cactor_core.supervision :: BackoffDecision.| GiveUp
+cactor_core.supervision :: BackoffDecision.| RestartIn(Duration, BackoffState)
+cactor_core.supervision :: BackoffPolicy.public func delayFor(restartCount: Int64, rnd: Float64): Duration
+cactor_core.supervision :: BackoffPolicy.public func next(prev: Option<BackoffState>, now: MonoTime, rnd: Float64, restartedAt!: Option<MonoTime>= None): BackoffDecision
+cactor_core.supervision :: BackoffPolicy.public func next(prev: Option<BackoffState>, restartedAt!: Option<MonoTime>= None): BackoffDecision
+cactor_core.supervision :: BackoffPolicy.public func toString(): String
+cactor_core.supervision :: BackoffPolicy.public func withMaxRestarts(n: Int64): BackoffPolicy
+cactor_core.supervision :: BackoffPolicy.public func withResetBackoffAfter(d: Duration): BackoffPolicy
+cactor_core.supervision :: BackoffPolicy.public init(minBackoff: Duration, maxBackoff: Duration, randomFactor!: Float64 = 0.2, maxRestarts!: Int64 = -1, resetBackoffAfter!: Option<Duration>= None)
+cactor_core.supervision :: BackoffPolicy.public let maxBackoff: Duration
+cactor_core.supervision :: BackoffPolicy.public let maxRestarts: Int64
+cactor_core.supervision :: BackoffPolicy.public let minBackoff: Duration
+cactor_core.supervision :: BackoffPolicy.public let randomFactor: Float64
+cactor_core.supervision :: BackoffPolicy.public let resetBackoffAfter: Duration
+cactor_core.supervision :: BackoffState.public init(restarts: Int64, restartAt: MonoTime)
+cactor_core.supervision :: BackoffState.public let restartAt: MonoTime
+cactor_core.supervision :: BackoffState.public let restarts: Int64
+cactor_core.supervision :: BackoffSupervisionStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: BackoffSupervisionStrategy.public func resetBackoff(actor: ActorRef): Unit
+cactor_core.supervision :: BackoffSupervisionStrategy.public func resetBackoff(actorPath: String): Unit
+cactor_core.supervision :: BackoffSupervisionStrategy.public func trackedActors(): Int64
+cactor_core.supervision :: BackoffSupervisionStrategy.public init(initialDelay: Duration, maxDelay: Duration, maxRetries: Int32)
+cactor_core.supervision :: BackoffSupervisionStrategy.public init(policy: BackoffPolicy)
+cactor_core.supervision :: BackoffSupervisionStrategy.public init(policy: BackoffPolicy, decider: (Exception)->SupervisionDirective)
+cactor_core.supervision :: BackoffSupervisionStrategy.public let policy: BackoffPolicy
+cactor_core.supervision :: BackoffSupervisionStrategy.public static func defaultDecider(e: Exception): SupervisionDirective
+cactor_core.supervision :: BackoffSupervisorStrategy.public func calculateBackoffTime(retryCount: Int64): Duration
+cactor_core.supervision :: BackoffSupervisorStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: BackoffSupervisorStrategy.public func getBackoffStats(): String
+cactor_core.supervision :: BackoffSupervisorStrategy.public func getMaxRetries(): Int64
+cactor_core.supervision :: BackoffSupervisorStrategy.public func resetBackoffInfo(actorKey: String): Unit
+cactor_core.supervision :: BackoffSupervisorStrategy.public init(minBackoff: Duration, maxBackoff: Duration)
+cactor_core.supervision :: BackoffSupervisorStrategy.public init(minBackoff: Duration, maxBackoff: Duration, randomFactor: Float64, maxRetries: Int64)
+cactor_core.supervision :: BasicSupervisor.public func addChild(child: ActorRef): Unit
+cactor_core.supervision :: BasicSupervisor.public func getChildren(): Array<ActorRef>
+cactor_core.supervision :: BasicSupervisor.public func getFailureCount(): Int64
+cactor_core.supervision :: BasicSupervisor.public func getSupervisionStrategy(): SupervisionStrategy
+cactor_core.supervision :: BasicSupervisor.public func handleFailure(failure: ActorFailure): Unit
+cactor_core.supervision :: BasicSupervisor.public func removeChild(child: ActorRef): Unit
+cactor_core.supervision :: BasicSupervisor.public init(strategy: SupervisionStrategy)
+cactor_core.supervision :: CircuitBreakerSupervisionConfig.public init(failureThreshold: Int32, successThreshold: Int32, callTimeout: Duration, resetTimeout: Duration)
+cactor_core.supervision :: CircuitBreakerSupervisionConfig.public let callTimeout: Duration
+cactor_core.supervision :: CircuitBreakerSupervisionConfig.public let failureThreshold: Int32
+cactor_core.supervision :: CircuitBreakerSupervisionConfig.public let resetTimeout: Duration
+cactor_core.supervision :: CircuitBreakerSupervisionConfig.public let successThreshold: Int32
+cactor_core.supervision :: CircuitBreakerSupervisionConfig.public static func createDefault(): CircuitBreakerSupervisionConfig
+cactor_core.supervision :: CircuitBreakerSupervisionConfig.public static func createFastFail(): CircuitBreakerSupervisionConfig
+cactor_core.supervision :: CircuitBreakerSupervisionFactory.public static func createDefault(): CircuitBreakerSupervisionStrategy
+cactor_core.supervision :: CircuitBreakerSupervisionFactory.public static func createOneForAllWithCircuitBreaker(maxRetries: Int32, withinTimeRange: Duration, decider: (Exception)->SupervisionDirective, circuitBreakerConfig: CircuitBreakerSupervisionConfig): CircuitBreakerSupervisionStrategy
+cactor_core.supervision :: CircuitBreakerSupervisionFactory.public static func createOneForOneWithCircuitBreaker(maxRetries: Int32, withinTimeRange: Duration, decider: (Exception)->SupervisionDirective, circuitBreakerConfig: CircuitBreakerSupervisionConfig): CircuitBreakerSupervisionStrategy
+cactor_core.supervision :: CircuitBreakerSupervisionStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: CircuitBreakerSupervisionStrategy.public func getCircuitBreakerState(actor: ActorRef): Option<CircuitBreakerState>
+cactor_core.supervision :: CircuitBreakerSupervisionStrategy.public func recordSuccess(actor: ActorRef): Unit
+cactor_core.supervision :: CircuitBreakerSupervisionStrategy.public func resetCircuitBreaker(actor: ActorRef): Unit
+cactor_core.supervision :: CircuitBreakerSupervisionStrategy.public init(baseStrategy: SupervisionStrategy, config: CircuitBreakerSupervisionConfig)
+cactor_core.supervision :: CircuitState.| Closed
+cactor_core.supervision :: CircuitState.| HalfOpen
+cactor_core.supervision :: CircuitState.| Open
+cactor_core.supervision :: DefaultSupervisionStrategy.public static func defaultDecider(exception: Exception): SupervisionDirective
+cactor_core.supervision :: DefaultSupervisionStrategy.public static func oneForAll(): OneForAllStrategy
+cactor_core.supervision :: DefaultSupervisionStrategy.public static func oneForOne(): OneForOneStrategy
+cactor_core.supervision :: DefaultSupervisionStrategy.public static func restartAlways(): OneForOneStrategy
+cactor_core.supervision :: DefaultSupervisionStrategy.public static func resumingStrategy(): OneForOneStrategy
+cactor_core.supervision :: DefaultSupervisionStrategy.public static func stoppingStrategy(): OneForOneStrategy
+cactor_core.supervision :: EscalateStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: EscalateStrategy.public func getEscalateStats(): String
+cactor_core.supervision :: EscalateStrategy.public func resetEscalateHistory(actorKey: String): Unit
+cactor_core.supervision :: EscalateStrategy.public init()
+cactor_core.supervision :: EscalateStrategy.public init(threshold: Int64, timeWindow: Duration)
+cactor_core.supervision :: EscalationConfig.public func shouldEscalateException(exception: Exception): Bool
+cactor_core.supervision :: EscalationConfig.public init(failureThreshold: Int64, maxEscalations: Int64, escalationCooldown: Duration, escalationDecider: (Exception)->Bool)
+cactor_core.supervision :: EscalationConfig.public let escalationCooldown: Duration
+cactor_core.supervision :: EscalationConfig.public let escalationDecider: (Exception)->Bool
+cactor_core.supervision :: EscalationConfig.public let failureThreshold: Int64
+cactor_core.supervision :: EscalationConfig.public let maxEscalations: Int64
+cactor_core.supervision :: EscalationConfig.public static func createDefault(): EscalationConfig
+cactor_core.supervision :: EscalationConfig.public static func createStrict(): EscalationConfig
+cactor_core.supervision :: EscalationConfig.public static func defaultEscalationDecider(exception: Exception): Bool
+cactor_core.supervision :: EscalationConfig.public static func strictEscalationDecider(exception: Exception): Bool
+cactor_core.supervision :: EscalationInfo.public func getEscalationCount(): Int64
+cactor_core.supervision :: EscalationInfo.public func getFailureCount(): Int64
+cactor_core.supervision :: EscalationInfo.public func getStats(): EscalationStats
+cactor_core.supervision :: EscalationInfo.public func getTimeSinceLastEscalation(): Int64
+cactor_core.supervision :: EscalationInfo.public func recordEscalation(): Unit
+cactor_core.supervision :: EscalationInfo.public func recordFailure(failure: ActorFailure): Unit
+cactor_core.supervision :: EscalationInfo.public func reset(): Unit
+cactor_core.supervision :: EscalationInfo.public init(actor: ActorRef)
+cactor_core.supervision :: EscalationStats.public init(actor: ActorRef, failureCount: Int64, escalationCount: Int64, lastEscalationTime: Int64, firstFailureTime: Int64)
+cactor_core.supervision :: EscalationStats.public let actor: ActorRef
+cactor_core.supervision :: EscalationStats.public let escalationCount: Int64
+cactor_core.supervision :: EscalationStats.public let failureCount: Int64
+cactor_core.supervision :: EscalationStats.public let firstFailureTime: Int64
+cactor_core.supervision :: EscalationStats.public let lastEscalationTime: Int64
+cactor_core.supervision :: EscalationSupervisionFactory.public static func createDefault(): EscalationSupervisionStrategy
+cactor_core.supervision :: EscalationSupervisionFactory.public static func createOneForOneWithEscalation(maxRetries: Int32, withinTimeRange: Duration, decider: (Exception)->SupervisionDirective, escalationConfig: EscalationConfig): EscalationSupervisionStrategy
+cactor_core.supervision :: EscalationSupervisionStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: EscalationSupervisionStrategy.public func getEscalationStats(actor: ActorRef): Option<EscalationStats>
+cactor_core.supervision :: EscalationSupervisionStrategy.public func resetEscalation(actor: ActorRef): Unit
+cactor_core.supervision :: EscalationSupervisionStrategy.public init(baseStrategy: SupervisionStrategy, escalationConfig: EscalationConfig)
+cactor_core.supervision :: OldCircuitBreakerSupervisionStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: OldCircuitBreakerSupervisionStrategy.public func resetCircuit(actor: ActorRef): Unit
+cactor_core.supervision :: OldCircuitBreakerSupervisionStrategy.public init(failureThreshold: Int32, timeWindow: Duration)
+cactor_core.supervision :: OneForAllStrategy.public func appliesToAllChildren(): Bool
+cactor_core.supervision :: OneForAllStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: OneForAllStrategy.public func resetRetryInfo(): Unit
+cactor_core.supervision :: OneForAllStrategy.public init(maxRetries: Int32, withinTimeRange: Duration, decider: (Exception)->SupervisionDirective)
+cactor_core.supervision :: OneForOneStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: OneForOneStrategy.public func resetRetryInfo(actor: ActorRef): Unit
+cactor_core.supervision :: OneForOneStrategy.public init(maxRetries: Int32, withinTimeRange: Duration, decider: (Exception)->SupervisionDirective)
+cactor_core.supervision :: RestForOneStrategy.public func appliesToAllChildren(): Bool
+cactor_core.supervision :: RestForOneStrategy.public func decide(failure: ActorFailure): SupervisionDirective
+cactor_core.supervision :: RestForOneStrategy.public func resetRetryInfo(actor: ActorRef): Unit
+cactor_core.supervision :: RestForOneStrategy.public func restForOne(): Bool
+cactor_core.supervision :: RestForOneStrategy.public init(maxRetries: Int32, withinTimeRange: Duration, decider: (Exception)->SupervisionDirective)
+cactor_core.supervision :: RetryInfo.public func getRetryCount(): Int64
+cactor_core.supervision :: RetryInfo.public func recordRetry(): Unit
+cactor_core.supervision :: RetryInfo.public func reset(): Unit
+cactor_core.supervision :: RetryInfo.public func shouldRetry(maxRetries: Int32, withinTimeRange: Duration): Bool
+cactor_core.supervision :: RetryInfo.public init()
+cactor_core.supervision :: SupervisionMetrics.public func getEscalateCount(): Int64
+cactor_core.supervision :: SupervisionMetrics.public func getFailureRate(): Float64
+cactor_core.supervision :: SupervisionMetrics.public func getMetricsSummary(): String
+cactor_core.supervision :: SupervisionMetrics.public func getRestartCount(): Int64
+cactor_core.supervision :: SupervisionMetrics.public func getResumeCount(): Int64
+cactor_core.supervision :: SupervisionMetrics.public func getStopCount(): Int64
+cactor_core.supervision :: SupervisionMetrics.public func getTotalFailures(): Int64
+cactor_core.supervision :: SupervisionMetrics.public func recordDirective(directive: SupervisionDirective): Unit
+cactor_core.supervision :: SupervisionMetrics.public func recordFailure(failure: ActorFailure): Unit
+cactor_core.supervision :: SupervisionMetrics.public init()
+cactor_core.supervision :: Supervisor.func addChild(child: ActorRef): Unit
+cactor_core.supervision :: Supervisor.func getChildren(): Array<ActorRef>
+cactor_core.supervision :: Supervisor.func getSupervisionStrategy(): SupervisionStrategy
+cactor_core.supervision :: Supervisor.func handleFailure(failure: ActorFailure): Unit
+cactor_core.supervision :: Supervisor.func removeChild(child: ActorRef): Unit
+cactor_core.supervision :: public class AdvancedSupervisionStrategyFactory
+cactor_core.supervision :: public class AdvancedSupervisor <: Supervisor
+cactor_core.supervision :: public class BackoffSupervisionStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class BackoffSupervisorStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class BasicSupervisor <: Supervisor
+cactor_core.supervision :: public class CircuitBreakerSupervisionStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class EscalateStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class EscalationInfo
+cactor_core.supervision :: public class EscalationSupervisionStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class OldCircuitBreakerSupervisionStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class OneForAllStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class OneForOneStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class RestForOneStrategy <: SupervisionStrategy
+cactor_core.supervision :: public class RetryInfo
+cactor_core.supervision :: public class SupervisionMetrics
+cactor_core.supervision :: public enum BackoffDecision
+cactor_core.supervision :: public enum CircuitState
+cactor_core.supervision :: public interface Supervisor
+cactor_core.supervision :: public struct BackoffPolicy <: ToString
+cactor_core.supervision :: public struct BackoffState
+cactor_core.supervision :: public struct CircuitBreakerSupervisionConfig
+cactor_core.supervision :: public struct CircuitBreakerSupervisionFactory
+cactor_core.supervision :: public struct DefaultSupervisionStrategy
+cactor_core.supervision :: public struct EscalationConfig
+cactor_core.supervision :: public struct EscalationStats
+cactor_core.supervision :: public struct EscalationSupervisionFactory
+cactor_core.system :: ActorSelection.func ask(message: Message): SimpleFuture<Message>
+cactor_core.system :: ActorSelection.func resolveOne(): SimpleFuture<ActorRef>
+cactor_core.system :: ActorSelection.func tell(message: Message): Unit
+cactor_core.system :: ActorSystem.func actorOf(props: Props<Actor>): ActorRef
+cactor_core.system :: ActorSystem.func actorOf(props: Props<Actor>, name: String): ActorRef
+cactor_core.system :: ActorSystem.func actorSelection(path: String): ActorSelection
+cactor_core.system :: ActorSystem.func terminate(): Unit
+cactor_core.system :: ActorSystem.prop name: String
+cactor_core.system :: ActorSystemConfig.public init(dispatchers: DispatcherConfig, mailboxes: MailboxConfig, supervision: SupervisionConfig, monitoring: MonitoringConfig, clustering: ClusterConfig)
+cactor_core.system :: ActorSystemConfig.public let clustering: ClusterConfig
+cactor_core.system :: ActorSystemConfig.public let dispatchers: DispatcherConfig
+cactor_core.system :: ActorSystemConfig.public let mailboxes: MailboxConfig
+cactor_core.system :: ActorSystemConfig.public let monitoring: MonitoringConfig
+cactor_core.system :: ActorSystemConfig.public let supervision: SupervisionConfig
+cactor_core.system :: ActorSystemConfig.public static func default(): ActorSystemConfig
+cactor_core.system :: ActorSystemExtension.func getName(): String
+cactor_core.system :: ActorSystemExtension.func getVersion(): String
+cactor_core.system :: ActorSystemExtension.func initialize(system: ActorSystem): Unit
+cactor_core.system :: ActorSystemExtension.func shutdown(): Unit
+cactor_core.system :: ActorSystemMetrics.func getActorCount(): Int64
+cactor_core.system :: ActorSystemMetrics.func getAverageMessageLatency(): Duration
+cactor_core.system :: ActorSystemMetrics.func getDispatcherUtilization(): HashMap<String, Float64>
+cactor_core.system :: ActorSystemMetrics.func getErrorCount(): Int64
+cactor_core.system :: ActorSystemMetrics.func getMailboxSizes(): HashMap<String, Int64>
+cactor_core.system :: ActorSystemMetrics.func getMemoryUsage(): Int64
+cactor_core.system :: ActorSystemMetrics.func getMessageThroughput(): Float64
+cactor_core.system :: Cancellable.func cancel(): Bool
+cactor_core.system :: Cancellable.func isCancelled(): Bool
+cactor_core.system :: ClusterConfig.public init(enabled: Bool, seedNodes: Array<String>, port: Int32)
+cactor_core.system :: ClusterConfig.public let enabled: Bool
+cactor_core.system :: ClusterConfig.public let port: Int32
+cactor_core.system :: ClusterConfig.public let seedNodes: Array<String>
+cactor_core.system :: ClusterConfig.public static func default(): ClusterConfig
+cactor_core.system :: DispatcherConfig.public init(defaultDispatcher: String, parallelism: Int32, throughput: Int32, dispatcherTypes: HashMap<String, String>)
+cactor_core.system :: DispatcherConfig.public let defaultDispatcher: String
+cactor_core.system :: DispatcherConfig.public let dispatcherTypes: HashMap<String, String>
+cactor_core.system :: DispatcherConfig.public let parallelism: Int32
+cactor_core.system :: DispatcherConfig.public let throughput: Int32
+cactor_core.system :: DispatcherConfig.public static func default(): DispatcherConfig
+cactor_core.system :: EnterpriseActorSystem.func getConfig(): ActorSystemConfig
+cactor_core.system :: EnterpriseActorSystem.func getEventBus(): EventBus
+cactor_core.system :: EnterpriseActorSystem.func getExtension(extensionName: String): Option<ActorSystemExtension>
+cactor_core.system :: EnterpriseActorSystem.func getMetrics(): ActorSystemMetrics
+cactor_core.system :: EnterpriseActorSystem.func getStartTime(): DateTime
+cactor_core.system :: EnterpriseActorSystem.func getSystemGuardian(): ActorRef
+cactor_core.system :: EnterpriseActorSystem.func getUptime(): Duration
+cactor_core.system :: EnterpriseActorSystem.func getUserGuardian(): ActorRef
+cactor_core.system :: EnterpriseActorSystem.func registerExtension(extension: ActorSystemExtension): Unit
+cactor_core.system :: EnterpriseActorSystem.func terminate(timeout: Duration): SimpleFuture<Unit>
+cactor_core.system :: EnterpriseActorSystem.func updateConfig(config: ActorSystemConfig): Unit
+cactor_core.system :: EnterpriseActorSystem.func whenTerminated(): SimpleFuture<Unit>
+cactor_core.system :: Event.func getEventData(): String
+cactor_core.system :: Event.func getEventType(): String
+cactor_core.system :: Event.func getTimestamp(): DateTime
+cactor_core.system :: EventBus.func getSubscriberCount(topic: String): Int64
+cactor_core.system :: EventBus.func publish(event: Event): Unit
+cactor_core.system :: EventBus.func subscribe(subscriber: ActorRef, topic: String): Unit
+cactor_core.system :: EventBus.func unsubscribe(subscriber: ActorRef, topic: String): Unit
+cactor_core.system :: MailboxConfig.public init(defaultMailbox: String, mailboxTypes: HashMap<String, String>, capacities: HashMap<String, Int64>)
+cactor_core.system :: MailboxConfig.public let capacities: HashMap<String, Int64>
+cactor_core.system :: MailboxConfig.public let defaultMailbox: String
+cactor_core.system :: MailboxConfig.public let mailboxTypes: HashMap<String, String>
+cactor_core.system :: MailboxConfig.public static func default(): MailboxConfig
+cactor_core.system :: MonitoringConfig.public init(enabled: Bool, metricsInterval: Duration, prometheusEnabled: Bool, prometheusPort: Int32)
+cactor_core.system :: MonitoringConfig.public let enabled: Bool
+cactor_core.system :: MonitoringConfig.public let metricsInterval: Duration
+cactor_core.system :: MonitoringConfig.public let prometheusEnabled: Bool
+cactor_core.system :: MonitoringConfig.public let prometheusPort: Int32
+cactor_core.system :: MonitoringConfig.public static func default(): MonitoringConfig
+cactor_core.system :: Scheduler.func shutdown(): Unit
+cactor_core.system :: SimpleCancellable.public func cancel(): Bool
+cactor_core.system :: SimpleCancellable.public func isCancelled(): Bool
+cactor_core.system :: SimpleCancellable.public init()
+cactor_core.system :: SimpleFuture.func get(): T
+cactor_core.system :: SimpleFuture.func isCompleted(): Bool
+cactor_core.system :: SupervisionConfig.public init(defaultStrategy: String, maxRetries: Int32, withinTimeRange: Duration)
+cactor_core.system :: SupervisionConfig.public let defaultStrategy: String
+cactor_core.system :: SupervisionConfig.public let maxRetries: Int32
+cactor_core.system :: SupervisionConfig.public let withinTimeRange: Duration
+cactor_core.system :: SupervisionConfig.public static func default(): SupervisionConfig
+cactor_core.system :: public class SimpleCancellable <: Cancellable
+cactor_core.system :: public interface ActorSelection
+cactor_core.system :: public interface ActorSystem
+cactor_core.system :: public interface ActorSystemExtension
+cactor_core.system :: public interface ActorSystemMetrics
+cactor_core.system :: public interface Cancellable
+cactor_core.system :: public interface EnterpriseActorSystem <: ActorSystem
+cactor_core.system :: public interface Event
+cactor_core.system :: public interface EventBus
+cactor_core.system :: public interface Scheduler
+cactor_core.system :: public interface SimpleFuture<T>
+cactor_core.system :: public struct ActorSystemConfig
+cactor_core.system :: public struct ClusterConfig
+cactor_core.system :: public struct DispatcherConfig
+cactor_core.system :: public struct MailboxConfig
+cactor_core.system :: public struct MonitoringConfig
+cactor_core.system :: public struct SupervisionConfig
+cactor_core.typed :: AskCancellationToken.public func cancel(): Bool
+cactor_core.typed :: AskCancellationToken.public func isCancellationRequested(): Bool
+cactor_core.typed :: AskCancellationToken.public init()
+cactor_core.typed :: AskOutcome.public func failure(): Option<Exception>
+cactor_core.typed :: AskOutcome.public func isReplied(): Bool
+cactor_core.typed :: AskOutcome.public func toOption(): Option<T>
+cactor_core.typed :: AskOutcome.| Failed(Exception)
+cactor_core.typed :: AskOutcome.| Replied(T)
+cactor_core.typed :: BehaviorInterceptor.func aroundReceive(ctx: TypedActorContext<T>, message: T, target: (T)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: BehaviorInterceptor.func aroundSignal(ctx: TypedActorContext<T>, signal: TypedSignal, target: (TypedSignal)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: ChildFailed.public func signalName(): String
+cactor_core.typed :: ChildFailed.public init(ref: ActorRef, cause: Exception)
+cactor_core.typed :: ChildFailed.public let cause: Exception
+cactor_core.typed :: ChildFailed.public let ref: ActorRef
+cactor_core.typed :: ClassicTypedRef.public func equals(other: TypedActorRef<T>): Bool
+cactor_core.typed :: ClassicTypedRef.public func pathString(): String
+cactor_core.typed :: ClassicTypedRef.public func tell(message: T): Unit
+cactor_core.typed :: ClassicTypedRef.public func tell(message: T, sender: ActorRef): Unit
+cactor_core.typed :: ClassicTypedRef.public func toClassic(): Option<ActorRef>
+cactor_core.typed :: ClassicTypedRef.public func toString(): String
+cactor_core.typed :: ClassicTypedRef.public func typeExpectation(): Option<TypedTypeTag>
+cactor_core.typed :: ClassicTypedRef.public init(classic: ActorRef, typeTag!: Option<TypedTypeTag>= None<TypedTypeTag>)
+cactor_core.typed :: ClassicTypedRef.public let classic: ActorRef
+cactor_core.typed :: ClassicTypedRef.public let typeTag: Option<TypedTypeTag>
+cactor_core.typed :: FunctionInterceptor.public func aroundReceive(ctx: TypedActorContext<T>, message: T, target: (T)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: FunctionInterceptor.public init(f: (TypedActorContext<T>, T, (T)->TypedBehavior<T>)->TypedBehavior<T>)
+cactor_core.typed :: Listing.public func isEmpty(): Bool
+cactor_core.typed :: Listing.public func size(): Int64
+cactor_core.typed :: Listing.public init(key: ServiceKey<T>, services: Array<TypedActorRef<T>>)
+cactor_core.typed :: Listing.public let key: ServiceKey<T>
+cactor_core.typed :: Listing.public let services: Array<TypedActorRef<T>>
+cactor_core.typed :: PayloadCarrier.func anyPayload(): Any
+cactor_core.typed :: PostStop.public func signalName(): String
+cactor_core.typed :: PostStop.public init()
+cactor_core.typed :: PreRestart.public func signalName(): String
+cactor_core.typed :: PreRestart.public init(cause: Exception)
+cactor_core.typed :: PreRestart.public let cause: Exception
+cactor_core.typed :: PromiseActorRef.public func equals(other: ActorRef): Bool
+cactor_core.typed :: PromiseActorRef.public func fail(cause: Exception): Bool
+cactor_core.typed :: PromiseActorRef.public func hashCode(): Int32
+cactor_core.typed :: PromiseActorRef.public func isTerminated(): Bool
+cactor_core.typed :: PromiseActorRef.public func onComplete(callback: ()->Unit): Unit
+cactor_core.typed :: PromiseActorRef.public func tell(message: Message): Unit
+cactor_core.typed :: PromiseActorRef.public func tell(message: Message, sender: Option<String>): Unit
+cactor_core.typed :: PromiseActorRef.public init(promise: TypedPromise<Any>, path: String)
+cactor_core.typed :: PromiseActorRef.public prop path: ActorPath
+cactor_core.typed :: PromiseRef.public func equals(other: TypedActorRef<T>): Bool
+cactor_core.typed :: PromiseRef.public func pathString(): String
+cactor_core.typed :: PromiseRef.public func tell(message: T): Unit
+cactor_core.typed :: PromiseRef.public init(promise: TypedPromise<T>, path: String)
+cactor_core.typed :: Receptionist.public func deregister<T>(key: ServiceKey<T>, ref: TypedActorRef<T>): Unit
+cactor_core.typed :: Receptionist.public func find<T>(key: ServiceKey<T>): Listing<T>
+cactor_core.typed :: Receptionist.public func register<T>(key: ServiceKey<T>, ref: TypedActorRef<T>): Unit
+cactor_core.typed :: Receptionist.public func size(): Int64
+cactor_core.typed :: Receptionist.public func subscribe<T>(key: ServiceKey<T>, callback: (Listing<T>)->Unit): ReceptionistSubscription
+cactor_core.typed :: Receptionist.public func subscribe<T>(key: ServiceKey<T>, subscriber: TypedActorRef<Listing<T>>): ReceptionistSubscription
+cactor_core.typed :: Receptionist.public func subscriberCount<T>(key: ServiceKey<T>): Int64
+cactor_core.typed :: Receptionist.public func unsubscribe(subscription: ReceptionistSubscription): Bool
+cactor_core.typed :: Receptionist.public init(spawnWatcher: Option<(()->Actor)->ActorRef>)
+cactor_core.typed :: ServiceKey.public func toString(): String
+cactor_core.typed :: ServiceKey.public init(id: String, protocolTypeName!: Option<String>= None<String>)
+cactor_core.typed :: ServiceKey.public let id: String
+cactor_core.typed :: ServiceKey.public let protocolTypeName: Option<String>
+cactor_core.typed :: SimpleTypedActorSelection.public func pathString(): String
+cactor_core.typed :: SimpleTypedActorSelection.public func resolveOne(timeout: Duration): Option<TypedActorRef<T>>
+cactor_core.typed :: SimpleTypedActorSelection.public func tell(message: T): Unit
+cactor_core.typed :: SimpleTypedActorSelection.public init(path: String, candidates: Array<TypedActorRef<T>>)
+cactor_core.typed :: StashOverflowException.public init(message: String)
+cactor_core.typed :: SupervisedBehavior.public func getDescription(): String
+cactor_core.typed :: SupervisedBehavior.public func onFailure(predicate: (Exception)->Bool, strategy: TypedSupervisorStrategy): SupervisedBehavior<T>
+cactor_core.typed :: SupervisedBehavior.public func onFailure(strategy: TypedSupervisorStrategy): SupervisedBehavior<T>
+cactor_core.typed :: SupervisedBehavior.public func onFailureOf<E>(strategy: TypedSupervisorStrategy): SupervisedBehavior<T>where E <: Exception
+cactor_core.typed :: SupervisedBehavior.public func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T>
+cactor_core.typed :: SupervisedBehavior.public func onSignal(signal: TypedSignal, context: TypedActorContext<T>): TypedBehavior<T>
+cactor_core.typed :: SupervisedBehavior.public override func carriedHooks(): Option<TypedHooks>
+cactor_core.typed :: TypeExpectationCarrier.func typeExpectation(): Option<TypedTypeTag>
+cactor_core.typed :: TypedActorContext.func actorOf<U>(behavior: TypedBehavior<U>): TypedActorRef<U>
+cactor_core.typed :: TypedActorContext.func actorOf<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U>
+cactor_core.typed :: TypedActorContext.func actorOf<U>(behavior: TypedBehavior<U>, name: String, props: TypedProps): TypedActorRef<U>
+cactor_core.typed :: TypedActorContext.func actorOfWithHooks<U>(behavior: TypedBehavior<U>, name: Option<String>, props: TypedProps): TypedActorRef<U>
+cactor_core.typed :: TypedActorContext.func ask<Req, Res>(target: TypedActorRef<Req>, createRequest: (TypedActorRef<Res>)->Req, timeout: Duration, mapResponse: (AskOutcome<Res>)->T): Unit
+cactor_core.typed :: TypedActorContext.func askMessage(target: TypedActorRef<Any>, message: Any): TypedFuture<Any>
+cactor_core.typed :: TypedActorContext.func askMessage(target: TypedActorRef<Any>, message: Any, timeout: Duration): TypedFuture<Any>
+cactor_core.typed :: TypedActorContext.func cancelReceiveTimeout(): Unit
+cactor_core.typed :: TypedActorContext.func child(name: String): Option<TypedActorRef<Any>>
+cactor_core.typed :: TypedActorContext.func childAs<U>(name: String): Option<TypedActorRef<U>>
+cactor_core.typed :: TypedActorContext.func children(): Array<TypedActorRef<Any>>
+cactor_core.typed :: TypedActorContext.func log(): TypedLogger
+cactor_core.typed :: TypedActorContext.func messageAdapter<U>(f: (U)->T): TypedActorRef<U>
+cactor_core.typed :: TypedActorContext.func pipeSignalToSelf<V>(future: TypedFuture<V>, map: (AskOutcome<V>)->TypedSignal): Unit
+cactor_core.typed :: TypedActorContext.func pipeToSelf<V>(future: TypedFuture<V>, map: (AskOutcome<V>)->T): Unit
+cactor_core.typed :: TypedActorContext.func same(): TypedBehavior<T>
+cactor_core.typed :: TypedActorContext.func scheduleOnce<U>(delay: Duration, target: TypedActorRef<U>, message: U): TypedCancellable
+cactor_core.typed :: TypedActorContext.func scheduler(): TypedScheduler
+cactor_core.typed :: TypedActorContext.func sender(): Option<String>
+cactor_core.typed :: TypedActorContext.func setReceiveTimeout(timeout: Duration, message: T): Unit
+cactor_core.typed :: TypedActorContext.func spawnAnonymousChild(behavior: TypedBehavior<Any>): TypedActorRef<Any>
+cactor_core.typed :: TypedActorContext.func spawnChild(behavior: TypedBehavior<Any>, name: String): TypedActorRef<Any>
+cactor_core.typed :: TypedActorContext.func stop<U>(child: TypedActorRef<U>): Unit
+cactor_core.typed :: TypedActorContext.func stopChild(child: TypedActorRef<Any>): Unit
+cactor_core.typed :: TypedActorContext.func stopSelf(): Unit
+cactor_core.typed :: TypedActorContext.func system(): TypedActorSystem
+cactor_core.typed :: TypedActorContext.func toClassic(): Option<ActorContext>
+cactor_core.typed :: TypedActorContext.func unwatch<U>(other: TypedActorRef<U>): Unit
+cactor_core.typed :: TypedActorContext.func unwatchActor(other: TypedActorRef<Any>): Unit
+cactor_core.typed :: TypedActorContext.func watch<U>(other: TypedActorRef<U>): Unit
+cactor_core.typed :: TypedActorContext.func watchActor(other: TypedActorRef<Any>): Unit
+cactor_core.typed :: TypedActorContext.func watchWith<U>(other: TypedActorRef<U>, message: T): Unit
+cactor_core.typed :: TypedActorContext.prop self: TypedActorRef<T>
+cactor_core.typed :: TypedActorContext.prop timers: TypedTimerScheduler<T>
+cactor_core.typed :: TypedActorRef.func equals(other: TypedActorRef<T>): Bool
+cactor_core.typed :: TypedActorRef.func pathString(): String
+cactor_core.typed :: TypedActorRef.func tell(message: T): Unit
+cactor_core.typed :: TypedActorRef.func toClassic(): Option<ActorRef>
+cactor_core.typed :: TypedActorRef.operator func<<(message: T): TypedActorRef<T>
+cactor_core.typed :: TypedActorRefs.public static func equals<T>(a: TypedActorRef<T>, b: TypedActorRef<T>): Bool
+cactor_core.typed :: TypedActorSelection.func pathString(): String
+cactor_core.typed :: TypedActorSelection.func resolveOne(timeout: Duration): Option<TypedActorRef<T>>
+cactor_core.typed :: TypedActorSelection.func tell(message: T): Unit
+cactor_core.typed :: TypedActorSystem.func actorOf<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U>
+cactor_core.typed :: TypedActorSystem.func actorSelection(path: String): TypedActorSelection<Any>
+cactor_core.typed :: TypedActorSystem.func createActor(behavior: TypedBehavior<Any>, name: String): TypedActorRef<Any>
+cactor_core.typed :: TypedActorSystem.func isTerminated(): Bool
+cactor_core.typed :: TypedActorSystem.func receptionist(): Receptionist
+cactor_core.typed :: TypedActorSystem.func startTime(): Int64
+cactor_core.typed :: TypedActorSystem.func terminate(): Bool
+cactor_core.typed :: TypedActorSystem.prop name: String
+cactor_core.typed :: TypedAdapters.public static func messageAdapter<In, T>(target: TypedActorRef<T>, f: (In)->T): TypedActorRef<In>
+cactor_core.typed :: TypedAsk.public static func ask<Req, Res>(target: TypedActorRef<Req>, createRequest: (TypedActorRef<Res>)->Req, timeout: Duration, cancellation!: Option<AskCancellationToken>= None<AskCancellationToken>): TypedPromise<Res>
+cactor_core.typed :: TypedAsk.public static func askRemote<Req, Res>(target: TypedActorRef<Req>, request: Req, timeout: Duration, cancellation!: Option<AskCancellationToken>= None<AskCancellationToken>): TypedPromise<Res>
+cactor_core.typed :: TypedAskCancelledException.public init(message: String)
+cactor_core.typed :: TypedAskTimeoutException.public init(message: String)
+cactor_core.typed :: TypedBehavior.func getDescription(): String
+cactor_core.typed :: TypedBehavior.func onMessage(message: T, context: TypedActorContext<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehavior.func onSignal(signal: TypedSignal, context: TypedActorContext<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehavior.func receiveSignal(handler: (TypedActorContext<T>, TypedSignal)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func canonicalize<T>(next: TypedBehavior<T>, current: TypedBehavior<T>, ctx: TypedActorContext<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func contramap<In, T>(inner: TypedBehavior<T>, f: (In)->T): TypedBehavior<In>
+cactor_core.typed :: TypedBehaviors.public static func empty<T>(): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func filter<In>(inner: TypedBehavior<In>, p: (In)->Bool): TypedBehavior<In>
+cactor_core.typed :: TypedBehaviors.public static func ignore<T>(): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func interpretAll<T>(behavior: TypedBehavior<T>, messages: Array<T>, ctx: TypedActorContext<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func isDeferred<T>(b: TypedBehavior<T>): Bool
+cactor_core.typed :: TypedBehaviors.public static func isSame<T>(b: TypedBehavior<T>): Bool
+cactor_core.typed :: TypedBehaviors.public static func isStopped<T>(b: TypedBehavior<T>): Bool
+cactor_core.typed :: TypedBehaviors.public static func isUnhandled<T>(b: TypedBehavior<T>): Bool
+cactor_core.typed :: TypedBehaviors.public static func mapMessages<In, T>(inner: TypedBehavior<T>, f: (In)->T): TypedBehavior<In>
+cactor_core.typed :: TypedBehaviors.public static func receive<T>(handler: (TypedActorContext<T>, T)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func receive<T>(handler: (TypedActorContext<T>, T)->TypedBehavior<T>, signalHandler: (TypedActorContext<T>, TypedSignal)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func receiveMessage<T>(handler: (T)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func receivePartial<T>(p: (T)->Bool, handler: (TypedActorContext<T>, T)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func same<T>(): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func setup<T>(factory: (TypedActorContext<T>)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func start<T>(b: TypedBehavior<T>, ctx: TypedActorContext<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func stopped<T>(): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func stopped<T>(postStop: ()->Unit): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func stoppedCallbackOf<T>(b: TypedBehavior<T>): Option<()->Unit>
+cactor_core.typed :: TypedBehaviors.public static func supervise<T>(behavior: TypedBehavior<T>): SupervisedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func transformMessages<In, T>(inner: TypedBehavior<T>, f: (In)->T): TypedBehavior<In>
+cactor_core.typed :: TypedBehaviors.public static func unhandled<T>(): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func withStash<T>(capacity: Int64, factory: (TypedStashBuffer<T>)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedBehaviors.public static func withTimers<T>(factory: (TypedTimerScheduler<T>)->TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedCancellable.func cancel(): Bool
+cactor_core.typed :: TypedCancellable.func isCancelled(): Bool
+cactor_core.typed :: TypedCtxBox.public init(value: Any)
+cactor_core.typed :: TypedCtxBox.public let value: Any
+cactor_core.typed :: TypedEnvelope.public func anyPayload(): Any
+cactor_core.typed :: TypedEnvelope.public func messageType(): String
+cactor_core.typed :: TypedEnvelope.public init(payload: T)
+cactor_core.typed :: TypedEnvelope.public let payload: T
+cactor_core.typed :: TypedFuture.func get(): T
+cactor_core.typed :: TypedFuture.func get(timeout: Duration): T
+cactor_core.typed :: TypedFuture.func isCompleted(): Bool
+cactor_core.typed :: TypedFuture.func onComplete(callback: (AskOutcome<T>)->Unit): Unit
+cactor_core.typed :: TypedFuture.func value(): Option<T>
+cactor_core.typed :: TypedHooks.public init(unpack: (Any)->Any, onMessage: (Any, Any, Any)->Any, onSignal: (Any, Any, Any)->Any, start: (Any, Any)->Any, stoppedCallback: (Any)->Option<()->Unit>, describe: (Any)->String)
+cactor_core.typed :: TypedLogger.func debug(message: String): Unit
+cactor_core.typed :: TypedLogger.func error(message: String): Unit
+cactor_core.typed :: TypedLogger.func info(message: String): Unit
+cactor_core.typed :: TypedLogger.func warn(message: String): Unit
+cactor_core.typed :: TypedMessageAdapter.func adapt(message: In): T
+cactor_core.typed :: TypedPayloadBox.public func anyPayload(): Any
+cactor_core.typed :: TypedPayloadBox.public func messageType(): String
+cactor_core.typed :: TypedPayloadBox.public init(payload: Any, typeTag!: Option<TypedTypeTag>= None<TypedTypeTag>)
+cactor_core.typed :: TypedPayloadBox.public let payload: Any
+cactor_core.typed :: TypedPayloadBox.public let typeTag: Option<TypedTypeTag>
+cactor_core.typed :: TypedPayloadBoxCodec.public func decode(payload: Array<UInt8>): Message
+cactor_core.typed :: TypedPayloadBoxCodec.public func decode(payload: Array<UInt8>, version: Int64): Message
+cactor_core.typed :: TypedPayloadBoxCodec.public func encode(message: Message): Array<UInt8>
+cactor_core.typed :: TypedPayloadBoxCodec.public func encodeFor(message: Message, peerCapabilities: UInt64): (Int64, Array<UInt8>)
+cactor_core.typed :: TypedPayloadBoxCodec.public func requiredCapabilities(message: Message): UInt64
+cactor_core.typed :: TypedPayloadBoxCodec.public func version(): Int64
+cactor_core.typed :: TypedPayloadBoxCodec.public init()
+cactor_core.typed :: TypedPayloadCodec.func decode(bytes: Array<UInt8>): Any
+cactor_core.typed :: TypedPayloadCodec.func encode(value: Any): Array<UInt8>
+cactor_core.typed :: TypedPayloadCodec.func matches(value: Any): Bool
+cactor_core.typed :: TypedPayloadCodec.func typeName(): String
+cactor_core.typed :: TypedPayloadCodecs.public static func clearForTest(): Unit
+cactor_core.typed :: TypedPayloadCodecs.public static func count(): Int64
+cactor_core.typed :: TypedPayloadCodecs.public static func declareTypeName<T>(typeName!: String): Unit
+cactor_core.typed :: TypedPayloadCodecs.public static func find(typeName: String): Option<TypedPayloadCodec>
+cactor_core.typed :: TypedPayloadCodecs.public static func findFor(value: Any): Option<TypedPayloadCodec>
+cactor_core.typed :: TypedPayloadCodecs.public static func register(codec: TypedPayloadCodec): Unit
+cactor_core.typed :: TypedPayloadCodecs.public static func register<T>(typeName!: String, encode!: (T)->Array<UInt8>, decode!: (Array<UInt8>)->T): Unit
+cactor_core.typed :: TypedPayloadCodecs.public static func typeNameOfValue(value: Any): Option<String>
+cactor_core.typed :: TypedPayloadCodecs.public static func typeNames(): Array<String>
+cactor_core.typed :: TypedPayloadCodecs.public static func unregister(typeName: String): Bool
+cactor_core.typed :: TypedPromise.public func flatMap<R>(f: (T)->TypedPromise<R>): TypedPromise<R>
+cactor_core.typed :: TypedPromise.public func get(): T
+cactor_core.typed :: TypedPromise.public func get(timeout: Duration): T
+cactor_core.typed :: TypedPromise.public func isCompleted(): Bool
+cactor_core.typed :: TypedPromise.public func map<R>(f: (T)->R): TypedPromise<R>
+cactor_core.typed :: TypedPromise.public func onComplete(callback: (AskOutcome<T>)->Unit): Unit
+cactor_core.typed :: TypedPromise.public func outcome(): Option<AskOutcome<T>>
+cactor_core.typed :: TypedPromise.public func recover(f: (Exception)->T): TypedPromise<T>
+cactor_core.typed :: TypedPromise.public func recoverWith(f: (Exception)->TypedPromise<T>): TypedPromise<T>
+cactor_core.typed :: TypedPromise.public func tryComplete(outcome: AskOutcome<T>): Bool
+cactor_core.typed :: TypedPromise.public func tryFailure(cause: Exception): Bool
+cactor_core.typed :: TypedPromise.public func trySuccess(value: T): Bool
+cactor_core.typed :: TypedPromise.public func value(): Option<T>
+cactor_core.typed :: TypedPromise.public init()
+cactor_core.typed :: TypedPromises.public static func failed<T>(cause: Exception): TypedPromise<T>
+cactor_core.typed :: TypedPromises.public static func sequence<T>(promises: Array<TypedPromise<T>>): TypedPromise<Array<T>>
+cactor_core.typed :: TypedPromises.public static func successful<T>(value: T): TypedPromise<T>
+cactor_core.typed :: TypedProps.public func withBoundedMailbox(capacity: Int64): TypedProps
+cactor_core.typed :: TypedProps.public func withBoundedMailbox(capacity: Int64, overflow: MailboxOverflow): TypedProps
+cactor_core.typed :: TypedProps.public func withDispatcher(name: String): TypedProps
+cactor_core.typed :: TypedProps.public func withProtocolTypeName(name: String): TypedProps
+cactor_core.typed :: TypedProps.public init()
+cactor_core.typed :: TypedProps.public let dispatcher: String
+cactor_core.typed :: TypedProps.public let mailboxCapacity: Int64
+cactor_core.typed :: TypedProps.public let overflow: MailboxOverflow
+cactor_core.typed :: TypedProps.public let protocolTypeName: Option<String>
+cactor_core.typed :: TypedRetry.public static func run<T>(operation: (Int64)->TypedPromise<T>, maxAttempts: Int64, backoff: BackoffPolicy, cancellation!: Option<AskCancellationToken>= None<AskCancellationToken>, shouldRetry!: (Exception)->Bool = { _ =>true }, schedule!: (Duration, ()->Unit)->TypedCancellable = { delay, action =>RetryTimer(delay, action)}): TypedPromise<T>
+cactor_core.typed :: TypedRouters.public static func group<T>(key: ServiceKey<T>): TypedBehavior<T>
+cactor_core.typed :: TypedRouters.public static func group<T>(key: ServiceKey<T>, routing: TypedRouting<T>): TypedBehavior<T>
+cactor_core.typed :: TypedRouters.public static func pool<T>(poolSize: Int64, behavior: TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedRouters.public static func pool<T>(poolSize: Int64, behavior: TypedBehavior<T>, routing: TypedRouting<T>): TypedBehavior<T>
+cactor_core.typed :: TypedRouting.public func consistentHashing(keyOf: (T)->String): TypedRouting<T>
+cactor_core.typed :: TypedRouting.public func random(): TypedRouting<T>
+cactor_core.typed :: TypedRouting.public func roundRobin(): TypedRouting<T>
+cactor_core.typed :: TypedRouting.public func withBroadcastPredicate(predicate: (T)->Bool): TypedRouting<T>
+cactor_core.typed :: TypedRouting.public func withRouteeProps(props: TypedProps): TypedRouting<T>
+cactor_core.typed :: TypedRouting.public init()
+cactor_core.typed :: TypedScheduler.func schedule(initialDelay: Duration, interval: Duration, target: TypedActorRef<Any>, message: Any): TypedCancellable
+cactor_core.typed :: TypedScheduler.func scheduleOnce(delay: Duration, target: TypedActorRef<Any>, message: Any): Unit
+cactor_core.typed :: TypedSignal.func signalName(): String
+cactor_core.typed :: TypedSpawn.public static func hooksFor<U>(): TypedHooks
+cactor_core.typed :: TypedSpawn.public static func props<U>(behavior: TypedBehavior<U>): Props<Actor>
+cactor_core.typed :: TypedSpawn.public static func props<U>(behavior: TypedBehavior<U>, system: Option<TypedActorSystem>, typedProps: TypedProps): Props<Actor>
+cactor_core.typed :: TypedSpawn.public static func props<U>(behavior: TypedBehavior<U>, system: Option<TypedActorSystem>, typedProps: TypedProps, hooks: Option<TypedHooks>): Props<Actor>
+cactor_core.typed :: TypedStashBuffer.public func capacity(): Int64
+cactor_core.typed :: TypedStashBuffer.public func clear(): Unit
+cactor_core.typed :: TypedStashBuffer.public func forEach(f: (T)->Unit): Unit
+cactor_core.typed :: TypedStashBuffer.public func isEmpty(): Bool
+cactor_core.typed :: TypedStashBuffer.public func isFull(): Bool
+cactor_core.typed :: TypedStashBuffer.public func size(): Int64
+cactor_core.typed :: TypedStashBuffer.public func stash(message: T): Unit
+cactor_core.typed :: TypedStashBuffer.public func unstash(behavior: TypedBehavior<T>, n: Int64): TypedBehavior<T>
+cactor_core.typed :: TypedStashBuffer.public func unstashAll(behavior: TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: TypedStashBuffer.public init(capacity: Int64, context: TypedActorContext<T>)
+cactor_core.typed :: TypedSupervisorStrategy.public func toString(): String
+cactor_core.typed :: TypedSupervisorStrategy.public func withLimit(maxNrOfRetries: Int64, withinTimeRange: Duration): TypedSupervisorStrategy
+cactor_core.typed :: TypedSupervisorStrategy.public func withMaxRestarts(n: Int64): TypedSupervisorStrategy
+cactor_core.typed :: TypedSupervisorStrategy.public func withResetBackoffAfter(d: Duration): TypedSupervisorStrategy
+cactor_core.typed :: TypedSupervisorStrategy.public static func restart(): TypedSupervisorStrategy
+cactor_core.typed :: TypedSupervisorStrategy.public static func restartWithBackoff(minBackoff: Duration, maxBackoff: Duration, randomFactor: Float64): TypedSupervisorStrategy
+cactor_core.typed :: TypedSupervisorStrategy.public static func resume(): TypedSupervisorStrategy
+cactor_core.typed :: TypedSupervisorStrategy.public static func stop(): TypedSupervisorStrategy
+cactor_core.typed :: TypedTerminated.public func isFor<U>(other: TypedActorRef<U>): Bool
+cactor_core.typed :: TypedTerminated.public func pathString(): String
+cactor_core.typed :: TypedTerminated.public func signalName(): String
+cactor_core.typed :: TypedTerminated.public init(ref: ActorRef)
+cactor_core.typed :: TypedTerminated.public let ref: ActorRef
+cactor_core.typed :: TypedTimerScheduler.public func cancel(key: String): Unit
+cactor_core.typed :: TypedTimerScheduler.public func cancelAll(): Unit
+cactor_core.typed :: TypedTimerScheduler.public func isTimerActive(key: String): Bool
+cactor_core.typed :: TypedTimerScheduler.public func startSingleTimer(key: String, message: T, delay: Duration): Unit
+cactor_core.typed :: TypedTimerScheduler.public func startTimerAtFixedRate(key: String, message: T, interval: Duration): Unit
+cactor_core.typed :: TypedTimerScheduler.public func startTimerWithFixedDelay(key: String, message: T, delay: Duration): Unit
+cactor_core.typed :: TypedTimerScheduler.public init(classic: TimerScheduler)
+cactor_core.typed :: TypedTypeExpectations.public static func checkedCount(): Int64
+cactor_core.typed :: TypedTypeExpectations.public static func lastMismatchText(): String
+cactor_core.typed :: TypedTypeExpectations.public static func mismatchCount(): Int64
+cactor_core.typed :: TypedTypeExpectations.public static func recordChecked(): Unit
+cactor_core.typed :: TypedTypeExpectations.public static func recordMismatch(detail: String): Unit
+cactor_core.typed :: TypedTypeExpectations.public static func recordUnverified(): Unit
+cactor_core.typed :: TypedTypeExpectations.public static func resetForTest(): Unit
+cactor_core.typed :: TypedTypeExpectations.public static func unverifiedCount(): Int64
+cactor_core.typed :: TypedTypeTag.public func equals(other: TypedTypeTag): Bool
+cactor_core.typed :: TypedTypeTag.public func toString(): String
+cactor_core.typed :: TypedTypeTag.public init(typeName: String)
+cactor_core.typed :: TypedTypeTag.public let typeName: String
+cactor_core.typed :: extend TypedBehaviors.public static func intercept<T>(f: (TypedActorContext<T>, T, (T)->TypedBehavior<T>)->TypedBehavior<T>, behavior: TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: extend TypedBehaviors.public static func intercept<T>(interceptor: BehaviorInterceptor<T>, behavior: TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: extend TypedBehaviors.public static func logMessages<T>(behavior: TypedBehavior<T>, show: (T)->String): TypedBehavior<T>
+cactor_core.typed :: extend TypedBehaviors.public static func monitor<T>(monitor: TypedActorRef<T>, behavior: TypedBehavior<T>): TypedBehavior<T>
+cactor_core.typed :: extend TypedBehaviors.public static func stoppedCallback<T>(b: TypedBehavior<T>): Option<()->Unit>
+cactor_core.typed :: public class AskCancellationToken
+cactor_core.typed :: public class ChildFailed <: TypedSignal
+cactor_core.typed :: public class ClassicTypedRef<T> <: TypedActorRef<T>& TypeExpectationCarrier
+cactor_core.typed :: public class FunctionInterceptor<T> <: BehaviorInterceptor<T>
+cactor_core.typed :: public class Listing<T>
+cactor_core.typed :: public class PostStop <: TypedSignal
+cactor_core.typed :: public class PreRestart <: TypedSignal
+cactor_core.typed :: public class PromiseActorRef <: ActorRef
+cactor_core.typed :: public class PromiseRef<T> <: TypedActorRef<T>
+cactor_core.typed :: public class Receptionist
+cactor_core.typed :: public class ReceptionistSubscription
+cactor_core.typed :: public class ServiceKey<T>
+cactor_core.typed :: public class SimpleTypedActorSelection<T> <: TypedActorSelection<T>
+cactor_core.typed :: public class StashOverflowException <: Exception
+cactor_core.typed :: public class SupervisedBehavior<T> <: SpecialBehavior & TypedBehavior<T>
+cactor_core.typed :: public class TypedAskCancelledException <: Exception
+cactor_core.typed :: public class TypedAskTimeoutException <: Exception
+cactor_core.typed :: public class TypedCtxBox
+cactor_core.typed :: public class TypedEnvelope<T> <: Message & PayloadCarrier
+cactor_core.typed :: public class TypedHooks
+cactor_core.typed :: public class TypedNotMatched
+cactor_core.typed :: public class TypedPayloadBox <: Message & PayloadCarrier
+cactor_core.typed :: public class TypedPayloadBoxCodec <: MessageCodec
+cactor_core.typed :: public class TypedPayloadCodecs
+cactor_core.typed :: public class TypedPromise<T> <: TypedFuture<T>
+cactor_core.typed :: public class TypedRouting<T>
+cactor_core.typed :: public class TypedStashBuffer<T>
+cactor_core.typed :: public class TypedSupervisorStrategy
+cactor_core.typed :: public class TypedTerminated <: TypedSignal
+cactor_core.typed :: public class TypedTimerScheduler<T>
+cactor_core.typed :: public class TypedTypeExpectations
+cactor_core.typed :: public class TypedTypeTag
+cactor_core.typed :: public enum AskOutcome<T>
+cactor_core.typed :: public func ensureTypedPayloadCodecRegistered(): Bool
+cactor_core.typed :: public func typedTypeTagOf(typeName: Option<String>): Option<TypedTypeTag>
+cactor_core.typed :: public interface BehaviorInterceptor<T>
+cactor_core.typed :: public interface PayloadCarrier
+cactor_core.typed :: public interface TypeExpectationCarrier
+cactor_core.typed :: public interface TypedActorContext<T>
+cactor_core.typed :: public interface TypedActorRef<T>
+cactor_core.typed :: public interface TypedActorSelection<T>
+cactor_core.typed :: public interface TypedActorSystem
+cactor_core.typed :: public interface TypedBehavior<T>
+cactor_core.typed :: public interface TypedCancellable
+cactor_core.typed :: public interface TypedFuture<T>
+cactor_core.typed :: public interface TypedLogger
+cactor_core.typed :: public interface TypedMessageAdapter<In, T>
+cactor_core.typed :: public interface TypedPayloadCodec
+cactor_core.typed :: public interface TypedScheduler
+cactor_core.typed :: public interface TypedSignal
+cactor_core.typed :: public let NOT_MATCHED: TypedNotMatched
+cactor_core.typed :: public let TYPED_PAYLOAD_BOX_TYPE: String
+cactor_core.typed :: public struct TypedActorRefs
+cactor_core.typed :: public struct TypedAdapters
+cactor_core.typed :: public struct TypedAsk
+cactor_core.typed :: public struct TypedBehaviors
+cactor_core.typed :: public struct TypedPromises
+cactor_core.typed :: public struct TypedProps
+cactor_core.typed :: public struct TypedRetry
+cactor_core.typed :: public struct TypedRouters
+cactor_core.typed :: public struct TypedSpawn

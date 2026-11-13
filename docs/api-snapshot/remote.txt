@@ -1,0 +1,199 @@
+# CActor 公开 API 快照：modules/remote（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_remote :: PeerWireProfile.public func toString(): String
+cactor_remote :: PeerWireProfile.public init(address: String, uid: UInt64, protocolVersion: Int64, capabilities: UInt64, negotiated: Bool)
+cactor_remote :: PeerWireProfile.public let address: String
+cactor_remote :: PeerWireProfile.public let capabilities: UInt64
+cactor_remote :: PeerWireProfile.public let negotiated: Bool
+cactor_remote :: PeerWireProfile.public let protocolVersion: Int64
+cactor_remote :: PeerWireProfile.public let uid: UInt64
+cactor_remote :: ReliableChannelStats.public init(outboundChannels: Int64, inboundChannels: Int64, outboundRejected: Int64, inboundRejected: Int64)
+cactor_remote :: ReliableChannelStats.public let inboundChannels: Int64
+cactor_remote :: ReliableChannelStats.public let inboundRejected: Int64
+cactor_remote :: ReliableChannelStats.public let outboundChannels: Int64
+cactor_remote :: ReliableChannelStats.public let outboundRejected: Int64
+cactor_remote :: ReliableDeliveryStats.public init(resent: Int64, duplicatesDropped: Int64, unacked: Int64, overflowDropped: Int64, gaveUp: Int64, peerRestarts: Int64, nodeBudgetDropped!: Int64 = 0, staleGenerationRejected!: Int64 = 0)
+cactor_remote :: ReliableDeliveryStats.public let duplicatesDropped: Int64
+cactor_remote :: ReliableDeliveryStats.public let gaveUp: Int64
+cactor_remote :: ReliableDeliveryStats.public let nodeBudgetDropped: Int64
+cactor_remote :: ReliableDeliveryStats.public let overflowDropped: Int64
+cactor_remote :: ReliableDeliveryStats.public let peerRestarts: Int64
+cactor_remote :: ReliableDeliveryStats.public let resent: Int64
+cactor_remote :: ReliableDeliveryStats.public let staleGenerationRejected: Int64
+cactor_remote :: ReliableDeliveryStats.public let unacked: Int64
+cactor_remote :: ReliableEnvelope.public func messageType(): String
+cactor_remote :: ReliableEnvelope.public init(channelId: String, seq: Int64, replyAddress: String, senderInfo: String, payload: Message)
+cactor_remote :: ReliableEnvelope.public let channelId: String
+cactor_remote :: ReliableEnvelope.public let payload: Message
+cactor_remote :: ReliableEnvelope.public let replyAddress: String
+cactor_remote :: ReliableEnvelope.public let senderInfo: String
+cactor_remote :: ReliableEnvelope.public let seq: Int64
+cactor_remote :: RemoteActorRef.public func equals(other: ActorRef): Bool
+cactor_remote :: RemoteActorRef.public func getActorName(): String
+cactor_remote :: RemoteActorRef.public func getTargetAddress(): NetworkAddress
+cactor_remote :: RemoteActorRef.public func hashCode(): Int32
+cactor_remote :: RemoteActorRef.public func tell(message: Message): Unit
+cactor_remote :: RemoteActorRef.public func tell(message: Message, sender: ActorRef): Unit
+cactor_remote :: RemoteActorRef.public func tell(message: Message, sender: Option<String>): Unit
+cactor_remote :: RemoteActorRef.public init(manager: SimpleRemoteManager, targetAddress: NetworkAddress, actorName: String)
+cactor_remote :: RemoteActorRef.public prop path: ActorPath
+cactor_remote :: RemoteAskCapacityException.public init(limit: Int64)
+cactor_remote :: RemoteAskCapacityException.public let limit: Int64
+cactor_remote :: RemoteFactory.public static func createDefaultManager(port: Int32): SimpleRemoteManager
+cactor_remote :: RemoteFactory.public static func createManager(address: NetworkAddress, protocol: TransportProtocol): SimpleRemoteManager
+cactor_remote :: RemoteFactory.public static func createReceiver(address: NetworkAddress, protocol: TransportProtocol): SimpleRemoteReceiver
+cactor_remote :: RemoteFactory.public static func createSender(address: NetworkAddress, protocol: TransportProtocol): SimpleRemoteSender
+cactor_remote :: RemotePeerCapacityException.public init(limit: Int64)
+cactor_remote :: RemoteTls.public func describe(): String
+cactor_remote :: RemoteTls.public func isMutual(): Bool
+cactor_remote :: RemoteTls.public func rejectedPeerCertificates(): Int64
+cactor_remote :: RemoteTls.public func secureInbound(socket: TcpSocket, timeout: Duration): StreamingSocket
+cactor_remote :: RemoteTls.public func secureOutbound(socket: TcpSocket, peer: NetworkAddress, timeout: Duration): StreamingSocket
+cactor_remote :: RemoteTls.public func withoutMutualAuthentication(): RemoteTls
+cactor_remote :: RemoteTls.public static func fromPem(certificateChainPem: String, privateKeyPem: String, trustedCaPem: String): RemoteTls
+cactor_remote :: RemoteTls.public static func fromPemFiles(certificateChainFile: String, privateKeyFile: String, trustedCaFile: String): RemoteTls
+cactor_remote :: RemotingCore.public func ask(target: RemoteActorRef, message: Message, timeout: Duration): TypedPromise<Message>
+cactor_remote :: RemotingCore.public func senderInfoFor(ref: ActorRef): String
+cactor_remote :: RemotingCore.public func unackedCount(): Int64
+cactor_remote :: RemotingSettings.public func withAskLimit(limit: Int64): RemotingSettings
+cactor_remote :: RemotingSettings.public func withChannelLimits(outbound: Int64, inbound: Int64): RemotingSettings
+cactor_remote :: RemotingSettings.public func withLimits(maxUnacked: Int64, giveUpAfter: Duration): RemotingSettings
+cactor_remote :: RemotingSettings.public func withNodeBudget(totalUnacked: Int64, inboundBuffered: Int64): RemotingSettings
+cactor_remote :: RemotingSettings.public func withPeerLimit(limit: Int64): RemotingSettings
+cactor_remote :: RemotingSettings.public func withSecureCookie(cookie: String): RemotingSettings
+cactor_remote :: RemotingSettings.public func withTls(tls: RemoteTls): RemotingSettings
+cactor_remote :: RemotingSettings.public func withTransportSecurity(security: TransportSecurity): RemotingSettings
+cactor_remote :: RemotingSettings.public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration, resendInterval: Duration, ackInterval: Duration)
+cactor_remote :: RemotingSettings.public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration, resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration)
+cactor_remote :: RemotingSettings.public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration, resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration, secureCookie: Option<String>)
+cactor_remote :: RemotingSettings.public init(heartbeatInterval: Duration, phiThreshold: Float64, acceptableHeartbeatPause: Duration, resendInterval: Duration, ackInterval: Duration, maxUnacked: Int64, giveUpAfter: Duration, secureCookie: Option<String>, transportSecurity: Option<TransportSecurity>, maxPendingAsks!: Int64 = 1024, maxOutboundReliableChannels!: Int64 = 4096, maxInboundReliableChannels!: Int64 = 4096, maxKnownPeers!: Int64 = 4096, maxTotalUnacked!: Int64 = DEFAULT_MAX_TOTAL_UNACKED, maxInboundBuffered!: Int64 = DEFAULT_MAX_INBOUND_BUFFERED)
+cactor_remote :: RemotingSettings.public let acceptableHeartbeatPause: Duration
+cactor_remote :: RemotingSettings.public let ackInterval: Duration
+cactor_remote :: RemotingSettings.public let giveUpAfter: Duration
+cactor_remote :: RemotingSettings.public let heartbeatInterval: Duration
+cactor_remote :: RemotingSettings.public let maxInboundBuffered: Int64
+cactor_remote :: RemotingSettings.public let maxInboundReliableChannels: Int64
+cactor_remote :: RemotingSettings.public let maxKnownPeers: Int64
+cactor_remote :: RemotingSettings.public let maxOutboundReliableChannels: Int64
+cactor_remote :: RemotingSettings.public let maxPendingAsks: Int64
+cactor_remote :: RemotingSettings.public let maxTotalUnacked: Int64
+cactor_remote :: RemotingSettings.public let maxUnacked: Int64
+cactor_remote :: RemotingSettings.public let phiThreshold: Float64
+cactor_remote :: RemotingSettings.public let resendInterval: Duration
+cactor_remote :: RemotingSettings.public let secureCookie: Option<String>
+cactor_remote :: RemotingSettings.public let transportSecurity: Option<TransportSecurity>
+cactor_remote :: RemotingSettings.public static func defaults(): RemotingSettings
+cactor_remote :: SimpleRemoteManager.public func exposeActor(actorName: String, localRef: ActorRef): Unit
+cactor_remote :: SimpleRemoteManager.public func getLocalAddress(): NetworkAddress
+cactor_remote :: SimpleRemoteManager.public func getReceiver(): SimpleRemoteReceiver
+cactor_remote :: SimpleRemoteManager.public func getSender(): SimpleRemoteSender
+cactor_remote :: SimpleRemoteManager.public func isActive(): Bool
+cactor_remote :: SimpleRemoteManager.public func registerHandler(actorName: String, handler: (Message)->Unit): Unit
+cactor_remote :: SimpleRemoteManager.public func remoteActorOf(targetAddress: NetworkAddress, actorName: String): RemoteActorRef
+cactor_remote :: SimpleRemoteManager.public func selfUid(): UInt64
+cactor_remote :: SimpleRemoteManager.public func sendControl(targetAddress: NetworkAddress, targetActor: String, message: Message): Unit
+cactor_remote :: SimpleRemoteManager.public func sendMessage(targetAddress: NetworkAddress, targetActor: String, message: Message): Unit
+cactor_remote :: SimpleRemoteManager.public func sendMessage(targetAddress: NetworkAddress, targetActor: String, message: Message, senderPath: Option<String>): Unit
+cactor_remote :: SimpleRemoteManager.public func start(): Unit
+cactor_remote :: SimpleRemoteManager.public func stop(): Unit
+cactor_remote :: SimpleRemoteManager.public func typedRemoteActorOf<T>(targetAddress: NetworkAddress, actorName: String): TypedActorRef<T>
+cactor_remote :: SimpleRemoteManager.public func unexposeActor(actorName: String): Unit
+cactor_remote :: SimpleRemoteManager.public init(localAddress: NetworkAddress, protocol: TransportProtocol)
+cactor_remote :: SimpleRemoteManager.public init(transport: NetworkTransport)
+cactor_remote :: SimpleRemoteReceiver.public func dispatch(targetActor: String, message: Message, sender: Option<String>): Unit
+cactor_remote :: SimpleRemoteReceiver.public func getDecodeFailures(): Int64
+cactor_remote :: SimpleRemoteReceiver.public func getLocalAddress(): NetworkAddress
+cactor_remote :: SimpleRemoteReceiver.public func getReceivedCount(): Int64
+cactor_remote :: SimpleRemoteReceiver.public func getUndeliverableCount(): Int64
+cactor_remote :: SimpleRemoteReceiver.public func getWireIncompatibleCount(): Int64
+cactor_remote :: SimpleRemoteReceiver.public func handlerCount(): Int64
+cactor_remote :: SimpleRemoteReceiver.public func hasHandler(actorName: String): Bool
+cactor_remote :: SimpleRemoteReceiver.public func isActive(): Bool
+cactor_remote :: SimpleRemoteReceiver.public func registerHandler(actorName: String, handler: (Message)->Unit): Unit
+cactor_remote :: SimpleRemoteReceiver.public func registerHandler(actorName: String, handler: (Message, Option<String>)->Unit): Unit
+cactor_remote :: SimpleRemoteReceiver.public func setInterceptor(f: (NetworkMessage)->Bool): Unit
+cactor_remote :: SimpleRemoteReceiver.public func start(): Unit
+cactor_remote :: SimpleRemoteReceiver.public func stop(): Unit
+cactor_remote :: SimpleRemoteReceiver.public func unregisterHandler(actorName: String): Unit
+cactor_remote :: SimpleRemoteReceiver.public init(localAddress: NetworkAddress, protocol: TransportProtocol)
+cactor_remote :: SimpleRemoteReceiver.public init(transport: NetworkTransport, ownsTransport: Bool)
+cactor_remote :: SimpleRemoteSender.public func getLocalAddress(): NetworkAddress
+cactor_remote :: SimpleRemoteSender.public func getSentCount(): Int64
+cactor_remote :: SimpleRemoteSender.public func isActive(): Bool
+cactor_remote :: SimpleRemoteSender.public func sendControl(targetAddress: NetworkAddress, targetActor: String, message: Message): Unit
+cactor_remote :: SimpleRemoteSender.public func sendMessage(targetAddress: NetworkAddress, targetActor: String, message: Message): Unit
+cactor_remote :: SimpleRemoteSender.public func sendMessage(targetAddress: NetworkAddress, targetActor: String, message: Message, sender: Option<String>): Unit
+cactor_remote :: SimpleRemoteSender.public func start(): Unit
+cactor_remote :: SimpleRemoteSender.public func stop(): Unit
+cactor_remote :: SimpleRemoteSender.public init(localAddress: NetworkAddress, protocol: TransportProtocol)
+cactor_remote :: SimpleRemoteSender.public init(transport: NetworkTransport, ownsTransport: Bool)
+cactor_remote :: WireDirection.public func toString(): String
+cactor_remote :: WireDirection.| Inbound
+cactor_remote :: WireDirection.| Outbound
+cactor_remote :: WireIncompatibleEvent.public func toString(): String
+cactor_remote :: WireIncompatibleEvent.public init(direction: WireDirection, peer: Option<String>, targetActor: String, messageType: String, reason: String, message: Option<Message>)
+cactor_remote :: WireIncompatibleEvent.public let direction: WireDirection
+cactor_remote :: WireIncompatibleEvent.public let message: Option<Message>
+cactor_remote :: WireIncompatibleEvent.public let messageType: String
+cactor_remote :: WireIncompatibleEvent.public let peer: Option<String>
+cactor_remote :: WireIncompatibleEvent.public let reason: String
+cactor_remote :: WireIncompatibleEvent.public let targetActor: String
+cactor_remote :: WireProtocolSettings.public func advertising(protocolVersion: Int64, capabilities: UInt64): WireProtocolSettings
+cactor_remote :: WireProtocolSettings.public func withLegacyPeerCapabilities(caps: UInt64): WireProtocolSettings
+cactor_remote :: WireProtocolSettings.public func withMinPeerProtocol(v: Int64): WireProtocolSettings
+cactor_remote :: WireProtocolSettings.public init(protocolVersion: Int64, capabilities: UInt64, minPeerProtocolVersion: Int64, legacyPeerCapabilities: UInt64, emulateLegacy: Bool)
+cactor_remote :: WireProtocolSettings.public let capabilities: UInt64
+cactor_remote :: WireProtocolSettings.public let emulateLegacy: Bool
+cactor_remote :: WireProtocolSettings.public let legacyPeerCapabilities: UInt64
+cactor_remote :: WireProtocolSettings.public let minPeerProtocolVersion: Int64
+cactor_remote :: WireProtocolSettings.public let protocolVersion: Int64
+cactor_remote :: WireProtocolSettings.public static func defaults(): WireProtocolSettings
+cactor_remote :: WireProtocolSettings.public static func legacyEmulation(): WireProtocolSettings
+cactor_remote :: extend SimpleRemoteManager.public func ask(target: RemoteActorRef, message: Message, timeout: Duration): TypedPromise<Message>
+cactor_remote :: extend SimpleRemoteManager.public func configure(settings: RemotingSettings): Unit
+cactor_remote :: extend SimpleRemoteManager.public func configureWire(settings: WireProtocolSettings): Unit
+cactor_remote :: extend SimpleRemoteManager.public func enableRemoteWatch(spawnWatcher: (()->Actor)->ActorRef): Unit
+cactor_remote :: extend SimpleRemoteManager.public func isPeerAdmissionClosed(): Bool
+cactor_remote :: extend SimpleRemoteManager.public func isQuarantined(address: NetworkAddress): Bool
+cactor_remote :: extend SimpleRemoteManager.public func onWireIncompatible(listener: (WireIncompatibleEvent)->Unit): Unit
+cactor_remote :: extend SimpleRemoteManager.public func peerWireProfile(address: NetworkAddress): Option<PeerWireProfile>
+cactor_remote :: extend SimpleRemoteManager.public func pendingAskCount(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func pendingTypedAskCount(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func quarantine(address: NetworkAddress, reason: String): Unit
+cactor_remote :: extend SimpleRemoteManager.public func quarantine(address: NetworkAddress, uid: UInt64, reason: String): Unit
+cactor_remote :: extend SimpleRemoteManager.public func quarantinedCount(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func rejectedConnections(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func rejectedHandshakes(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func reliableChannelStats(): ReliableChannelStats
+cactor_remote :: extend SimpleRemoteManager.public func reliableDeliveryStats(): ReliableDeliveryStats
+cactor_remote :: extend SimpleRemoteManager.public func reliableStats(): (Int64, Int64, Int64)
+cactor_remote :: extend SimpleRemoteManager.public func replyEntryCount(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func securedConnections(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func tellReliable(target: RemoteActorRef, message: Message): Unit
+cactor_remote :: extend SimpleRemoteManager.public func tellReliable(target: RemoteActorRef, message: Message, sender: ActorRef): Unit
+cactor_remote :: extend SimpleRemoteManager.public func unwatchRemote(target: RemoteActorRef, watcher: ActorRef): Unit
+cactor_remote :: extend SimpleRemoteManager.public func watchRemote(target: RemoteActorRef, watcher: ActorRef): Unit
+cactor_remote :: extend SimpleRemoteManager.public func wireIncompatibleReceived(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func wireIncompatibleSent(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func wireProtocolRejected(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func wireSettings(): WireProtocolSettings
+cactor_remote :: public class ReliableEnvelope <: Message
+cactor_remote :: public class RemoteActorRef <: ActorRef
+cactor_remote :: public class RemoteAskCapacityException <: Exception
+cactor_remote :: public class RemoteFactory
+cactor_remote :: public class RemotePeerCapacityException <: Exception
+cactor_remote :: public class RemoteTls <: TransportSecurity
+cactor_remote :: public class RemotingCore
+cactor_remote :: public class SimpleRemoteManager
+cactor_remote :: public class SimpleRemoteReceiver
+cactor_remote :: public class SimpleRemoteSender
+cactor_remote :: public class WireIncompatibleEvent <: ToString
+cactor_remote :: public enum WireDirection <: ToString
+cactor_remote :: public func encodeRemoteSender(address: NetworkAddress, name: String): String
+cactor_remote :: public func parseRemoteSender(text: String): Option<(NetworkAddress, String)>
+cactor_remote :: public let REPLY_ENTRY_IDLE_TTL_MS: Int64
+cactor_remote :: public struct PeerWireProfile <: ToString
+cactor_remote :: public struct ReliableChannelStats
+cactor_remote :: public struct ReliableDeliveryStats
+cactor_remote :: public struct RemotingSettings
+cactor_remote :: public struct WireProtocolSettings

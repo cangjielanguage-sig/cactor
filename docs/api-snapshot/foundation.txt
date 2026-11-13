@@ -1,0 +1,1386 @@
+# CActor 公开 API 快照：modules/foundation（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_foundation.abstractions :: IActor.func postRestart(reason: Exception): Unit
+cactor_foundation.abstractions :: IActor.func postStop(): Unit
+cactor_foundation.abstractions :: IActor.func preRestart(reason: Exception): Unit
+cactor_foundation.abstractions :: IActor.func preStart(): Unit
+cactor_foundation.abstractions :: IActor.func receive(message: IMessage, context: IActorContext): IMessageResult
+cactor_foundation.abstractions :: IActor.prop description: String
+cactor_foundation.abstractions :: IActor.prop name: String
+cactor_foundation.abstractions :: IActorContext.func actorOf(props: IProps, name: String): IActorRef
+cactor_foundation.abstractions :: IActorContext.func sender(): Option<String>
+cactor_foundation.abstractions :: IActorContext.func stop(child: IActorRef): Unit
+cactor_foundation.abstractions :: IActorContext.func stopSelf(): Unit
+cactor_foundation.abstractions :: IActorContext.prop self: IActorRef
+cactor_foundation.abstractions :: IActorPath.func getName(): String
+cactor_foundation.abstractions :: IActorPath.func getParent(): Option<IActorPath>
+cactor_foundation.abstractions :: IActorPath.func toString(): String
+cactor_foundation.abstractions :: IActorRef.func equals(other: IActorRef): Bool
+cactor_foundation.abstractions :: IActorRef.func hashCode(): Int32
+cactor_foundation.abstractions :: IActorRef.func tell(message: IMessage): Unit
+cactor_foundation.abstractions :: IActorRef.func tell(message: IMessage, sender: Option<String>): Unit
+cactor_foundation.abstractions :: IActorRef.prop path: IActorPath
+cactor_foundation.abstractions :: IActorSystem.func actorOf(props: IProps, name: String): IActorRef
+cactor_foundation.abstractions :: IActorSystem.func actorSelection(path: String): Option<IActorRef>
+cactor_foundation.abstractions :: IActorSystem.func awaitTermination(timeout: Duration): Bool
+cactor_foundation.abstractions :: IActorSystem.func isTerminated(): Bool
+cactor_foundation.abstractions :: IActorSystem.func terminate(): Unit
+cactor_foundation.abstractions :: IActorSystem.prop name: String
+cactor_foundation.abstractions :: IConfiguration.func getBool(key: String): Option<Bool>
+cactor_foundation.abstractions :: IConfiguration.func getBool(key: String, defaultValue: Bool): Bool
+cactor_foundation.abstractions :: IConfiguration.func getDuration(key: String): Option<Duration>
+cactor_foundation.abstractions :: IConfiguration.func getDuration(key: String, defaultValue: Duration): Duration
+cactor_foundation.abstractions :: IConfiguration.func getInt(key: String): Option<Int32>
+cactor_foundation.abstractions :: IConfiguration.func getInt(key: String, defaultValue: Int32): Int32
+cactor_foundation.abstractions :: IConfiguration.func getString(key: String): Option<String>
+cactor_foundation.abstractions :: IConfiguration.func getString(key: String, defaultValue: String): String
+cactor_foundation.abstractions :: IDispatcher.func dispatch(actorRef: IActorRef, message: IMessage): Unit
+cactor_foundation.abstractions :: IDispatcher.func isRunning(): Bool
+cactor_foundation.abstractions :: IDispatcher.func start(): Unit
+cactor_foundation.abstractions :: IDispatcher.func stop(): Unit
+cactor_foundation.abstractions :: IDispatcher.prop name: String
+cactor_foundation.abstractions :: IEventBus.func publish(event: IMessage): Unit
+cactor_foundation.abstractions :: IEventBus.func subscribe(subscriber: IActorRef, eventType: String): Unit
+cactor_foundation.abstractions :: IEventBus.func unsubscribe(subscriber: IActorRef, eventType: String): Unit
+cactor_foundation.abstractions :: IEventBus.func unsubscribeAll(subscriber: IActorRef): Unit
+cactor_foundation.abstractions :: ILogger.func debug(message: String): Unit
+cactor_foundation.abstractions :: ILogger.func error(message: String): Unit
+cactor_foundation.abstractions :: ILogger.func error(message: String, exception: Exception): Unit
+cactor_foundation.abstractions :: ILogger.func info(message: String): Unit
+cactor_foundation.abstractions :: ILogger.func warn(message: String): Unit
+cactor_foundation.abstractions :: IMailbox.func dequeue(): Option<IMessage>
+cactor_foundation.abstractions :: IMailbox.func enqueue(message: IMessage): Bool
+cactor_foundation.abstractions :: IMailbox.func isEmpty(): Bool
+cactor_foundation.abstractions :: IMailbox.func isFull(): Bool
+cactor_foundation.abstractions :: IMailbox.func size(): Int32
+cactor_foundation.abstractions :: IMessage.func messageType(): String
+cactor_foundation.abstractions :: IMessageResult.| Failed
+cactor_foundation.abstractions :: IMessageResult.| Handled
+cactor_foundation.abstractions :: IMessageResult.| Unhandled
+cactor_foundation.abstractions :: IProps.func create(): IActor
+cactor_foundation.abstractions :: IProps.func getDispatcher(): String
+cactor_foundation.abstractions :: IProps.func getMailbox(): String
+cactor_foundation.abstractions :: IProps.func getSupervisionStrategy(): String
+cactor_foundation.abstractions :: ISerializer.func deserialize(data: Array<UInt8>): Any
+cactor_foundation.abstractions :: ISerializer.func getIdentifier(): String
+cactor_foundation.abstractions :: ISerializer.func serialize(obj: Any): Array<UInt8>
+cactor_foundation.abstractions :: ISupervisionDirective.| Escalate
+cactor_foundation.abstractions :: ISupervisionDirective.| Restart
+cactor_foundation.abstractions :: ISupervisionDirective.| Resume
+cactor_foundation.abstractions :: ISupervisionDirective.| Stop
+cactor_foundation.abstractions :: ISupervisionStrategy.func handleChildFailure(child: IActorRef, cause: Exception): ISupervisionDirective
+cactor_foundation.abstractions :: ITransport.func getLocalAddress(): String
+cactor_foundation.abstractions :: ITransport.func send(address: String, data: Array<UInt8>): Unit
+cactor_foundation.abstractions :: ITransport.func start(): Unit
+cactor_foundation.abstractions :: ITransport.func stop(): Unit
+cactor_foundation.abstractions :: public enum IMessageResult
+cactor_foundation.abstractions :: public enum ISupervisionDirective
+cactor_foundation.abstractions :: public interface IActor
+cactor_foundation.abstractions :: public interface IActorContext
+cactor_foundation.abstractions :: public interface IActorPath
+cactor_foundation.abstractions :: public interface IActorRef
+cactor_foundation.abstractions :: public interface IActorSystem
+cactor_foundation.abstractions :: public interface IConfiguration
+cactor_foundation.abstractions :: public interface IDispatcher
+cactor_foundation.abstractions :: public interface IEventBus
+cactor_foundation.abstractions :: public interface ILogger
+cactor_foundation.abstractions :: public interface IMailbox
+cactor_foundation.abstractions :: public interface IMessage
+cactor_foundation.abstractions :: public interface IProps
+cactor_foundation.abstractions :: public interface ISerializer
+cactor_foundation.abstractions :: public interface ISupervisionStrategy
+cactor_foundation.abstractions :: public interface ITransport
+cactor_foundation.attributes :: AttributeKey.public func toString(): String
+cactor_foundation.attributes :: AttributeKey.public init(name: String)
+cactor_foundation.attributes :: AttributeKey.public let id: Int64
+cactor_foundation.attributes :: AttributeKey.public let name: String
+cactor_foundation.attributes :: Attributes.public func computeIfAbsent<T>(key: AttributeKey<T>, create: ()->T): T
+cactor_foundation.attributes :: Attributes.public func contains<T>(key: AttributeKey<T>): Bool
+cactor_foundation.attributes :: Attributes.public func get<T>(key: AttributeKey<T>): Option<T>
+cactor_foundation.attributes :: Attributes.public func getOrElse<T>(key: AttributeKey<T>, fallback: T): T
+cactor_foundation.attributes :: Attributes.public func put<T>(key: AttributeKey<T>, value: T): Unit
+cactor_foundation.attributes :: Attributes.public func remove<T>(key: AttributeKey<T>): Unit
+cactor_foundation.attributes :: Attributes.public init()
+cactor_foundation.attributes :: public class AttributeKey<T>
+cactor_foundation.attributes :: public class Attributes
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func execute(operation: ()->T): T
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func fail(): Unit
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func getState(): CircuitBreakerState
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func getStats(): CircuitBreakerStats
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func reset(): Unit
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func succeed(): Unit
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func trip(): Unit
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public init(config: CircuitBreakerConfig)
+cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public init(config: CircuitBreakerConfig, clock: ()->Int64)
+cactor_foundation.circuit_breaker :: CircuitBreaker.func execute(operation: ()->T): T
+cactor_foundation.circuit_breaker :: CircuitBreaker.func getState(): CircuitBreakerState
+cactor_foundation.circuit_breaker :: CircuitBreaker.func getStats(): CircuitBreakerStats
+cactor_foundation.circuit_breaker :: CircuitBreaker.func reset(): Unit
+cactor_foundation.circuit_breaker :: CircuitBreaker.func trip(): Unit
+cactor_foundation.circuit_breaker :: CircuitBreakerConfig.public init(failureThreshold: Int32, successThreshold: Int32, timeout: Duration, resetTimeout: Duration)
+cactor_foundation.circuit_breaker :: CircuitBreakerConfig.public let failureThreshold: Int32
+cactor_foundation.circuit_breaker :: CircuitBreakerConfig.public let resetTimeout: Duration
+cactor_foundation.circuit_breaker :: CircuitBreakerConfig.public let successThreshold: Int32
+cactor_foundation.circuit_breaker :: CircuitBreakerConfig.public let timeout: Duration
+cactor_foundation.circuit_breaker :: CircuitBreakerDecorator.public func call(operation: ()->T): T
+cactor_foundation.circuit_breaker :: CircuitBreakerDecorator.public func getCircuitBreaker(): CircuitBreaker<T>
+cactor_foundation.circuit_breaker :: CircuitBreakerDecorator.public init(circuitBreaker: CircuitBreaker<T>, fallback: Option<()->T>)
+cactor_foundation.circuit_breaker :: CircuitBreakerFactory.public static func createDefault<T>(): BasicCircuitBreaker<T>
+cactor_foundation.circuit_breaker :: CircuitBreakerFactory.public static func createFastFail<T>(): BasicCircuitBreaker<T>
+cactor_foundation.circuit_breaker :: CircuitBreakerFactory.public static func createTolerant<T>(): BasicCircuitBreaker<T>
+cactor_foundation.circuit_breaker :: CircuitBreakerOpenException.public init(message: String)
+cactor_foundation.circuit_breaker :: CircuitBreakerState.| Closed
+cactor_foundation.circuit_breaker :: CircuitBreakerState.| HalfOpen
+cactor_foundation.circuit_breaker :: CircuitBreakerState.| Open
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public func getFailureRate(): Float64
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public func getSuccessRate(): Float64
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public init(state: CircuitBreakerState, failureCount: Int64, successCount: Int64, totalRequests: Int64, lastFailureTime: Int64, lastSuccessTime: Int64)
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public let failureCount: Int64
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public let lastFailureTime: Int64
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public let lastSuccessTime: Int64
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public let state: CircuitBreakerState
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public let successCount: Int64
+cactor_foundation.circuit_breaker :: CircuitBreakerStats.public let totalRequests: Int64
+cactor_foundation.circuit_breaker :: CircuitBreakerTimeoutException.public init(message: String)
+cactor_foundation.circuit_breaker :: public class BasicCircuitBreaker<T> <: CircuitBreaker<T>
+cactor_foundation.circuit_breaker :: public class CircuitBreakerDecorator<T>
+cactor_foundation.circuit_breaker :: public class CircuitBreakerOpenException <: Exception
+cactor_foundation.circuit_breaker :: public class CircuitBreakerTimeoutException <: Exception
+cactor_foundation.circuit_breaker :: public enum CircuitBreakerState
+cactor_foundation.circuit_breaker :: public interface CircuitBreaker<T>
+cactor_foundation.circuit_breaker :: public struct CircuitBreakerConfig
+cactor_foundation.circuit_breaker :: public struct CircuitBreakerFactory
+cactor_foundation.circuit_breaker :: public struct CircuitBreakerStats
+cactor_foundation.config :: CActorConfigValidators.public static func createDispatcherTypeValidator(): ConfigValidator
+cactor_foundation.config :: CActorConfigValidators.public static func createLogLevelValidator(): ConfigValidator
+cactor_foundation.config :: CActorConfigValidators.public static func createMailboxTypeValidator(): ConfigValidator
+cactor_foundation.config :: CActorConfigValidators.public static func createSupervisionStrategyValidator(): ConfigValidator
+cactor_foundation.config :: CActorConfigValidators.public static func createSystemNameValidator(): ConfigValidator
+cactor_foundation.config :: CActorConfigValidators.public static func createThreadPoolSizeValidator(): ConfigValidator
+cactor_foundation.config :: CActorConfigValidators.public static func createTimeoutValidator(): ConfigValidator
+cactor_foundation.config :: CActorConfigValidators.public static func registerAllValidators(configManager: UnifiedConfigManager): Unit
+cactor_foundation.config :: CompositeValidator.public func addValidator(validator: ConfigValidator): Unit
+cactor_foundation.config :: CompositeValidator.public func getValidationError(key: String, value: ConfigValue): String
+cactor_foundation.config :: CompositeValidator.public func validate(key: String, value: ConfigValue): Bool
+cactor_foundation.config :: CompositeValidator.public init(fieldName: String)
+cactor_foundation.config :: ConfigChangeEvent.public init(key: String, oldValue: Option<ConfigValue>, newValue: Option<ConfigValue>)
+cactor_foundation.config :: ConfigChangeEvent.public let key: String
+cactor_foundation.config :: ConfigChangeEvent.public let newValue: Option<ConfigValue>
+cactor_foundation.config :: ConfigChangeEvent.public let oldValue: Option<ConfigValue>
+cactor_foundation.config :: ConfigChangeEvent.public let timestamp: Int64
+cactor_foundation.config :: ConfigChangeListener.func onConfigChanged(event: ConfigChangeEvent): Unit
+cactor_foundation.config :: ConfigEntry.public init(value: String, origin: String)
+cactor_foundation.config :: ConfigEntry.public let origin: String
+cactor_foundation.config :: ConfigEntry.public let value: String
+cactor_foundation.config :: ConfigException.public init(message: String)
+cactor_foundation.config :: ConfigHotReloadManager.public func addReloadListener(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: ConfigHotReloadManager.public func disable(): Unit
+cactor_foundation.config :: ConfigHotReloadManager.public func enable(): Unit
+cactor_foundation.config :: ConfigHotReloadManager.public func isHotReloadEnabled(): Bool
+cactor_foundation.config :: ConfigHotReloadManager.public func triggerReload(): Unit
+cactor_foundation.config :: ConfigHotReloadManager.public init(configManager: UnifiedConfigManager)
+cactor_foundation.config :: ConfigSource.func getName(): String
+cactor_foundation.config :: ConfigSource.func getPriority(): Int32
+cactor_foundation.config :: ConfigSource.func loadConfig(): HashMap<String, ConfigValue>
+cactor_foundation.config :: ConfigSource.func supportsHotReload(): Bool
+cactor_foundation.config :: ConfigSource.func watchForChanges(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: ConfigStatistics.public func toString(): String
+cactor_foundation.config :: ConfigStatistics.public init(totalKeys: Int32, sourceCount: Int32, lastReloadTime: Int64, changeCount: Int64, validationErrors: Int32)
+cactor_foundation.config :: ConfigStatistics.public let changeCount: Int64
+cactor_foundation.config :: ConfigStatistics.public let lastReloadTime: Int64
+cactor_foundation.config :: ConfigStatistics.public let sourceCount: Int32
+cactor_foundation.config :: ConfigStatistics.public let totalKeys: Int32
+cactor_foundation.config :: ConfigStatistics.public let validationErrors: Int32
+cactor_foundation.config :: ConfigValidator.func getValidationError(key: String, value: ConfigValue): String
+cactor_foundation.config :: ConfigValidator.func validate(key: String, value: ConfigValue): Bool
+cactor_foundation.config :: ConfigValue.public func asBool(): Bool
+cactor_foundation.config :: ConfigValue.public func asDouble(): Float64
+cactor_foundation.config :: ConfigValue.public func asInt(): Int32
+cactor_foundation.config :: ConfigValue.public func asString(): String
+cactor_foundation.config :: ConfigValue.public init(value: Any, valueType: ConfigValueType)
+cactor_foundation.config :: ConfigValue.public let boolValue: Bool
+cactor_foundation.config :: ConfigValue.public let doubleValue: Float64
+cactor_foundation.config :: ConfigValue.public let intValue: Int32
+cactor_foundation.config :: ConfigValue.public let lastModified: Int64
+cactor_foundation.config :: ConfigValue.public let stringValue: String
+cactor_foundation.config :: ConfigValue.public let valueType: ConfigValueType
+cactor_foundation.config :: ConfigValue.public static func createBool(value: Bool): ConfigValue
+cactor_foundation.config :: ConfigValue.public static func createInt(value: Int32): ConfigValue
+cactor_foundation.config :: ConfigValue.public static func createString(value: String): ConfigValue
+cactor_foundation.config :: ConfigValueType.| ArrayType
+cactor_foundation.config :: ConfigValueType.| BoolType
+cactor_foundation.config :: ConfigValueType.| DoubleType
+cactor_foundation.config :: ConfigValueType.| DurationType
+cactor_foundation.config :: ConfigValueType.| IntType
+cactor_foundation.config :: ConfigValueType.| ObjectType
+cactor_foundation.config :: ConfigValueType.| StringType
+cactor_foundation.config :: DefaultConfigSource.public func getName(): String
+cactor_foundation.config :: DefaultConfigSource.public func getPriority(): Int32
+cactor_foundation.config :: DefaultConfigSource.public func loadConfig(): HashMap<String, ConfigValue>
+cactor_foundation.config :: DefaultConfigSource.public func supportsHotReload(): Bool
+cactor_foundation.config :: DefaultConfigSource.public func watchForChanges(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: DefaultConfigSource.public init()
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func addChangeListener(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func addValidator(key: String, validator: ConfigValidator): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getAllKeys(): Array<String>
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getBool(key: String): Option<Bool>
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getBool(key: String, defaultValue: Bool): Bool
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getByPrefix(prefix: String): HashMap<String, ConfigValue>
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getDouble(key: String): Option<Float64>
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getDouble(key: String, defaultValue: Float64): Float64
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getInt(key: String): Option<Int32>
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getInt(key: String, defaultValue: Int32): Int32
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getStatistics(): ConfigStatistics
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getString(key: String): Option<String>
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getString(key: String, defaultValue: String): String
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func getValue(key: String): Option<ConfigValue>
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func hasValue(key: String): Bool
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func registerSource(source: ConfigSource): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func reload(): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func removeChangeListener(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func removeSource(sourceName: String): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func removeValidator(key: String): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func removeValue(key: String): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func setBool(key: String, value: Bool): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func setDouble(key: String, value: Float64): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func setInt(key: String, value: Int32): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func setString(key: String, value: String): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public func setValue(key: String, value: ConfigValue): Unit
+cactor_foundation.config :: DefaultUnifiedConfigManager.public init()
+cactor_foundation.config :: EnumValidator.public func getValidationError(key: String, value: ConfigValue): String
+cactor_foundation.config :: EnumValidator.public func validate(key: String, value: ConfigValue): Bool
+cactor_foundation.config :: EnumValidator.public init(allowedValues: Array<String>, fieldName: String)
+cactor_foundation.config :: EnvironmentConfigSource.public func getName(): String
+cactor_foundation.config :: EnvironmentConfigSource.public func getPriority(): Int32
+cactor_foundation.config :: EnvironmentConfigSource.public func loadConfig(): HashMap<String, ConfigValue>
+cactor_foundation.config :: EnvironmentConfigSource.public func supportsHotReload(): Bool
+cactor_foundation.config :: EnvironmentConfigSource.public func watchForChanges(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: EnvironmentConfigSource.public init(name: String, priority: Int32, prefix: String)
+cactor_foundation.config :: EnvironmentConfigSource.public init(name: String, priority: Int32, prefix: String, keys: Array<String>)
+cactor_foundation.config :: GlobalConfigManager.public static func getInstance(): UnifiedConfigManager
+cactor_foundation.config :: GlobalConfigManager.public static func reset(): Unit
+cactor_foundation.config :: GlobalConfigManager.public static func setInstance(manager: UnifiedConfigManager): Unit
+cactor_foundation.config :: LayeredConfig.public func entry(key: String): Option<ConfigEntry>
+cactor_foundation.config :: LayeredConfig.public func getBool(key: String): Bool
+cactor_foundation.config :: LayeredConfig.public func getBool(key: String, fallback: Bool): Bool
+cactor_foundation.config :: LayeredConfig.public func getDuration(key: String): Duration
+cactor_foundation.config :: LayeredConfig.public func getDuration(key: String, fallback: Duration): Duration
+cactor_foundation.config :: LayeredConfig.public func getFloat(key: String): Float64
+cactor_foundation.config :: LayeredConfig.public func getFloat(key: String, fallback: Float64): Float64
+cactor_foundation.config :: LayeredConfig.public func getInt(key: String): Int64
+cactor_foundation.config :: LayeredConfig.public func getInt(key: String, fallback: Int64): Int64
+cactor_foundation.config :: LayeredConfig.public func getString(key: String): String
+cactor_foundation.config :: LayeredConfig.public func getString(key: String, fallback: String): String
+cactor_foundation.config :: LayeredConfig.public func hasKey(key: String): Bool
+cactor_foundation.config :: LayeredConfig.public func keysUnder(prefix: String): Array<String>
+cactor_foundation.config :: LayeredConfig.public func origin(key: String): Option<String>
+cactor_foundation.config :: LayeredConfig.public func requireKeys(keys: Array<String>): Unit
+cactor_foundation.config :: LayeredConfig.public func withDefault(key: String, value: String): LayeredConfig
+cactor_foundation.config :: LayeredConfig.public func withFile(path: String): LayeredConfig
+cactor_foundation.config :: LayeredConfig.public func withOptionalFile(path: String): LayeredConfig
+cactor_foundation.config :: LayeredConfig.public func withOverride(key: String, value: String): LayeredConfig
+cactor_foundation.config :: LayeredConfig.public func withText(text: String, name: String): LayeredConfig
+cactor_foundation.config :: LayeredConfig.public init(envPrefix: Option<String>)
+cactor_foundation.config :: LayeredConfig.public init(envPrefix: Option<String>, envLookup: (String)->Option<String>)
+cactor_foundation.config :: LayeredConfig.public static func envName(prefix: String, key: String): String
+cactor_foundation.config :: LayeredConfig.public static func parseDuration(text: String): Option<Duration>
+cactor_foundation.config :: LayeredConfig.public static func standard(): LayeredConfig
+cactor_foundation.config :: MemoryConfigSource.public func addConfig(key: String, value: ConfigValue): Unit
+cactor_foundation.config :: MemoryConfigSource.public func addConfigs(configs: HashMap<String, ConfigValue>): Unit
+cactor_foundation.config :: MemoryConfigSource.public func getName(): String
+cactor_foundation.config :: MemoryConfigSource.public func getPriority(): Int32
+cactor_foundation.config :: MemoryConfigSource.public func loadConfig(): HashMap<String, ConfigValue>
+cactor_foundation.config :: MemoryConfigSource.public func supportsHotReload(): Bool
+cactor_foundation.config :: MemoryConfigSource.public func watchForChanges(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: MemoryConfigSource.public init(name: String, priority: Int32)
+cactor_foundation.config :: NotEmptyValidator.public func getValidationError(key: String, value: ConfigValue): String
+cactor_foundation.config :: NotEmptyValidator.public func validate(key: String, value: ConfigValue): Bool
+cactor_foundation.config :: NotEmptyValidator.public init(fieldName: String)
+cactor_foundation.config :: RangeValidator.public func getValidationError(key: String, value: ConfigValue): String
+cactor_foundation.config :: RangeValidator.public func validate(key: String, value: ConfigValue): Bool
+cactor_foundation.config :: RangeValidator.public init(minValue: Float64, maxValue: Float64, fieldName: String)
+cactor_foundation.config :: RegexValidator.public func getValidationError(key: String, value: ConfigValue): String
+cactor_foundation.config :: RegexValidator.public func validate(key: String, value: ConfigValue): Bool
+cactor_foundation.config :: RegexValidator.public init(pattern: String, fieldName: String)
+cactor_foundation.config :: SourceChangeListener.public func onConfigChanged(event: ConfigChangeEvent): Unit
+cactor_foundation.config :: SourceChangeListener.public init(configManager: DefaultUnifiedConfigManager)
+cactor_foundation.config :: UnifiedConfigManager.func addChangeListener(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: UnifiedConfigManager.func addValidator(key: String, validator: ConfigValidator): Unit
+cactor_foundation.config :: UnifiedConfigManager.func getAllKeys(): Array<String>
+cactor_foundation.config :: UnifiedConfigManager.func getBool(key: String): Option<Bool>
+cactor_foundation.config :: UnifiedConfigManager.func getBool(key: String, defaultValue: Bool): Bool
+cactor_foundation.config :: UnifiedConfigManager.func getByPrefix(prefix: String): HashMap<String, ConfigValue>
+cactor_foundation.config :: UnifiedConfigManager.func getDouble(key: String): Option<Float64>
+cactor_foundation.config :: UnifiedConfigManager.func getDouble(key: String, defaultValue: Float64): Float64
+cactor_foundation.config :: UnifiedConfigManager.func getInt(key: String): Option<Int32>
+cactor_foundation.config :: UnifiedConfigManager.func getInt(key: String, defaultValue: Int32): Int32
+cactor_foundation.config :: UnifiedConfigManager.func getStatistics(): ConfigStatistics
+cactor_foundation.config :: UnifiedConfigManager.func getString(key: String): Option<String>
+cactor_foundation.config :: UnifiedConfigManager.func getString(key: String, defaultValue: String): String
+cactor_foundation.config :: UnifiedConfigManager.func getValue(key: String): Option<ConfigValue>
+cactor_foundation.config :: UnifiedConfigManager.func hasValue(key: String): Bool
+cactor_foundation.config :: UnifiedConfigManager.func registerSource(source: ConfigSource): Unit
+cactor_foundation.config :: UnifiedConfigManager.func reload(): Unit
+cactor_foundation.config :: UnifiedConfigManager.func removeChangeListener(listener: ConfigChangeListener): Unit
+cactor_foundation.config :: UnifiedConfigManager.func removeSource(sourceName: String): Unit
+cactor_foundation.config :: UnifiedConfigManager.func removeValidator(key: String): Unit
+cactor_foundation.config :: UnifiedConfigManager.func removeValue(key: String): Unit
+cactor_foundation.config :: UnifiedConfigManager.func setBool(key: String, value: Bool): Unit
+cactor_foundation.config :: UnifiedConfigManager.func setDouble(key: String, value: Float64): Unit
+cactor_foundation.config :: UnifiedConfigManager.func setInt(key: String, value: Int32): Unit
+cactor_foundation.config :: UnifiedConfigManager.func setString(key: String, value: String): Unit
+cactor_foundation.config :: UnifiedConfigManager.func setValue(key: String, value: ConfigValue): Unit
+cactor_foundation.config :: public class CompositeValidator <: ConfigValidator
+cactor_foundation.config :: public class ConfigEntry
+cactor_foundation.config :: public class ConfigException <: Exception
+cactor_foundation.config :: public class ConfigHotReloadManager
+cactor_foundation.config :: public class DefaultConfigSource <: ConfigSource
+cactor_foundation.config :: public class DefaultUnifiedConfigManager <: UnifiedConfigManager
+cactor_foundation.config :: public class EnumValidator <: ConfigValidator
+cactor_foundation.config :: public class EnvironmentConfigSource <: ConfigSource
+cactor_foundation.config :: public class LayeredConfig
+cactor_foundation.config :: public class MemoryConfigSource <: ConfigSource
+cactor_foundation.config :: public class NotEmptyValidator <: ConfigValidator
+cactor_foundation.config :: public class RangeValidator <: ConfigValidator
+cactor_foundation.config :: public class RegexValidator <: ConfigValidator
+cactor_foundation.config :: public class SourceChangeListener <: ConfigChangeListener
+cactor_foundation.config :: public enum ConfigValueType
+cactor_foundation.config :: public interface ConfigChangeListener
+cactor_foundation.config :: public interface ConfigSource
+cactor_foundation.config :: public interface ConfigValidator
+cactor_foundation.config :: public interface UnifiedConfigManager
+cactor_foundation.config :: public struct CActorConfigValidators
+cactor_foundation.config :: public struct ConfigChangeEvent
+cactor_foundation.config :: public struct ConfigStatistics
+cactor_foundation.config :: public struct ConfigValue
+cactor_foundation.config :: public struct GlobalConfigManager
+cactor_foundation.contracts :: APIContract.func getConfigurationAPI(): Any
+cactor_foundation.contracts :: APIContract.func getExtensionAPI(): Any
+cactor_foundation.contracts :: APIContract.func getUnifiedAPI(): Any
+cactor_foundation.contracts :: CoreContract.func getActorFactory(): Any
+cactor_foundation.contracts :: CoreContract.func getMessageSystem(): Any
+cactor_foundation.contracts :: CoreContract.func getSupervisionStrategy(): Any
+cactor_foundation.contracts :: CoreContract.func getSystemManager(): Any
+cactor_foundation.contracts :: FoundationContract.func getDIContainer(): Any
+cactor_foundation.contracts :: FoundationContract.func getMemoryManager(): Any
+cactor_foundation.contracts :: FoundationContract.func getNetworkTransport(): Any
+cactor_foundation.contracts :: FoundationContract.func getQueueFactory(): Any
+cactor_foundation.contracts :: FoundationContract.func getSerializer(): Any
+cactor_foundation.contracts :: GlobalModuleRegistry.public static func getInstance(): ModuleRegistry
+cactor_foundation.contracts :: GlobalModuleRegistry.public static func reset(): Unit
+cactor_foundation.contracts :: ModuleContract.func dispose(): Unit
+cactor_foundation.contracts :: ModuleContract.func getDependencies(): Array<String>
+cactor_foundation.contracts :: ModuleContract.func getProvidedServices(): Array<String>
+cactor_foundation.contracts :: ModuleContract.func getRequiredServices(): Array<String>
+cactor_foundation.contracts :: ModuleContract.func initialize(): Unit
+cactor_foundation.contracts :: ModuleContract.func validate(): Bool
+cactor_foundation.contracts :: ModuleContract.prop description: String
+cactor_foundation.contracts :: ModuleContract.prop layer: ModuleLayer
+cactor_foundation.contracts :: ModuleContract.prop moduleName: String
+cactor_foundation.contracts :: ModuleContract.prop version: String
+cactor_foundation.contracts :: ModuleLayer.public func hashCode(): Int64
+cactor_foundation.contracts :: ModuleLayer.public func toString(): String
+cactor_foundation.contracts :: ModuleLayer.| API
+cactor_foundation.contracts :: ModuleLayer.| Core
+cactor_foundation.contracts :: ModuleLayer.| Distribution
+cactor_foundation.contracts :: ModuleLayer.| Foundation
+cactor_foundation.contracts :: ModuleLayer.| Integration
+cactor_foundation.contracts :: ModuleLayer.| Patterns
+cactor_foundation.contracts :: ModuleLayer.| Runtime
+cactor_foundation.contracts :: ModuleRegistry.public func disposeAll(): Unit
+cactor_foundation.contracts :: ModuleRegistry.public func generateDependencyReport(): String
+cactor_foundation.contracts :: ModuleRegistry.public func getModule(moduleName: String): Option<ModuleContract>
+cactor_foundation.contracts :: ModuleRegistry.public func getModulesInLayer(layer: ModuleLayer): Array<ModuleContract>
+cactor_foundation.contracts :: ModuleRegistry.public func initializeAll(): Unit
+cactor_foundation.contracts :: ModuleRegistry.public func registerModule(module: ModuleContract): Unit
+cactor_foundation.contracts :: ModuleRegistry.public func validateDependencies(): Array<String>
+cactor_foundation.contracts :: ModuleRegistry.public init()
+cactor_foundation.contracts :: RuntimeContract.func getDispatcherFactory(): Any
+cactor_foundation.contracts :: RuntimeContract.func getLifecycleManager(): Any
+cactor_foundation.contracts :: RuntimeContract.func getMailboxFactory(): Any
+cactor_foundation.contracts :: RuntimeContract.func getMonitoringSystem(): Any
+cactor_foundation.contracts :: public class ModuleRegistry
+cactor_foundation.contracts :: public enum ModuleLayer
+cactor_foundation.contracts :: public interface APIContract <: ModuleContract
+cactor_foundation.contracts :: public interface CoreContract <: ModuleContract
+cactor_foundation.contracts :: public interface FoundationContract <: ModuleContract
+cactor_foundation.contracts :: public interface ModuleContract
+cactor_foundation.contracts :: public interface RuntimeContract <: ModuleContract
+cactor_foundation.contracts :: public struct GlobalModuleRegistry
+cactor_foundation.detector :: FailureDetectorRegistry.public func heartbeat(node: String): Unit
+cactor_foundation.detector :: FailureDetectorRegistry.public func isAvailable(node: String): Bool
+cactor_foundation.detector :: FailureDetectorRegistry.public func phi(node: String): Float64
+cactor_foundation.detector :: FailureDetectorRegistry.public func remove(node: String): Unit
+cactor_foundation.detector :: FailureDetectorRegistry.public func unavailableNodes(): Array<String>
+cactor_foundation.detector :: FailureDetectorRegistry.public init(factory: ()->PhiAccrualFailureDetector)
+cactor_foundation.detector :: HeartbeatHistory.public func add(interval: Int64): Unit
+cactor_foundation.detector :: HeartbeatHistory.public func mean(): Float64
+cactor_foundation.detector :: HeartbeatHistory.public func size(): Int64
+cactor_foundation.detector :: HeartbeatHistory.public func stdDeviation(): Float64
+cactor_foundation.detector :: HeartbeatHistory.public func variance(): Float64
+cactor_foundation.detector :: HeartbeatHistory.public init(maxSampleSize: Int64)
+cactor_foundation.detector :: PhiAccrualFailureDetector.public func heartbeat(): Unit
+cactor_foundation.detector :: PhiAccrualFailureDetector.public func isAvailable(): Bool
+cactor_foundation.detector :: PhiAccrualFailureDetector.public func isMonitoring(): Bool
+cactor_foundation.detector :: PhiAccrualFailureDetector.public func phi(): Float64
+cactor_foundation.detector :: PhiAccrualFailureDetector.public init()
+cactor_foundation.detector :: PhiAccrualFailureDetector.public init(threshold: Float64, maxSampleSize: Int64, minStdDeviation: Duration, acceptableHeartbeatPause: Duration, firstHeartbeatEstimate: Duration, clock: ()->Int64)
+cactor_foundation.detector :: PhiAccrualFailureDetector.public let threshold: Float64
+cactor_foundation.detector :: PhiAccrualFailureDetector.public static func phiOf(elapsed: Float64, mean: Float64, stdDeviation: Float64): Float64
+cactor_foundation.detector :: public class FailureDetectorRegistry
+cactor_foundation.detector :: public class HeartbeatHistory
+cactor_foundation.detector :: public class PhiAccrualFailureDetector
+cactor_foundation.detector :: public func monotonicMillis(): Int64
+cactor_foundation.di :: DIContainer.func dispose(): Unit
+cactor_foundation.di :: DIContainer.func getRegisteredServices(): Array<String>
+cactor_foundation.di :: DIContainer.func isRegistered(serviceType: String): Bool
+cactor_foundation.di :: DIContainer.func registerScoped<T>(serviceType: String, factory: ()->T): Unit
+cactor_foundation.di :: DIContainer.func registerSingleton<T>(serviceType: String, implementation: T): Unit
+cactor_foundation.di :: DIContainer.func registerTransient<T>(serviceType: String, factory: ()->T): Unit
+cactor_foundation.di :: DIContainer.func resolve<T>(serviceType: String): Option<T>
+cactor_foundation.di :: DIContainer.func resolveRequired<T>(serviceType: String): T
+cactor_foundation.di :: DIContainerProvider.public static func getContainer(): DIContainer
+cactor_foundation.di :: DIContainerProvider.public static func reset(): Unit
+cactor_foundation.di :: DIContainerProvider.public static func setContainer(container: DIContainer): Unit
+cactor_foundation.di :: DefaultDIContainer.public func clearScope(): Unit
+cactor_foundation.di :: DefaultDIContainer.public func dispose(): Unit
+cactor_foundation.di :: DefaultDIContainer.public func getRegisteredServices(): Array<String>
+cactor_foundation.di :: DefaultDIContainer.public func isRegistered(serviceType: String): Bool
+cactor_foundation.di :: DefaultDIContainer.public func registerScoped<T>(serviceType: String, factory: ()->T): Unit
+cactor_foundation.di :: DefaultDIContainer.public func registerSingleton<T>(serviceType: String, implementation: T): Unit
+cactor_foundation.di :: DefaultDIContainer.public func registerTransient<T>(serviceType: String, factory: ()->T): Unit
+cactor_foundation.di :: DefaultDIContainer.public func resolve<T>(serviceType: String): Option<T>
+cactor_foundation.di :: DefaultDIContainer.public func resolveRequired<T>(serviceType: String): T
+cactor_foundation.di :: DefaultDIContainer.public init()
+cactor_foundation.di :: ServiceDescriptor.public init(serviceType: String, factory: ()->Any, lifetime: ServiceLifetime)
+cactor_foundation.di :: ServiceDescriptor.public init(serviceType: String, implementationType: String, lifetime: ServiceLifetime)
+cactor_foundation.di :: ServiceDescriptor.public let factory: Option<()->Any>
+cactor_foundation.di :: ServiceDescriptor.public let implementationType: String
+cactor_foundation.di :: ServiceDescriptor.public let lifetime: ServiceLifetime
+cactor_foundation.di :: ServiceDescriptor.public let serviceType: String
+cactor_foundation.di :: ServiceInstance.public init(instance: Any, lifetime: ServiceLifetime)
+cactor_foundation.di :: ServiceInstance.public let createdAt: Int64
+cactor_foundation.di :: ServiceInstance.public let instance: Any
+cactor_foundation.di :: ServiceInstance.public let lifetime: ServiceLifetime
+cactor_foundation.di :: ServiceLifetime.| Scoped
+cactor_foundation.di :: ServiceLifetime.| Singleton
+cactor_foundation.di :: ServiceLifetime.| Transient
+cactor_foundation.di :: ServiceLocator.public static func getRequiredService<T>(serviceType: String): T
+cactor_foundation.di :: ServiceLocator.public static func getService<T>(serviceType: String): Option<T>
+cactor_foundation.di :: ServiceLocator.public static func registerSingleton<T>(serviceType: String, implementation: T): Unit
+cactor_foundation.di :: ServiceLocator.public static func registerTransient<T>(serviceType: String, factory: ()->T): Unit
+cactor_foundation.di :: public class DefaultDIContainer <: DIContainer
+cactor_foundation.di :: public enum ServiceLifetime
+cactor_foundation.di :: public interface DIContainer
+cactor_foundation.di :: public struct DIContainerProvider
+cactor_foundation.di :: public struct ServiceDescriptor
+cactor_foundation.di :: public struct ServiceInstance
+cactor_foundation.di :: public struct ServiceLocator
+cactor_foundation.hashing :: public func boundedIndex(h: UInt64, n: Int64): Int64
+cactor_foundation.hashing :: public func constantTimeEquals(a: Array<UInt8>, b: Array<UInt8>): Bool
+cactor_foundation.hashing :: public func crc32(data: Array<UInt8>): UInt32
+cactor_foundation.hashing :: public func crc32(data: Array<UInt8>, start: Int64, end: Int64): UInt32
+cactor_foundation.hashing :: public func crc32Update(crc: UInt32, data: Array<UInt8>, start: Int64, end: Int64): UInt32
+cactor_foundation.hashing :: public func fromHex(text: String): Option<Array<UInt8>>
+cactor_foundation.hashing :: public func hmacSha256(key: Array<UInt8>, message: Array<UInt8>): Array<UInt8>
+cactor_foundation.hashing :: public func mix64(h: UInt64): UInt64
+cactor_foundation.hashing :: public func rendezvousIndex(keyHash: UInt64, candidates: Array<UInt64>): Int64
+cactor_foundation.hashing :: public func sha256(data: Array<UInt8>): Array<UInt8>
+cactor_foundation.hashing :: public func stableHash64(s: String): UInt64
+cactor_foundation.hashing :: public func toHex(bytes: Array<UInt8>): String
+cactor_foundation.hashing :: public let SHA256_BLOCK_SIZE: Int64
+cactor_foundation.log :: LogBackend.func write(level: LogLevel, loggerName: String, message: String): Unit
+cactor_foundation.log :: LogLevel.public func severity(): Int64
+cactor_foundation.log :: LogLevel.public func toString(): String
+cactor_foundation.log :: LogLevel.public static func fromSeverity(v: Int64): LogLevel
+cactor_foundation.log :: LogLevel.| Debug
+cactor_foundation.log :: LogLevel.| Error
+cactor_foundation.log :: LogLevel.| Info
+cactor_foundation.log :: LogLevel.| Off
+cactor_foundation.log :: LogLevel.| Trace
+cactor_foundation.log :: LogLevel.| Warn
+cactor_foundation.log :: Logger.public func debug(message: ()->String): Unit
+cactor_foundation.log :: Logger.public func debug(message: String): Unit
+cactor_foundation.log :: Logger.public func error(message: String): Unit
+cactor_foundation.log :: Logger.public func info(message: ()->String): Unit
+cactor_foundation.log :: Logger.public func info(message: String): Unit
+cactor_foundation.log :: Logger.public func isEnabled(level: LogLevel): Bool
+cactor_foundation.log :: Logger.public func log(level: LogLevel, message: ()->String): Unit
+cactor_foundation.log :: Logger.public func log(level: LogLevel, message: String): Unit
+cactor_foundation.log :: Logger.public func trace(message: String): Unit
+cactor_foundation.log :: Logger.public func warn(message: String): Unit
+cactor_foundation.log :: Logger.public let name: String
+cactor_foundation.log :: LoggerFactory.public static func getLevel(): LogLevel
+cactor_foundation.log :: LoggerFactory.public static func getLogger(name: String): Logger
+cactor_foundation.log :: LoggerFactory.public static func setBackend(b: LogBackend): Unit
+cactor_foundation.log :: LoggerFactory.public static func setLevel(l: LogLevel): Unit
+cactor_foundation.log :: MemoryLogBackend.public func entries(): Array<String>
+cactor_foundation.log :: MemoryLogBackend.public func write(level: LogLevel, loggerName: String, message: String): Unit
+cactor_foundation.log :: MemoryLogBackend.public init()
+cactor_foundation.log :: StderrLogBackend.public func write(level: LogLevel, loggerName: String, message: String): Unit
+cactor_foundation.log :: StderrLogBackend.public init()
+cactor_foundation.log :: public class Logger
+cactor_foundation.log :: public class LoggerFactory
+cactor_foundation.log :: public class MemoryLogBackend <: LogBackend
+cactor_foundation.log :: public class StderrLogBackend <: LogBackend
+cactor_foundation.log :: public enum LogLevel <: ToString
+cactor_foundation.log :: public interface LogBackend
+cactor_foundation.logging :: JsonLinesSink.public func write(record: LogRecord): Unit
+cactor_foundation.logging :: JsonLinesSink.public init()
+cactor_foundation.logging :: JsonLinesSink.public init(out: (String)->Unit)
+cactor_foundation.logging :: LogLevel.public func label(): String
+cactor_foundation.logging :: LogLevel.public func ordinal(): Int64
+cactor_foundation.logging :: LogLevel.public static func fromOrdinal(n: Int64): LogLevel
+cactor_foundation.logging :: LogLevel.public static func parse(text: String): Option<LogLevel>
+cactor_foundation.logging :: LogLevel.| Debug
+cactor_foundation.logging :: LogLevel.| Error
+cactor_foundation.logging :: LogLevel.| Info
+cactor_foundation.logging :: LogLevel.| Off
+cactor_foundation.logging :: LogLevel.| Trace
+cactor_foundation.logging :: LogLevel.| Warn
+cactor_foundation.logging :: LogRateLimiter.public func countInWindow(): Int64
+cactor_foundation.logging :: LogRateLimiter.public func tryLog(emit: (String)->Unit, message: ()->String): Unit
+cactor_foundation.logging :: LogRateLimiter.public init(limit: Int64, window: Duration)
+cactor_foundation.logging :: LogRecord.public func field(key: String): Option<String>
+cactor_foundation.logging :: LogRecord.public func format(): String
+cactor_foundation.logging :: LogRecord.public func toJson(): String
+cactor_foundation.logging :: LogRecord.public init(level: LogLevel, source: String, message: String, timestampMillis: Int64)
+cactor_foundation.logging :: LogRecord.public init(level: LogLevel, source: String, message: String, timestampMillis: Int64, fields: Array<(String, String)>)
+cactor_foundation.logging :: LogRecord.public let fields: Array<(String, String)>
+cactor_foundation.logging :: LogRecord.public let level: LogLevel
+cactor_foundation.logging :: LogRecord.public let message: String
+cactor_foundation.logging :: LogRecord.public let source: String
+cactor_foundation.logging :: LogRecord.public let timestampMillis: Int64
+cactor_foundation.logging :: LogSink.func write(record: LogRecord): Unit
+cactor_foundation.logging :: Logger.public func debug(message: ()->String): Unit
+cactor_foundation.logging :: Logger.public func debug(message: String): Unit
+cactor_foundation.logging :: Logger.public func error(message: String): Unit
+cactor_foundation.logging :: Logger.public func info(message: ()->String): Unit
+cactor_foundation.logging :: Logger.public func info(message: String): Unit
+cactor_foundation.logging :: Logger.public func isEnabled(level: LogLevel): Bool
+cactor_foundation.logging :: Logger.public func log(level: LogLevel, message: ()->String): Unit
+cactor_foundation.logging :: Logger.public func log(level: LogLevel, message: String): Unit
+cactor_foundation.logging :: Logger.public func trace(message: String): Unit
+cactor_foundation.logging :: Logger.public func warn(message: String): Unit
+cactor_foundation.logging :: Logger.public func withField(key: String, value: String): Logger
+cactor_foundation.logging :: Logger.public func withFields(more: Array<(String, String)>): Logger
+cactor_foundation.logging :: Logger.public init(source: String)
+cactor_foundation.logging :: Logger.public init(source: String, fields: Array<(String, String)>)
+cactor_foundation.logging :: Logger.public let fields: Array<(String, String)>
+cactor_foundation.logging :: Logger.public let source: String
+cactor_foundation.logging :: Logging.public static func currentSink(): LogSink
+cactor_foundation.logging :: Logging.public static func isEnabled(level: LogLevel): Bool
+cactor_foundation.logging :: Logging.public static func level(): LogLevel
+cactor_foundation.logging :: Logging.public static func logger(source: String): Logger
+cactor_foundation.logging :: Logging.public static func setLevel(level: LogLevel): Unit
+cactor_foundation.logging :: Logging.public static func setSink(newSink: LogSink): Unit
+cactor_foundation.logging :: Mdc.public static func clear(): Unit
+cactor_foundation.logging :: Mdc.public static func get(): Array<(String, String)>
+cactor_foundation.logging :: Mdc.public static func get(key: String): Option<String>
+cactor_foundation.logging :: Mdc.public static func put(key: String, value: String): Unit
+cactor_foundation.logging :: Mdc.public static func remove(key: String): Unit
+cactor_foundation.logging :: Mdc.public static func scoped<T>(fields: Array<(String, String)>, block: ()->T): T
+cactor_foundation.logging :: MemorySink.public func clear(): Unit
+cactor_foundation.logging :: MemorySink.public func count(level: LogLevel, contains: String): Int64
+cactor_foundation.logging :: MemorySink.public func snapshot(): Array<LogRecord>
+cactor_foundation.logging :: MemorySink.public func write(record: LogRecord): Unit
+cactor_foundation.logging :: MemorySink.public init()
+cactor_foundation.logging :: StderrSink.public func write(record: LogRecord): Unit
+cactor_foundation.logging :: StderrSink.public init()
+cactor_foundation.logging :: public class JsonLinesSink <: LogSink
+cactor_foundation.logging :: public class LogRateLimiter
+cactor_foundation.logging :: public class Logger
+cactor_foundation.logging :: public class Logging
+cactor_foundation.logging :: public class Mdc
+cactor_foundation.logging :: public class MemorySink <: LogSink
+cactor_foundation.logging :: public class StderrSink <: LogSink
+cactor_foundation.logging :: public enum LogLevel
+cactor_foundation.logging :: public interface LogSink
+cactor_foundation.logging :: public struct LogRecord
+cactor_foundation.memory :: ByteArrayPool.public func acquire(): Array<UInt8>
+cactor_foundation.memory :: ByteArrayPool.public func clear(): Unit
+cactor_foundation.memory :: ByteArrayPool.public func getStatistics(): PoolStatistics
+cactor_foundation.memory :: ByteArrayPool.public func release(obj: Array<UInt8>): Unit
+cactor_foundation.memory :: ByteArrayPool.public func size(): Int64
+cactor_foundation.memory :: ByteArrayPool.public init(maxSize: Int64)
+cactor_foundation.memory :: CangjieFriendlyObjectPool.public func acquire(): T
+cactor_foundation.memory :: CangjieFriendlyObjectPool.public func clear(): Unit
+cactor_foundation.memory :: CangjieFriendlyObjectPool.public func getStatistics(): PoolStatistics
+cactor_foundation.memory :: CangjieFriendlyObjectPool.public func release(obj: T): Unit
+cactor_foundation.memory :: CangjieFriendlyObjectPool.public func size(): Int64
+cactor_foundation.memory :: CangjieFriendlyObjectPool.public init(factory: ()->T, resetFunction: (T)->Unit, maxSize: Int64)
+cactor_foundation.memory :: GcStats.public func getAvgGcTime(): Float64
+cactor_foundation.memory :: GcStats.public func getCollectionRate(): Float64
+cactor_foundation.memory :: GcStats.public init(collectedThisCycle: Int64, scannedThisCycle: Int64, gcTimeThisCycle: Int64, totalCollected: Int64, totalScanned: Int64, totalGcCycles: Int64)
+cactor_foundation.memory :: GcStats.public let collectedThisCycle: Int64
+cactor_foundation.memory :: GcStats.public let gcTimeThisCycle: Int64
+cactor_foundation.memory :: GcStats.public let scannedThisCycle: Int64
+cactor_foundation.memory :: GcStats.public let totalCollected: Int64
+cactor_foundation.memory :: GcStats.public let totalGcCycles: Int64
+cactor_foundation.memory :: GcStats.public let totalScanned: Int64
+cactor_foundation.memory :: GlobalMemoryPool.public func allocate(size: UInt64): Option<MemoryBlock>
+cactor_foundation.memory :: GlobalMemoryPool.public func deallocate(block: MemoryBlock): Unit
+cactor_foundation.memory :: GlobalMemoryPool.public func getStats(): MemoryPoolStats
+cactor_foundation.memory :: GlobalMemoryPool.public func getTotalAllocated(): UInt64
+cactor_foundation.memory :: GlobalMemoryPool.public func getTotalUsed(): UInt64
+cactor_foundation.memory :: GlobalMemoryPool.public func getUtilization(): Float64
+cactor_foundation.memory :: GlobalMemoryPool.public func reset(): Unit
+cactor_foundation.memory :: GlobalMemoryPool.public init()
+cactor_foundation.memory :: GlobalSmartGC.public static func getInstance(): SmartGarbageCollector
+cactor_foundation.memory :: GlobalSmartGC.public static func shutdown(): Unit
+cactor_foundation.memory :: LocalMemoryPool.public func deallocate(block: MemoryBlock): Unit
+cactor_foundation.memory :: LocalMemoryPool.public func getTotalAllocated(): UInt64
+cactor_foundation.memory :: LocalMemoryPool.public func getTotalUsed(): UInt64
+cactor_foundation.memory :: LocalMemoryPool.public func reset(): Unit
+cactor_foundation.memory :: LocalMemoryPool.public func tryAllocate(size: UInt64): Option<MemoryBlock>
+cactor_foundation.memory :: LocalMemoryPool.public init(numaNode: Int32)
+cactor_foundation.memory :: LocalMemoryPool.public init(numaNode: Int32, chunkSize: UInt64)
+cactor_foundation.memory :: MemoryBlock.public init(size: UInt64, numaNode: Int32)
+cactor_foundation.memory :: MemoryBlock.public let allocatedTime: Int64
+cactor_foundation.memory :: MemoryBlock.public let numaNode: Int32
+cactor_foundation.memory :: MemoryBlock.public let size: UInt64
+cactor_foundation.memory :: MemoryPool.func allocate(size: UInt64): Option<MemoryBlock>
+cactor_foundation.memory :: MemoryPool.func deallocate(block: MemoryBlock): Unit
+cactor_foundation.memory :: MemoryPool.func getStats(): MemoryPoolStats
+cactor_foundation.memory :: MemoryPool.func getTotalAllocated(): UInt64
+cactor_foundation.memory :: MemoryPool.func getTotalUsed(): UInt64
+cactor_foundation.memory :: MemoryPool.func getUtilization(): Float64
+cactor_foundation.memory :: MemoryPool.func reset(): Unit
+cactor_foundation.memory :: MemoryPoolFactory.public static func createHighThroughputPool(): MemoryPool
+cactor_foundation.memory :: MemoryPoolFactory.public static func createLowLatencyPool(): MemoryPool
+cactor_foundation.memory :: MemoryPoolFactory.public static func createPool(maxSize: UInt64): MemoryPool
+cactor_foundation.memory :: MemoryPoolStats.public func getDeallocations(): Int64
+cactor_foundation.memory :: MemoryPoolStats.public func getGlobalAllocations(): Int64
+cactor_foundation.memory :: MemoryPoolStats.public func getGlobalBytes(): Int64
+cactor_foundation.memory :: MemoryPoolStats.public func getLocalAllocations(): Int64
+cactor_foundation.memory :: MemoryPoolStats.public func getLocalBytes(): Int64
+cactor_foundation.memory :: MemoryPoolStats.public func getNumaEfficiency(): Float64
+cactor_foundation.memory :: MemoryPoolStats.public func getRemoteAllocations(): Int64
+cactor_foundation.memory :: MemoryPoolStats.public func getRemoteBytes(): Int64
+cactor_foundation.memory :: MemoryPoolStats.public func getTotalAllocations(): Int64
+cactor_foundation.memory :: MemoryPoolStats.public func recordDeallocation(size: UInt64): Unit
+cactor_foundation.memory :: MemoryPoolStats.public func recordGlobalAllocation(size: UInt64): Unit
+cactor_foundation.memory :: MemoryPoolStats.public func recordLocalAllocation(size: UInt64): Unit
+cactor_foundation.memory :: MemoryPoolStats.public func recordRemoteAllocation(size: UInt64): Unit
+cactor_foundation.memory :: MemoryPoolStats.public func reset(): Unit
+cactor_foundation.memory :: MemoryPoolStats.public init()
+cactor_foundation.memory :: NumaAwareMemoryPool.public func allocate(size: UInt64): Option<MemoryBlock>
+cactor_foundation.memory :: NumaAwareMemoryPool.public func deallocate(block: MemoryBlock): Unit
+cactor_foundation.memory :: NumaAwareMemoryPool.public func getStats(): MemoryPoolStats
+cactor_foundation.memory :: NumaAwareMemoryPool.public func getTotalAllocated(): UInt64
+cactor_foundation.memory :: NumaAwareMemoryPool.public func getTotalUsed(): UInt64
+cactor_foundation.memory :: NumaAwareMemoryPool.public func getUtilization(): Float64
+cactor_foundation.memory :: NumaAwareMemoryPool.public func reset(): Unit
+cactor_foundation.memory :: NumaAwareMemoryPool.public init()
+cactor_foundation.memory :: NumaAwareMemoryPool.public init(nodeCount: Int32, poolSize: UInt64)
+cactor_foundation.memory :: NumaAwareMemoryPool.public init(poolSize: UInt64)
+cactor_foundation.memory :: ObjectPool.func acquire(): T
+cactor_foundation.memory :: ObjectPool.func clear(): Unit
+cactor_foundation.memory :: ObjectPool.func release(obj: T): Unit
+cactor_foundation.memory :: ObjectPool.func size(): Int64
+cactor_foundation.memory :: PoolManager.public func getAllStatistics(): Array<PoolStatistics>
+cactor_foundation.memory :: PoolManager.public func getPool<T>(name: String): Option<ObjectPool<T>>
+cactor_foundation.memory :: PoolManager.public func registerPool<T>(name: String, pool: ObjectPool<T>): Unit
+cactor_foundation.memory :: PoolManager.public init()
+cactor_foundation.memory :: PoolStatistics.public func getUtilization(): Float64
+cactor_foundation.memory :: PoolStatistics.public init(currentSize: Int64, maxSize: Int64, totalAcquired: Int64, totalReleased: Int64, hitRate: Float64)
+cactor_foundation.memory :: PoolStatistics.public let currentSize: Int64
+cactor_foundation.memory :: PoolStatistics.public let hitRate: Float64
+cactor_foundation.memory :: PoolStatistics.public let maxSize: Int64
+cactor_foundation.memory :: PoolStatistics.public let totalAcquired: Int64
+cactor_foundation.memory :: PoolStatistics.public let totalReleased: Int64
+cactor_foundation.memory :: PoolTier.| Large
+cactor_foundation.memory :: PoolTier.| Medium
+cactor_foundation.memory :: PoolTier.| Small
+cactor_foundation.memory :: SharedMemoryBuffer.public func clear(): Unit
+cactor_foundation.memory :: SharedMemoryBuffer.public func copyFrom(source: Array<UInt8>, offset: UInt64): Bool
+cactor_foundation.memory :: SharedMemoryBuffer.public func copyTo(dest: Array<UInt8>, offset: UInt64, length: UInt64): Bool
+cactor_foundation.memory :: SharedMemoryBuffer.public func getData(): Array<UInt8>
+cactor_foundation.memory :: SharedMemoryBuffer.public func getRefCount(): Int64
+cactor_foundation.memory :: SharedMemoryBuffer.public func getSize(): UInt64
+cactor_foundation.memory :: SharedMemoryBuffer.public func isValid(): Bool
+cactor_foundation.memory :: SharedMemoryBuffer.public func release(): Unit
+cactor_foundation.memory :: SharedMemoryBuffer.public func retain(): Unit
+cactor_foundation.memory :: SharedMemoryBuffer.public func slice(offset: UInt64, length: UInt64): Array<UInt8>
+cactor_foundation.memory :: SharedMemoryBuffer.public init(data: Array<UInt8>)
+cactor_foundation.memory :: SharedMemoryBuffer.public init(size: UInt64)
+cactor_foundation.memory :: SmartGarbageCollector.public func collectGarbage(): GcStats
+cactor_foundation.memory :: SmartGarbageCollector.public func getStats(): GcStats
+cactor_foundation.memory :: SmartGarbageCollector.public func registerForCollection(obj: SmartObject): Unit
+cactor_foundation.memory :: SmartGarbageCollector.public func start(): Unit
+cactor_foundation.memory :: SmartGarbageCollector.public func stop(): Unit
+cactor_foundation.memory :: SmartGarbageCollector.public init(gcInterval: Int64)
+cactor_foundation.memory :: SmartObject.func addRef(): Unit
+cactor_foundation.memory :: SmartObject.func cleanup(): Unit
+cactor_foundation.memory :: SmartObject.func getRefCount(): Int32
+cactor_foundation.memory :: SmartObject.func release(): Unit
+cactor_foundation.memory :: SmartPtr.public func get(): Option<T>
+cactor_foundation.memory :: SmartPtr.public func getRefCount(): Int32
+cactor_foundation.memory :: SmartPtr.public func isValid(): Bool
+cactor_foundation.memory :: SmartPtr.public func release(): Unit
+cactor_foundation.memory :: SmartPtr.public init(obj: T, gc: SmartGarbageCollector)
+cactor_foundation.memory :: SmartPtr.public init(other: SmartPtr<T>)
+cactor_foundation.memory :: SmartRefCount.public func addRef(): Unit
+cactor_foundation.memory :: SmartRefCount.public func getRefCount(): Int32
+cactor_foundation.memory :: SmartRefCount.public func isAlive(): Bool
+cactor_foundation.memory :: SmartRefCount.public func release(): Bool
+cactor_foundation.memory :: SmartRefCount.public init()
+cactor_foundation.memory :: StringPool.public func acquire(): String
+cactor_foundation.memory :: StringPool.public func clear(): Unit
+cactor_foundation.memory :: StringPool.public func getStatistics(): PoolStatistics
+cactor_foundation.memory :: StringPool.public func release(obj: String): Unit
+cactor_foundation.memory :: StringPool.public func size(): Int64
+cactor_foundation.memory :: StringPool.public init(maxSize: Int64)
+cactor_foundation.memory :: TieredObjectPool.public func acquire(): T
+cactor_foundation.memory :: TieredObjectPool.public func clear(): Unit
+cactor_foundation.memory :: TieredObjectPool.public func release(obj: T): Unit
+cactor_foundation.memory :: TieredObjectPool.public func size(): Int64
+cactor_foundation.memory :: TieredObjectPool.public init(smallPoolSize: Int64, mediumPoolSize: Int64, largePoolSize: Int64, factory: ()->T, resetFunction: (T)->Unit, sizeClassifier: (T)->PoolTier)
+cactor_foundation.memory :: public class ByteArrayPool <: ObjectPool<Array<UInt8>>
+cactor_foundation.memory :: public class CangjieFriendlyObjectPool<T> <: ObjectPool<T>
+cactor_foundation.memory :: public class GlobalMemoryPool <: MemoryPool
+cactor_foundation.memory :: public class GlobalSmartGC
+cactor_foundation.memory :: public class LocalMemoryPool
+cactor_foundation.memory :: public class MemoryPoolStats
+cactor_foundation.memory :: public class NumaAwareMemoryPool <: MemoryPool
+cactor_foundation.memory :: public class PoolManager
+cactor_foundation.memory :: public class SharedMemoryBuffer
+cactor_foundation.memory :: public class SmartGarbageCollector
+cactor_foundation.memory :: public class SmartPtr<T>
+cactor_foundation.memory :: public class SmartRefCount
+cactor_foundation.memory :: public class StringPool <: ObjectPool<String>
+cactor_foundation.memory :: public class TieredObjectPool<T> <: ObjectPool<T>
+cactor_foundation.memory :: public enum PoolTier
+cactor_foundation.memory :: public interface MemoryPool
+cactor_foundation.memory :: public interface ObjectPool<T>
+cactor_foundation.memory :: public interface SmartObject
+cactor_foundation.memory :: public struct GcStats
+cactor_foundation.memory :: public struct MemoryBlock
+cactor_foundation.memory :: public struct MemoryPoolFactory
+cactor_foundation.memory :: public struct PoolStatistics
+cactor_foundation.monitoring :: AlertCondition.| Equal
+cactor_foundation.monitoring :: AlertCondition.| GreaterThan
+cactor_foundation.monitoring :: AlertCondition.| LessThan
+cactor_foundation.monitoring :: AlertCondition.| NotEqual
+cactor_foundation.monitoring :: AlertEvent.public func getLevelString(): String
+cactor_foundation.monitoring :: AlertEvent.public func getStatusString(): String
+cactor_foundation.monitoring :: AlertEvent.public func resolve(): AlertEvent
+cactor_foundation.monitoring :: AlertEvent.public func silence(): AlertEvent
+cactor_foundation.monitoring :: AlertEvent.public init(id: String, name: String, level: AlertLevel, message: String, timestamp: Int64, labels: HashMap<String, String>, status: AlertStatus)
+cactor_foundation.monitoring :: AlertEvent.public let id: String
+cactor_foundation.monitoring :: AlertEvent.public let labels: HashMap<String, String>
+cactor_foundation.monitoring :: AlertEvent.public let level: AlertLevel
+cactor_foundation.monitoring :: AlertEvent.public let message: String
+cactor_foundation.monitoring :: AlertEvent.public let name: String
+cactor_foundation.monitoring :: AlertEvent.public let status: AlertStatus
+cactor_foundation.monitoring :: AlertEvent.public let timestamp: Int64
+cactor_foundation.monitoring :: AlertEvent.public static func create(name: String, level: AlertLevel, message: String): AlertEvent
+cactor_foundation.monitoring :: AlertEvent.public static func createWithLabels(name: String, level: AlertLevel, message: String, labels: HashMap<String, String>): AlertEvent
+cactor_foundation.monitoring :: AlertLevel.| Critical
+cactor_foundation.monitoring :: AlertLevel.| Error
+cactor_foundation.monitoring :: AlertLevel.| Info
+cactor_foundation.monitoring :: AlertLevel.| Warning
+cactor_foundation.monitoring :: AlertManager.public func addChannel(channel: NotificationChannel): Unit
+cactor_foundation.monitoring :: AlertManager.public func addRule(rule: AlertRule): Unit
+cactor_foundation.monitoring :: AlertManager.public func clearHistory(): Unit
+cactor_foundation.monitoring :: AlertManager.public func evaluateMetric(metricName: String, value: Float64): Unit
+cactor_foundation.monitoring :: AlertManager.public func getActiveAlertCount(): Int32
+cactor_foundation.monitoring :: AlertManager.public func getChannelCount(): Int32
+cactor_foundation.monitoring :: AlertManager.public func getHistorySize(): Int64
+cactor_foundation.monitoring :: AlertManager.public func getRuleCount(): Int32
+cactor_foundation.monitoring :: AlertManager.public func printAlertStats(): Unit
+cactor_foundation.monitoring :: AlertManager.public func resolveAlert(alertId: String): Bool
+cactor_foundation.monitoring :: AlertManager.public func triggerAlert(name: String, level: AlertLevel, message: String): Unit
+cactor_foundation.monitoring :: AlertManager.public init()
+cactor_foundation.monitoring :: AlertManager.public init(maxHistory: Int64)
+cactor_foundation.monitoring :: AlertRule.public func evaluate(metricValue: Float64): Bool
+cactor_foundation.monitoring :: AlertRule.public init(name: String, metricName: String, condition: AlertCondition, threshold: Float64, level: AlertLevel, message: String, enabled: Bool)
+cactor_foundation.monitoring :: AlertRule.public let condition: AlertCondition
+cactor_foundation.monitoring :: AlertRule.public let enabled: Bool
+cactor_foundation.monitoring :: AlertRule.public let level: AlertLevel
+cactor_foundation.monitoring :: AlertRule.public let message: String
+cactor_foundation.monitoring :: AlertRule.public let metricName: String
+cactor_foundation.monitoring :: AlertRule.public let name: String
+cactor_foundation.monitoring :: AlertRule.public let threshold: Float64
+cactor_foundation.monitoring :: AlertStatus.| Active
+cactor_foundation.monitoring :: AlertStatus.| Resolved
+cactor_foundation.monitoring :: AlertStatus.| Silenced
+cactor_foundation.monitoring :: ConsoleNotificationChannel.public func getName(): String
+cactor_foundation.monitoring :: ConsoleNotificationChannel.public func isEnabled(): Bool
+cactor_foundation.monitoring :: ConsoleNotificationChannel.public func send(alert: AlertEvent): Bool
+cactor_foundation.monitoring :: ConsoleNotificationChannel.public init(name: String, enabled: Bool)
+cactor_foundation.monitoring :: CounterMetric.public func getCount(): Float64
+cactor_foundation.monitoring :: CounterMetric.public func getName(): String
+cactor_foundation.monitoring :: CounterMetric.public func getType(): MetricType
+cactor_foundation.monitoring :: CounterMetric.public func getValue(): MetricValue
+cactor_foundation.monitoring :: CounterMetric.public func increment(): Unit
+cactor_foundation.monitoring :: CounterMetric.public func incrementBy(value: Float64): Unit
+cactor_foundation.monitoring :: CounterMetric.public func reset(): Unit
+cactor_foundation.monitoring :: CounterMetric.public init(name: String)
+cactor_foundation.monitoring :: CounterMetric.public init(name: String, labels: HashMap<String, String>)
+cactor_foundation.monitoring :: DuplicateMetricException.public init(message: String)
+cactor_foundation.monitoring :: GaugeMetric.public func addValue(delta: Float64): Unit
+cactor_foundation.monitoring :: GaugeMetric.public func getCurrentValue(): Float64
+cactor_foundation.monitoring :: GaugeMetric.public func getName(): String
+cactor_foundation.monitoring :: GaugeMetric.public func getType(): MetricType
+cactor_foundation.monitoring :: GaugeMetric.public func getValue(): MetricValue
+cactor_foundation.monitoring :: GaugeMetric.public func reset(): Unit
+cactor_foundation.monitoring :: GaugeMetric.public func setValue(newValue: Float64): Unit
+cactor_foundation.monitoring :: GaugeMetric.public func subValue(delta: Float64): Unit
+cactor_foundation.monitoring :: GaugeMetric.public init(name: String)
+cactor_foundation.monitoring :: GaugeMetric.public init(name: String, labels: HashMap<String, String>)
+cactor_foundation.monitoring :: GlobalAlertManager.public static func getInstance(): AlertManager
+cactor_foundation.monitoring :: GlobalAlertManager.public static func reset(): Unit
+cactor_foundation.monitoring :: GlobalAlertManager.public static func resolveAlert(alertId: String): Bool
+cactor_foundation.monitoring :: GlobalAlertManager.public static func triggerAlert(name: String, level: AlertLevel, message: String): Unit
+cactor_foundation.monitoring :: GlobalMetricRegistry.public static func getInstance(): MetricRegistry
+cactor_foundation.monitoring :: GlobalMetricRegistry.public static func getMetric(name: String): Option<Metric>
+cactor_foundation.monitoring :: GlobalMetricRegistry.public static func printAllMetrics(): Unit
+cactor_foundation.monitoring :: GlobalMetricRegistry.public static func registerCounter(name: String): CounterMetric
+cactor_foundation.monitoring :: GlobalMetricRegistry.public static func registerGauge(name: String): GaugeMetric
+cactor_foundation.monitoring :: GlobalMetricRegistry.public static func registerTimer(name: String): TimerMetric
+cactor_foundation.monitoring :: GlobalMetricRegistry.public static func reset(): Unit
+cactor_foundation.monitoring :: GlobalTracer.public static func finishSpan(span: Span): Unit
+cactor_foundation.monitoring :: GlobalTracer.public static func getInstance(): Option<Tracer>
+cactor_foundation.monitoring :: GlobalTracer.public static func initialize(serviceName: String): Unit
+cactor_foundation.monitoring :: GlobalTracer.public static func startSpan(operationName: String): Option<Span>
+cactor_foundation.monitoring :: Histogram.public func getBucketCount(bucketIndex: Int64): Int64
+cactor_foundation.monitoring :: Histogram.public func getBuckets(): Array<Int64>
+cactor_foundation.monitoring :: Histogram.public func getCount(): Int64
+cactor_foundation.monitoring :: Histogram.public func getCumulativeCount(bucketIndex: Int64): Int64
+cactor_foundation.monitoring :: Histogram.public func getMean(): Float64
+cactor_foundation.monitoring :: Histogram.public func getName(): String
+cactor_foundation.monitoring :: Histogram.public func getSum(): Float64
+cactor_foundation.monitoring :: Histogram.public func getTags(): HashMap<String, String>
+cactor_foundation.monitoring :: Histogram.public func observe(value: Float64): Unit
+cactor_foundation.monitoring :: Histogram.public func toPrometheus(metricName: String): String
+cactor_foundation.monitoring :: Histogram.public init(name: String, buckets: Array<Int64>)
+cactor_foundation.monitoring :: Histogram.public init(name: String, buckets: Array<Int64>, tags: HashMap<String, String>)
+cactor_foundation.monitoring :: LogNotificationChannel.public func getName(): String
+cactor_foundation.monitoring :: LogNotificationChannel.public func isEnabled(): Bool
+cactor_foundation.monitoring :: LogNotificationChannel.public func send(alert: AlertEvent): Bool
+cactor_foundation.monitoring :: LogNotificationChannel.public init(name: String, enabled: Bool, logLevel: String)
+cactor_foundation.monitoring :: Metric.func getName(): String
+cactor_foundation.monitoring :: Metric.func getType(): MetricType
+cactor_foundation.monitoring :: Metric.func getValue(): MetricValue
+cactor_foundation.monitoring :: Metric.func reset(): Unit
+cactor_foundation.monitoring :: MetricRegistry.public func clear(): Unit
+cactor_foundation.monitoring :: MetricRegistry.public func counter(name: String): CounterMetric
+cactor_foundation.monitoring :: MetricRegistry.public func gauge(name: String): GaugeMetric
+cactor_foundation.monitoring :: MetricRegistry.public func getAllMetricNames(): Array<String>
+cactor_foundation.monitoring :: MetricRegistry.public func getMetric(name: String): Option<Metric>
+cactor_foundation.monitoring :: MetricRegistry.public func getMetricCount(): Int32
+cactor_foundation.monitoring :: MetricRegistry.public func printAllMetrics(): Unit
+cactor_foundation.monitoring :: MetricRegistry.public func register(metric: Metric): Unit
+cactor_foundation.monitoring :: MetricRegistry.public func resetAll(): Unit
+cactor_foundation.monitoring :: MetricRegistry.public func timer(name: String): TimerMetric
+cactor_foundation.monitoring :: MetricRegistry.public func unregister(name: String): Bool
+cactor_foundation.monitoring :: MetricRegistry.public init()
+cactor_foundation.monitoring :: MetricType.| Counter
+cactor_foundation.monitoring :: MetricType.| Gauge
+cactor_foundation.monitoring :: MetricType.| Histogram
+cactor_foundation.monitoring :: MetricType.| Timer
+cactor_foundation.monitoring :: MetricValue.public init(value: Float64, timestamp: Int64, labels: HashMap<String, String>)
+cactor_foundation.monitoring :: MetricValue.public let labels: HashMap<String, String>
+cactor_foundation.monitoring :: MetricValue.public let timestamp: Int64
+cactor_foundation.monitoring :: MetricValue.public let value: Float64
+cactor_foundation.monitoring :: MetricValue.public static func simple(value: Float64): MetricValue
+cactor_foundation.monitoring :: MetricValue.public static func withLabels(value: Float64, labels: HashMap<String, String>): MetricValue
+cactor_foundation.monitoring :: NotificationChannel.func getName(): String
+cactor_foundation.monitoring :: NotificationChannel.func isEnabled(): Bool
+cactor_foundation.monitoring :: NotificationChannel.func send(alert: AlertEvent): Bool
+cactor_foundation.monitoring :: Span.public func finish(): Unit
+cactor_foundation.monitoring :: Span.public func getDuration(): Option<Int64>
+cactor_foundation.monitoring :: Span.public func getTags(): HashMap<String, String>
+cactor_foundation.monitoring :: Span.public func isFinished(): Bool
+cactor_foundation.monitoring :: Span.public func log(message: String): Span
+cactor_foundation.monitoring :: Span.public func logWithFields(fields: HashMap<String, String>): Span
+cactor_foundation.monitoring :: Span.public func printSpanInfo(): Unit
+cactor_foundation.monitoring :: Span.public func setTag(key: String, value: String): Span
+cactor_foundation.monitoring :: Span.public init(traceId: String, spanId: String, parentSpanId: Option<String>, operationName: String)
+cactor_foundation.monitoring :: Span.public let operationName: String
+cactor_foundation.monitoring :: Span.public let parentSpanId: Option<String>
+cactor_foundation.monitoring :: Span.public let spanId: String
+cactor_foundation.monitoring :: Span.public let startTime: Int64
+cactor_foundation.monitoring :: Span.public let traceId: String
+cactor_foundation.monitoring :: SpanLog.public init(timestamp: Int64, message: String)
+cactor_foundation.monitoring :: SpanLog.public let message: String
+cactor_foundation.monitoring :: SpanLog.public let timestamp: Int64
+cactor_foundation.monitoring :: SpanLogWithFields.public init(timestamp: Int64, fields: HashMap<String, String>)
+cactor_foundation.monitoring :: SpanLogWithFields.public let fields: HashMap<String, String>
+cactor_foundation.monitoring :: SpanLogWithFields.public let timestamp: Int64
+cactor_foundation.monitoring :: TimerMetric.public func getAverageTime(): Float64
+cactor_foundation.monitoring :: TimerMetric.public func getCount(): Int64
+cactor_foundation.monitoring :: TimerMetric.public func getMaxTime(): Float64
+cactor_foundation.monitoring :: TimerMetric.public func getMinTime(): Float64
+cactor_foundation.monitoring :: TimerMetric.public func getName(): String
+cactor_foundation.monitoring :: TimerMetric.public func getType(): MetricType
+cactor_foundation.monitoring :: TimerMetric.public func getValue(): MetricValue
+cactor_foundation.monitoring :: TimerMetric.public func recordTime(timeMs: Float64): Unit
+cactor_foundation.monitoring :: TimerMetric.public func reset(): Unit
+cactor_foundation.monitoring :: TimerMetric.public init(name: String)
+cactor_foundation.monitoring :: TimerMetric.public init(name: String, labels: HashMap<String, String>)
+cactor_foundation.monitoring :: TraceContext.public func createChild(): TraceContext
+cactor_foundation.monitoring :: TraceContext.public func withBaggage(key: String, value: String): TraceContext
+cactor_foundation.monitoring :: TraceContext.public init(traceId: String, spanId: String, parentSpanId: Option<String>, baggage: HashMap<String, String>)
+cactor_foundation.monitoring :: TraceContext.public let baggage: HashMap<String, String>
+cactor_foundation.monitoring :: TraceContext.public let parentSpanId: Option<String>
+cactor_foundation.monitoring :: TraceContext.public let spanId: String
+cactor_foundation.monitoring :: TraceContext.public let traceId: String
+cactor_foundation.monitoring :: TraceContext.public static func createRoot(traceId: String): TraceContext
+cactor_foundation.monitoring :: Tracer.public func clearFinishedSpans(): Unit
+cactor_foundation.monitoring :: Tracer.public func finishSpan(span: Span): Unit
+cactor_foundation.monitoring :: Tracer.public func getActiveSpanCount(): Int32
+cactor_foundation.monitoring :: Tracer.public func getDroppedSpanCount(): Int64
+cactor_foundation.monitoring :: Tracer.public func getFinishedSpanCount(): Int32
+cactor_foundation.monitoring :: Tracer.public func printTracingStats(): Unit
+cactor_foundation.monitoring :: Tracer.public func startChildSpan(parentSpan: Span, operationName: String): Span
+cactor_foundation.monitoring :: Tracer.public func startSpan(operationName: String): Span
+cactor_foundation.monitoring :: Tracer.public init(serviceName: String)
+cactor_foundation.monitoring :: Tracer.public init(serviceName: String, maxFinishedSpans: Int64)
+cactor_foundation.monitoring :: public class AlertManager
+cactor_foundation.monitoring :: public class ConsoleNotificationChannel <: NotificationChannel
+cactor_foundation.monitoring :: public class CounterMetric <: Metric
+cactor_foundation.monitoring :: public class DuplicateMetricException <: Exception
+cactor_foundation.monitoring :: public class GaugeMetric <: Metric
+cactor_foundation.monitoring :: public class Histogram
+cactor_foundation.monitoring :: public class LogNotificationChannel <: NotificationChannel
+cactor_foundation.monitoring :: public class MetricRegistry
+cactor_foundation.monitoring :: public class Span
+cactor_foundation.monitoring :: public class TimerMetric <: Metric
+cactor_foundation.monitoring :: public class Tracer
+cactor_foundation.monitoring :: public enum AlertCondition
+cactor_foundation.monitoring :: public enum AlertLevel
+cactor_foundation.monitoring :: public enum AlertStatus
+cactor_foundation.monitoring :: public enum MetricType
+cactor_foundation.monitoring :: public func calculatePercentile(values: Array<Float64>, percentile: Float64): Float64
+cactor_foundation.monitoring :: public func generateSpanId(): String
+cactor_foundation.monitoring :: public func generateTraceId(): String
+cactor_foundation.monitoring :: public interface Metric
+cactor_foundation.monitoring :: public interface NotificationChannel
+cactor_foundation.monitoring :: public let DEFAULT_MAX_ALERT_HISTORY: Int64
+cactor_foundation.monitoring :: public let DEFAULT_MAX_FINISHED_SPANS: Int64
+cactor_foundation.monitoring :: public struct AlertEvent
+cactor_foundation.monitoring :: public struct AlertRule
+cactor_foundation.monitoring :: public struct GlobalAlertManager
+cactor_foundation.monitoring :: public struct GlobalMetricRegistry
+cactor_foundation.monitoring :: public struct GlobalTracer
+cactor_foundation.monitoring :: public struct MetricValue
+cactor_foundation.monitoring :: public struct SpanLog
+cactor_foundation.monitoring :: public struct SpanLogWithFields
+cactor_foundation.monitoring :: public struct TraceContext
+cactor_foundation.network :: BlackholeTransport.public func blackhole(address: NetworkAddress): Unit
+cactor_foundation.network :: BlackholeTransport.public func blackhole(address: String): Unit
+cactor_foundation.network :: BlackholeTransport.public func blackholedAddresses(): Array<String>
+cactor_foundation.network :: BlackholeTransport.public func blackholedCount(): Int64
+cactor_foundation.network :: BlackholeTransport.public func closeInboundFrom(peerKey: String): Int64
+cactor_foundation.network :: BlackholeTransport.public func droppedCount(): Int64
+cactor_foundation.network :: BlackholeTransport.public func getLocalAddress(): NetworkAddress
+cactor_foundation.network :: BlackholeTransport.public func heal(address: NetworkAddress): Unit
+cactor_foundation.network :: BlackholeTransport.public func heal(address: String): Unit
+cactor_foundation.network :: BlackholeTransport.public func healAll(): Unit
+cactor_foundation.network :: BlackholeTransport.public func isActive(): Bool
+cactor_foundation.network :: BlackholeTransport.public func isBlackholed(address: String): Bool
+cactor_foundation.network :: BlackholeTransport.public func rejectedConnectionCount(): Int64
+cactor_foundation.network :: BlackholeTransport.public func resetOutbound(address: NetworkAddress): Unit
+cactor_foundation.network :: BlackholeTransport.public func securedConnectionCount(): Int64
+cactor_foundation.network :: BlackholeTransport.public func send(address: NetworkAddress, data: Array<UInt8>): Unit
+cactor_foundation.network :: BlackholeTransport.public func sendPriority(address: NetworkAddress, data: Array<UInt8>): Unit
+cactor_foundation.network :: BlackholeTransport.public func setDataHandler(handler: (Array<UInt8>)->Unit): Unit
+cactor_foundation.network :: BlackholeTransport.public func setHandshake(handshake: TransportHandshake): Unit
+cactor_foundation.network :: BlackholeTransport.public func setSecurity(security: TransportSecurity): Unit
+cactor_foundation.network :: BlackholeTransport.public func start(): Unit
+cactor_foundation.network :: BlackholeTransport.public func stop(): Unit
+cactor_foundation.network :: BlackholeTransport.public init(inner: NetworkTransport)
+cactor_foundation.network :: BlackholeTransport.public let dropped
+cactor_foundation.network :: NetworkAddress.public func toString(): String
+cactor_foundation.network :: NetworkAddress.public init(host: String, port: Int32)
+cactor_foundation.network :: NetworkAddress.public let host: String
+cactor_foundation.network :: NetworkAddress.public let port: Int32
+cactor_foundation.network :: NetworkAddress.public static func parse(address: String): NetworkAddress
+cactor_foundation.network :: NetworkPacket.public init(targetAddress: String, data: Array<UInt8>, sender: Option<String>)
+cactor_foundation.network :: NetworkPacket.public let data: Array<UInt8>
+cactor_foundation.network :: NetworkPacket.public let sender: Option<String>
+cactor_foundation.network :: NetworkPacket.public let targetAddress: String
+cactor_foundation.network :: NetworkTransport.func closeInboundFrom(peerKey: String): Int64
+cactor_foundation.network :: NetworkTransport.func getLocalAddress(): NetworkAddress
+cactor_foundation.network :: NetworkTransport.func isActive(): Bool
+cactor_foundation.network :: NetworkTransport.func rejectedConnectionCount(): Int64
+cactor_foundation.network :: NetworkTransport.func resetOutbound(address: NetworkAddress): Unit
+cactor_foundation.network :: NetworkTransport.func securedConnectionCount(): Int64
+cactor_foundation.network :: NetworkTransport.func send(address: NetworkAddress, data: Array<UInt8>): Unit
+cactor_foundation.network :: NetworkTransport.func sendPriority(address: NetworkAddress, data: Array<UInt8>): Unit
+cactor_foundation.network :: NetworkTransport.func setDataHandler(handler: (Array<UInt8>)->Unit): Unit
+cactor_foundation.network :: NetworkTransport.func setHandshake(handshake: TransportHandshake): Unit
+cactor_foundation.network :: NetworkTransport.func setSecurity(security: TransportSecurity): Unit
+cactor_foundation.network :: NetworkTransport.func start(): Unit
+cactor_foundation.network :: NetworkTransport.func stop(): Unit
+cactor_foundation.network :: TcpTransport.public func closeInboundFrom(peerKey: String): Int64
+cactor_foundation.network :: TcpTransport.public func getAssociationCount(): Int64
+cactor_foundation.network :: TcpTransport.public func getByteCapacityRejections(): Int64
+cactor_foundation.network :: TcpTransport.public func getConnectFailures(): Int64
+cactor_foundation.network :: TcpTransport.public func getControlPendingBytes(): Int64
+cactor_foundation.network :: TcpTransport.public func getDroppedFrames(): Int64
+cactor_foundation.network :: TcpTransport.public func getFramesReceived(): Int64
+cactor_foundation.network :: TcpTransport.public func getFramesSent(): Int64
+cactor_foundation.network :: TcpTransport.public func getHandshakeFailures(): Int64
+cactor_foundation.network :: TcpTransport.public func getInboundByteRejections(): Int64
+cactor_foundation.network :: TcpTransport.public func getInboundCapacityRejections(): Int64
+cactor_foundation.network :: TcpTransport.public func getInboundConnectionCount(): Int64
+cactor_foundation.network :: TcpTransport.public func getInboundPendingBytes(): Int64
+cactor_foundation.network :: TcpTransport.public func getLocalAddress(): NetworkAddress
+cactor_foundation.network :: TcpTransport.public func getOutboundCapacityRejections(): Int64
+cactor_foundation.network :: TcpTransport.public func getPendingBytes(): Int64
+cactor_foundation.network :: TcpTransport.public func getRejectedHandshakes(): Int64
+cactor_foundation.network :: TcpTransport.public func getSecuredConnections(): Int64
+cactor_foundation.network :: TcpTransport.public func getSendFailures(): Int64
+cactor_foundation.network :: TcpTransport.public func getSocketWrites(): Int64
+cactor_foundation.network :: TcpTransport.public func isActive(): Bool
+cactor_foundation.network :: TcpTransport.public func rejectedConnectionCount(): Int64
+cactor_foundation.network :: TcpTransport.public func resetOutbound(address: NetworkAddress): Unit
+cactor_foundation.network :: TcpTransport.public func securedConnectionCount(): Int64
+cactor_foundation.network :: TcpTransport.public func send(address: NetworkAddress, data: Array<UInt8>): Unit
+cactor_foundation.network :: TcpTransport.public func sendPriority(address: NetworkAddress, data: Array<UInt8>): Unit
+cactor_foundation.network :: TcpTransport.public func setDataHandler(handler: (Array<UInt8>)->Unit): Unit
+cactor_foundation.network :: TcpTransport.public func setHandshake(handshake: TransportHandshake): Unit
+cactor_foundation.network :: TcpTransport.public func setSecurity(security: TransportSecurity): Unit
+cactor_foundation.network :: TcpTransport.public func start(): Unit
+cactor_foundation.network :: TcpTransport.public func stop(): Unit
+cactor_foundation.network :: TcpTransport.public init(localAddress: NetworkAddress, connectTimeout: Duration, limits!: TcpTransportLimits = TcpTransportLimits())
+cactor_foundation.network :: TcpTransport.public init(localAddress: NetworkAddress, limits!: TcpTransportLimits = TcpTransportLimits())
+cactor_foundation.network :: TcpTransportLimits.public init(maxOutboundAssociations!: Int64 = 256, maxInboundConnections!: Int64 = 256, idleRetireAfter!: Duration = Duration.second * 10, maxPendingBytes!: Int64 = 256 * 1024 * 1024, maxControlPendingBytes!: Int64 = 16 * 1024 * 1024, maxInboundPendingBytes!: Int64 = 64 * 1024 * 1024)
+cactor_foundation.network :: TcpTransportLimits.public let idleRetireAfter: Duration
+cactor_foundation.network :: TcpTransportLimits.public let maxControlPendingBytes: Int64
+cactor_foundation.network :: TcpTransportLimits.public let maxInboundConnections: Int64
+cactor_foundation.network :: TcpTransportLimits.public let maxInboundPendingBytes: Int64
+cactor_foundation.network :: TcpTransportLimits.public let maxOutboundAssociations: Int64
+cactor_foundation.network :: TcpTransportLimits.public let maxPendingBytes: Int64
+cactor_foundation.network :: TransportFactory.public static func createTcpTransport(address: NetworkAddress): NetworkTransport
+cactor_foundation.network :: TransportFactory.public static func createTransport(protocol: TransportProtocol, address: NetworkAddress): NetworkTransport
+cactor_foundation.network :: TransportFactory.public static func createUdpTransport(address: NetworkAddress): NetworkTransport
+cactor_foundation.network :: TransportHandshake.func accept(hello: Array<UInt8>): Option<(Array<UInt8>, String)>
+cactor_foundation.network :: TransportHandshake.func confirm(peer: NetworkAddress, reply: Array<UInt8>): Bool
+cactor_foundation.network :: TransportHandshake.func hello(peer: NetworkAddress): Array<UInt8>
+cactor_foundation.network :: TransportProtocol.| TCP
+cactor_foundation.network :: TransportProtocol.| UDP
+cactor_foundation.network :: TransportSecurity.func describe(): String
+cactor_foundation.network :: TransportSecurity.func secureInbound(socket: TcpSocket, timeout: Duration): StreamingSocket
+cactor_foundation.network :: TransportSecurity.func secureOutbound(socket: TcpSocket, peer: NetworkAddress, timeout: Duration): StreamingSocket
+cactor_foundation.network :: UdpTransport.public func getLocalAddress(): NetworkAddress
+cactor_foundation.network :: UdpTransport.public func isActive(): Bool
+cactor_foundation.network :: UdpTransport.public func send(address: NetworkAddress, data: Array<UInt8>): Unit
+cactor_foundation.network :: UdpTransport.public func setDataHandler(handler: (Array<UInt8>)->Unit): Unit
+cactor_foundation.network :: UdpTransport.public func start(): Unit
+cactor_foundation.network :: UdpTransport.public func stop(): Unit
+cactor_foundation.network :: UdpTransport.public init(localAddress: NetworkAddress)
+cactor_foundation.network :: public class BlackholeTransport <: NetworkTransport
+cactor_foundation.network :: public class TcpTransport <: NetworkTransport
+cactor_foundation.network :: public class TransportFactory
+cactor_foundation.network :: public class UdpTransport <: NetworkTransport
+cactor_foundation.network :: public enum TransportProtocol
+cactor_foundation.network :: public func decodeLength(header: Array<UInt8>): Int64
+cactor_foundation.network :: public func encodeFrame(data: Array<UInt8>): Array<UInt8>
+cactor_foundation.network :: public interface NetworkTransport
+cactor_foundation.network :: public interface TransportHandshake
+cactor_foundation.network :: public interface TransportSecurity
+cactor_foundation.network :: public let HANDSHAKE_READ_TIMEOUT: Duration
+cactor_foundation.network :: public let MAX_CONTROL_PENDING_BYTES: Int64
+cactor_foundation.network :: public let MAX_DATAGRAM_SIZE: Int64
+cactor_foundation.network :: public let MAX_FRAME_SIZE: Int64
+cactor_foundation.network :: public let MAX_HANDSHAKE_FRAME: Int64
+cactor_foundation.network :: public let MAX_PENDING_BYTES: Int64
+cactor_foundation.network :: public struct NetworkAddress
+cactor_foundation.network :: public struct NetworkPacket
+cactor_foundation.network :: public struct TcpTransportLimits
+cactor_foundation.plugin :: DuplicatePluginException.public init(name: String)
+cactor_foundation.plugin :: HookList.public func add(hook: (C)->Unit): Unit
+cactor_foundation.plugin :: HookList.public func freeze(): Unit
+cactor_foundation.plugin :: HookList.public func isEmpty(): Bool
+cactor_foundation.plugin :: HookList.public func run(c: C): Unit
+cactor_foundation.plugin :: HookList.public init()
+cactor_foundation.plugin :: InterceptorChain.public func add(interceptor: (C, ()->Unit)->Unit): Unit
+cactor_foundation.plugin :: InterceptorChain.public func build(terminal: (C)->Unit): (C)->Unit
+cactor_foundation.plugin :: InterceptorChain.public func size(): Int64
+cactor_foundation.plugin :: InterceptorChain.public init()
+cactor_foundation.plugin :: PluginFrozenException.public init(name: String)
+cactor_foundation.plugin :: PluginRegistry.public func contains(name: String): Bool
+cactor_foundation.plugin :: PluginRegistry.public func freeze(): Unit
+cactor_foundation.plugin :: PluginRegistry.public func installed(): Array<String>
+cactor_foundation.plugin :: PluginRegistry.public func isFrozen(): Bool
+cactor_foundation.plugin :: PluginRegistry.public func register(name: String): Unit
+cactor_foundation.plugin :: PluginRegistry.public init()
+cactor_foundation.plugin :: public class DuplicatePluginException <: Exception
+cactor_foundation.plugin :: public class HookList<C>
+cactor_foundation.plugin :: public class InterceptorChain<C>
+cactor_foundation.plugin :: public class PluginFrozenException <: Exception
+cactor_foundation.plugin :: public class PluginRegistry
+cactor_foundation.queue :: AtomicSlot.public func cancelRead(): Unit
+cactor_foundation.queue :: AtomicSlot.public func cancelWrite(): Unit
+cactor_foundation.queue :: AtomicSlot.public func finishRead(): Option<T>
+cactor_foundation.queue :: AtomicSlot.public func finishWrite(item: T): Unit
+cactor_foundation.queue :: AtomicSlot.public func getState(): Int64
+cactor_foundation.queue :: AtomicSlot.public func isEmpty(): Bool
+cactor_foundation.queue :: AtomicSlot.public func isFilled(): Bool
+cactor_foundation.queue :: AtomicSlot.public func tryStartRead(): Bool
+cactor_foundation.queue :: AtomicSlot.public func tryStartWrite(): Bool
+cactor_foundation.queue :: AtomicSlot.public init()
+cactor_foundation.queue :: AtomicSlot.public static let EMPTY: Int64
+cactor_foundation.queue :: AtomicSlot.public static let FILLED: Int64
+cactor_foundation.queue :: AtomicSlot.public static let READING: Int64
+cactor_foundation.queue :: AtomicSlot.public static let WRITING: Int64
+cactor_foundation.queue :: ConcurrentHashMap.public func clear(): Unit
+cactor_foundation.queue :: ConcurrentHashMap.public func containsKey(key: K): Bool
+cactor_foundation.queue :: ConcurrentHashMap.public func get(key: K): Option<V>
+cactor_foundation.queue :: ConcurrentHashMap.public func isEmpty(): Bool
+cactor_foundation.queue :: ConcurrentHashMap.public func put(key: K, value: V): Option<V>
+cactor_foundation.queue :: ConcurrentHashMap.public func putIfAbsent(key: K, value: V): Option<V>
+cactor_foundation.queue :: ConcurrentHashMap.public func remove(key: K): Option<V>
+cactor_foundation.queue :: ConcurrentHashMap.public func size(): Int64
+cactor_foundation.queue :: ConcurrentHashMap.public init()
+cactor_foundation.queue :: LockFreeQueue.public func capacity(): Int64
+cactor_foundation.queue :: LockFreeQueue.public func clear(): Unit
+cactor_foundation.queue :: LockFreeQueue.public func dequeue(): Option<T>
+cactor_foundation.queue :: LockFreeQueue.public func dequeueBatch(maxCount: Int32): Array<T>
+cactor_foundation.queue :: LockFreeQueue.public func enqueue(item: T): Bool
+cactor_foundation.queue :: LockFreeQueue.public func enqueueBatch(items: Array<T>): Int32
+cactor_foundation.queue :: LockFreeQueue.public func fastDequeue(): Option<T>
+cactor_foundation.queue :: LockFreeQueue.public func fastEnqueue(item: T): Bool
+cactor_foundation.queue :: LockFreeQueue.public func getStats(): QueueStats
+cactor_foundation.queue :: LockFreeQueue.public func isEmpty(): Bool
+cactor_foundation.queue :: LockFreeQueue.public func size(): Int64
+cactor_foundation.queue :: LockFreeQueue.public init(requestedCapacity: Int64)
+cactor_foundation.queue :: MPSCPerformanceStats.public func getExpansionRate(): Float64
+cactor_foundation.queue :: MPSCPerformanceStats.public func getThroughput(durationSeconds: Float64): Float64
+cactor_foundation.queue :: MPSCPerformanceStats.public func getUtilization(): Float64
+cactor_foundation.queue :: MPSCPerformanceStats.public init(totalEnqueues: Int64, totalDequeues: Int64, expansionCount: Int64, currentCapacity: Int64, currentSize: Int64)
+cactor_foundation.queue :: MPSCPerformanceStats.public let currentCapacity: Int64
+cactor_foundation.queue :: MPSCPerformanceStats.public let currentSize: Int64
+cactor_foundation.queue :: MPSCPerformanceStats.public let expansionCount: Int64
+cactor_foundation.queue :: MPSCPerformanceStats.public let totalDequeues: Int64
+cactor_foundation.queue :: MPSCPerformanceStats.public let totalEnqueues: Int64
+cactor_foundation.queue :: MPSCQueue.public func getCapacity(): Int64
+cactor_foundation.queue :: MPSCQueue.public func getPerformanceStats(): MPSCPerformanceStats
+cactor_foundation.queue :: MPSCQueue.public func isEmpty(): Bool
+cactor_foundation.queue :: MPSCQueue.public func offer(item: T): Bool
+cactor_foundation.queue :: MPSCQueue.public func offerBatch(items: Array<T>): Int32
+cactor_foundation.queue :: MPSCQueue.public func poll(): Option<T>
+cactor_foundation.queue :: MPSCQueue.public func pollBatch(maxCount: Int32): Array<T>
+cactor_foundation.queue :: MPSCQueue.public func size(): Int64
+cactor_foundation.queue :: MPSCQueue.public init(capacity: Int32)
+cactor_foundation.queue :: Queue.func capacity(): Int64
+cactor_foundation.queue :: Queue.func clear(): Unit
+cactor_foundation.queue :: Queue.func dequeue(): Option<T>
+cactor_foundation.queue :: Queue.func enqueue(item: T): Bool
+cactor_foundation.queue :: Queue.func isEmpty(): Bool
+cactor_foundation.queue :: Queue.func size(): Int64
+cactor_foundation.queue :: QueueMode.| MPMC
+cactor_foundation.queue :: QueueMode.| MPSC
+cactor_foundation.queue :: QueueMode.| SPMC
+cactor_foundation.queue :: QueueMode.| SPSC
+cactor_foundation.queue :: QueueStats.public func getSuccessRate(): Float64
+cactor_foundation.queue :: QueueStats.public func getUtilization(): Float64
+cactor_foundation.queue :: QueueStats.public init(enqueueCount: Int64, dequeueCount: Int64, failedEnqueues: Int64, failedDequeues: Int64, currentSize: Int64, capacity: Int64)
+cactor_foundation.queue :: QueueStats.public let capacity: Int64
+cactor_foundation.queue :: QueueStats.public let currentSize: Int64
+cactor_foundation.queue :: QueueStats.public let dequeueCount: Int64
+cactor_foundation.queue :: QueueStats.public let enqueueCount: Int64
+cactor_foundation.queue :: QueueStats.public let failedDequeues: Int64
+cactor_foundation.queue :: QueueStats.public let failedEnqueues: Int64
+cactor_foundation.queue :: SPSCPerformanceStats.public func getThroughput(durationSeconds: Float64): Float64
+cactor_foundation.queue :: SPSCPerformanceStats.public func getUtilization(): Float64
+cactor_foundation.queue :: SPSCPerformanceStats.public init(totalEnqueues: Int64, totalDequeues: Int64, capacity: Int64, currentSize: Int64)
+cactor_foundation.queue :: SPSCPerformanceStats.public let capacity: Int64
+cactor_foundation.queue :: SPSCPerformanceStats.public let currentSize: Int64
+cactor_foundation.queue :: SPSCPerformanceStats.public let totalDequeues: Int64
+cactor_foundation.queue :: SPSCPerformanceStats.public let totalEnqueues: Int64
+cactor_foundation.queue :: SPSCQueue.public func getCapacity(): Int64
+cactor_foundation.queue :: SPSCQueue.public func getPerformanceStats(): SPSCPerformanceStats
+cactor_foundation.queue :: SPSCQueue.public func isEmpty(): Bool
+cactor_foundation.queue :: SPSCQueue.public func offer(item: T): Bool
+cactor_foundation.queue :: SPSCQueue.public func offerBatch(items: Array<T>): Int32
+cactor_foundation.queue :: SPSCQueue.public func poll(): Option<T>
+cactor_foundation.queue :: SPSCQueue.public func pollBatch(maxCount: Int32): Array<T>
+cactor_foundation.queue :: SPSCQueue.public func size(): Int64
+cactor_foundation.queue :: SPSCQueue.public init(capacity: Int32)
+cactor_foundation.queue :: SimpleQueue.public func capacity(): Int64
+cactor_foundation.queue :: SimpleQueue.public func clear(): Unit
+cactor_foundation.queue :: SimpleQueue.public func dequeue(): Option<T>
+cactor_foundation.queue :: SimpleQueue.public func enqueue(item: T): Bool
+cactor_foundation.queue :: SimpleQueue.public func isEmpty(): Bool
+cactor_foundation.queue :: SimpleQueue.public func size(): Int64
+cactor_foundation.queue :: SimpleQueue.public init(capacity: Int64)
+cactor_foundation.queue :: public class AtomicSlot<T>
+cactor_foundation.queue :: public class ConcurrentHashMap<K, V>where K <: Hashable & Equatable<K>
+cactor_foundation.queue :: public class LockFreeQueue<T> <: Queue<T>
+cactor_foundation.queue :: public class MPSCQueue<T>
+cactor_foundation.queue :: public class SPSCQueue<T>
+cactor_foundation.queue :: public class SimpleQueue<T> <: Queue<T>
+cactor_foundation.queue :: public enum QueueMode
+cactor_foundation.queue :: public interface Queue<T>
+cactor_foundation.queue :: public struct MPSCPerformanceStats
+cactor_foundation.queue :: public struct QueueStats
+cactor_foundation.queue :: public struct SPSCPerformanceStats
+cactor_foundation.serialization :: ByteSerializer.public func deserialize(data: Array<UInt8>): Array<UInt8>
+cactor_foundation.serialization :: ByteSerializer.public func getName(): String
+cactor_foundation.serialization :: ByteSerializer.public func serialize(obj: Array<UInt8>): Array<UInt8>
+cactor_foundation.serialization :: ByteSerializer.public init()
+cactor_foundation.serialization :: DeserializationException.public init(message: String)
+cactor_foundation.serialization :: EnhancedIntSerializer.public func deserialize(data: Array<UInt8>): Int64
+cactor_foundation.serialization :: EnhancedIntSerializer.public func getSerializerId(): String
+cactor_foundation.serialization :: EnhancedIntSerializer.public func getSupportedVersions(): Array<SerializationVersion>
+cactor_foundation.serialization :: EnhancedIntSerializer.public func serialize(obj: Int64, version: SerializationVersion): Array<UInt8>
+cactor_foundation.serialization :: EnhancedIntSerializer.public func validateData(data: Array<UInt8>): Bool
+cactor_foundation.serialization :: EnhancedIntSerializer.public init(useVarInt: Bool)
+cactor_foundation.serialization :: EnhancedSerializationManager.public func deserializeInt(data: Array<UInt8>, serializerId: String): Int64
+cactor_foundation.serialization :: EnhancedSerializationManager.public func deserializeString(data: Array<UInt8>, serializerId: String): String
+cactor_foundation.serialization :: EnhancedSerializationManager.public func getPerformanceMetrics(): SerializationMetrics
+cactor_foundation.serialization :: EnhancedSerializationManager.public func getSupportedSerializers(): Array<String>
+cactor_foundation.serialization :: EnhancedSerializationManager.public func registerIntSerializer(id: String, serializer: EnhancedSerializer<Int64>): Unit
+cactor_foundation.serialization :: EnhancedSerializationManager.public func registerStringSerializer(id: String, serializer: EnhancedSerializer<String>): Unit
+cactor_foundation.serialization :: EnhancedSerializationManager.public func resetMetrics(): Unit
+cactor_foundation.serialization :: EnhancedSerializationManager.public func serializeInt(value: Int64): Array<UInt8>
+cactor_foundation.serialization :: EnhancedSerializationManager.public func serializeIntWithSerializer(value: Int64, serializerId: String): Array<UInt8>
+cactor_foundation.serialization :: EnhancedSerializationManager.public func serializeString(str: String): Array<UInt8>
+cactor_foundation.serialization :: EnhancedSerializationManager.public func serializeStringWithSerializer(str: String, serializerId: String): Array<UInt8>
+cactor_foundation.serialization :: EnhancedSerializationManager.public func validateData(data: Array<UInt8>, serializerId: String, dataType: String): Bool
+cactor_foundation.serialization :: EnhancedSerializationManager.public init()
+cactor_foundation.serialization :: EnhancedSerializer.func deserialize(data: Array<UInt8>): T
+cactor_foundation.serialization :: EnhancedSerializer.func getSerializerId(): String
+cactor_foundation.serialization :: EnhancedSerializer.func getSupportedVersions(): Array<SerializationVersion>
+cactor_foundation.serialization :: EnhancedSerializer.func serialize(obj: T, version: SerializationVersion): Array<UInt8>
+cactor_foundation.serialization :: EnhancedSerializer.func validateData(data: Array<UInt8>): Bool
+cactor_foundation.serialization :: EnhancedStringSerializer.public func deserialize(data: Array<UInt8>): String
+cactor_foundation.serialization :: EnhancedStringSerializer.public func getSerializerId(): String
+cactor_foundation.serialization :: EnhancedStringSerializer.public func getSupportedVersions(): Array<SerializationVersion>
+cactor_foundation.serialization :: EnhancedStringSerializer.public func serialize(obj: String, version: SerializationVersion): Array<UInt8>
+cactor_foundation.serialization :: EnhancedStringSerializer.public func validateData(data: Array<UInt8>): Bool
+cactor_foundation.serialization :: EnhancedStringSerializer.public init(enableCompression: Bool, maxStringLength: Int64)
+cactor_foundation.serialization :: GlobalSerializationManager.public static func getInstance(): SerializationManager
+cactor_foundation.serialization :: GlobalSerializationManager.public static func reset(): Unit
+cactor_foundation.serialization :: GlobalSerializationManager.public static func setInstance(manager: SerializationManager): Unit
+cactor_foundation.serialization :: IntSerializer.public func deserialize(data: Array<UInt8>): Int64
+cactor_foundation.serialization :: IntSerializer.public func getName(): String
+cactor_foundation.serialization :: IntSerializer.public func serialize(obj: Int64): Array<UInt8>
+cactor_foundation.serialization :: IntSerializer.public init()
+cactor_foundation.serialization :: JsonSerializer.public func deserialize(data: Array<UInt8>): String
+cactor_foundation.serialization :: JsonSerializer.public func getName(): String
+cactor_foundation.serialization :: JsonSerializer.public func serialize(obj: String): Array<UInt8>
+cactor_foundation.serialization :: JsonSerializer.public init()
+cactor_foundation.serialization :: SerializationConfig.public init(defaultFormat: String, enableCompression: Bool, maxMessageSize: Int64)
+cactor_foundation.serialization :: SerializationConfig.public let defaultFormat: String
+cactor_foundation.serialization :: SerializationConfig.public let enableCompression: Bool
+cactor_foundation.serialization :: SerializationConfig.public let maxMessageSize: Int64
+cactor_foundation.serialization :: SerializationConfig.public static func getDefault(): SerializationConfig
+cactor_foundation.serialization :: SerializationException.public init(message: String)
+cactor_foundation.serialization :: SerializationFactory.public static func createByteSerializer(): ByteSerializer
+cactor_foundation.serialization :: SerializationFactory.public static func createDefaultManager(): SerializationManager
+cactor_foundation.serialization :: SerializationFactory.public static func createIntSerializer(): IntSerializer
+cactor_foundation.serialization :: SerializationFactory.public static func createStringSerializer(): StringSerializer
+cactor_foundation.serialization :: SerializationManager.public func deserializeBytes(data: Array<UInt8>): Array<UInt8>
+cactor_foundation.serialization :: SerializationManager.public func deserializeInt(data: Array<UInt8>): Int64
+cactor_foundation.serialization :: SerializationManager.public func deserializeString(data: Array<UInt8>): String
+cactor_foundation.serialization :: SerializationManager.public func getSupportedTypes(): Array<String>
+cactor_foundation.serialization :: SerializationManager.public func serializeBytes(data: Array<UInt8>): Array<UInt8>
+cactor_foundation.serialization :: SerializationManager.public func serializeInt(value: Int64): Array<UInt8>
+cactor_foundation.serialization :: SerializationManager.public func serializeString(str: String): Array<UInt8>
+cactor_foundation.serialization :: SerializationManager.public init()
+cactor_foundation.serialization :: SerializationMetadata.public init(version: SerializationVersion, timestamp: Int64, serializerId: String, dataSize: Int64, checksum: UInt32)
+cactor_foundation.serialization :: SerializationMetadata.public let checksum: UInt32
+cactor_foundation.serialization :: SerializationMetadata.public let dataSize: Int64
+cactor_foundation.serialization :: SerializationMetadata.public let serializerId: String
+cactor_foundation.serialization :: SerializationMetadata.public let timestamp: Int64
+cactor_foundation.serialization :: SerializationMetadata.public let version: SerializationVersion
+cactor_foundation.serialization :: SerializationMetrics.public func getStats(): String
+cactor_foundation.serialization :: SerializationMetrics.public func recordDeserialization(serializerId: String, time: Int64, bytes: Int64): Unit
+cactor_foundation.serialization :: SerializationMetrics.public func recordError(serializerId: String, operation: String, message: String): Unit
+cactor_foundation.serialization :: SerializationMetrics.public func recordSerialization(serializerId: String, time: Int64, bytes: Int64): Unit
+cactor_foundation.serialization :: SerializationMetrics.public func reset(): Unit
+cactor_foundation.serialization :: SerializationMetrics.public init()
+cactor_foundation.serialization :: SerializationStats.public func getAverageDeserializedSize(): Float64
+cactor_foundation.serialization :: SerializationStats.public func getAverageSerializedSize(): Float64
+cactor_foundation.serialization :: SerializationStats.public func getDeserializedCount(): Int64
+cactor_foundation.serialization :: SerializationStats.public func getErrorCount(): Int64
+cactor_foundation.serialization :: SerializationStats.public func getSerializedCount(): Int64
+cactor_foundation.serialization :: SerializationStats.public func getTotalDeserializedBytes(): Int64
+cactor_foundation.serialization :: SerializationStats.public func getTotalSerializedBytes(): Int64
+cactor_foundation.serialization :: SerializationStats.public func recordDeserialization(bytes: Int64): Unit
+cactor_foundation.serialization :: SerializationStats.public func recordError(): Unit
+cactor_foundation.serialization :: SerializationStats.public func recordSerialization(bytes: Int64): Unit
+cactor_foundation.serialization :: SerializationStats.public func reset(): Unit
+cactor_foundation.serialization :: SerializationStats.public init()
+cactor_foundation.serialization :: SerializationVersion.public func isCompatibleWith(other: SerializationVersion): Bool
+cactor_foundation.serialization :: SerializationVersion.public func toString(): String
+cactor_foundation.serialization :: SerializationVersion.public init(major: UInt16, minor: UInt16, patch: UInt16)
+cactor_foundation.serialization :: SerializationVersion.public let major: UInt16
+cactor_foundation.serialization :: SerializationVersion.public let minor: UInt16
+cactor_foundation.serialization :: SerializationVersion.public let patch: UInt16
+cactor_foundation.serialization :: SerializationVersion.public static func current(): SerializationVersion
+cactor_foundation.serialization :: Serializer.func deserialize(data: Array<UInt8>): T
+cactor_foundation.serialization :: Serializer.func getName(): String
+cactor_foundation.serialization :: Serializer.func serialize(obj: T): Array<UInt8>
+cactor_foundation.serialization :: SerializerRegistry.public func getAllSerializerIds(): Array<String>
+cactor_foundation.serialization :: SerializerRegistry.public func getIntSerializer(id: String): Option<EnhancedSerializer<Int64>>
+cactor_foundation.serialization :: SerializerRegistry.public func getStringSerializer(id: String): Option<EnhancedSerializer<String>>
+cactor_foundation.serialization :: SerializerRegistry.public func registerIntSerializer(id: String, serializer: EnhancedSerializer<Int64>): Unit
+cactor_foundation.serialization :: SerializerRegistry.public func registerStringSerializer(id: String, serializer: EnhancedSerializer<String>): Unit
+cactor_foundation.serialization :: SerializerRegistry.public init()
+cactor_foundation.serialization :: StringSerializer.public func deserialize(data: Array<UInt8>): String
+cactor_foundation.serialization :: StringSerializer.public func getName(): String
+cactor_foundation.serialization :: StringSerializer.public func serialize(obj: String): Array<UInt8>
+cactor_foundation.serialization :: StringSerializer.public init()
+cactor_foundation.serialization :: public class ByteSerializer <: Serializer<Array<UInt8>>
+cactor_foundation.serialization :: public class DeserializationException <: Exception
+cactor_foundation.serialization :: public class EnhancedIntSerializer <: EnhancedSerializer<Int64>
+cactor_foundation.serialization :: public class EnhancedSerializationManager
+cactor_foundation.serialization :: public class EnhancedStringSerializer <: EnhancedSerializer<String>
+cactor_foundation.serialization :: public class GlobalSerializationManager
+cactor_foundation.serialization :: public class IntSerializer <: Serializer<Int64>
+cactor_foundation.serialization :: public class JsonSerializer <: Serializer<String>
+cactor_foundation.serialization :: public class SerializationException <: Exception
+cactor_foundation.serialization :: public class SerializationFactory
+cactor_foundation.serialization :: public class SerializationMetrics
+cactor_foundation.serialization :: public class SerializationStats
+cactor_foundation.serialization :: public class SerializerRegistry
+cactor_foundation.serialization :: public class StringSerializer <: Serializer<String>
+cactor_foundation.serialization :: public interface EnhancedSerializer<T>
+cactor_foundation.serialization :: public interface Serializer<T>
+cactor_foundation.serialization :: public open class SerializationManager
+cactor_foundation.serialization :: public struct SerializationConfig
+cactor_foundation.serialization :: public struct SerializationMetadata
+cactor_foundation.serialization :: public struct SerializationVersion
+cactor_foundation.simple_config :: GlobalSimpleConfig.public static func getBool(key: String, defaultValue: Bool): Bool
+cactor_foundation.simple_config :: GlobalSimpleConfig.public static func getInstance(): SimpleConfigManager
+cactor_foundation.simple_config :: GlobalSimpleConfig.public static func getInt(key: String, defaultValue: Int32): Int32
+cactor_foundation.simple_config :: GlobalSimpleConfig.public static func getString(key: String, defaultValue: String): String
+cactor_foundation.simple_config :: GlobalSimpleConfig.public static func reset(): Unit
+cactor_foundation.simple_config :: GlobalSimpleConfig.public static func setBool(key: String, value: Bool): Unit
+cactor_foundation.simple_config :: GlobalSimpleConfig.public static func setInt(key: String, value: Int32): Unit
+cactor_foundation.simple_config :: GlobalSimpleConfig.public static func setString(key: String, value: String): Unit
+cactor_foundation.simple_config :: SimpleConfigManager.public func clear(): Unit
+cactor_foundation.simple_config :: SimpleConfigManager.public func getBool(key: String): Option<Bool>
+cactor_foundation.simple_config :: SimpleConfigManager.public func getBool(key: String, defaultValue: Bool): Bool
+cactor_foundation.simple_config :: SimpleConfigManager.public func getConfigCount(): Int32
+cactor_foundation.simple_config :: SimpleConfigManager.public func getInt(key: String): Option<Int32>
+cactor_foundation.simple_config :: SimpleConfigManager.public func getInt(key: String, defaultValue: Int32): Int32
+cactor_foundation.simple_config :: SimpleConfigManager.public func getString(key: String): Option<String>
+cactor_foundation.simple_config :: SimpleConfigManager.public func getString(key: String, defaultValue: String): String
+cactor_foundation.simple_config :: SimpleConfigManager.public func hasKey(key: String): Bool
+cactor_foundation.simple_config :: SimpleConfigManager.public func printAllConfigs(): Unit
+cactor_foundation.simple_config :: SimpleConfigManager.public func reload(): Unit
+cactor_foundation.simple_config :: SimpleConfigManager.public func setBool(key: String, value: Bool): Unit
+cactor_foundation.simple_config :: SimpleConfigManager.public func setInt(key: String, value: Int32): Unit
+cactor_foundation.simple_config :: SimpleConfigManager.public func setString(key: String, value: String): Unit
+cactor_foundation.simple_config :: SimpleConfigManager.public init()
+cactor_foundation.simple_config :: SimpleConfigValue.public func asBool(): Bool
+cactor_foundation.simple_config :: SimpleConfigValue.public func asInt(): Int32
+cactor_foundation.simple_config :: SimpleConfigValue.public func asString(): String
+cactor_foundation.simple_config :: SimpleConfigValue.public init(stringValue: String, intValue: Int32, boolValue: Bool)
+cactor_foundation.simple_config :: SimpleConfigValue.public let boolValue: Bool
+cactor_foundation.simple_config :: SimpleConfigValue.public let intValue: Int32
+cactor_foundation.simple_config :: SimpleConfigValue.public let stringValue: String
+cactor_foundation.simple_config :: SimpleConfigValue.public static func fromBool(value: Bool): SimpleConfigValue
+cactor_foundation.simple_config :: SimpleConfigValue.public static func fromInt(value: Int32): SimpleConfigValue
+cactor_foundation.simple_config :: SimpleConfigValue.public static func fromString(value: String): SimpleConfigValue
+cactor_foundation.simple_config :: public class SimpleConfigManager
+cactor_foundation.simple_config :: public struct GlobalSimpleConfig
+cactor_foundation.simple_config :: public struct SimpleConfigValue

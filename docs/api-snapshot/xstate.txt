@@ -1,0 +1,506 @@
+# CActor 公开 API 快照：modules/xstate（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_xstate :: XStatePackage.public static func getInfo(): String
+cactor_xstate :: XStatePackage.public static func getVersion(): String
+cactor_xstate :: public struct XStatePackage
+cactor_xstate.core :: XStateCorePackage.public static func getInfo(): String
+cactor_xstate.core :: public struct XStateCorePackage
+cactor_xstate.core.actor :: CurrentStateResponse.public func messageId(): String
+cactor_xstate.core.actor :: CurrentStateResponse.public func messageType(): String
+cactor_xstate.core.actor :: CurrentStateResponse.public func priority(): Int32
+cactor_xstate.core.actor :: CurrentStateResponse.public func timestamp(): Int64
+cactor_xstate.core.actor :: CurrentStateResponse.public init(stateId: String)
+cactor_xstate.core.actor :: CurrentStateResponse.public let stateId: String
+cactor_xstate.core.actor :: GetCurrentStateMessage.public func messageId(): String
+cactor_xstate.core.actor :: GetCurrentStateMessage.public func messageType(): String
+cactor_xstate.core.actor :: GetCurrentStateMessage.public func priority(): Int32
+cactor_xstate.core.actor :: GetCurrentStateMessage.public func timestamp(): Int64
+cactor_xstate.core.actor :: GetCurrentStateMessage.public init()
+cactor_xstate.core.actor :: GetStatisticsMessage.public func messageId(): String
+cactor_xstate.core.actor :: GetStatisticsMessage.public func messageType(): String
+cactor_xstate.core.actor :: GetStatisticsMessage.public func priority(): Int32
+cactor_xstate.core.actor :: GetStatisticsMessage.public func timestamp(): Int64
+cactor_xstate.core.actor :: GetStatisticsMessage.public init()
+cactor_xstate.core.actor :: ProcessEventMessage.public func messageId(): String
+cactor_xstate.core.actor :: ProcessEventMessage.public func messageType(): String
+cactor_xstate.core.actor :: ProcessEventMessage.public func priority(): Int32
+cactor_xstate.core.actor :: ProcessEventMessage.public func timestamp(): Int64
+cactor_xstate.core.actor :: ProcessEventMessage.public init(event: StateMachineEvent)
+cactor_xstate.core.actor :: ProcessEventMessage.public let event: StateMachineEvent
+cactor_xstate.core.actor :: ResetCompleteResponse.public func messageId(): String
+cactor_xstate.core.actor :: ResetCompleteResponse.public func messageType(): String
+cactor_xstate.core.actor :: ResetCompleteResponse.public func priority(): Int32
+cactor_xstate.core.actor :: ResetCompleteResponse.public func timestamp(): Int64
+cactor_xstate.core.actor :: ResetCompleteResponse.public init()
+cactor_xstate.core.actor :: ResetMessage.public func messageId(): String
+cactor_xstate.core.actor :: ResetMessage.public func messageType(): String
+cactor_xstate.core.actor :: ResetMessage.public func priority(): Int32
+cactor_xstate.core.actor :: ResetMessage.public func timestamp(): Int64
+cactor_xstate.core.actor :: ResetMessage.public init()
+cactor_xstate.core.actor :: StateChangedResponse.public func messageId(): String
+cactor_xstate.core.actor :: StateChangedResponse.public func messageType(): String
+cactor_xstate.core.actor :: StateChangedResponse.public func priority(): Int32
+cactor_xstate.core.actor :: StateChangedResponse.public func timestamp(): Int64
+cactor_xstate.core.actor :: StateChangedResponse.public init(oldState: String, newState: String, executionTime: Int64)
+cactor_xstate.core.actor :: StateChangedResponse.public let executionTime: Int64
+cactor_xstate.core.actor :: StateChangedResponse.public let newState: String
+cactor_xstate.core.actor :: StateChangedResponse.public let oldState: String
+cactor_xstate.core.actor :: StateMachineActor.public func getCurrentState(): String
+cactor_xstate.core.actor :: StateMachineActor.public func getStatistics(): StateMachineStatistics
+cactor_xstate.core.actor :: StateMachineActor.public func postStop(context: ActorContext): Unit
+cactor_xstate.core.actor :: StateMachineActor.public func preStart(context: ActorContext): Unit
+cactor_xstate.core.actor :: StateMachineActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_xstate.core.actor :: StateMachineActor.public init(machineDefinition: StateMachineDefinition)
+cactor_xstate.core.actor :: StateMachineActor.public prop description: String
+cactor_xstate.core.actor :: StateMachineActor.public prop name: String
+cactor_xstate.core.actor :: StateMachineActorFactory.public static func create(system: CActorSystem, machineDefinition: StateMachineDefinition): ActorRef
+cactor_xstate.core.actor :: StateMachineActorFactory.public static func create(system: CActorSystem, machineDefinition: StateMachineDefinition, name: String): ActorRef
+cactor_xstate.core.actor :: StateMachineStatistics.public func getAverageExecutionTime(): Int64
+cactor_xstate.core.actor :: StateMachineStatistics.public func getDetailedStats(): HashMap<String, Any>
+cactor_xstate.core.actor :: StateMachineStatistics.public func getSuccessRate(): Float64
+cactor_xstate.core.actor :: StateMachineStatistics.public func getSummary(): String
+cactor_xstate.core.actor :: StateMachineStatistics.public init()
+cactor_xstate.core.actor :: StateMachineStatistics.public mut func recordFailedTransition(executionTime: Int64): Unit
+cactor_xstate.core.actor :: StateMachineStatistics.public mut func recordSuccessfulTransition(executionTime: Int64): Unit
+cactor_xstate.core.actor :: StatisticsResponse.public func messageId(): String
+cactor_xstate.core.actor :: StatisticsResponse.public func messageType(): String
+cactor_xstate.core.actor :: StatisticsResponse.public func priority(): Int32
+cactor_xstate.core.actor :: StatisticsResponse.public func timestamp(): Int64
+cactor_xstate.core.actor :: StatisticsResponse.public init(stats: StateMachineStatistics)
+cactor_xstate.core.actor :: StatisticsResponse.public let stats: StateMachineStatistics
+cactor_xstate.core.actor :: TransitionFailedResponse.public func messageId(): String
+cactor_xstate.core.actor :: TransitionFailedResponse.public func messageType(): String
+cactor_xstate.core.actor :: TransitionFailedResponse.public func priority(): Int32
+cactor_xstate.core.actor :: TransitionFailedResponse.public func timestamp(): Int64
+cactor_xstate.core.actor :: TransitionFailedResponse.public init(reason: String)
+cactor_xstate.core.actor :: TransitionFailedResponse.public let reason: String
+cactor_xstate.core.actor :: public class StateMachineActor <: Actor
+cactor_xstate.core.actor :: public struct CurrentStateResponse <: Message
+cactor_xstate.core.actor :: public struct GetCurrentStateMessage <: Message
+cactor_xstate.core.actor :: public struct GetStatisticsMessage <: Message
+cactor_xstate.core.actor :: public struct ProcessEventMessage <: Message
+cactor_xstate.core.actor :: public struct ResetCompleteResponse <: Message
+cactor_xstate.core.actor :: public struct ResetMessage <: Message
+cactor_xstate.core.actor :: public struct StateChangedResponse <: Message
+cactor_xstate.core.actor :: public struct StateMachineActorFactory
+cactor_xstate.core.actor :: public struct StateMachineStatistics
+cactor_xstate.core.actor :: public struct StatisticsResponse <: Message
+cactor_xstate.core.actor :: public struct TransitionFailedResponse <: Message
+cactor_xstate.core.engine :: EngineStatistics.public func getCacheHitRatio(): Float64
+cactor_xstate.core.engine :: EngineStatistics.public init(transitionCount: Int32, cacheSize: Int32, stateCount: Int32)
+cactor_xstate.core.engine :: EngineStatistics.public let cacheSize: Int32
+cactor_xstate.core.engine :: EngineStatistics.public let stateCount: Int32
+cactor_xstate.core.engine :: EngineStatistics.public let transitionCount: Int32
+cactor_xstate.core.engine :: PatternTransitionEngine.public func getStatistics(): EngineStatistics
+cactor_xstate.core.engine :: PatternTransitionEngine.public func processTransition(currentStateId: String, event: StateMachineEvent): TransitionExecutionResult
+cactor_xstate.core.engine :: PatternTransitionEngine.public init(machineDefinition: StateMachineDefinition)
+cactor_xstate.core.engine :: TransitionExecutionResult.public func isFailure(): Bool
+cactor_xstate.core.engine :: TransitionExecutionResult.public func isSuccess(): Bool
+cactor_xstate.core.engine :: TransitionExecutionResult.public let effects: Array<TransitionEffect>
+cactor_xstate.core.engine :: TransitionExecutionResult.public let errorMessage: String
+cactor_xstate.core.engine :: TransitionExecutionResult.public let executionTime: Int64
+cactor_xstate.core.engine :: TransitionExecutionResult.public let result: TransitionResult
+cactor_xstate.core.engine :: TransitionExecutionResult.public let targetStateId: String
+cactor_xstate.core.engine :: TransitionExecutionResult.public static func createError(errorMessage: String, startTime: Int64): TransitionExecutionResult
+cactor_xstate.core.engine :: TransitionExecutionResult.public static func createInvalid(errorMessage: String, startTime: Int64): TransitionExecutionResult
+cactor_xstate.core.engine :: TransitionExecutionResult.public static func createSuccess(targetStateId: String, effects: Array<TransitionEffect>, executionTime: Int64): TransitionExecutionResult
+cactor_xstate.core.engine :: public struct EngineStatistics
+cactor_xstate.core.engine :: public struct PatternTransitionEngine
+cactor_xstate.core.engine :: public struct TransitionExecutionResult
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public init(enableEventSourcing: Bool, enableStateSnapshots: Bool, enableDistributedSync: Bool, enableRealTimeMonitoring: Bool, enableFaultRecovery: Bool, performanceOptimizations: Bool)
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public let enableDistributedSync: Bool
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public let enableEventSourcing: Bool
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public let enableFaultRecovery: Bool
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public let enableRealTimeMonitoring: Bool
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public let enableStateSnapshots: Bool
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public let performanceOptimizations: Bool
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public static func createDefault(): EnterpriseStateMachineConfig
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public static func createFullEnterprise(): EnterpriseStateMachineConfig
+cactor_xstate.core.factory :: EnterpriseStateMachineConfig.public static func createHighPerformance(): EnterpriseStateMachineConfig
+cactor_xstate.core.factory :: EnterpriseStateMachineFactory.public static func create(system: CActorSystem, machineDefinition: StateMachineDefinition, config: EnterpriseStateMachineConfig, name: String): ActorRef
+cactor_xstate.core.factory :: EnterpriseStateMachineFactory.public static func createCluster(systems: Array<CActorSystem>, machineDefinition: StateMachineDefinition, config: EnterpriseStateMachineConfig, clusterName: String): Array<ActorRef>
+cactor_xstate.core.factory :: EnterpriseStateMachineFactory.public static func createHierarchical(system: CActorSystem, rootMachineDefinition: StateMachineDefinition, childMachineDefinitions: HashMap<String, StateMachineDefinition>, config: EnterpriseStateMachineConfig, name: String): ActorRef
+cactor_xstate.core.factory :: EnterpriseStateMachineFactory.public static func createParallel(system: CActorSystem, regionMachineDefinitions: HashMap<String, StateMachineDefinition>, config: EnterpriseStateMachineConfig, name: String): Array<ActorRef>
+cactor_xstate.core.factory :: StateMachineTemplateFactory.public static func createApprovalTemplate(): StateMachineDefinition
+cactor_xstate.core.factory :: StateMachineTemplateFactory.public static func createFileProcessingTemplate(): StateMachineDefinition
+cactor_xstate.core.factory :: StateMachineTemplateFactory.public static func createOrderProcessingTemplate(): StateMachineDefinition
+cactor_xstate.core.factory :: StateMachineTemplateFactory.public static func createUserSessionTemplate(): StateMachineDefinition
+cactor_xstate.core.factory :: StateMachineTemplateFactory.public static func createWorkflowTemplate(): StateMachineDefinition
+cactor_xstate.core.factory :: public struct EnterpriseStateMachineConfig
+cactor_xstate.core.factory :: public struct EnterpriseStateMachineFactory
+cactor_xstate.core.factory :: public struct StateMachineTemplateFactory
+cactor_xstate.core.machine :: StateMachineBuilder.public func build(): StateMachineDefinition
+cactor_xstate.core.machine :: StateMachineBuilder.public init()
+cactor_xstate.core.machine :: StateMachineBuilder.public mut func addMeta(key: String, value: String): Unit
+cactor_xstate.core.machine :: StateMachineBuilder.public mut func addState(state: StateNode): Unit
+cactor_xstate.core.machine :: StateMachineBuilder.public mut func addTransition(transition: TransitionDefinition): Unit
+cactor_xstate.core.machine :: StateMachineBuilder.public mut func addTransitions(newTransitions: Array<TransitionDefinition>): Unit
+cactor_xstate.core.machine :: StateMachineBuilder.public mut func withId(id: String): Unit
+cactor_xstate.core.machine :: StateMachineBuilder.public mut func withInitialState(stateId: String): Unit
+cactor_xstate.core.machine :: StateMachineBuilder.public mut func withVersion(version: String): Unit
+cactor_xstate.core.machine :: StateMachineDefinition.public func getState(stateId: String): Option<StateNode>
+cactor_xstate.core.machine :: StateMachineDefinition.public func getStateIds(): Array<String>
+cactor_xstate.core.machine :: StateMachineDefinition.public func getTransitionCount(): Int32
+cactor_xstate.core.machine :: StateMachineDefinition.public func getTransitionsForEvent(sourceStateId: String, eventType: String): Array<TransitionDefinition>
+cactor_xstate.core.machine :: StateMachineDefinition.public func hasState(stateId: String): Bool
+cactor_xstate.core.machine :: StateMachineDefinition.public func validate(): Array<String>
+cactor_xstate.core.machine :: StateMachineDefinition.public init(id: String, version: String, initialStateId: String, states: HashMap<String, StateNode>, transitions: Array<TransitionDefinition>, metadata: HashMap<String, String>)
+cactor_xstate.core.machine :: StateMachineDefinition.public let id: String
+cactor_xstate.core.machine :: StateMachineDefinition.public let initialStateId: String
+cactor_xstate.core.machine :: StateMachineDefinition.public let metadata: HashMap<String, String>
+cactor_xstate.core.machine :: StateMachineDefinition.public let states: HashMap<String, StateNode>
+cactor_xstate.core.machine :: StateMachineDefinition.public let transitions: Array<TransitionDefinition>
+cactor_xstate.core.machine :: StateMachineDefinition.public let version: String
+cactor_xstate.core.machine :: StateNode.public func hasEntryActions(): Bool
+cactor_xstate.core.machine :: StateNode.public func hasExitActions(): Bool
+cactor_xstate.core.machine :: StateNode.public init(id: String, displayName: String, isFinal: Bool, isInitial: Bool, onEntry: Array<String>, onExit: Array<String>, metadata: HashMap<String, String>)
+cactor_xstate.core.machine :: StateNode.public let displayName: String
+cactor_xstate.core.machine :: StateNode.public let id: String
+cactor_xstate.core.machine :: StateNode.public let isFinal: Bool
+cactor_xstate.core.machine :: StateNode.public let isInitial: Bool
+cactor_xstate.core.machine :: StateNode.public let metadata: HashMap<String, String>
+cactor_xstate.core.machine :: StateNode.public let onEntry: Array<String>
+cactor_xstate.core.machine :: StateNode.public let onExit: Array<String>
+cactor_xstate.core.machine :: StateNode.public static func create(id: String): StateNode
+cactor_xstate.core.machine :: StateNode.public static func createFinal(id: String): StateNode
+cactor_xstate.core.machine :: public struct StateMachineBuilder
+cactor_xstate.core.machine :: public struct StateMachineDefinition
+cactor_xstate.core.machine :: public struct StateNode
+cactor_xstate.core.types :: BaseStateMachineEvent.public func getEventData(): HashMap<String, Any>
+cactor_xstate.core.types :: BaseStateMachineEvent.public func getEventType(): String
+cactor_xstate.core.types :: BaseStateMachineEvent.public func getSource(): Option<String>
+cactor_xstate.core.types :: BaseStateMachineEvent.public func matchesType(eventType: String): Bool
+cactor_xstate.core.types :: BaseStateMachineEvent.public func messageId(): String
+cactor_xstate.core.types :: BaseStateMachineEvent.public func messageType(): String
+cactor_xstate.core.types :: BaseStateMachineEvent.public func priority(): Int32
+cactor_xstate.core.types :: BaseStateMachineEvent.public func timestamp(): Int64
+cactor_xstate.core.types :: BaseStateMachineEvent.public init(eventType: String)
+cactor_xstate.core.types :: BaseStateMachineEvent.public init(eventType: String, eventData: HashMap<String, Any>)
+cactor_xstate.core.types :: BaseStateMachineEvent.public init(eventType: String, eventData: HashMap<String, Any>, source: Option<String>)
+cactor_xstate.core.types :: ErrorEvent.public func getError(): String
+cactor_xstate.core.types :: ErrorEvent.public func getErrorCode(): String
+cactor_xstate.core.types :: ErrorEvent.public func getEventData(): HashMap<String, Any>
+cactor_xstate.core.types :: ErrorEvent.public func getEventType(): String
+cactor_xstate.core.types :: ErrorEvent.public func getSource(): Option<String>
+cactor_xstate.core.types :: ErrorEvent.public func matchesType(eventType: String): Bool
+cactor_xstate.core.types :: ErrorEvent.public func messageId(): String
+cactor_xstate.core.types :: ErrorEvent.public func messageType(): String
+cactor_xstate.core.types :: ErrorEvent.public func priority(): Int32
+cactor_xstate.core.types :: ErrorEvent.public func timestamp(): Int64
+cactor_xstate.core.types :: ErrorEvent.public init(error: String, errorCode: String)
+cactor_xstate.core.types :: GuardCondition.func evaluate(): Bool
+cactor_xstate.core.types :: GuardCondition.func getDescription(): String
+cactor_xstate.core.types :: InternalEvent.public func getEventData(): HashMap<String, Any>
+cactor_xstate.core.types :: InternalEvent.public func getEventType(): String
+cactor_xstate.core.types :: InternalEvent.public func getSource(): Option<String>
+cactor_xstate.core.types :: InternalEvent.public func matchesType(eventType: String): Bool
+cactor_xstate.core.types :: InternalEvent.public func messageId(): String
+cactor_xstate.core.types :: InternalEvent.public func messageType(): String
+cactor_xstate.core.types :: InternalEvent.public func priority(): Int32
+cactor_xstate.core.types :: InternalEvent.public func timestamp(): Int64
+cactor_xstate.core.types :: InternalEvent.public init(eventType: String)
+cactor_xstate.core.types :: SimpleAction.public func execute(): Unit
+cactor_xstate.core.types :: SimpleAction.public func getDescription(): String
+cactor_xstate.core.types :: SimpleAction.public init(description: String)
+cactor_xstate.core.types :: SimpleGuard.public func evaluate(): Bool
+cactor_xstate.core.types :: SimpleGuard.public func getDescription(): String
+cactor_xstate.core.types :: SimpleGuard.public init(condition: Bool, description: String)
+cactor_xstate.core.types :: StateMachineEvent.func getEventData(): HashMap<String, Any>
+cactor_xstate.core.types :: StateMachineEvent.func getEventType(): String
+cactor_xstate.core.types :: StateMachineEvent.func getSource(): Option<String>
+cactor_xstate.core.types :: StateMachineEvent.func matchesType(eventType: String): Bool
+cactor_xstate.core.types :: StateMachineState.func equals(other: StateMachineState): Bool
+cactor_xstate.core.types :: StateMachineState.func getDisplayName(): String
+cactor_xstate.core.types :: StateMachineState.func getStateId(): String
+cactor_xstate.core.types :: StateMachineState.func isFinal(): Bool
+cactor_xstate.core.types :: StateMachineState.func isInitial(): Bool
+cactor_xstate.core.types :: TimerEvent.public func getDelay(): Int64
+cactor_xstate.core.types :: TimerEvent.public func getEventData(): HashMap<String, Any>
+cactor_xstate.core.types :: TimerEvent.public func getEventType(): String
+cactor_xstate.core.types :: TimerEvent.public func getSource(): Option<String>
+cactor_xstate.core.types :: TimerEvent.public func getTimerId(): String
+cactor_xstate.core.types :: TimerEvent.public func matchesType(eventType: String): Bool
+cactor_xstate.core.types :: TimerEvent.public func messageId(): String
+cactor_xstate.core.types :: TimerEvent.public func messageType(): String
+cactor_xstate.core.types :: TimerEvent.public func priority(): Int32
+cactor_xstate.core.types :: TimerEvent.public func timestamp(): Int64
+cactor_xstate.core.types :: TimerEvent.public init(timerId: String, delay: Int64)
+cactor_xstate.core.types :: TransitionAction.func execute(): Unit
+cactor_xstate.core.types :: TransitionAction.func getDescription(): String
+cactor_xstate.core.types :: TransitionBuilder.public func build(): TransitionDefinition
+cactor_xstate.core.types :: TransitionBuilder.public init()
+cactor_xstate.core.types :: TransitionBuilder.public mut func from(sourceStateId: String): Unit
+cactor_xstate.core.types :: TransitionBuilder.public mut func on(eventType: String): Unit
+cactor_xstate.core.types :: TransitionBuilder.public mut func to(targetStateId: String): Unit
+cactor_xstate.core.types :: TransitionBuilder.public mut func withId(id: String): Unit
+cactor_xstate.core.types :: TransitionBuilder.public mut func withMeta(key: String, value: String): Unit
+cactor_xstate.core.types :: TransitionBuilder.public mut func withPriority(priority: Int32): Unit
+cactor_xstate.core.types :: TransitionDefinition.public func getDescription(): String
+cactor_xstate.core.types :: TransitionDefinition.public func isInternal(): Bool
+cactor_xstate.core.types :: TransitionDefinition.public func matches(sourceStateId: String, eventType: String): Bool
+cactor_xstate.core.types :: TransitionDefinition.public init(id: String, sourceStateId: String, targetStateId: String, eventType: String, priority: Int32, metadata: HashMap<String, String>)
+cactor_xstate.core.types :: TransitionDefinition.public let eventType: String
+cactor_xstate.core.types :: TransitionDefinition.public let id: String
+cactor_xstate.core.types :: TransitionDefinition.public let metadata: HashMap<String, String>
+cactor_xstate.core.types :: TransitionDefinition.public let priority: Int32
+cactor_xstate.core.types :: TransitionDefinition.public let sourceStateId: String
+cactor_xstate.core.types :: TransitionDefinition.public let targetStateId: String
+cactor_xstate.core.types :: TransitionDefinition.public static func create(sourceStateId: String, targetStateId: String, eventType: String): TransitionDefinition
+cactor_xstate.core.types :: TransitionEffect.public func getEffectType(): String
+cactor_xstate.core.types :: TransitionEffect.| CancelTimerEffect
+cactor_xstate.core.types :: TransitionEffect.| CustomEffect
+cactor_xstate.core.types :: TransitionEffect.| LogEffect
+cactor_xstate.core.types :: TransitionEffect.| NotifyEffect
+cactor_xstate.core.types :: TransitionEffect.| TimerEffect
+cactor_xstate.core.types :: TransitionResult.public func isFailure(): Bool
+cactor_xstate.core.types :: TransitionResult.public func isSuccess(): Bool
+cactor_xstate.core.types :: TransitionResult.public func toString(): String
+cactor_xstate.core.types :: TransitionResult.| Deferred
+cactor_xstate.core.types :: TransitionResult.| Forbidden
+cactor_xstate.core.types :: TransitionResult.| Invalid
+cactor_xstate.core.types :: TransitionResult.| Success
+cactor_xstate.core.types :: public enum TransitionEffect
+cactor_xstate.core.types :: public enum TransitionResult
+cactor_xstate.core.types :: public interface GuardCondition
+cactor_xstate.core.types :: public interface StateMachineEvent <: Message
+cactor_xstate.core.types :: public interface StateMachineState
+cactor_xstate.core.types :: public interface TransitionAction
+cactor_xstate.core.types :: public struct BaseStateMachineEvent <: StateMachineEvent
+cactor_xstate.core.types :: public struct ErrorEvent <: StateMachineEvent
+cactor_xstate.core.types :: public struct InternalEvent <: StateMachineEvent
+cactor_xstate.core.types :: public struct SimpleAction <: TransitionAction
+cactor_xstate.core.types :: public struct SimpleGuard <: GuardCondition
+cactor_xstate.core.types :: public struct TimerEvent <: StateMachineEvent
+cactor_xstate.core.types :: public struct TransitionBuilder
+cactor_xstate.core.types :: public struct TransitionDefinition
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func getConfig(): EnterpriseStateMachineConfig
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func getCurrentState(): StateMachineState
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func getDetailedStats(): String
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func getLogs(): ArrayList<StateMachineLog>
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func getMetrics(): StateMachineMetrics
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func isActive(): Bool
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func pause(): Unit
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func resume(): Unit
+cactor_xstate.enterprise :: EnterpriseStateMachine.public func trigger(event: StateMachineEvent): Bool
+cactor_xstate.enterprise :: EnterpriseStateMachine.public init(config: EnterpriseStateMachineConfig, initialState: StateMachineState)
+cactor_xstate.enterprise :: EnterpriseStateMachineConfig.public init(name: String)
+cactor_xstate.enterprise :: EnterpriseStateMachineConfig.public init(name: String, maxTransitions: Int64, timeoutMs: Int64, enableLogging: Bool, enableMetrics: Bool)
+cactor_xstate.enterprise :: EnterpriseStateMachineConfig.public let enableLogging: Bool
+cactor_xstate.enterprise :: EnterpriseStateMachineConfig.public let enableMetrics: Bool
+cactor_xstate.enterprise :: EnterpriseStateMachineConfig.public let maxTransitions: Int64
+cactor_xstate.enterprise :: EnterpriseStateMachineConfig.public let name: String
+cactor_xstate.enterprise :: EnterpriseStateMachineConfig.public let timeoutMs: Int64
+cactor_xstate.enterprise :: EnterpriseStateMachineManager.public func createMachine(config: EnterpriseStateMachineConfig, initialState: StateMachineState): EnterpriseStateMachine
+cactor_xstate.enterprise :: EnterpriseStateMachineManager.public func getAllMachineNames(): ArrayList<String>
+cactor_xstate.enterprise :: EnterpriseStateMachineManager.public func getGlobalStats(): String
+cactor_xstate.enterprise :: EnterpriseStateMachineManager.public func getMachine(name: String): Option<EnterpriseStateMachine>
+cactor_xstate.enterprise :: EnterpriseStateMachineManager.public func pauseAll(): Unit
+cactor_xstate.enterprise :: EnterpriseStateMachineManager.public func resumeAll(): Unit
+cactor_xstate.enterprise :: EnterpriseStateMachineManager.public static func getInstance(): EnterpriseStateMachineManager
+cactor_xstate.enterprise :: StateMachineLog.public init(fromState: String, event: String, toState: String, duration: Int64)
+cactor_xstate.enterprise :: StateMachineLog.public let duration: Int64
+cactor_xstate.enterprise :: StateMachineLog.public let event: String
+cactor_xstate.enterprise :: StateMachineLog.public let fromState: String
+cactor_xstate.enterprise :: StateMachineLog.public let timestamp: Int64
+cactor_xstate.enterprise :: StateMachineLog.public let toState: String
+cactor_xstate.enterprise :: StateMachineMetrics.public func recordError(): Unit
+cactor_xstate.enterprise :: StateMachineMetrics.public func recordTransition(duration: Int64): Unit
+cactor_xstate.enterprise :: StateMachineMetrics.public init()
+cactor_xstate.enterprise :: StateMachineMetrics.public var averageTransitionTime: Int64
+cactor_xstate.enterprise :: StateMachineMetrics.public var errorCount: Int64
+cactor_xstate.enterprise :: StateMachineMetrics.public var maxTransitionTime: Int64
+cactor_xstate.enterprise :: StateMachineMetrics.public var minTransitionTime: Int64
+cactor_xstate.enterprise :: StateMachineMetrics.public var totalTransitions: Int64
+cactor_xstate.enterprise :: TransitionResult.| Denied
+cactor_xstate.enterprise :: TransitionResult.| Error
+cactor_xstate.enterprise :: TransitionResult.| Success
+cactor_xstate.enterprise :: public class EnterpriseStateMachine
+cactor_xstate.enterprise :: public class EnterpriseStateMachineManager
+cactor_xstate.enterprise :: public class StateMachineMetrics
+cactor_xstate.enterprise :: public enum TransitionResult
+cactor_xstate.enterprise :: public struct EnterpriseStateMachineConfig
+cactor_xstate.enterprise :: public struct StateMachineLog
+cactor_xstate.enterprise.distributed :: ConflictResolutionStrategy.public func toString(): String
+cactor_xstate.enterprise.distributed :: ConflictResolutionStrategy.| CustomResolver
+cactor_xstate.enterprise.distributed :: ConflictResolutionStrategy.| HighestVersion
+cactor_xstate.enterprise.distributed :: ConflictResolutionStrategy.| LastWriterWins
+cactor_xstate.enterprise.distributed :: ConflictResolutionStrategy.| NodePriority
+cactor_xstate.enterprise.distributed :: DistributedStateInfo.public init(stateMachineId: String, currentState: String, version: Int64, lastUpdated: Int64, nodeId: String, isConsistent: Bool)
+cactor_xstate.enterprise.distributed :: DistributedStateInfo.public let currentState: String
+cactor_xstate.enterprise.distributed :: DistributedStateInfo.public let isConsistent: Bool
+cactor_xstate.enterprise.distributed :: DistributedStateInfo.public let lastUpdated: Int64
+cactor_xstate.enterprise.distributed :: DistributedStateInfo.public let nodeId: String
+cactor_xstate.enterprise.distributed :: DistributedStateInfo.public let stateMachineId: String
+cactor_xstate.enterprise.distributed :: DistributedStateInfo.public let version: Int64
+cactor_xstate.enterprise.distributed :: DistributedStateSyncManager.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_xstate.enterprise.distributed :: DistributedStateSyncManager.public func updateLocalState(stateMachineId: String, currentState: String, version: Int64): Unit
+cactor_xstate.enterprise.distributed :: DistributedStateSyncManager.public init(conflictResolver: ConflictResolutionStrategy, syncInterval: Duration)
+cactor_xstate.enterprise.distributed :: DistributedStateSyncManager.public prop description: String
+cactor_xstate.enterprise.distributed :: DistributedStateSyncManager.public prop name: String
+cactor_xstate.enterprise.distributed :: StateConflictResolution.public func getPayload(): String
+cactor_xstate.enterprise.distributed :: StateConflictResolution.public func getType(): String
+cactor_xstate.enterprise.distributed :: StateConflictResolution.public func messageType(): String
+cactor_xstate.enterprise.distributed :: StateConflictResolution.public init(stateMachineId: String, conflictingStates: Array<String>, resolvedState: String, resolutionStrategy: String)
+cactor_xstate.enterprise.distributed :: StateConflictResolution.public let conflictingStates: Array<String>
+cactor_xstate.enterprise.distributed :: StateConflictResolution.public let resolutionStrategy: String
+cactor_xstate.enterprise.distributed :: StateConflictResolution.public let resolvedState: String
+cactor_xstate.enterprise.distributed :: StateConflictResolution.public let stateMachineId: String
+cactor_xstate.enterprise.distributed :: StateSync.public func getPayload(): String
+cactor_xstate.enterprise.distributed :: StateSync.public func getType(): String
+cactor_xstate.enterprise.distributed :: StateSync.public func messageType(): String
+cactor_xstate.enterprise.distributed :: StateSync.public init(stateMachineId: String, currentState: String, version: Int64, eventTimestamp: Int64, nodeId: String)
+cactor_xstate.enterprise.distributed :: StateSync.public let currentState: String
+cactor_xstate.enterprise.distributed :: StateSync.public let eventTimestamp: Int64
+cactor_xstate.enterprise.distributed :: StateSync.public let nodeId: String
+cactor_xstate.enterprise.distributed :: StateSync.public let stateMachineId: String
+cactor_xstate.enterprise.distributed :: StateSync.public let version: Int64
+cactor_xstate.enterprise.distributed :: public class DistributedStateSyncManager <: Actor
+cactor_xstate.enterprise.distributed :: public class StateConflictResolution <: Message
+cactor_xstate.enterprise.distributed :: public class StateSync <: Message
+cactor_xstate.enterprise.distributed :: public enum ConflictResolutionStrategy
+cactor_xstate.enterprise.distributed :: public struct DistributedStateInfo
+cactor_xstate.enterprise.event_sourcing :: EventSourcingManager.public func createSnapshot(stateMachineId: String, currentState: String): Bool
+cactor_xstate.enterprise.event_sourcing :: EventSourcingManager.public func recordEvent(stateMachineId: String, event: StateMachineEvent, eventData: String): Bool
+cactor_xstate.enterprise.event_sourcing :: EventSourcingManager.public func registerReplayCallback(stateMachineId: String, callback: (EventStoreEntry)->Unit): Unit
+cactor_xstate.enterprise.event_sourcing :: EventSourcingManager.public func replayEvents(stateMachineId: String): Bool
+cactor_xstate.enterprise.event_sourcing :: EventSourcingManager.public init(eventStore: EventStore)
+cactor_xstate.enterprise.event_sourcing :: EventStore.func createSnapshot(stateMachineId: String, state: String, sequenceNumber: Int64): Bool
+cactor_xstate.enterprise.event_sourcing :: EventStore.func getEventStream(stateMachineId: String): Array<EventStoreEntry>
+cactor_xstate.enterprise.event_sourcing :: EventStore.func getEventStreamFrom(stateMachineId: String, fromSequence: Int64): Array<EventStoreEntry>
+cactor_xstate.enterprise.event_sourcing :: EventStore.func getLatestSequenceNumber(stateMachineId: String): Int64
+cactor_xstate.enterprise.event_sourcing :: EventStore.func getLatestSnapshot(stateMachineId: String): Option<StateSnapshot>
+cactor_xstate.enterprise.event_sourcing :: EventStore.func storeEvent(entry: EventStoreEntry): Bool
+cactor_xstate.enterprise.event_sourcing :: EventStoreEntry.public init(eventId: String, stateMachineId: String, eventType: String, eventData: String, timestamp: Int64, sequenceNumber: Int64, version: Int32)
+cactor_xstate.enterprise.event_sourcing :: EventStoreEntry.public let eventData: String
+cactor_xstate.enterprise.event_sourcing :: EventStoreEntry.public let eventId: String
+cactor_xstate.enterprise.event_sourcing :: EventStoreEntry.public let eventType: String
+cactor_xstate.enterprise.event_sourcing :: EventStoreEntry.public let sequenceNumber: Int64
+cactor_xstate.enterprise.event_sourcing :: EventStoreEntry.public let stateMachineId: String
+cactor_xstate.enterprise.event_sourcing :: EventStoreEntry.public let timestamp: Int64
+cactor_xstate.enterprise.event_sourcing :: EventStoreEntry.public let version: Int32
+cactor_xstate.enterprise.event_sourcing :: InMemoryEventStore.public func createSnapshot(stateMachineId: String, state: String, sequenceNumber: Int64): Bool
+cactor_xstate.enterprise.event_sourcing :: InMemoryEventStore.public func getEventStream(stateMachineId: String): Array<EventStoreEntry>
+cactor_xstate.enterprise.event_sourcing :: InMemoryEventStore.public func getEventStreamFrom(stateMachineId: String, fromSequence: Int64): Array<EventStoreEntry>
+cactor_xstate.enterprise.event_sourcing :: InMemoryEventStore.public func getLatestSequenceNumber(stateMachineId: String): Int64
+cactor_xstate.enterprise.event_sourcing :: InMemoryEventStore.public func getLatestSnapshot(stateMachineId: String): Option<StateSnapshot>
+cactor_xstate.enterprise.event_sourcing :: InMemoryEventStore.public func storeEvent(entry: EventStoreEntry): Bool
+cactor_xstate.enterprise.event_sourcing :: InMemoryEventStore.public init()
+cactor_xstate.enterprise.event_sourcing :: StateSnapshot.public init(stateMachineId: String, state: String, sequenceNumber: Int64, timestamp: Int64, metadata: HashMap<String, String>)
+cactor_xstate.enterprise.event_sourcing :: StateSnapshot.public let metadata: HashMap<String, String>
+cactor_xstate.enterprise.event_sourcing :: StateSnapshot.public let sequenceNumber: Int64
+cactor_xstate.enterprise.event_sourcing :: StateSnapshot.public let state: String
+cactor_xstate.enterprise.event_sourcing :: StateSnapshot.public let stateMachineId: String
+cactor_xstate.enterprise.event_sourcing :: StateSnapshot.public let timestamp: Int64
+cactor_xstate.enterprise.event_sourcing :: public class EventSourcingManager
+cactor_xstate.enterprise.event_sourcing :: public class InMemoryEventStore <: EventStore
+cactor_xstate.enterprise.event_sourcing :: public interface EventStore
+cactor_xstate.enterprise.event_sourcing :: public struct EventStoreEntry
+cactor_xstate.enterprise.event_sourcing :: public struct StateSnapshot
+cactor_xstate.features :: StateMachineContext.public func getLastTransitionTime(): Int64
+cactor_xstate.features :: StateMachineContext.public func getPropertiesCount(): Int64
+cactor_xstate.features :: StateMachineContext.public func getProperty(key: String): Option<String>
+cactor_xstate.features :: StateMachineContext.public func setProperty(key: String, value: String): Unit
+cactor_xstate.features :: StateMachineContext.public func updateTransitionTime(): Unit
+cactor_xstate.features :: StateMachineContext.public init()
+cactor_xstate.features :: StateMachineEvent.| ErrorOccurred
+cactor_xstate.features :: StateMachineEvent.| Pause
+cactor_xstate.features :: StateMachineEvent.| Reset
+cactor_xstate.features :: StateMachineEvent.| Resume
+cactor_xstate.features :: StateMachineEvent.| Start
+cactor_xstate.features :: StateMachineEvent.| Stop
+cactor_xstate.features :: StateMachineState.| Error
+cactor_xstate.features :: StateMachineState.| Idle
+cactor_xstate.features :: StateMachineState.| Paused
+cactor_xstate.features :: StateMachineState.| Running
+cactor_xstate.features :: StateMachineState.| Stopped
+cactor_xstate.features :: StateTransition.public init(from: StateMachineState, event: StateMachineEvent, to: StateMachineState)
+cactor_xstate.features :: StateTransition.public init(from: StateMachineState, event: StateMachineEvent, to: StateMachineState, condition: String)
+cactor_xstate.features :: StateTransition.public let condition: Option<String>
+cactor_xstate.features :: StateTransition.public let event: StateMachineEvent
+cactor_xstate.features :: StateTransition.public let fromState: StateMachineState
+cactor_xstate.features :: StateTransition.public let toState: StateMachineState
+cactor_xstate.features :: TransitionResult.| Denied
+cactor_xstate.features :: TransitionResult.| Error
+cactor_xstate.features :: TransitionResult.| Success
+cactor_xstate.features :: XStateFeatureMachine.public func addTransition(transition: StateTransition): Unit
+cactor_xstate.features :: XStateFeatureMachine.public func canTrigger(event: StateMachineEvent): Bool
+cactor_xstate.features :: XStateFeatureMachine.public func getAvailableEvents(): ArrayList<StateMachineEvent>
+cactor_xstate.features :: XStateFeatureMachine.public func getContext(): StateMachineContext
+cactor_xstate.features :: XStateFeatureMachine.public func getCurrentState(): StateMachineState
+cactor_xstate.features :: XStateFeatureMachine.public func getTransitionCount(): Int64
+cactor_xstate.features :: XStateFeatureMachine.public func trigger(event: StateMachineEvent): TransitionResult
+cactor_xstate.features :: XStateFeatureMachine.public init(initialState: StateMachineState)
+cactor_xstate.features :: XStateFeatureManager.public func createMachine(name: String, initialState: StateMachineState): XStateFeatureMachine
+cactor_xstate.features :: XStateFeatureManager.public func getAllMachineNames(): ArrayList<String>
+cactor_xstate.features :: XStateFeatureManager.public func getMachine(name: String): Option<XStateFeatureMachine>
+cactor_xstate.features :: XStateFeatureManager.public func getStatistics(): String
+cactor_xstate.features :: XStateFeatureManager.public static func getInstance(): XStateFeatureManager
+cactor_xstate.features :: public class StateMachineContext
+cactor_xstate.features :: public class XStateFeatureMachine
+cactor_xstate.features :: public class XStateFeatureManager
+cactor_xstate.features :: public enum StateMachineEvent
+cactor_xstate.features :: public enum StateMachineState
+cactor_xstate.features :: public enum TransitionResult
+cactor_xstate.features :: public struct StateTransition
+cactor_xstate.features.hierarchical :: HierarchicalState.func getChildStates(): Array<String>
+cactor_xstate.features.hierarchical :: HierarchicalState.func getInitialChildState(): Option<String>
+cactor_xstate.features.hierarchical :: HierarchicalState.func getParentStateId(): Option<String>
+cactor_xstate.features.hierarchical :: HierarchicalState.func isCompoundState(): Bool
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public func equals(other: StateMachineState): Bool
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public func getChildStates(): Array<String>
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public func getDisplayName(): String
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public func getInitialChildState(): Option<String>
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public func getParentStateId(): Option<String>
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public func getStateId(): String
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public func isCompoundState(): Bool
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public func isInitial(): Bool
+cactor_xstate.features.hierarchical :: HierarchicalStateImpl.public init(stateId: String, displayName: String, parentStateId: Option<String>, childStates: Array<String>, isInitialState: Bool, isCompound: Bool, initialChildState: Option<String>)
+cactor_xstate.features.hierarchical :: HierarchicalStateMachineActor.public func createChildActor(childStateId: String, childMachineDefinition: StateMachineDefinition, system: CActorSystem): Unit
+cactor_xstate.features.hierarchical :: HierarchicalStateMachineActor.public func getCurrentHierarchicalState(): String
+cactor_xstate.features.hierarchical :: HierarchicalStateMachineActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_xstate.features.hierarchical :: HierarchicalStateMachineActor.public init(machineDefinition: StateMachineDefinition, parentActor: Option<ActorRef>)
+cactor_xstate.features.hierarchical :: HierarchicalStateMachineActor.public prop description: String
+cactor_xstate.features.hierarchical :: HierarchicalStateMachineActor.public prop name: String
+cactor_xstate.features.hierarchical :: HierarchicalStateMachineFactory.public static func create(system: CActorSystem, machineDefinition: StateMachineDefinition, actorName: String): ActorRef
+cactor_xstate.features.hierarchical :: public class HierarchicalStateMachineActor <: Actor
+cactor_xstate.features.hierarchical :: public interface HierarchicalState <: StateMachineState
+cactor_xstate.features.hierarchical :: public struct HierarchicalStateImpl <: HierarchicalState
+cactor_xstate.features.hierarchical :: public struct HierarchicalStateMachineFactory
+cactor_xstate.features.parallel :: ParallelState.func getRegionInitialState(regionId: String): Option<String>
+cactor_xstate.features.parallel :: ParallelState.func getRegions(): Array<String>
+cactor_xstate.features.parallel :: ParallelState.func isParallelState(): Bool
+cactor_xstate.features.parallel :: ParallelStateImpl.public func equals(other: StateMachineState): Bool
+cactor_xstate.features.parallel :: ParallelStateImpl.public func getDisplayName(): String
+cactor_xstate.features.parallel :: ParallelStateImpl.public func getRegionInitialState(regionId: String): Option<String>
+cactor_xstate.features.parallel :: ParallelStateImpl.public func getRegions(): Array<String>
+cactor_xstate.features.parallel :: ParallelStateImpl.public func getStateId(): String
+cactor_xstate.features.parallel :: ParallelStateImpl.public func isInitial(): Bool
+cactor_xstate.features.parallel :: ParallelStateImpl.public func isParallelState(): Bool
+cactor_xstate.features.parallel :: ParallelStateImpl.public init(stateId: String, displayName: String, regions: Array<String>, regionInitialStates: HashMap<String, String>, isInitialState: Bool)
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public func addCompletionCallback(callback: ()->Unit): Unit
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public func addRegion(regionId: String, initialState: String): Unit
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public func getCurrentParallelState(): String
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public func removeRegion(regionId: String): Unit
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public func synchronizeRegions(): Unit
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public init(machineDefinition: StateMachineDefinition)
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public prop description: String
+cactor_xstate.features.parallel :: ParallelStateMachineActor.public prop name: String
+cactor_xstate.features.parallel :: ParallelStateMachineFactory.public static func create(system: CActorSystem, machineDefinition: StateMachineDefinition, actorName: String): ActorRef
+cactor_xstate.features.parallel :: RegionState.public init(regionId: String, currentState: String, isActive: Bool)
+cactor_xstate.features.parallel :: RegionState.public let currentState: String
+cactor_xstate.features.parallel :: RegionState.public let isActive: Bool
+cactor_xstate.features.parallel :: RegionState.public let regionId: String
+cactor_xstate.features.parallel :: public class ParallelStateMachineActor <: Actor
+cactor_xstate.features.parallel :: public interface ParallelState <: StateMachineState
+cactor_xstate.features.parallel :: public struct ParallelStateImpl <: ParallelState
+cactor_xstate.features.parallel :: public struct ParallelStateMachineFactory
+cactor_xstate.features.parallel :: public struct RegionState
+cactor_xstate.lang :: XStateLangPackage.public static func getInfo(): String
+cactor_xstate.lang :: public struct XStateLangPackage
+cactor_xstate.lang.macros :: XStateDSLSupport.public static func createActionBuilder(): String
+cactor_xstate.lang.macros :: XStateDSLSupport.public static func createGuardBuilder(): String
+cactor_xstate.lang.macros :: XStateDSLSupport.public static func createStateBuilder(): String
+cactor_xstate.lang.macros :: XStateDSLSupport.public static func createStateMachineBuilder(): String
+cactor_xstate.lang.macros :: XStateDSLSupport.public static func createTransitionBuilder(): String
+cactor_xstate.lang.macros :: public struct XStateDSLSupport

@@ -1,0 +1,227 @@
+# CActor 公开 API 快照：modules/cactor（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor.api :: ActorConfig.public init(mailbox: MailboxConfig, dispatcher: DispatcherConfig, supervision: SupervisionConfig)
+cactor.api :: ActorConfig.public let dispatcher: DispatcherConfig
+cactor.api :: ActorConfig.public let mailbox: MailboxConfig
+cactor.api :: ActorConfig.public let supervision: SupervisionConfig
+cactor.api :: ActorConfig.public static func batching(): ActorConfig
+cactor.api :: ActorConfig.public static func default(): ActorConfig
+cactor.api :: ActorConfig.public static func highPerformance(): ActorConfig
+cactor.api :: ActorConfig.public static func lowLatency(): ActorConfig
+cactor.api :: ActorProps.public func getCreator(): ()->Actor
+cactor.api :: ActorProps.public init(creator: ()->Actor)
+cactor.api :: CActor.public static func props(creator: ()->Actor): ActorProps
+cactor.api :: CActor.public static func system(): CActorSystem
+cactor.api :: CActor.public static func system(name: String): CActorSystem
+cactor.api :: CActor.public static func system(name: String, config: CActorRuntimeConfig): CActorSystem
+cactor.api :: CActorSystem.public func actorOf(actorProps: ActorProps): ActorRef
+cactor.api :: CActorSystem.public func actorOf(actorProps: ActorProps, name: String): ActorRef
+cactor.api :: CActorSystem.public func actorOf(creator: ()->Actor): ActorRef
+cactor.api :: CActorSystem.public func actorOf(creator: ()->Actor, name: String): ActorRef
+cactor.api :: CActorSystem.public func actorOf(props: Props<Actor>): ActorRef
+cactor.api :: CActorSystem.public func actorOf(props: Props<Actor>, name: String): ActorRef
+cactor.api :: CActorSystem.public func actorOfConfigured(creator: ()->Actor, name: String, mailboxConfig: CoreMailboxConfig, dispatcherConfig: CoreDispatcherConfig, supervisionConfig: CoreSupervisionConfig): ActorRef
+cactor.api :: CActorSystem.public func actorOfWithDispatcher(creator: ()->Actor, name: String, dispatcherConfig: CoreDispatcherConfig): ActorRef
+cactor.api :: CActorSystem.public func actorOfWithMailbox(creator: ()->Actor, name: String, mailboxConfig: CoreMailboxConfig): ActorRef
+cactor.api :: CActorSystem.public func createMessageBridge<T>(standardActor: ActorRef, typedActor: TypedActorRef<T>): MessageBridge<T>
+cactor.api :: CActorSystem.public func deadLetterCount(): Int64
+cactor.api :: CActorSystem.public func getName(): String
+cactor.api :: CActorSystem.public func getRuntime(): CActorRuntime
+cactor.api :: CActorSystem.public func getStartTime(): Int64
+cactor.api :: CActorSystem.public func gracefulStop(actorRef: ActorRef, timeout: Duration): Bool
+cactor.api :: CActorSystem.public func isTerminated(): Bool
+cactor.api :: CActorSystem.public func lookup(path: String): Option<ActorRef>
+cactor.api :: CActorSystem.public func metricsText(perActor: Bool): String
+cactor.api :: CActorSystem.public func metricsText(perActor: Bool, maxActorSeries: Int64): String
+cactor.api :: CActorSystem.public func publishDeadLetter(message: Message, recipient: String): Unit
+cactor.api :: CActorSystem.public func stop(actorRef: ActorRef): Unit
+cactor.api :: CActorSystem.public func subscribeDeadLetters(listener: (Message, String)->Unit): Unit
+cactor.api :: CActorSystem.public func terminate(): Unit
+cactor.api :: CActorSystem.public func typed(): TypedActorSystemImpl
+cactor.api :: CActorSystem.public func typedActorOf<T>(behavior: TypedBehavior<T>): TypedActorRef<T>
+cactor.api :: CActorSystem.public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String): TypedActorRef<T>
+cactor.api :: CActorSystem.public func typedActorOf<T>(behavior: TypedBehavior<T>, name: String, props: TypedProps): TypedActorRef<T>
+cactor.api :: CActorSystem.public func typedActorSelection<T>(path: String): TypedActorSelection<T>
+cactor.api :: CActorSystem.public func unhandledCount(): Int64
+cactor.api :: CActorSystem.public func unwrapTypedActor<T>(typedActorRef: TypedActorRef<T>): ActorRef
+cactor.api :: CActorSystem.public func wrapAsTypedActor<T>(actorRef: ActorRef, name: String): TypedActorRef<T>
+cactor.api :: CActorSystem.public init(name: String)
+cactor.api :: CActorSystem.public init(name: String, config: CActorRuntimeConfig)
+cactor.api :: CActorSystemFactory.public static func create(): CActorSystem
+cactor.api :: CActorSystemFactory.public static func create(name: String): CActorSystem
+cactor.api :: CActorSystemFactory.public static func create(name: String, config: CActorRuntimeConfig): CActorSystem
+cactor.api :: Dispatcher.public static func default(): DispatcherConfig
+cactor.api :: Dispatcher.public static func threadPool(): DispatcherConfig
+cactor.api :: Dispatcher.public static func threadPool(size: Int32): DispatcherConfig
+cactor.api :: Dispatcher.public static func workStealing(): DispatcherConfig
+cactor.api :: Dispatcher.public static func workStealing(parallelism: Int32): DispatcherConfig
+cactor.api :: Mailbox.public static func bounded(capacity: Int32): MailboxConfig
+cactor.api :: Mailbox.public static func priority(): MailboxConfig
+cactor.api :: Mailbox.public static func unbounded(): MailboxConfig
+cactor.api :: ManagementRoute.public init(path: String, contentType: String, handler: ()->String)
+cactor.api :: ManagementRoute.public init(path: String, contentType: String, handler: ()->String, queryHandler!: Option<(String)->String>)
+cactor.api :: ManagementRoute.public let contentType: String
+cactor.api :: ManagementRoute.public let handler: ()->String
+cactor.api :: ManagementRoute.public let path: String
+cactor.api :: ManagementRoute.public let queryHandler: Option<(String)->String>
+cactor.api :: ManagementServer.public func addQueryRoute(path: String, contentType: String, handler: (String)->String): ManagementServer
+cactor.api :: ManagementServer.public func addReadinessCheck(name: String, check: ()->Bool): ManagementServer
+cactor.api :: ManagementServer.public func addRoute(path: String, contentType: String, handler: ()->String): ManagementServer
+cactor.api :: ManagementServer.public func addRoute(route: ManagementRoute): ManagementServer
+cactor.api :: ManagementServer.public func handlerErrors(): Int64
+cactor.api :: ManagementServer.public func port(): UInt16
+cactor.api :: ManagementServer.public func rejectedConnections(): Int64
+cactor.api :: ManagementServer.public func requestsServed(): Int64
+cactor.api :: ManagementServer.public func start(): ManagementServer
+cactor.api :: ManagementServer.public func stop(): Unit
+cactor.api :: ManagementServer.public func withMaxConnections(n: Int64): ManagementServer
+cactor.api :: ManagementServer.public func withRequestTimeout(timeout: Duration): ManagementServer
+cactor.api :: ManagementServer.public init(system: CActorSystem, host: String, port: UInt16)
+cactor.api :: ManagementServer.public init(system: CActorSystem, port: UInt16)
+cactor.api :: Supervision.public static func escalate(): SupervisionConfig
+cactor.api :: Supervision.public static func restart(): SupervisionConfig
+cactor.api :: Supervision.public static func restart(maxRetries: Int32): SupervisionConfig
+cactor.api :: Supervision.public static func stop(): SupervisionConfig
+cactor.api :: public class CActorSystem
+cactor.api :: public class ManagementServer
+cactor.api :: public func broadcast(actorRefs: Array<ActorRef>, message: Message): Unit
+cactor.api :: public func getPathString(actorRef: ActorRef): String
+cactor.api :: public func send<T>(actorRef: ActorRef, message: T): Unit where T <: Message
+cactor.api :: public func sendBatch(actorRef: ActorRef, messages: Array<Message>): Unit
+cactor.api :: public func sendFrom(actorRef: ActorRef, message: Message, sender: String): Unit
+cactor.api :: public func sendIf(actorRef: ActorRef, message: Message, condition: ()->Bool): Unit
+cactor.api :: public struct ActorConfig
+cactor.api :: public struct ActorProps
+cactor.api :: public struct CActor
+cactor.api :: public struct CActorSystemFactory
+cactor.api :: public struct Dispatcher
+cactor.api :: public struct Mailbox
+cactor.api :: public struct ManagementRoute
+cactor.api :: public struct Supervision
+cactor.api.config :: DispatcherConfig.public func getDispatcherType(): String
+cactor.api.config :: DispatcherConfig.public func getOptions(): HashMap<String, String>
+cactor.api.config :: DispatcherConfig.public func getParallelism(): Int32
+cactor.api.config :: DispatcherConfig.public func getThroughput(): Int32
+cactor.api.config :: DispatcherConfig.public static func callingThread(): DispatcherConfig
+cactor.api.config :: DispatcherConfig.public static func pinned(): DispatcherConfig
+cactor.api.config :: DispatcherConfig.public static func threadPool(size: Int32): DispatcherConfig
+cactor.api.config :: DispatcherConfig.public static func threadPoolDefault(): DispatcherConfig
+cactor.api.config :: DispatcherConfig.public static func workStealing(parallelism: Int32): DispatcherConfig
+cactor.api.config :: DispatcherConfig.public static func workStealingDefault(): DispatcherConfig
+cactor.api.config :: MailboxConfig.public func getCapacity(): Int32
+cactor.api.config :: MailboxConfig.public func getMailboxType(): String
+cactor.api.config :: MailboxConfig.public func getOptions(): HashMap<String, String>
+cactor.api.config :: MailboxConfig.public static func batching(batchSize: Int32): MailboxConfig
+cactor.api.config :: MailboxConfig.public static func bounded(capacity: Int32): MailboxConfig
+cactor.api.config :: MailboxConfig.public static func priority(): MailboxConfig
+cactor.api.config :: MailboxConfig.public static func ringBuffer(capacity: Int32): MailboxConfig
+cactor.api.config :: MailboxConfig.public static func unbounded(): MailboxConfig
+cactor.api.config :: SupervisionConfig.public func getBackoffDuration(): Duration
+cactor.api.config :: SupervisionConfig.public func getMaxRetries(): Int32
+cactor.api.config :: SupervisionConfig.public func getOptions(): HashMap<String, String>
+cactor.api.config :: SupervisionConfig.public func getStrategyType(): String
+cactor.api.config :: SupervisionConfig.public static func escalate(): SupervisionConfig
+cactor.api.config :: SupervisionConfig.public static func restart(maxRetries: Int32, backoff: Duration): SupervisionConfig
+cactor.api.config :: SupervisionConfig.public static func restartDefault(): SupervisionConfig
+cactor.api.config :: SupervisionConfig.public static func resume(): SupervisionConfig
+cactor.api.config :: SupervisionConfig.public static func stop(): SupervisionConfig
+cactor.api.config :: public struct DispatcherConfig
+cactor.api.config :: public struct MailboxConfig
+cactor.api.config :: public struct SupervisionConfig
+cactor.api.extensions :: ActorRefExtensions.public static func broadcast(actorRefs: Array<ActorRef>, message: Message): Unit
+cactor.api.extensions :: ActorRefExtensions.public static func getPathString(actorRef: ActorRef): String
+cactor.api.extensions :: ActorRefExtensions.public static func tellBatch(actorRef: ActorRef, messages: Array<Message>): Unit
+cactor.api.extensions :: ActorRefExtensions.public static func tellFrom(actorRef: ActorRef, message: Message, from: ActorRef): Unit
+cactor.api.extensions :: ActorRefExtensions.public static func tellIf(actorRef: ActorRef, message: Message, condition: ()->Bool): Unit
+cactor.api.extensions :: ActorSystemExtensions.public static func actorOf<T>(system: ActorSystem, creator: ()->T): ActorRef where T <: Actor
+cactor.api.extensions :: ActorSystemExtensions.public static func actorOf<T>(system: ActorSystem, creator: ()->T, name: String): ActorRef where T <: Actor
+cactor.api.extensions :: ActorSystemExtensions.public static func actorOfConfigured<T>(system: ActorSystem, creator: ()->T, name: String, mailboxConfig: MailboxConfig, dispatcherConfig: DispatcherConfig, supervisionConfig: SupervisionConfig): ActorRef where T <: Actor
+cactor.api.extensions :: ActorSystemExtensions.public static func actorOfWithDispatcher<T>(system: ActorSystem, creator: ()->T, name: String, dispatcherConfig: DispatcherConfig): ActorRef where T <: Actor
+cactor.api.extensions :: ActorSystemExtensions.public static func actorOfWithMailbox<T>(system: ActorSystem, creator: ()->T, name: String, mailboxConfig: MailboxConfig): ActorRef where T <: Actor
+cactor.api.extensions :: ActorSystemExtensions.public static func actorOfWithSupervision<T>(system: ActorSystem, creator: ()->T, name: String, supervisionConfig: SupervisionConfig): ActorRef where T <: Actor
+cactor.api.extensions :: ActorSystemExtensions.public static func create(name: String): ActorSystem
+cactor.api.extensions :: ActorSystemExtensions.public static func createActors<T>(system: ActorSystem, creator: ()->T, namePrefix: String, count: Int32): Array<ActorRef>where T <: Actor
+cactor.api.extensions :: ActorSystemExtensions.public static func createDefault(): ActorSystem
+cactor.api.extensions :: PropsExtensions.public static func createConfigured<T>(creator: ()->T, mailboxConfig: MailboxConfig, dispatcherConfig: DispatcherConfig, supervisionConfig: SupervisionConfig): Props<T>where T <: Actor
+cactor.api.extensions :: PropsExtensions.public static func createWithDispatcher<T>(creator: ()->T, dispatcherConfig: DispatcherConfig): Props<T>where T <: Actor
+cactor.api.extensions :: PropsExtensions.public static func createWithMailbox<T>(creator: ()->T, mailboxConfig: MailboxConfig): Props<T>where T <: Actor
+cactor.api.extensions :: PropsExtensions.public static func createWithSupervision<T>(creator: ()->T, supervisionConfig: SupervisionConfig): Props<T>where T <: Actor
+cactor.api.extensions :: public func createActorSystem(name: String): ActorSystem
+cactor.api.extensions :: public func createDefaultActorSystem(): ActorSystem
+cactor.api.extensions :: public struct ActorRefExtensions
+cactor.api.extensions :: public struct ActorSystemExtensions
+cactor.api.extensions :: public struct PropsExtensions
+cactor.api.public :: CActorFactory.public static func createProps<T>(creator: ()->T): Props<T>where T <: Actor
+cactor.api.public :: CActorFactory.public static func createSystem(): ActorSystem
+cactor.api.public :: CActorFactory.public static func createSystem(name: String): ActorSystem
+cactor.api.public :: CActorSystemBuilder.public func build(): ActorSystem
+cactor.api.public :: CActorSystemBuilder.public func withDispatcher(dispatcher: String): CActorSystemBuilder
+cactor.api.public :: CActorSystemBuilder.public func withMailbox(mailbox: String): CActorSystemBuilder
+cactor.api.public :: CActorSystemBuilder.public func withName(name: String): CActorSystemBuilder
+cactor.api.public :: CActorSystemBuilder.public init()
+cactor.api.public :: public class CActorSystemBuilder
+cactor.api.public :: public struct CActorFactory
+cactor.config.file :: ActorSystemConfig.public func addActorConfiguration(name: String, config: ActorConfiguration): Unit
+cactor.config.file :: ActorSystemConfig.public func addDispatcherConfig(name: String, config: DispatcherConfig): Unit
+cactor.config.file :: ActorSystemConfig.public func addMailboxConfig(name: String, config: MailboxConfig): Unit
+cactor.config.file :: ActorSystemConfig.public func addRoutingConfig(name: String, config: RoutingConfig): Unit
+cactor.config.file :: ActorSystemConfig.public func addSupervisionConfig(name: String, config: SupervisionConfig): Unit
+cactor.config.file :: ActorSystemConfig.public func getActorConfiguration(name: String): Option<ActorConfiguration>
+cactor.config.file :: ActorSystemConfig.public func getDispatcherConfig(name: String): Option<DispatcherConfig>
+cactor.config.file :: ActorSystemConfig.public func getMailboxConfig(name: String): Option<MailboxConfig>
+cactor.config.file :: ActorSystemConfig.public init(systemName: String)
+cactor.config.file :: ActorSystemConfig.public init(systemName: String, version: String, description: String)
+cactor.config.file :: ActorSystemConfig.public let actorConfigurations: HashMap<String, ActorConfiguration>
+cactor.config.file :: ActorSystemConfig.public let defaultConfiguration: ActorConfiguration
+cactor.config.file :: ActorSystemConfig.public let description: String
+cactor.config.file :: ActorSystemConfig.public let dispatcherConfigs: HashMap<String, DispatcherConfig>
+cactor.config.file :: ActorSystemConfig.public let mailboxConfigs: HashMap<String, MailboxConfig>
+cactor.config.file :: ActorSystemConfig.public let routingConfigs: HashMap<String, RoutingConfig>
+cactor.config.file :: ActorSystemConfig.public let supervisionConfigs: HashMap<String, SupervisionConfig>
+cactor.config.file :: ActorSystemConfig.public let systemName: String
+cactor.config.file :: ActorSystemConfig.public let version: String
+cactor.config.file :: ActorSystemConfig.public static func createStaticDefaultConfiguration(): ActorConfiguration
+cactor.config.file :: ConfigFormat.| JSON
+cactor.config.file :: ConfigFormat.| TOML
+cactor.config.file :: ConfigFormat.| YAML
+cactor.config.file :: ConfigLoader.func getSupportedFormats(): Array<ConfigFormat>
+cactor.config.file :: ConfigLoader.func loadFromFile(filePath: String): ActorSystemConfig
+cactor.config.file :: ConfigLoader.func loadFromString(configContent: String): ActorSystemConfig
+cactor.config.file :: ConfigLoader.func validateConfig(config: ActorSystemConfig): ConfigValidationResult
+cactor.config.file :: ConfigLoaderFactory.public static func createLoader(filePath: String): ConfigLoader
+cactor.config.file :: ConfigLoaderFactory.public static func createLoaderByFormat(format: ConfigFormat): ConfigLoader
+cactor.config.file :: ConfigValidationResult.public init(isValid: Bool, errors: Array<String>, warnings: Array<String>)
+cactor.config.file :: ConfigValidationResult.public let errors: Array<String>
+cactor.config.file :: ConfigValidationResult.public let isValid: Bool
+cactor.config.file :: ConfigValidationResult.public let warnings: Array<String>
+cactor.config.file :: ConfigValidationResult.public static func failure(errors: Array<String>): ConfigValidationResult
+cactor.config.file :: ConfigValidationResult.public static func success(): ConfigValidationResult
+cactor.config.file :: ConfigValidationResult.public static func withWarnings(warnings: Array<String>): ConfigValidationResult
+cactor.config.file :: ConfigurationManager.public func clearCache(): Unit
+cactor.config.file :: ConfigurationManager.public func getLoadedConfig(filePath: String): Option<ActorSystemConfig>
+cactor.config.file :: ConfigurationManager.public func getLoadedConfigPaths(): Array<String>
+cactor.config.file :: ConfigurationManager.public func loadConfig(filePath: String): ActorSystemConfig
+cactor.config.file :: ConfigurationManager.public func loadConfigFromString(content: String, format: ConfigFormat): ActorSystemConfig
+cactor.config.file :: ConfigurationManager.public func reloadConfig(filePath: String): ActorSystemConfig
+cactor.config.file :: ConfigurationManager.public init()
+cactor.config.file :: JSONConfigLoader.public func getSupportedFormats(): Array<ConfigFormat>
+cactor.config.file :: JSONConfigLoader.public func loadFromFile(filePath: String): ActorSystemConfig
+cactor.config.file :: JSONConfigLoader.public func loadFromString(configContent: String): ActorSystemConfig
+cactor.config.file :: JSONConfigLoader.public func validateConfig(config: ActorSystemConfig): ConfigValidationResult
+cactor.config.file :: TOMLConfigLoader.public func getSupportedFormats(): Array<ConfigFormat>
+cactor.config.file :: TOMLConfigLoader.public func loadFromFile(filePath: String): ActorSystemConfig
+cactor.config.file :: TOMLConfigLoader.public func loadFromString(configContent: String): ActorSystemConfig
+cactor.config.file :: TOMLConfigLoader.public func validateConfig(config: ActorSystemConfig): ConfigValidationResult
+cactor.config.file :: YAMLConfigLoader.public func getSupportedFormats(): Array<ConfigFormat>
+cactor.config.file :: YAMLConfigLoader.public func loadFromFile(filePath: String): ActorSystemConfig
+cactor.config.file :: YAMLConfigLoader.public func loadFromString(configContent: String): ActorSystemConfig
+cactor.config.file :: YAMLConfigLoader.public func validateConfig(config: ActorSystemConfig): ConfigValidationResult
+cactor.config.file :: public class ActorSystemConfig
+cactor.config.file :: public class ConfigLoaderFactory
+cactor.config.file :: public class ConfigValidationResult
+cactor.config.file :: public class ConfigurationManager
+cactor.config.file :: public class JSONConfigLoader <: ConfigLoader
+cactor.config.file :: public class TOMLConfigLoader <: ConfigLoader
+cactor.config.file :: public class YAMLConfigLoader <: ConfigLoader
+cactor.config.file :: public enum ConfigFormat
+cactor.config.file :: public interface ConfigLoader

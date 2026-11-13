@@ -1,0 +1,360 @@
+# CActor 公开 API 快照：modules/patterns（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_patterns.ask :: Ask.public static func ask(target: ActorRef, message: Message): AskFuture<Message>
+cactor_patterns.ask :: Ask.public static func ask(target: ActorRef, message: Message, timeout: Duration): AskFuture<Message>
+cactor_patterns.ask :: Ask.public static func askAndWait(target: ActorRef, message: Message, timeout: Duration): Result<Message>
+cactor_patterns.ask :: Ask.public static func askAsync(target: ActorRef, message: Message, timeout: Duration, onSuccess: (Message)->Unit, onFailure: (Exception)->Unit): Unit
+cactor_patterns.ask :: Ask.public static func askTyped(target: ActorRef, message: Message, timeout: Duration): AskFuture<Message>
+cactor_patterns.ask :: Ask.public static func getStats(): AskStats
+cactor_patterns.ask :: Ask.public static func shutdown(): Unit
+cactor_patterns.ask :: AskFuture.public func await(waitTimeout: Duration): Result<T>
+cactor_patterns.ask :: AskFuture.public func complete(value: T): Unit
+cactor_patterns.ask :: AskFuture.public func completeWithError(error: Exception): Unit
+cactor_patterns.ask :: AskFuture.public func get(): Result<T>
+cactor_patterns.ask :: AskFuture.public func getRequestId(): String
+cactor_patterns.ask :: AskFuture.public func getTimeout(): Duration
+cactor_patterns.ask :: AskFuture.public func isCompleted(): Bool
+cactor_patterns.ask :: AskFuture.public func isTimedOut(): Bool
+cactor_patterns.ask :: AskFuture.public func onComplete(callback: (Result<T>)->Unit): Unit
+cactor_patterns.ask :: AskFuture.public init(requestId: String, timeout: Duration)
+cactor_patterns.ask :: AskMessage.public func getOriginalMessage(): Message
+cactor_patterns.ask :: AskMessage.public func getReplyTo(): ActorRef
+cactor_patterns.ask :: AskMessage.public func getRequestId(): String
+cactor_patterns.ask :: AskMessage.public func messageType(): String
+cactor_patterns.ask :: AskMessage.public init(requestId: String, originalMessage: Message, replyTo: ActorRef)
+cactor_patterns.ask :: AskPatternManager.public func ask(target: ActorRef, message: Message): AskFuture<Message>
+cactor_patterns.ask :: AskPatternManager.public func ask(target: ActorRef, message: Message, timeout: Duration): AskFuture<Message>
+cactor_patterns.ask :: AskPatternManager.public func getDefaultTimeout(): Duration
+cactor_patterns.ask :: AskPatternManager.public func getPendingRequestCount(): Int64
+cactor_patterns.ask :: AskPatternManager.public func handleResponse(response: AskResponse): Unit
+cactor_patterns.ask :: AskPatternManager.public func start(): Unit
+cactor_patterns.ask :: AskPatternManager.public func stop(): Unit
+cactor_patterns.ask :: AskPatternManager.public init(defaultTimeout: Duration)
+cactor_patterns.ask :: AskReplyActor.public func equals(other: ActorRef): Bool
+cactor_patterns.ask :: AskReplyActor.public func hashCode(): Int32
+cactor_patterns.ask :: AskReplyActor.public func tell(message: Message): Unit
+cactor_patterns.ask :: AskReplyActor.public func tell(message: Message, sender: Option<String>): Unit
+cactor_patterns.ask :: AskReplyActor.public func toString(): String
+cactor_patterns.ask :: AskReplyActor.public init(requestId: String, manager: AskPatternManager)
+cactor_patterns.ask :: AskReplyActor.public prop path: ActorPath
+cactor_patterns.ask :: AskResponse.public func getRequestId(): String
+cactor_patterns.ask :: AskResponse.public func getResponse(): Message
+cactor_patterns.ask :: AskResponse.public func isSuccess(): Bool
+cactor_patterns.ask :: AskResponse.public func messageType(): String
+cactor_patterns.ask :: AskResponse.public init(requestId: String, response: Message, success: Bool)
+cactor_patterns.ask :: AskStats.public func toString(): String
+cactor_patterns.ask :: AskStats.public init(pendingRequests: Int64, defaultTimeout: Duration)
+cactor_patterns.ask :: AskStats.public let defaultTimeout: Duration
+cactor_patterns.ask :: AskStats.public let pendingRequests: Int64
+cactor_patterns.ask :: AskTimeoutException.public func getRequestId(): String
+cactor_patterns.ask :: AskTimeoutException.public func getTimeout(): Duration
+cactor_patterns.ask :: AskTimeoutException.public init(requestId: String, timeout: Duration)
+cactor_patterns.ask :: DummyActorRef.public func equals(other: ActorRef): Bool
+cactor_patterns.ask :: DummyActorRef.public func hashCode(): Int32
+cactor_patterns.ask :: DummyActorRef.public func tell(message: Message): Unit
+cactor_patterns.ask :: DummyActorRef.public func tell(message: Message, sender: Option<String>): Unit
+cactor_patterns.ask :: DummyActorRef.public func toString(): String
+cactor_patterns.ask :: DummyActorRef.public init(id: String)
+cactor_patterns.ask :: DummyActorRef.public prop path: ActorPath
+cactor_patterns.ask :: Result.public func get(): T
+cactor_patterns.ask :: Result.public func getOrElse(defaultValue: T): T
+cactor_patterns.ask :: Result.public func isFailure(): Bool
+cactor_patterns.ask :: Result.public func isSuccess(): Bool
+cactor_patterns.ask :: Result.| Failure(Exception)
+cactor_patterns.ask :: Result.| Success(T)
+cactor_patterns.ask :: TypeCastException.public init(message: String)
+cactor_patterns.ask :: TypedAskFuture.public func complete(value: T): Unit
+cactor_patterns.ask :: TypedAskFuture.public func completeWithError(error: Exception): Unit
+cactor_patterns.ask :: TypedAskFuture.public func completeWithTimeout(): Unit
+cactor_patterns.ask :: TypedAskFuture.public func get(): TypedResult<T>
+cactor_patterns.ask :: TypedAskFuture.public func getRequestId(): String
+cactor_patterns.ask :: TypedAskFuture.public func isCompleted(): Bool
+cactor_patterns.ask :: TypedAskFuture.public func isTimedOut(): Bool
+cactor_patterns.ask :: TypedAskFuture.public func onComplete(handler: (TypedResult<T>)->Unit): Unit
+cactor_patterns.ask :: TypedAskFuture.public init(requestId: String, timeout: Duration)
+cactor_patterns.ask :: TypedResult.| Failure(Exception)
+cactor_patterns.ask :: TypedResult.| Success(T)
+cactor_patterns.ask :: TypedResult.| Timeout(String)
+cactor_patterns.ask :: public class AskFuture<T>
+cactor_patterns.ask :: public class AskMessage <: Message
+cactor_patterns.ask :: public class AskPatternManager
+cactor_patterns.ask :: public class AskReplyActor <: ActorRef
+cactor_patterns.ask :: public class AskResponse <: Message
+cactor_patterns.ask :: public class AskTimeoutException <: Exception
+cactor_patterns.ask :: public class DummyActorRef <: ActorRef
+cactor_patterns.ask :: public class TypeCastException <: Exception
+cactor_patterns.ask :: public class TypedAskFuture<T>
+cactor_patterns.ask :: public enum Result<T>
+cactor_patterns.ask :: public enum TypedResult<T>
+cactor_patterns.ask :: public struct Ask
+cactor_patterns.ask :: public struct AskStats
+cactor_patterns.backpressure :: BackpressureConfig.public init(strategy: BackpressureStrategy, maxBufferSize: Int64, maxThroughput: Int64, windowSize: Duration, dropThreshold: Float64, blockTimeout: Duration)
+cactor_patterns.backpressure :: BackpressureConfig.public let blockTimeout: Duration
+cactor_patterns.backpressure :: BackpressureConfig.public let dropThreshold: Float64
+cactor_patterns.backpressure :: BackpressureConfig.public let maxBufferSize: Int64
+cactor_patterns.backpressure :: BackpressureConfig.public let maxThroughput: Int64
+cactor_patterns.backpressure :: BackpressureConfig.public let strategy: BackpressureStrategy
+cactor_patterns.backpressure :: BackpressureConfig.public let windowSize: Duration
+cactor_patterns.backpressure :: BackpressureControllerFactory.public static func createBlockController(maxBufferSize: Int64, maxThroughput: Int64): BasicBackpressureController
+cactor_patterns.backpressure :: BackpressureControllerFactory.public static func createDropController(maxBufferSize: Int64, maxThroughput: Int64): BasicBackpressureController
+cactor_patterns.backpressure :: BackpressureControllerFactory.public static func createThrottleController(maxBufferSize: Int64, maxThroughput: Int64): BasicBackpressureController
+cactor_patterns.backpressure :: BackpressureException.public func getReason(): String
+cactor_patterns.backpressure :: BackpressureException.public func getStrategy(): BackpressureStrategy
+cactor_patterns.backpressure :: BackpressureException.public init(strategy: BackpressureStrategy, reason: String)
+cactor_patterns.backpressure :: BackpressureStats.public func getDropRate(): Float64
+cactor_patterns.backpressure :: BackpressureStats.public func getSuccessRate(): Float64
+cactor_patterns.backpressure :: BackpressureStats.public init(totalMessages: Int64, droppedMessages: Int64, blockedMessages: Int64, bufferedMessages: Int64, rejectedMessages: Int64, throttledMessages: Int64, currentThroughput: Float64, bufferUtilization: Float64)
+cactor_patterns.backpressure :: BackpressureStats.public let blockedMessages: Int64
+cactor_patterns.backpressure :: BackpressureStats.public let bufferUtilization: Float64
+cactor_patterns.backpressure :: BackpressureStats.public let bufferedMessages: Int64
+cactor_patterns.backpressure :: BackpressureStats.public let currentThroughput: Float64
+cactor_patterns.backpressure :: BackpressureStats.public let droppedMessages: Int64
+cactor_patterns.backpressure :: BackpressureStats.public let rejectedMessages: Int64
+cactor_patterns.backpressure :: BackpressureStats.public let throttledMessages: Int64
+cactor_patterns.backpressure :: BackpressureStats.public let totalMessages: Int64
+cactor_patterns.backpressure :: BackpressureStrategy.public func toString(): String
+cactor_patterns.backpressure :: BackpressureStrategy.| Block
+cactor_patterns.backpressure :: BackpressureStrategy.| Buffer
+cactor_patterns.backpressure :: BackpressureStrategy.| Drop
+cactor_patterns.backpressure :: BackpressureStrategy.| Reject
+cactor_patterns.backpressure :: BackpressureStrategy.| Throttle
+cactor_patterns.backpressure :: BasicBackpressureController.public func getBufferedMessages(): CActorQueue<Message>
+cactor_patterns.backpressure :: BasicBackpressureController.public func getStats(): BackpressureStats
+cactor_patterns.backpressure :: BasicBackpressureController.public func isOverloaded(): Bool
+cactor_patterns.backpressure :: BasicBackpressureController.public func reset(): Unit
+cactor_patterns.backpressure :: BasicBackpressureController.public func stop(): Unit
+cactor_patterns.backpressure :: BasicBackpressureController.public func trySend(message: Message): Bool
+cactor_patterns.backpressure :: BasicBackpressureController.public init(config: BackpressureConfig)
+cactor_patterns.backpressure :: FlowController.func getStats(): BackpressureStats
+cactor_patterns.backpressure :: FlowController.func isOverloaded(): Bool
+cactor_patterns.backpressure :: FlowController.func reset(): Unit
+cactor_patterns.backpressure :: FlowController.func trySend(message: Message): Bool
+cactor_patterns.backpressure :: public class BackpressureException <: Exception
+cactor_patterns.backpressure :: public class BasicBackpressureController <: FlowController
+cactor_patterns.backpressure :: public enum BackpressureStrategy <: ToString
+cactor_patterns.backpressure :: public interface FlowController
+cactor_patterns.backpressure :: public struct BackpressureConfig
+cactor_patterns.backpressure :: public struct BackpressureControllerFactory
+cactor_patterns.backpressure :: public struct BackpressureStats
+cactor_patterns.routing :: AddRoutee.public func messageType(): String
+cactor_patterns.routing :: AddRoutee.public init(routee: ActorRef)
+cactor_patterns.routing :: AddRoutee.public let routee: ActorRef
+cactor_patterns.routing :: AdjustPoolSize.public func messageType(): String
+cactor_patterns.routing :: AdjustPoolSize.public init(change: Int64)
+cactor_patterns.routing :: AdjustPoolSize.public let change: Int64
+cactor_patterns.routing :: BasicRouter.public func addRoutee(routee: ActorRef): Unit
+cactor_patterns.routing :: BasicRouter.public func getRoutees(): Array<ActorRef>
+cactor_patterns.routing :: BasicRouter.public func getStrategy(): RoutingStrategy
+cactor_patterns.routing :: BasicRouter.public func removeRoutee(routee: ActorRef): Unit
+cactor_patterns.routing :: BasicRouter.public func route(message: Message): Unit
+cactor_patterns.routing :: BasicRouter.public func route(message: Message, sender: Option<ActorRef>): Unit
+cactor_patterns.routing :: BasicRouter.public init(strategy: RoutingStrategy)
+cactor_patterns.routing :: Broadcast.public func messageType(): String
+cactor_patterns.routing :: Broadcast.public init(message: Message)
+cactor_patterns.routing :: Broadcast.public let message: Message
+cactor_patterns.routing :: BroadcastRoutingStrategy.public func broadcast(routees: Array<ActorRef>, message: Message): Unit
+cactor_patterns.routing :: BroadcastRoutingStrategy.public func broadcast(routees: Array<ActorRef>, message: Message, sender: Option<ActorRef>): Unit
+cactor_patterns.routing :: BroadcastRoutingStrategy.public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing :: BroadcastRoutingStrategy.public init()
+cactor_patterns.routing :: ConsistentHashRoutingStrategy.public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing :: ConsistentHashRoutingStrategy.public init()
+cactor_patterns.routing :: ConsistentHashRoutingStrategy.public init(keyOf: (Message)->String)
+cactor_patterns.routing :: GetRoutees.public func messageType(): String
+cactor_patterns.routing :: GetRoutees.public init()
+cactor_patterns.routing :: RandomRoutingStrategy.public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing :: RandomRoutingStrategy.public init()
+cactor_patterns.routing :: RemoveRoutee.public func messageType(): String
+cactor_patterns.routing :: RemoveRoutee.public init(routee: ActorRef)
+cactor_patterns.routing :: RemoveRoutee.public let routee: ActorRef
+cactor_patterns.routing :: ResizePolicy.| Dynamic
+cactor_patterns.routing :: ResizePolicy.| Fixed
+cactor_patterns.routing :: RoundRobinRoutingStrategy.public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing :: RoundRobinRoutingStrategy.public init()
+cactor_patterns.routing :: Routees.public func messageType(): String
+cactor_patterns.routing :: Routees.public init(routees: Array<ActorRef>)
+cactor_patterns.routing :: Routees.public let routees: Array<ActorRef>
+cactor_patterns.routing :: Router.func addRoutee(routee: ActorRef): Unit
+cactor_patterns.routing :: Router.func getRoutees(): Array<ActorRef>
+cactor_patterns.routing :: Router.func getStrategy(): RoutingStrategy
+cactor_patterns.routing :: Router.func removeRoutee(routee: ActorRef): Unit
+cactor_patterns.routing :: Router.func route(message: Message): Unit
+cactor_patterns.routing :: Router.func route(message: Message, sender: Option<ActorRef>): Unit
+cactor_patterns.routing :: RouterActor.public func onStarted(context: ActorContext): Unit
+cactor_patterns.routing :: RouterActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_patterns.routing :: RouterActor.public init(strategy: RoutingStrategy, group: Array<ActorRef>)
+cactor_patterns.routing :: RouterActor.public init(strategy: RoutingStrategy, poolSize: Int64, routeeProps: Props<Actor>)
+cactor_patterns.routing :: RouterActor.public prop description: String
+cactor_patterns.routing :: RouterActor.public prop name: String
+cactor_patterns.routing :: RouterActorRef.public func equals(other: ActorRef): Bool
+cactor_patterns.routing :: RouterActorRef.public func getRouter(): Router
+cactor_patterns.routing :: RouterActorRef.public func hashCode(): Int32
+cactor_patterns.routing :: RouterActorRef.public func tell(message: Message): Unit
+cactor_patterns.routing :: RouterActorRef.public func tell(message: Message, sender: ActorRef): Unit
+cactor_patterns.routing :: RouterActorRef.public func tell(message: Message, sender: Option<String>): Unit
+cactor_patterns.routing :: RouterActorRef.public init(router: Router, path: String)
+cactor_patterns.routing :: RouterActorRef.public prop path: ActorPath
+cactor_patterns.routing :: RouterFactory.public static func broadcast(): BasicRouter
+cactor_patterns.routing :: RouterFactory.public static func consistentHash(): BasicRouter
+cactor_patterns.routing :: RouterFactory.public static func random(): BasicRouter
+cactor_patterns.routing :: RouterFactory.public static func roundRobin(): BasicRouter
+cactor_patterns.routing :: RouterFactory.public static func smallestMailbox(): BasicRouter
+cactor_patterns.routing :: Routers.public static func group(routees: Array<ActorRef>): Props<Actor>
+cactor_patterns.routing :: Routers.public static func group(routees: Array<ActorRef>, strategy: RoutingStrategy): Props<Actor>
+cactor_patterns.routing :: Routers.public static func pool(poolSize: Int64, creator: ()->Actor, strategy: RoutingStrategy): Props<Actor>
+cactor_patterns.routing :: Routers.public static func pool(poolSize: Int64, routeeProps: Props<Actor>): Props<Actor>
+cactor_patterns.routing :: Routers.public static func pool(poolSize: Int64, routeeProps: Props<Actor>, strategy: RoutingStrategy): Props<Actor>
+cactor_patterns.routing :: RoutingConfig.public init(strategy: RoutingStrategy, routeeCount: Int32, resizePolicy: ResizePolicy)
+cactor_patterns.routing :: RoutingConfig.public let resizePolicy: ResizePolicy
+cactor_patterns.routing :: RoutingConfig.public let routeeCount: Int32
+cactor_patterns.routing :: RoutingConfig.public let strategy: RoutingStrategy
+cactor_patterns.routing :: RoutingStatistics.public init(totalMessages: Int64, routeeCount: Int32, averageLatency: Float64)
+cactor_patterns.routing :: RoutingStatistics.public let averageLatency: Float64
+cactor_patterns.routing :: RoutingStatistics.public let routeeCount: Int32
+cactor_patterns.routing :: RoutingStatistics.public let totalMessages: Int64
+cactor_patterns.routing :: RoutingStrategy.func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing :: SmallestMailboxRoutingStrategy.public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing :: SmallestMailboxRoutingStrategy.public init()
+cactor_patterns.routing :: public class AddRoutee <: Message
+cactor_patterns.routing :: public class AdjustPoolSize <: Message
+cactor_patterns.routing :: public class BasicRouter <: Router
+cactor_patterns.routing :: public class Broadcast <: Message
+cactor_patterns.routing :: public class BroadcastRoutingStrategy <: RoutingStrategy
+cactor_patterns.routing :: public class ConsistentHashRoutingStrategy <: RoutingStrategy
+cactor_patterns.routing :: public class GetRoutees <: Message
+cactor_patterns.routing :: public class RandomRoutingStrategy <: RoutingStrategy
+cactor_patterns.routing :: public class RemoveRoutee <: Message
+cactor_patterns.routing :: public class RoundRobinRoutingStrategy <: RoutingStrategy
+cactor_patterns.routing :: public class Routees <: Message
+cactor_patterns.routing :: public class RouterActor <: Actor
+cactor_patterns.routing :: public class RouterActorRef <: ActorRef
+cactor_patterns.routing :: public class SmallestMailboxRoutingStrategy <: RoutingStrategy
+cactor_patterns.routing :: public enum ResizePolicy
+cactor_patterns.routing :: public func forwardTo(routee: ActorRef, message: Message, sender: Option<ActorRef>): Unit
+cactor_patterns.routing :: public interface Router
+cactor_patterns.routing :: public interface RoutingStrategy
+cactor_patterns.routing :: public struct RouterFactory
+cactor_patterns.routing :: public struct Routers
+cactor_patterns.routing :: public struct RoutingConfig
+cactor_patterns.routing :: public struct RoutingStatistics
+cactor_patterns.routing.advanced :: ActorHealthStatus.public func getFailureCount(): Int32
+cactor_patterns.routing.advanced :: ActorHealthStatus.public func getLastFailureTime(): Int64
+cactor_patterns.routing.advanced :: ActorHealthStatus.public func isHealthy(): Bool
+cactor_patterns.routing.advanced :: ActorHealthStatus.public func markHealthy(): Unit
+cactor_patterns.routing.advanced :: ActorHealthStatus.public func markUnhealthy(reason: String): Unit
+cactor_patterns.routing.advanced :: ActorHealthStatus.public init()
+cactor_patterns.routing.advanced :: AdvancedRouter.public func addRoutee(routee: ActorRef): Unit
+cactor_patterns.routing.advanced :: AdvancedRouter.public func getHealthChecker(): RouterHealthChecker
+cactor_patterns.routing.advanced :: AdvancedRouter.public func getRoutees(): Array<ActorRef>
+cactor_patterns.routing.advanced :: AdvancedRouter.public func getRoutingMetrics(): RoutingMetrics
+cactor_patterns.routing.advanced :: AdvancedRouter.public func getStrategy(): RoutingStrategy
+cactor_patterns.routing.advanced :: AdvancedRouter.public func removeRoutee(routee: ActorRef): Unit
+cactor_patterns.routing.advanced :: AdvancedRouter.public func route(message: Message): Unit
+cactor_patterns.routing.advanced :: AdvancedRouter.public func route(message: Message, sender: Option<ActorRef>): Unit
+cactor_patterns.routing.advanced :: AdvancedRouter.public init(strategy: RoutingStrategy)
+cactor_patterns.routing.advanced :: AdvancedRoutingStrategyFactory.public static func createContentBased(selector: (Message)->String): ContentBasedRoutingStrategy
+cactor_patterns.routing.advanced :: AdvancedRoutingStrategyFactory.public static func createFailover(primaryIndex: Int32): FailoverRoutingStrategy
+cactor_patterns.routing.advanced :: AdvancedRoutingStrategyFactory.public static func createWeightedRoundRobin(weights: Array<Int32>): WeightedRoundRobinRoutingStrategy
+cactor_patterns.routing.advanced :: ContentBasedRoutingStrategy.public func addRoutingRule(content: String, actorIndex: Int32): Unit
+cactor_patterns.routing.advanced :: ContentBasedRoutingStrategy.public func removeRoutingRule(content: String): Unit
+cactor_patterns.routing.advanced :: ContentBasedRoutingStrategy.public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing.advanced :: ContentBasedRoutingStrategy.public init(contentSelector: (Message)->String)
+cactor_patterns.routing.advanced :: FailoverRoutingStrategy.public func markActorAsFailed(actor: ActorRef): Unit
+cactor_patterns.routing.advanced :: FailoverRoutingStrategy.public func recoverActor(actor: ActorRef): Unit
+cactor_patterns.routing.advanced :: FailoverRoutingStrategy.public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing.advanced :: FailoverRoutingStrategy.public init(primaryIndex: Int32)
+cactor_patterns.routing.advanced :: RouterHealthChecker.public func addActor(actor: ActorRef): Unit
+cactor_patterns.routing.advanced :: RouterHealthChecker.public func filterHealthyActors(actors: Array<ActorRef>): Array<ActorRef>
+cactor_patterns.routing.advanced :: RouterHealthChecker.public func markActorHealthy(actor: ActorRef): Unit
+cactor_patterns.routing.advanced :: RouterHealthChecker.public func markActorUnhealthy(actor: ActorRef, reason: String): Unit
+cactor_patterns.routing.advanced :: RouterHealthChecker.public func removeActor(actor: ActorRef): Unit
+cactor_patterns.routing.advanced :: RouterHealthChecker.public init()
+cactor_patterns.routing.advanced :: RoutingMetrics.public func getFailedRoutes(): Int64
+cactor_patterns.routing.advanced :: RoutingMetrics.public func getMetricsSummary(): String
+cactor_patterns.routing.advanced :: RoutingMetrics.public func getRouteRate(): Float64
+cactor_patterns.routing.advanced :: RoutingMetrics.public func getSuccessRate(): Float64
+cactor_patterns.routing.advanced :: RoutingMetrics.public func getSuccessfulRoutes(): Int64
+cactor_patterns.routing.advanced :: RoutingMetrics.public func getTotalRoutes(): Int64
+cactor_patterns.routing.advanced :: RoutingMetrics.public func recordFailedRoute(reason: String): Unit
+cactor_patterns.routing.advanced :: RoutingMetrics.public func recordRouteeAdded(): Unit
+cactor_patterns.routing.advanced :: RoutingMetrics.public func recordRouteeRemoved(): Unit
+cactor_patterns.routing.advanced :: RoutingMetrics.public func recordSuccessfulRoute(routeeCount: Int32): Unit
+cactor_patterns.routing.advanced :: RoutingMetrics.public init()
+cactor_patterns.routing.advanced :: WeightedRoundRobinRoutingStrategy.public func selectRoutee(routees: Array<ActorRef>, message: Message): Option<ActorRef>
+cactor_patterns.routing.advanced :: WeightedRoundRobinRoutingStrategy.public init(weights: Array<Int32>)
+cactor_patterns.routing.advanced :: public class ActorHealthStatus
+cactor_patterns.routing.advanced :: public class AdvancedRouter <: Router
+cactor_patterns.routing.advanced :: public class AdvancedRoutingStrategyFactory
+cactor_patterns.routing.advanced :: public class ContentBasedRoutingStrategy <: RoutingStrategy
+cactor_patterns.routing.advanced :: public class FailoverRoutingStrategy <: RoutingStrategy
+cactor_patterns.routing.advanced :: public class RouterHealthChecker
+cactor_patterns.routing.advanced :: public class RoutingMetrics
+cactor_patterns.routing.advanced :: public class WeightedRoundRobinRoutingStrategy <: RoutingStrategy
+cactor_patterns.routing.factory :: AdvancedRouterFactory.func createOptimizedRouter(config: RouterConfig, scenario: RoutingScenario): Router
+cactor_patterns.routing.factory :: AdvancedRouterFactory.func createRouter(config: RouterConfig): Router
+cactor_patterns.routing.factory :: AdvancedRouterFactory.func getCreationStats(): String
+cactor_patterns.routing.factory :: AdvancedRouterFactory.func getSupportedTypes(): Array<RouterType>
+cactor_patterns.routing.factory :: AdvancedRouterFactory.func validateConfig(config: RouterConfig): Bool
+cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func createOptimizedRouter(config: RouterConfig, scenario: RoutingScenario): Router
+cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func createRouter(config: RouterConfig): Router
+cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func getCreationStats(): String
+cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func getSupportedTypes(): Array<RouterType>
+cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func validateConfig(config: RouterConfig): Bool
+cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public init()
+cactor_patterns.routing.factory :: RouterConfig.public init(routerType: RouterType, name: String)
+cactor_patterns.routing.factory :: RouterConfig.public init(routerType: RouterType, name: String, description: String, weights: Array<Int32>, primaryIndex: Int32, contentSelector: Option<(Message)->String>, customStrategy: Option<RoutingStrategy>)
+cactor_patterns.routing.factory :: RouterConfig.public let contentSelector: Option<(Message)->String>
+cactor_patterns.routing.factory :: RouterConfig.public let customStrategy: Option<RoutingStrategy>
+cactor_patterns.routing.factory :: RouterConfig.public let description: String
+cactor_patterns.routing.factory :: RouterConfig.public let name: String
+cactor_patterns.routing.factory :: RouterConfig.public let primaryIndex: Int32
+cactor_patterns.routing.factory :: RouterConfig.public let routerType: RouterType
+cactor_patterns.routing.factory :: RouterConfig.public let weights: Array<Int32>
+cactor_patterns.routing.factory :: RouterFactoryRegistry.public func getDefaultFactory(): AdvancedRouterFactory
+cactor_patterns.routing.factory :: RouterFactoryRegistry.public func getFactory(name: String): AdvancedRouterFactory
+cactor_patterns.routing.factory :: RouterFactoryRegistry.public func getFactoryNames(): Array<String>
+cactor_patterns.routing.factory :: RouterFactoryRegistry.public func registerFactory(name: String, factory: AdvancedRouterFactory): Unit
+cactor_patterns.routing.factory :: RouterFactoryRegistry.public init()
+cactor_patterns.routing.factory :: RouterType.| Broadcast
+cactor_patterns.routing.factory :: RouterType.| ConsistentHash
+cactor_patterns.routing.factory :: RouterType.| ContentBased
+cactor_patterns.routing.factory :: RouterType.| Custom
+cactor_patterns.routing.factory :: RouterType.| Failover
+cactor_patterns.routing.factory :: RouterType.| Random
+cactor_patterns.routing.factory :: RouterType.| RoundRobin
+cactor_patterns.routing.factory :: RouterType.| SmallestMailbox
+cactor_patterns.routing.factory :: RouterType.| WeightedRoundRobin
+cactor_patterns.routing.factory :: RoutingScenario.| Broadcast
+cactor_patterns.routing.factory :: RoutingScenario.| ContentRouting
+cactor_patterns.routing.factory :: RoutingScenario.| FaultTolerance
+cactor_patterns.routing.factory :: RoutingScenario.| HighThroughput
+cactor_patterns.routing.factory :: RoutingScenario.| LoadBalancing
+cactor_patterns.routing.factory :: RoutingScenario.| LowLatency
+cactor_patterns.routing.factory :: StringBuilder.public func append(str: String): Unit
+cactor_patterns.routing.factory :: StringBuilder.public func toString(): String
+cactor_patterns.routing.factory :: StringBuilder.public init()
+cactor_patterns.routing.factory :: public class DefaultAdvancedRouterFactory <: AdvancedRouterFactory
+cactor_patterns.routing.factory :: public class RouterConfig
+cactor_patterns.routing.factory :: public class RouterFactoryRegistry
+cactor_patterns.routing.factory :: public class StringBuilder
+cactor_patterns.routing.factory :: public enum RouterType
+cactor_patterns.routing.factory :: public enum RoutingScenario
+cactor_patterns.routing.factory :: public interface AdvancedRouterFactory
+cactor_patterns.spawnprotocol :: Spawn.public func messageType(): String
+cactor_patterns.spawnprotocol :: Spawn.public init(props: Props<Actor>, name: Option<String>, replyTo: ActorRef)
+cactor_patterns.spawnprotocol :: Spawn.public init(props: Props<Actor>, replyTo: ActorRef)
+cactor_patterns.spawnprotocol :: Spawn.public let name: Option<String>
+cactor_patterns.spawnprotocol :: Spawn.public let props: Props<Actor>
+cactor_patterns.spawnprotocol :: Spawn.public let replyTo: ActorRef
+cactor_patterns.spawnprotocol :: SpawnFailed.public func messageType(): String
+cactor_patterns.spawnprotocol :: SpawnFailed.public init(reason: String)
+cactor_patterns.spawnprotocol :: SpawnFailed.public let reason: String
+cactor_patterns.spawnprotocol :: SpawnProtocol.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_patterns.spawnprotocol :: SpawnProtocol.public prop description: String
+cactor_patterns.spawnprotocol :: SpawnProtocol.public prop name: String
+cactor_patterns.spawnprotocol :: Spawned.public func messageType(): String
+cactor_patterns.spawnprotocol :: Spawned.public init(ref: ActorRef)
+cactor_patterns.spawnprotocol :: Spawned.public let ref: ActorRef
+cactor_patterns.spawnprotocol :: public class Spawn <: Message
+cactor_patterns.spawnprotocol :: public class SpawnFailed <: Message
+cactor_patterns.spawnprotocol :: public class SpawnProtocol <: Actor
+cactor_patterns.spawnprotocol :: public class Spawned <: Message

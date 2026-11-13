@@ -1,0 +1,578 @@
+# CActor 公开 API 快照：modules/persistence（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_persistence :: AbstractPersistentActor.public func deleteSnapshot(sequenceNr: Int64): Unit
+cactor_persistence :: AbstractPersistentActor.public func getLastSequenceNr(): Int64
+cactor_persistence :: AbstractPersistentActor.public func isCurrentlyRecovering(): Bool
+cactor_persistence :: AbstractPersistentActor.public func persist(event: EventPayload, handler: (EventPayload)->Unit): Unit
+cactor_persistence :: AbstractPersistentActor.public func persistAll(events: Array<EventPayload>, handler: (EventPayload)->Unit): Unit
+cactor_persistence :: AbstractPersistentActor.public func persistAndReply(event: EventPayload, replyTo: ActorRef, reply: Message): Unit
+cactor_persistence :: AbstractPersistentActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_persistence :: AbstractPersistentActor.public func saveSnapshot<T>(snapshot: T): Unit where T <: ToString
+cactor_persistence :: AbstractPersistentActor.public func startRecovery(): Unit
+cactor_persistence :: AbstractPersistentActor.public init(eventStore: EnhancedEventStore, snapshotStore: SnapshotStore)
+cactor_persistence :: AbstractPersistentActor.public open func onRecoveryCompleted(): Unit
+cactor_persistence :: AbstractPersistentActor.public open func persistenceId(): String
+cactor_persistence :: AbstractPersistentActor.public open func preStart(): Unit
+cactor_persistence :: AbstractPersistentActor.public open func receiveCommand(message: Message, context: ActorContext): MessageResult
+cactor_persistence :: AbstractPersistentActor.public prop description: String
+cactor_persistence :: AbstractPersistentActor.public prop name: String
+cactor_persistence :: AggregateRoot.func applyEvent(event: EventPayload): AggregateRoot
+cactor_persistence :: AggregateRoot.func getAggregateId(): String
+cactor_persistence :: AggregateRoot.func getUncommittedEvents(): Array<EventPayload>
+cactor_persistence :: AggregateRoot.func getVersion(): Int64
+cactor_persistence :: AggregateRoot.func markEventsAsCommitted(): Unit
+cactor_persistence :: BaseAggregateRoot.public func applyEvent(event: EventPayload): AggregateRoot
+cactor_persistence :: BaseAggregateRoot.public func getAggregateId(): String
+cactor_persistence :: BaseAggregateRoot.public func getUncommittedEvents(): Array<EventPayload>
+cactor_persistence :: BaseAggregateRoot.public func getVersion(): Int64
+cactor_persistence :: BaseAggregateRoot.public func markEventsAsCommitted(): Unit
+cactor_persistence :: BaseAggregateRoot.public func toString(): String
+cactor_persistence :: BaseAggregateRoot.public init(aggregateId: String)
+cactor_persistence :: BaseCommand.public func getAggregateId(): String
+cactor_persistence :: BaseCommand.public func getCommandId(): String
+cactor_persistence :: BaseCommand.public func getCommandType(): String
+cactor_persistence :: BaseCommand.public func getTimestamp(): DateTime
+cactor_persistence :: BaseCommand.public func toString(): String
+cactor_persistence :: BaseCommand.public init(commandId: String, aggregateId: String, commandType: String)
+cactor_persistence :: BaseQuery.public func addParameter(key: String, value: String): BaseQuery
+cactor_persistence :: BaseQuery.public func getParameters(): HashMap<String, String>
+cactor_persistence :: BaseQuery.public func getQueryId(): String
+cactor_persistence :: BaseQuery.public func getQueryType(): String
+cactor_persistence :: BaseQuery.public func toString(): String
+cactor_persistence :: BaseQuery.public init(queryId: String, queryType: String)
+cactor_persistence :: BaseQueryResult.public func getResultType(): String
+cactor_persistence :: BaseQueryResult.public func serialize(): String
+cactor_persistence :: BaseQueryResult.public func toString(): String
+cactor_persistence :: BaseQueryResult.public init(resultType: String, data: String)
+cactor_persistence :: BasicEvent.public func getActorId(): String
+cactor_persistence :: BasicEvent.public func getEventData(): String
+cactor_persistence :: BasicEvent.public func getEventId(): String
+cactor_persistence :: BasicEvent.public func getEventType(): String
+cactor_persistence :: BasicEvent.public func getTags(): Array<String>
+cactor_persistence :: BasicEvent.public func getTimestamp(): Int64
+cactor_persistence :: BasicEvent.public func toString(): String
+cactor_persistence :: BasicEvent.public func withTags(tags: Array<String>): BasicEvent
+cactor_persistence :: BasicEvent.public init(eventId: String, actorId: String, eventType: String, eventData: String)
+cactor_persistence :: BasicEvent.public init(eventId: String, actorId: String, eventType: String, eventData: String, timestamp: Int64)
+cactor_persistence :: BasicEvent.public init(eventId: String, actorId: String, eventType: String, eventData: String, timestamp: Int64, tags: Array<String>)
+cactor_persistence :: BasicSnapshot.public func getActorId(): String
+cactor_persistence :: BasicSnapshot.public func getSequenceNumber(): Int64
+cactor_persistence :: BasicSnapshot.public func getStateData(): String
+cactor_persistence :: BasicSnapshot.public func getTimestamp(): Int64
+cactor_persistence :: BasicSnapshot.public func toString(): String
+cactor_persistence :: BasicSnapshot.public init(actorId: String, sequenceNumber: Int64, stateData: String)
+cactor_persistence :: BasicSnapshot.public init(actorId: String, sequenceNumber: Int64, stateData: String, timestamp: Int64)
+cactor_persistence :: CQRSBus.public func registerAggregateFactory(factory: (String)->AggregateRoot): Unit
+cactor_persistence :: CQRSBus.public func registerCommandHandler(commandType: String, handler: CommandHandler): Unit
+cactor_persistence :: CQRSBus.public func registerQueryHandler(queryType: String, handler: QueryHandler): Unit
+cactor_persistence :: CQRSBus.public func registerReadModel(modelId: String, readModel: ReadModel): Unit
+cactor_persistence :: CQRSBus.public func sendCommand(command: Command): Future<Unit>
+cactor_persistence :: CQRSBus.public func sendQuery(query: Query): Future<QueryResult>
+cactor_persistence :: CQRSBus.public init(eventStore: EnhancedEventStore)
+cactor_persistence :: Command.func getAggregateId(): String
+cactor_persistence :: Command.func getCommandId(): String
+cactor_persistence :: Command.func getCommandType(): String
+cactor_persistence :: Command.func getTimestamp(): DateTime
+cactor_persistence :: CommandHandler.func canHandle(command: Command): Bool
+cactor_persistence :: CommandHandler.func handle(command: Command, aggregate: Option<AggregateRoot>): Array<EventPayload>
+cactor_persistence :: CompletedFuture.public func get(): T
+cactor_persistence :: CompletedFuture.public func isCompleted(): Bool
+cactor_persistence :: CompletedFuture.public func onComplete(callback: (T)->Unit): Unit
+cactor_persistence :: CompletedFuture.public init(value: T)
+cactor_persistence :: CounterDecrementedEvent.public func getDecrement(): Int32
+cactor_persistence :: CounterDecrementedEvent.public func getEventType(): String
+cactor_persistence :: CounterDecrementedEvent.public func getVersion(): Int32
+cactor_persistence :: CounterDecrementedEvent.public func serialize(): String
+cactor_persistence :: CounterDecrementedEvent.public func toString(): String
+cactor_persistence :: CounterDecrementedEvent.public init(decrement: Int32)
+cactor_persistence :: CounterIncrementedEvent.public func getEventType(): String
+cactor_persistence :: CounterIncrementedEvent.public func getIncrement(): Int32
+cactor_persistence :: CounterIncrementedEvent.public func getVersion(): Int32
+cactor_persistence :: CounterIncrementedEvent.public func serialize(): String
+cactor_persistence :: CounterIncrementedEvent.public func toString(): String
+cactor_persistence :: CounterIncrementedEvent.public init(increment: Int32)
+cactor_persistence :: DefaultPersistencePlugin.public func close(): Unit
+cactor_persistence :: DefaultPersistencePlugin.public func deleteData(actorName: String): Unit
+cactor_persistence :: DefaultPersistencePlugin.public func isEnabled(): Bool
+cactor_persistence :: DefaultPersistencePlugin.public func persistEvent(actorName: String, eventType: String, eventData: String): Unit
+cactor_persistence :: DefaultPersistencePlugin.public func recoverActor(actorName: String, onEvent: (Event)->Unit, onSnapshot: (Snapshot)->Unit): Unit
+cactor_persistence :: DefaultPersistencePlugin.public func takeSnapshot(actorName: String, stateData: String): Unit
+cactor_persistence :: DefaultPersistencePlugin.public init(config: PersistenceConfig)
+cactor_persistence :: DurableStateActor.public func decodeState(data: String): S
+cactor_persistence :: DurableStateActor.public func emptyState(): S
+cactor_persistence :: DurableStateActor.public func encodeState(state: S): String
+cactor_persistence :: DurableStateActor.public func handleCommand(message: Message, context: ActorContext): MessageResult
+cactor_persistence :: DurableStateActor.public func persistenceId(): String
+cactor_persistence :: DurableStateActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_persistence :: DurableStateActor.public func revision(): Int64
+cactor_persistence :: DurableStateActor.public init(store: DurableStateStore)
+cactor_persistence :: DurableStateActor.public open func postRestart(reason: Exception): Unit
+cactor_persistence :: DurableStateActor.public open func preStart(): Unit
+cactor_persistence :: DurableStateActor.public prop state: S
+cactor_persistence :: DurableStateConflictException.public init(message: String)
+cactor_persistence :: DurableStateRecord.public init(persistenceId: String, revision: Int64, state: String)
+cactor_persistence :: DurableStateRecord.public let persistenceId: String
+cactor_persistence :: DurableStateRecord.public let revision: Int64
+cactor_persistence :: DurableStateRecord.public let state: String
+cactor_persistence :: DurableStateStore.func delete(persistenceId: String, revision: Int64): Unit
+cactor_persistence :: DurableStateStore.func get(persistenceId: String): Option<DurableStateRecord>
+cactor_persistence :: DurableStateStore.func persistenceIds(): Array<String>
+cactor_persistence :: DurableStateStore.func revisionOf(persistenceId: String): Int64
+cactor_persistence :: DurableStateStore.func upsert(persistenceId: String, revision: Int64, state: String): Unit
+cactor_persistence :: EnhancedEventStore.func deleteEventStream(persistenceId: String, toSequenceNr: Int64): Future<Unit>
+cactor_persistence :: EnhancedEventStore.func getHighestSequenceNr(persistenceId: String): Future<Int64>
+cactor_persistence :: EnhancedEventStore.func loadEventStream(persistenceId: String, fromSequenceNr: Int64, toSequenceNr: Int64): Future<Array<PersistentEvent>>
+cactor_persistence :: EnhancedEventStore.func queryEventsByType(eventType: String, fromTimestamp: DateTime, toTimestamp: DateTime): Future<Array<PersistentEvent>>
+cactor_persistence :: EnhancedEventStore.func saveEvents(persistenceId: String, events: Array<PersistentEvent>, expectedVersion: Int64): Future<Unit>
+cactor_persistence :: Event.func getActorId(): String
+cactor_persistence :: Event.func getEventData(): String
+cactor_persistence :: Event.func getEventId(): String
+cactor_persistence :: Event.func getEventType(): String
+cactor_persistence :: Event.func getTags(): Array<String>
+cactor_persistence :: Event.func getTimestamp(): Int64
+cactor_persistence :: Event.func toString(): String
+cactor_persistence :: EventEnvelope.public init(persistenceId: String, sequenceNr: Int64, event: Event)
+cactor_persistence :: EventEnvelope.public let event: Event
+cactor_persistence :: EventEnvelope.public let persistenceId: String
+cactor_persistence :: EventEnvelope.public let sequenceNr: Int64
+cactor_persistence :: EventHandlerException.public init(message: String, persistedSequenceNr: Int64, cause: Exception)
+cactor_persistence :: EventHandlerException.public let persistedSequenceNr: Int64
+cactor_persistence :: EventPayload.func getEventType(): String
+cactor_persistence :: EventPayload.func getVersion(): Int32
+cactor_persistence :: EventPayload.func serialize(): String
+cactor_persistence :: EventSourcedActor.public func applyEvent(event: Event): Unit
+cactor_persistence :: EventSourcedActor.public func handleCommand(message: Message, context: ActorContext): MessageResult
+cactor_persistence :: EventSourcedActor.public func lastSequenceNr(): Int64
+cactor_persistence :: EventSourcedActor.public func persistenceId(): String
+cactor_persistence :: EventSourcedActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_persistence :: EventSourcedActor.public func replayedEventCount(): Int64
+cactor_persistence :: EventSourcedActor.public init(eventStore: EventStore)
+cactor_persistence :: EventSourcedActor.public init(eventStore: EventStore, snapshotStore: SnapshotStore, snapshotEvery: Int64)
+cactor_persistence :: EventSourcedActor.public open func onRecoveryCompleted(): Unit
+cactor_persistence :: EventSourcedActor.public open func postRestart(reason: Exception): Unit
+cactor_persistence :: EventSourcedActor.public open func preStart(): Unit
+cactor_persistence :: EventSourcedActor.public open func restoreSnapshot(state: String): Unit
+cactor_persistence :: EventSourcedActor.public open func snapshotState(): Option<String>
+cactor_persistence :: EventStore.func append(persistenceId: String, events: Array<Event>, expectedSeq: Int64): Int64
+cactor_persistence :: EventStore.func close(): Unit
+cactor_persistence :: EventStore.func deleteEvents(actorId: String): Unit
+cactor_persistence :: EventStore.func deleteTo(persistenceId: String, toSeq: Int64): Unit
+cactor_persistence :: EventStore.func getEvents(actorId: String): Array<Event>
+cactor_persistence :: EventStore.func getEventsAfter(actorId: String, timestamp: Int64): Array<Event>
+cactor_persistence :: EventStore.func highestSequenceNr(persistenceId: String): Int64
+cactor_persistence :: EventStore.func persistenceIds(): Array<String>
+cactor_persistence :: EventStore.func replay(persistenceId: String, fromSeq: Int64, toSeq: Int64): Array<EventEnvelope>
+cactor_persistence :: EventStore.func saveEvent(event: Event): Unit
+cactor_persistence :: EventStoreFactory.public static func createFileStore(basePath: String): EventStore
+cactor_persistence :: EventStoreFactory.public static func createMemoryStore(): EventStore
+cactor_persistence :: FailedFuture.public func get(): T
+cactor_persistence :: FailedFuture.public func isCompleted(): Bool
+cactor_persistence :: FailedFuture.public func onComplete(callback: (T)->Unit): Unit
+cactor_persistence :: FailedFuture.public init(exception: Exception)
+cactor_persistence :: FileDurableStateStore.public func delete(persistenceId: String, revision: Int64): Unit
+cactor_persistence :: FileDurableStateStore.public func get(persistenceId: String): Option<DurableStateRecord>
+cactor_persistence :: FileDurableStateStore.public func persistenceIds(): Array<String>
+cactor_persistence :: FileDurableStateStore.public func revisionOf(persistenceId: String): Int64
+cactor_persistence :: FileDurableStateStore.public func upsert(persistenceId: String, revision: Int64, state: String): Unit
+cactor_persistence :: FileDurableStateStore.public init(basePath: String)
+cactor_persistence :: FileEventStore.public func append(persistenceId: String, events: Array<Event>, expectedSeq: Int64): Int64
+cactor_persistence :: FileEventStore.public func close(): Unit
+cactor_persistence :: FileEventStore.public func countEvents(actorId: String): Int64
+cactor_persistence :: FileEventStore.public func deleteEvents(actorId: String): Unit
+cactor_persistence :: FileEventStore.public func deleteTo(persistenceId: String, toSeq: Int64): Unit
+cactor_persistence :: FileEventStore.public func getEvents(actorId: String): Array<Event>
+cactor_persistence :: FileEventStore.public func getEventsAfter(actorId: String, timestamp: Int64): Array<Event>
+cactor_persistence :: FileEventStore.public func highestSequenceNr(persistenceId: String): Int64
+cactor_persistence :: FileEventStore.public func openFileCount(): Int64
+cactor_persistence :: FileEventStore.public func persistenceIds(): Array<String>
+cactor_persistence :: FileEventStore.public func replay(persistenceId: String, fromSeq: Int64, toSeq: Int64): Array<EventEnvelope>
+cactor_persistence :: FileEventStore.public func saveEvent(event: Event): Unit
+cactor_persistence :: FileEventStore.public init(basePath: String)
+cactor_persistence :: FileEventStore.public init(basePath: String, fsync!: Bool, maxOpenFiles!: Int64 = 256)
+cactor_persistence :: FileSnapshotStore.public func close(): Unit
+cactor_persistence :: FileSnapshotStore.public func deleteSnapshots(actorId: String): Unit
+cactor_persistence :: FileSnapshotStore.public func deleteSnapshotsTo(actorId: String, maxSequenceNr: Int64): Unit
+cactor_persistence :: FileSnapshotStore.public func getLatestSnapshot(actorId: String): Option<Snapshot>
+cactor_persistence :: FileSnapshotStore.public func getSnapshot(actorId: String, sequenceNumber: Int64): Option<Snapshot>
+cactor_persistence :: FileSnapshotStore.public func saveSnapshot(snapshot: Snapshot): Unit
+cactor_persistence :: FileSnapshotStore.public init(basePath: String)
+cactor_persistence :: FileSnapshotStore.public init(basePath: String, keep: Int64)
+cactor_persistence :: Future.func get(): T
+cactor_persistence :: Future.func isCompleted(): Bool
+cactor_persistence :: Future.func onComplete(callback: (T)->Unit): Unit
+cactor_persistence :: FutureFactory.public static func failed(exception: Exception): FailedFuture<Unit>
+cactor_persistence :: FutureFactory.public static func successful(value: Unit): CompletedFuture<Unit>
+cactor_persistence :: JournalConflictException.public init(persistenceId: String, expectedSequenceNr: Int64, actualSequenceNr: Int64)
+cactor_persistence :: JournalConflictException.public let actualSequenceNr: Int64
+cactor_persistence :: JournalConflictException.public let expectedSequenceNr: Int64
+cactor_persistence :: JournalConflictException.public let persistenceId: String
+cactor_persistence :: MemoryDurableStateStore.public func delete(persistenceId: String, revision: Int64): Unit
+cactor_persistence :: MemoryDurableStateStore.public func get(persistenceId: String): Option<DurableStateRecord>
+cactor_persistence :: MemoryDurableStateStore.public func persistenceIds(): Array<String>
+cactor_persistence :: MemoryDurableStateStore.public func revisionOf(persistenceId: String): Int64
+cactor_persistence :: MemoryDurableStateStore.public func upsert(persistenceId: String, revision: Int64, state: String): Unit
+cactor_persistence :: MemoryDurableStateStore.public init()
+cactor_persistence :: MemoryEnhancedEventStore.public func deleteEventStream(persistenceId: String, toSequenceNr: Int64): Future<Unit>
+cactor_persistence :: MemoryEnhancedEventStore.public func getHighestSequenceNr(persistenceId: String): Future<Int64>
+cactor_persistence :: MemoryEnhancedEventStore.public func loadEventStream(persistenceId: String, fromSequenceNr: Int64, toSequenceNr: Int64): Future<Array<PersistentEvent>>
+cactor_persistence :: MemoryEnhancedEventStore.public func queryEventsByType(eventType: String, fromTimestamp: DateTime, toTimestamp: DateTime): Future<Array<PersistentEvent>>
+cactor_persistence :: MemoryEnhancedEventStore.public func saveEvents(persistenceId: String, events: Array<PersistentEvent>, expectedVersion: Int64): Future<Unit>
+cactor_persistence :: MemoryEnhancedEventStore.public init()
+cactor_persistence :: MemoryEventStore.public func append(persistenceId: String, events: Array<Event>, expectedSeq: Int64): Int64
+cactor_persistence :: MemoryEventStore.public func close(): Unit
+cactor_persistence :: MemoryEventStore.public func deleteEvents(actorId: String): Unit
+cactor_persistence :: MemoryEventStore.public func deleteTo(persistenceId: String, toSeq: Int64): Unit
+cactor_persistence :: MemoryEventStore.public func getEvents(actorId: String): Array<Event>
+cactor_persistence :: MemoryEventStore.public func getEventsAfter(actorId: String, timestamp: Int64): Array<Event>
+cactor_persistence :: MemoryEventStore.public func highestSequenceNr(persistenceId: String): Int64
+cactor_persistence :: MemoryEventStore.public func persistenceIds(): Array<String>
+cactor_persistence :: MemoryEventStore.public func replay(persistenceId: String, fromSeq: Int64, toSeq: Int64): Array<EventEnvelope>
+cactor_persistence :: MemoryEventStore.public func saveEvent(event: Event): Unit
+cactor_persistence :: MemoryEventStore.public init()
+cactor_persistence :: MemorySnapshotStore.public func close(): Unit
+cactor_persistence :: MemorySnapshotStore.public func deleteSnapshots(actorId: String): Unit
+cactor_persistence :: MemorySnapshotStore.public func deleteSnapshotsTo(actorId: String, maxSequenceNr: Int64): Unit
+cactor_persistence :: MemorySnapshotStore.public func getLatestSnapshot(actorId: String): Option<Snapshot>
+cactor_persistence :: MemorySnapshotStore.public func getSnapshot(actorId: String, sequenceNumber: Int64): Option<Snapshot>
+cactor_persistence :: MemorySnapshotStore.public func saveSnapshot(snapshot: Snapshot): Unit
+cactor_persistence :: MemorySnapshotStore.public init()
+cactor_persistence :: PersistEventMessage.public func getEventData(): String
+cactor_persistence :: PersistEventMessage.public func getEventType(): String
+cactor_persistence :: PersistEventMessage.public func messageType(): String
+cactor_persistence :: PersistEventMessage.public func toString(): String
+cactor_persistence :: PersistEventMessage.public init(eventType: String, eventData: String)
+cactor_persistence :: PersistenceConfig.public func getEventStorePath(): String
+cactor_persistence :: PersistenceConfig.public func getEventStoreType(): String
+cactor_persistence :: PersistenceConfig.public func getSnapshotInterval(): Int64
+cactor_persistence :: PersistenceConfig.public func getSnapshotStorePath(): String
+cactor_persistence :: PersistenceConfig.public func getSnapshotStoreType(): String
+cactor_persistence :: PersistenceConfig.public func isAutoRecover(): Bool
+cactor_persistence :: PersistenceConfig.public func isEnabled(): Bool
+cactor_persistence :: PersistenceConfig.public init(enabled: Bool, eventStoreType: String, snapshotStoreType: String, eventStorePath: String, snapshotStorePath: String, snapshotInterval: Int64, autoRecover: Bool)
+cactor_persistence :: PersistenceConfig.public static func createDefault(): PersistenceConfig
+cactor_persistence :: PersistenceConfig.public static func createEnabled(eventStoreType: String, snapshotStoreType: String): PersistenceConfig
+cactor_persistence :: PersistenceConfigBuilder.public func build(): PersistenceConfig
+cactor_persistence :: PersistenceConfigBuilder.public func enable(): PersistenceConfigBuilder
+cactor_persistence :: PersistenceConfigBuilder.public func withAutoRecover(autoRecover: Bool): PersistenceConfigBuilder
+cactor_persistence :: PersistenceConfigBuilder.public func withEventStore(storeType: String, path: String): PersistenceConfigBuilder
+cactor_persistence :: PersistenceConfigBuilder.public func withSnapshotInterval(interval: Int64): PersistenceConfigBuilder
+cactor_persistence :: PersistenceConfigBuilder.public func withSnapshotStore(storeType: String, path: String): PersistenceConfigBuilder
+cactor_persistence :: PersistenceConfigBuilder.public init()
+cactor_persistence :: PersistenceCorruptionException.public init(message: String)
+cactor_persistence :: PersistenceException.public init(message: String)
+cactor_persistence :: PersistenceException.public init(message: String, cause: Exception)
+cactor_persistence :: PersistencePlugin.func close(): Unit
+cactor_persistence :: PersistencePlugin.func deleteData(actorName: String): Unit
+cactor_persistence :: PersistencePlugin.func isEnabled(): Bool
+cactor_persistence :: PersistencePlugin.func persistEvent(actorName: String, eventType: String, eventData: String): Unit
+cactor_persistence :: PersistencePlugin.func recoverActor(actorName: String, onEvent: (Event)->Unit, onSnapshot: (Snapshot)->Unit): Unit
+cactor_persistence :: PersistencePlugin.func takeSnapshot(actorName: String, stateData: String): Unit
+cactor_persistence :: PersistencePluginFactory.public static func create(config: PersistenceConfig): PersistencePlugin
+cactor_persistence :: PersistencePluginFactory.public static func createDisabled(): PersistencePlugin
+cactor_persistence :: PersistencePluginFactory.public static func createFileEnabled(): PersistencePlugin
+cactor_persistence :: PersistencePluginFactory.public static func createMemoryEnabled(): PersistencePlugin
+cactor_persistence :: PersistencePlugins.public static func durableStateStore(uri: String): DurableStateStore
+cactor_persistence :: PersistencePlugins.public static func journal(uri: String): EventStore
+cactor_persistence :: PersistencePlugins.public static func registerDurableStateStore(scheme: String, factory: (String)->DurableStateStore): Unit
+cactor_persistence :: PersistencePlugins.public static func registerJournal(scheme: String, factory: (String)->EventStore): Unit
+cactor_persistence :: PersistencePlugins.public static func registerSnapshotStore(scheme: String, factory: (String)->SnapshotStore): Unit
+cactor_persistence :: PersistencePlugins.public static func snapshotStore(uri: String): SnapshotStore
+cactor_persistence :: PersistentActor.func deleteSnapshot(sequenceNr: Int64): Unit
+cactor_persistence :: PersistentActor.func onRecoveryCompleted(): Unit
+cactor_persistence :: PersistentActor.func persist(event: EventPayload, handler: (EventPayload)->Unit): Unit
+cactor_persistence :: PersistentActor.func persistAll(events: Array<EventPayload>, handler: (EventPayload)->Unit): Unit
+cactor_persistence :: PersistentActor.func persistAndReply(event: EventPayload, replyTo: ActorRef, reply: Message): Unit
+cactor_persistence :: PersistentActor.func persistenceId(): String
+cactor_persistence :: PersistentActor.func saveSnapshot<T>(snapshot: T): Unit where T <: ToString
+cactor_persistence :: PersistentActorFactory.public static func createDisabledManager(): PersistentActorManager
+cactor_persistence :: PersistentActorFactory.public static func createFileManager(): PersistentActorManager
+cactor_persistence :: PersistentActorFactory.public static func createManager(config: PersistenceConfig): PersistentActorManager
+cactor_persistence :: PersistentActorFactory.public static func createMemoryManager(): PersistentActorManager
+cactor_persistence :: PersistentActorManager.public func close(): Unit
+cactor_persistence :: PersistentActorManager.public func deletePersistentData(actorName: String): Unit
+cactor_persistence :: PersistentActorManager.public func persistEvent(actorName: String, eventType: String, eventData: String): Unit
+cactor_persistence :: PersistentActorManager.public func registerActor(actor: Actor): Unit
+cactor_persistence :: PersistentActorManager.public func takeSnapshot(actorName: String, stateData: String): Unit
+cactor_persistence :: PersistentActorManager.public init(persistencePlugin: PersistencePlugin)
+cactor_persistence :: PersistentCounterActor.public func deleteSnapshot(sequenceNr: Int64): Unit
+cactor_persistence :: PersistentCounterActor.public func onRecoveryCompleted(): Unit
+cactor_persistence :: PersistentCounterActor.public func onRecoveryEvent(event: PersistentEvent): Unit
+cactor_persistence :: PersistentCounterActor.public func onRecoverySnapshot(snapshot: Snapshot): Unit
+cactor_persistence :: PersistentCounterActor.public func persist(event: EventPayload, handler: (EventPayload)->Unit): Unit
+cactor_persistence :: PersistentCounterActor.public func persistAll(events: Array<EventPayload>, handler: (EventPayload)->Unit): Unit
+cactor_persistence :: PersistentCounterActor.public func persistAndReply(event: EventPayload, replyTo: ActorRef, reply: Message): Unit
+cactor_persistence :: PersistentCounterActor.public func persistenceId(): String
+cactor_persistence :: PersistentCounterActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_persistence :: PersistentCounterActor.public func receiveCommand(message: Message, context: ActorContext): MessageResult
+cactor_persistence :: PersistentCounterActor.public func saveSnapshot<T>(snapshot: T): Unit where T <: ToString
+cactor_persistence :: PersistentCounterActor.public init(actorId: String, eventStore: EnhancedEventStore, snapshotStore: SnapshotStore)
+cactor_persistence :: PersistentCounterActor.public prop description: String
+cactor_persistence :: PersistentCounterActor.public prop name: String
+cactor_persistence :: PersistentEvent.public func toString(): String
+cactor_persistence :: PersistentEvent.public func withMetadata(key: String, value: String): PersistentEvent
+cactor_persistence :: PersistentEvent.public init(persistenceId: String, sequenceNr: Int64, payload: EventPayload)
+cactor_persistence :: PersistentEvent.public init(persistenceId: String, sequenceNr: Int64, payload: EventPayload, causationId: Option<String>, correlationId: Option<String>)
+cactor_persistence :: PersistentEvent.public init(persistenceId: String, sequenceNr: Int64, timestamp: DateTime, payload: EventPayload, metadata: HashMap<String, String>, causationId: Option<String>, correlationId: Option<String>)
+cactor_persistence :: PersistentEvent.public let causationId: Option<String>
+cactor_persistence :: PersistentEvent.public let correlationId: Option<String>
+cactor_persistence :: PersistentEvent.public let metadata: HashMap<String, String>
+cactor_persistence :: PersistentEvent.public let payload: EventPayload
+cactor_persistence :: PersistentEvent.public let persistenceId: String
+cactor_persistence :: PersistentEvent.public let sequenceNr: Int64
+cactor_persistence :: PersistentEvent.public let timestamp: DateTime
+cactor_persistence :: Query.func getParameters(): HashMap<String, String>
+cactor_persistence :: Query.func getQueryId(): String
+cactor_persistence :: Query.func getQueryType(): String
+cactor_persistence :: QueryHandler.func canHandle(query: Query): Bool
+cactor_persistence :: QueryHandler.func handle(query: Query): Future<QueryResult>
+cactor_persistence :: QueryResult.func getResultType(): String
+cactor_persistence :: QueryResult.func serialize(): String
+cactor_persistence :: QuerySpec.func getParameters(): HashMap<String, String>
+cactor_persistence :: QuerySpec.func getSpecType(): String
+cactor_persistence :: QuerySubscription.public func cancel(): Unit
+cactor_persistence :: QuerySubscription.public func delivered(): Int64
+cactor_persistence :: QuerySubscription.public func isCancelled(): Bool
+cactor_persistence :: QuerySubscription.public func lastSequenceNr(): Int64
+cactor_persistence :: ReadJournal.public func currentEventsByPersistenceId(persistenceId: String): Array<EventEnvelope>
+cactor_persistence :: ReadJournal.public func currentEventsByPersistenceId(persistenceId: String, fromSeq: Int64, toSeq: Int64): Array<EventEnvelope>
+cactor_persistence :: ReadJournal.public func currentEventsByTag(tag: String): Array<EventEnvelope>
+cactor_persistence :: ReadJournal.public func currentEventsByType(eventType: String): Array<EventEnvelope>
+cactor_persistence :: ReadJournal.public func currentPersistenceIds(): Array<String>
+cactor_persistence :: ReadJournal.public func eventsByPersistenceId(persistenceId: String, fromSeq: Int64, onEvent: (EventEnvelope)->Unit): QuerySubscription
+cactor_persistence :: ReadJournal.public func eventsByPersistenceId(persistenceId: String, fromSeq: Int64, onEvent: (EventEnvelope)->Unit, onError: (Exception)->Unit): QuerySubscription
+cactor_persistence :: ReadJournal.public init(store: EventStore)
+cactor_persistence :: ReadJournal.public init(store: EventStore, pollInterval: Duration)
+cactor_persistence :: ReadModel.func getModelId(): String
+cactor_persistence :: ReadModel.func query(querySpec: QuerySpec): Future<String>
+cactor_persistence :: ReadModel.func update(event: PersistentEvent): Unit
+cactor_persistence :: RecoveryCompleteMessage.public func messageType(): String
+cactor_persistence :: RecoveryCompleteMessage.public func toString(): String
+cactor_persistence :: RecoveryCompleteMessage.public init()
+cactor_persistence :: SimpleEventPayload.public func getEventType(): String
+cactor_persistence :: SimpleEventPayload.public func getVersion(): Int32
+cactor_persistence :: SimpleEventPayload.public func serialize(): String
+cactor_persistence :: SimpleEventPayload.public func toString(): String
+cactor_persistence :: SimpleEventPayload.public init(eventType: String, data: String)
+cactor_persistence :: SimpleQuerySpec.public func addParameter(key: String, value: String): SimpleQuerySpec
+cactor_persistence :: SimpleQuerySpec.public func getParameters(): HashMap<String, String>
+cactor_persistence :: SimpleQuerySpec.public func getSpecType(): String
+cactor_persistence :: SimpleQuerySpec.public init(specType: String)
+cactor_persistence :: SimpleReadModel.public func getData(): HashMap<String, String>
+cactor_persistence :: SimpleReadModel.public func getModelId(): String
+cactor_persistence :: SimpleReadModel.public func query(querySpec: QuerySpec): Future<String>
+cactor_persistence :: SimpleReadModel.public func update(event: PersistentEvent): Unit
+cactor_persistence :: SimpleReadModel.public init(modelId: String)
+cactor_persistence :: Snapshot.func getActorId(): String
+cactor_persistence :: Snapshot.func getSequenceNumber(): Int64
+cactor_persistence :: Snapshot.func getStateData(): String
+cactor_persistence :: Snapshot.func getTimestamp(): Int64
+cactor_persistence :: Snapshot.func toString(): String
+cactor_persistence :: SnapshotStore.func close(): Unit
+cactor_persistence :: SnapshotStore.func deleteSnapshots(actorId: String): Unit
+cactor_persistence :: SnapshotStore.func deleteSnapshotsTo(actorId: String, maxSequenceNr: Int64): Unit
+cactor_persistence :: SnapshotStore.func getLatestSnapshot(actorId: String): Option<Snapshot>
+cactor_persistence :: SnapshotStore.func getSnapshot(actorId: String, sequenceNumber: Int64): Option<Snapshot>
+cactor_persistence :: SnapshotStore.func saveSnapshot(snapshot: Snapshot): Unit
+cactor_persistence :: SnapshotStoreFactory.public static func createFileStore(basePath: String): SnapshotStore
+cactor_persistence :: SnapshotStoreFactory.public static func createMemoryStore(): SnapshotStore
+cactor_persistence :: TakeSnapshotMessage.public func getStateData(): String
+cactor_persistence :: TakeSnapshotMessage.public func messageType(): String
+cactor_persistence :: TakeSnapshotMessage.public func toString(): String
+cactor_persistence :: TakeSnapshotMessage.public init(stateData: String)
+cactor_persistence :: public abstract class DurableStateActor<S> <: Actor
+cactor_persistence :: public abstract class EventSourcedActor <: Actor
+cactor_persistence :: public class BaseAggregateRoot <: AggregateRoot
+cactor_persistence :: public class BaseCommand <: Command
+cactor_persistence :: public class BaseQuery <: Query
+cactor_persistence :: public class BaseQueryResult <: QueryResult
+cactor_persistence :: public class BasicEvent <: Event
+cactor_persistence :: public class BasicSnapshot <: Snapshot
+cactor_persistence :: public class CQRSBus
+cactor_persistence :: public class CompletedFuture<T> <: Future<T>
+cactor_persistence :: public class CounterDecrementedEvent <: EventPayload
+cactor_persistence :: public class CounterIncrementedEvent <: EventPayload
+cactor_persistence :: public class DefaultPersistencePlugin <: PersistencePlugin
+cactor_persistence :: public class DurableStateConflictException <: Exception
+cactor_persistence :: public class DurableStateRecord
+cactor_persistence :: public class EventEnvelope
+cactor_persistence :: public class EventHandlerException <: PersistenceException
+cactor_persistence :: public class EventStoreFactory
+cactor_persistence :: public class FailedFuture<T> <: Future<T>
+cactor_persistence :: public class FileDurableStateStore <: DurableStateStore
+cactor_persistence :: public class FileEventStore <: EventStore
+cactor_persistence :: public class FileSnapshotStore <: SnapshotStore
+cactor_persistence :: public class FutureFactory
+cactor_persistence :: public class JournalConflictException <: PersistenceException
+cactor_persistence :: public class MemoryDurableStateStore <: DurableStateStore
+cactor_persistence :: public class MemoryEnhancedEventStore <: EnhancedEventStore
+cactor_persistence :: public class MemoryEventStore <: EventStore
+cactor_persistence :: public class MemorySnapshotStore <: SnapshotStore
+cactor_persistence :: public class PersistEventMessage <: Message
+cactor_persistence :: public class PersistenceConfig
+cactor_persistence :: public class PersistenceConfigBuilder
+cactor_persistence :: public class PersistenceCorruptionException <: Exception
+cactor_persistence :: public class PersistencePluginFactory
+cactor_persistence :: public class PersistencePlugins
+cactor_persistence :: public class PersistentActorFactory
+cactor_persistence :: public class PersistentActorManager
+cactor_persistence :: public class PersistentCounterActor <: PersistentActor
+cactor_persistence :: public class QuerySubscription
+cactor_persistence :: public class ReadJournal
+cactor_persistence :: public class RecoveryCompleteMessage <: Message
+cactor_persistence :: public class SimpleEventPayload <: EventPayload
+cactor_persistence :: public class SimpleQuerySpec <: QuerySpec
+cactor_persistence :: public class SimpleReadModel <: ReadModel
+cactor_persistence :: public class SnapshotStoreFactory
+cactor_persistence :: public class TakeSnapshotMessage <: Message
+cactor_persistence :: public func persistenceFsyncCount(): Int64
+cactor_persistence :: public interface AggregateRoot
+cactor_persistence :: public interface Command
+cactor_persistence :: public interface CommandHandler
+cactor_persistence :: public interface DurableStateStore
+cactor_persistence :: public interface EnhancedEventStore
+cactor_persistence :: public interface Event
+cactor_persistence :: public interface EventPayload
+cactor_persistence :: public interface EventStore
+cactor_persistence :: public interface Future<T>
+cactor_persistence :: public interface PersistencePlugin
+cactor_persistence :: public interface PersistentActor <: Actor
+cactor_persistence :: public interface Query
+cactor_persistence :: public interface QueryHandler
+cactor_persistence :: public interface QueryResult
+cactor_persistence :: public interface QuerySpec
+cactor_persistence :: public interface ReadModel
+cactor_persistence :: public interface Snapshot
+cactor_persistence :: public interface SnapshotStore
+cactor_persistence :: public open class AbstractPersistentActor <: PersistentActor
+cactor_persistence :: public open class PersistenceException <: Exception
+cactor_persistence :: public struct PersistentEvent
+cactor_persistence.reminders :: DurableReminders.public static func behavior(persistenceId: PersistenceId, store: DurableStateStore, deliver: (ReminderDelivery)->Unit, pollInterval!: Duration = Duration.second, nowMillis!: ()->Int64 = { =>DateTime.now().toUnixTimeStamp().toMilliseconds()}): TypedBehavior<ReminderCommand>
+cactor_persistence.reminders :: ReminderCommand.| Acknowledge(String, Int64, Int64, TypedActorRef<Bool>)
+cactor_persistence.reminders :: ReminderCommand.| Get(TypedActorRef<Array<ReminderDelivery>>)
+cactor_persistence.reminders :: ReminderCommand.| Register(ReminderDefinition, TypedActorRef<Int64>)
+cactor_persistence.reminders :: ReminderCommand.| Remove(String, TypedActorRef<Bool>)
+cactor_persistence.reminders :: ReminderCommand.| Tick
+cactor_persistence.reminders :: ReminderDefinition.public init(name: String, payload: String, dueAtMillis: Int64, periodMillis!: Int64 = 0)
+cactor_persistence.reminders :: ReminderDefinition.public let dueAtMillis: Int64
+cactor_persistence.reminders :: ReminderDefinition.public let name: String
+cactor_persistence.reminders :: ReminderDefinition.public let payload: String
+cactor_persistence.reminders :: ReminderDefinition.public let periodMillis: Int64
+cactor_persistence.reminders :: ReminderDelivery.public let definition: ReminderDefinition
+cactor_persistence.reminders :: ReminderDelivery.public let generation: Int64
+cactor_persistence.reminders :: public enum ReminderCommand
+cactor_persistence.reminders :: public struct DurableReminders
+cactor_persistence.reminders :: public struct ReminderDefinition
+cactor_persistence.reminders :: public struct ReminderDelivery
+cactor_persistence.typed :: DeleteEventsCompleted.public func signalName(): String
+cactor_persistence.typed :: DeleteEventsCompleted.public init(toSequenceNr: Int64)
+cactor_persistence.typed :: DeleteEventsCompleted.public let toSequenceNr: Int64
+cactor_persistence.typed :: DeleteFailed.public func signalName(): String
+cactor_persistence.typed :: DeleteFailed.public init(toSequenceNr: Int64, cause: Exception)
+cactor_persistence.typed :: DeleteFailed.public let cause: Exception
+cactor_persistence.typed :: DeleteFailed.public let toSequenceNr: Int64
+cactor_persistence.typed :: DeleteSnapshotsCompleted.public func signalName(): String
+cactor_persistence.typed :: DeleteSnapshotsCompleted.public init(toSequenceNr: Int64)
+cactor_persistence.typed :: DeleteSnapshotsCompleted.public let toSequenceNr: Int64
+cactor_persistence.typed :: DurableEffectFactory.public func delete(): DurableEffect<S>
+cactor_persistence.typed :: DurableEffectFactory.public func none(): DurableEffect<S>
+cactor_persistence.typed :: DurableEffectFactory.public func persist(state: S): DurableEffect<S>
+cactor_persistence.typed :: DurableEffectFactory.public func reply<R>(replyTo: TypedActorRef<R>, message: R): DurableEffect<S>
+cactor_persistence.typed :: DurableEffectFactory.public func stash(): DurableEffect<S>
+cactor_persistence.typed :: DurableEffectFactory.public func stop(): DurableEffect<S>
+cactor_persistence.typed :: DurableEffectFactory.public func unhandled(): DurableEffect<S>
+cactor_persistence.typed :: DurableEffectFactory.public func unstashAll(): DurableEffect<S>
+cactor_persistence.typed :: DurableEffectFactory.public init()
+cactor_persistence.typed :: DurableStateBehavior.public func behavior(): TypedBehavior<C>
+cactor_persistence.typed :: DurableStateBehavior.public func receiveSignal(handler: (S, TypedSignal)->Unit): DurableStateBehavior<C, S>
+cactor_persistence.typed :: DurableStateBehavior.public func withStash(capacity: Int64, overflow!: StashOverflowStrategy = StashOverflowStrategy.DropCommand): DurableStateBehavior<C, S>
+cactor_persistence.typed :: DurableStateBehavior.public init(persistenceId: PersistenceId, emptyState!: S, commandHandler!: (S, C, DurableEffectFactory<S>)->DurableEffect<S>, codec!: StateCodec<S>, store!: DurableStateStore)
+cactor_persistence.typed :: DurableStateBehavior.public let persistenceId: PersistenceId
+cactor_persistence.typed :: Effect.public func events(): Array<E>
+cactor_persistence.typed :: Effect.public func isUnhandled(): Bool
+cactor_persistence.typed :: Effect.public func thenReply<R>(replyTo: TypedActorRef<R>, reply: (S)->R): Effect<E, S>
+cactor_persistence.typed :: Effect.public func thenRun(callback: (S)->Unit): Effect<E, S>
+cactor_persistence.typed :: Effect.public func thenStop(): Effect<E, S>
+cactor_persistence.typed :: Effect.public func thenUnstashAll(): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public func none(): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public func persist(event: E): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public func persistAll(events: Array<E>): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public func reply<R>(replyTo: TypedActorRef<R>, message: R): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public func stash(): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public func stop(): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public func unhandled(): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public func unstashAll(): Effect<E, S>
+cactor_persistence.typed :: EffectFactory.public init()
+cactor_persistence.typed :: EventAdapter.func fromJournal(manifest: String, data: String): Array<E>
+cactor_persistence.typed :: EventAdapter.func manifest(event: E): String
+cactor_persistence.typed :: EventAdapter.func tags(event: E): Array<String>
+cactor_persistence.typed :: EventAdapter.func toJournal(event: E): String
+cactor_persistence.typed :: EventSourcedBehavior.public func behavior(): TypedBehavior<C>
+cactor_persistence.typed :: EventSourcedBehavior.public func receiveSignal(handler: (S, TypedSignal)->Unit): EventSourcedBehavior<C, E, S>
+cactor_persistence.typed :: EventSourcedBehavior.public func snapshotWhen(predicate: (S, E, Int64)->Bool): EventSourcedBehavior<C, E, S>
+cactor_persistence.typed :: EventSourcedBehavior.public func withRetention(criteria: RetentionCriteria): EventSourcedBehavior<C, E, S>
+cactor_persistence.typed :: EventSourcedBehavior.public func withSnapshots(store: SnapshotStore, codec: StateCodec<S>): EventSourcedBehavior<C, E, S>
+cactor_persistence.typed :: EventSourcedBehavior.public func withStash(capacity: Int64, overflow!: StashOverflowStrategy = StashOverflowStrategy.DropCommand): EventSourcedBehavior<C, E, S>
+cactor_persistence.typed :: EventSourcedBehavior.public init(persistenceId: PersistenceId, emptyState!: S, commandHandler!: (S, C, EffectFactory<E, S>)->Effect<E, S>, eventHandler!: (S, E)->S, eventAdapter!: EventAdapter<E>, journal!: EventStore)
+cactor_persistence.typed :: EventSourcedBehavior.public let persistenceId: PersistenceId
+cactor_persistence.typed :: FunctionEventAdapter.public func fromJournal(manifest: String, data: String): Array<E>
+cactor_persistence.typed :: FunctionEventAdapter.public func manifest(event: E): String
+cactor_persistence.typed :: FunctionEventAdapter.public func tags(event: E): Array<String>
+cactor_persistence.typed :: FunctionEventAdapter.public func toJournal(event: E): String
+cactor_persistence.typed :: FunctionEventAdapter.public init(manifest!: (E)->String, toJournal!: (E)->String, fromJournal!: (String, String)->E, tags!: (E)->Array<String>= { _ =>Array<String>()})
+cactor_persistence.typed :: FunctionStateCodec.public func decode(data: String): S
+cactor_persistence.typed :: FunctionStateCodec.public func encode(state: S): String
+cactor_persistence.typed :: FunctionStateCodec.public init(encode!: (S)->String, decode!: (String)->S)
+cactor_persistence.typed :: PersistenceId.public func toString(): String
+cactor_persistence.typed :: PersistenceId.public init(id: String)
+cactor_persistence.typed :: PersistenceId.public let id: String
+cactor_persistence.typed :: PersistenceId.public static func of(entityTypeHint: String, entityId: String): PersistenceId
+cactor_persistence.typed :: PersistenceId.public static func ofUniqueId(id: String): PersistenceId
+cactor_persistence.typed :: PersistenceIo.public static func awaitIdle(timeout: Duration): Bool
+cactor_persistence.typed :: PersistenceIo.public static func completedTasks(): Int64
+cactor_persistence.typed :: PersistenceIo.public static func submit<V>(task: ()->V): TypedPromise<V>
+cactor_persistence.typed :: PersistenceIo.public static func threads(): Int64
+cactor_persistence.typed :: RecoveryCompleted.public func signalName(): String
+cactor_persistence.typed :: RecoveryCompleted.public init(highestSequenceNr: Int64)
+cactor_persistence.typed :: RecoveryCompleted.public let highestSequenceNr: Int64
+cactor_persistence.typed :: RecoveryFailed.public func signalName(): String
+cactor_persistence.typed :: RecoveryFailed.public init(cause: Exception)
+cactor_persistence.typed :: RecoveryFailed.public let cause: Exception
+cactor_persistence.typed :: RetentionCriteria.public func isEnabled(): Bool
+cactor_persistence.typed :: RetentionCriteria.public func withDeleteEventsOnSnapshot(): RetentionCriteria
+cactor_persistence.typed :: RetentionCriteria.public let deleteEventsOnSnapshot: Bool
+cactor_persistence.typed :: RetentionCriteria.public let keepNSnapshots: Int64
+cactor_persistence.typed :: RetentionCriteria.public let snapshotEveryNEvents: Int64
+cactor_persistence.typed :: RetentionCriteria.public static func disabled(): RetentionCriteria
+cactor_persistence.typed :: RetentionCriteria.public static func snapshotEvery(numberOfEvents: Int64, keepNSnapshots: Int64): RetentionCriteria
+cactor_persistence.typed :: SnapshotCompleted.public func signalName(): String
+cactor_persistence.typed :: SnapshotCompleted.public init(sequenceNr: Int64)
+cactor_persistence.typed :: SnapshotCompleted.public let sequenceNr: Int64
+cactor_persistence.typed :: SnapshotFailed.public func signalName(): String
+cactor_persistence.typed :: SnapshotFailed.public init(sequenceNr: Int64, cause: Exception)
+cactor_persistence.typed :: SnapshotFailed.public let cause: Exception
+cactor_persistence.typed :: SnapshotFailed.public let sequenceNr: Int64
+cactor_persistence.typed :: StashOverflowStrategy.| DropCommand
+cactor_persistence.typed :: StashOverflowStrategy.| FailActor
+cactor_persistence.typed :: StateCodec.func decode(data: String): S
+cactor_persistence.typed :: StateCodec.func encode(state: S): String
+cactor_persistence.typed :: public class DeleteEventsCompleted <: TypedSignal
+cactor_persistence.typed :: public class DeleteFailed <: TypedSignal
+cactor_persistence.typed :: public class DeleteSnapshotsCompleted <: TypedSignal
+cactor_persistence.typed :: public class DurableEffectFactory<S>
+cactor_persistence.typed :: public class DurableStateBehavior<C, S>
+cactor_persistence.typed :: public class Effect<E, S>
+cactor_persistence.typed :: public class EffectFactory<E, S>
+cactor_persistence.typed :: public class EventSourcedBehavior<C, E, S>
+cactor_persistence.typed :: public class FunctionEventAdapter<E> <: EventAdapter<E>
+cactor_persistence.typed :: public class FunctionStateCodec<S> <: StateCodec<S>
+cactor_persistence.typed :: public class PersistenceIo
+cactor_persistence.typed :: public class RecoveryCompleted <: TypedSignal
+cactor_persistence.typed :: public class RecoveryFailed <: TypedSignal
+cactor_persistence.typed :: public class SnapshotCompleted <: TypedSignal
+cactor_persistence.typed :: public class SnapshotFailed <: TypedSignal
+cactor_persistence.typed :: public enum StashOverflowStrategy
+cactor_persistence.typed :: public interface EventAdapter<E>
+cactor_persistence.typed :: public interface StateCodec<S>
+cactor_persistence.typed :: public struct PersistenceId <: ToString
+cactor_persistence.typed :: public struct RetentionCriteria
+cactor_persistence.typed :: public type DurableEffect<S>

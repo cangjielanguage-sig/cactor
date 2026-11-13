@@ -1,0 +1,194 @@
+# CActor 公开 API 快照：modules/testkit（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_testkit :: ActorTestKit.public func actorOf(creator: ()->Actor, name: String): ActorRef
+cactor_testkit :: ActorTestKit.public func actorOf(props: Props<Actor>, name: String): ActorRef
+cactor_testkit :: ActorTestKit.public func createTestProbe(): TestProbe
+cactor_testkit :: ActorTestKit.public func createTestProbe(name: String): TestProbe
+cactor_testkit :: ActorTestKit.public func shutdown(): Unit
+cactor_testkit :: ActorTestKit.public func spawnTyped<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U>
+cactor_testkit :: ActorTestKit.public init(name: String)
+cactor_testkit :: ActorTestKit.public let system: CActorSystem
+cactor_testkit :: BehaviorTestKit.public func childInbox<U>(name: String): TestInbox<U>
+cactor_testkit :: BehaviorTestKit.public func childTestKit<U>(name: String): BehaviorTestKit<U>
+cactor_testkit :: BehaviorTestKit.public func clearLog(): Unit
+cactor_testkit :: BehaviorTestKit.public func currentBehavior(): TypedBehavior<T>
+cactor_testkit :: BehaviorTestKit.public func expectEffect(expected: Effect): Unit
+cactor_testkit :: BehaviorTestKit.public func hasEffects(): Bool
+cactor_testkit :: BehaviorTestKit.public func isAlive(): Bool
+cactor_testkit :: BehaviorTestKit.public func logEntries(): Array<CapturedLogEvent>
+cactor_testkit :: BehaviorTestKit.public func manualTime(): ManualTime
+cactor_testkit :: BehaviorTestKit.public func retrieveAllEffects(): Array<Effect>
+cactor_testkit :: BehaviorTestKit.public func retrieveEffect(): Effect
+cactor_testkit :: BehaviorTestKit.public func returnedBehavior(): TypedBehavior<T>
+cactor_testkit :: BehaviorTestKit.public func run(message: T): Unit
+cactor_testkit :: BehaviorTestKit.public func runAll(): Int64
+cactor_testkit :: BehaviorTestKit.public func runOne(): Unit
+cactor_testkit :: BehaviorTestKit.public func selfInbox(): TestInbox<T>
+cactor_testkit :: BehaviorTestKit.public func signal(sig: TypedSignal): Unit
+cactor_testkit :: BehaviorTestKit.public func timePasses(amount: Duration): Unit
+cactor_testkit :: BehaviorTestKit.public func unhandledCount(): Int64
+cactor_testkit :: BehaviorTestKit.public init(behavior: TypedBehavior<T>)
+cactor_testkit :: BehaviorTestKit.public init(behavior: TypedBehavior<T>, name: String)
+cactor_testkit :: CapturedLogEvent.public func toString(): String
+cactor_testkit :: CapturedLogEvent.public init(level: String, message: String)
+cactor_testkit :: CapturedLogEvent.public let level: String
+cactor_testkit :: CapturedLogEvent.public let message: String
+cactor_testkit :: Effect.public func toString(): String
+cactor_testkit :: Effect.public operator func
+cactor_testkit :: Effect.public operator func !=(other: Effect): Bool
+cactor_testkit :: Effect.| AskInitiated(String, Duration)
+cactor_testkit :: Effect.| MessageAdapterCreated
+cactor_testkit :: Effect.| ReceiveTimeoutCancelled
+cactor_testkit :: Effect.| ReceiveTimeoutSet(Duration)
+cactor_testkit :: Effect.| Scheduled(Duration, String)
+cactor_testkit :: Effect.| Spawned(String)
+cactor_testkit :: Effect.| SpawnedAnonymous(String)
+cactor_testkit :: Effect.| Stopped(String)
+cactor_testkit :: Effect.| TimerCancelled(String)
+cactor_testkit :: Effect.| TimerScheduled(String, Duration, Bool)
+cactor_testkit :: Effect.| Unwatched(String)
+cactor_testkit :: Effect.| Watched(String)
+cactor_testkit :: Effect.| WatchedWith(String)
+cactor_testkit :: EventRecorder.public func await(event: String, timeout: Duration): Bool
+cactor_testkit :: EventRecorder.public func awaitSize(n: Int64, timeout: Duration): Bool
+cactor_testkit :: EventRecorder.public func clear(): Unit
+cactor_testkit :: EventRecorder.public func contains(event: String): Bool
+cactor_testkit :: EventRecorder.public func count(event: String): Int64
+cactor_testkit :: EventRecorder.public func indexOf(event: String): Int64
+cactor_testkit :: EventRecorder.public func record(event: String): Unit
+cactor_testkit :: EventRecorder.public func size(): Int64
+cactor_testkit :: EventRecorder.public func snapshot(): Array<String>
+cactor_testkit :: EventRecorder.public func toString(): String
+cactor_testkit :: EventRecorder.public init()
+cactor_testkit :: LoggingTestKit.public func clear(): Unit
+cactor_testkit :: LoggingTestKit.public func close(): Unit
+cactor_testkit :: LoggingTestKit.public func expectMessage(level: LogLevel, contains: String): LogRecord
+cactor_testkit :: LoggingTestKit.public func expectMessage(level: LogLevel, contains: String, timeout: Duration): LogRecord
+cactor_testkit :: LoggingTestKit.public func expectNoMessage(level: LogLevel, contains: String): Unit
+cactor_testkit :: LoggingTestKit.public func expectNoMessage(level: LogLevel, contains: String, duration: Duration): Unit
+cactor_testkit :: LoggingTestKit.public func records(): Array<LogRecord>
+cactor_testkit :: LoggingTestKit.public static func start(): LoggingTestKit
+cactor_testkit :: LoggingTestKit.public static func start(level: LogLevel): LoggingTestKit
+cactor_testkit :: ManualTask.public func cancel(): Bool
+cactor_testkit :: ManualTask.public func isCancelled(): Bool
+cactor_testkit :: ManualTime.public func now(): Duration
+cactor_testkit :: ManualTime.public func pendingCount(): Int64
+cactor_testkit :: ManualTime.public func schedule(delay: Duration, action: ()->Unit): ManualTask
+cactor_testkit :: ManualTime.public func scheduleRepeated(interval: Duration, action: ()->Unit): ManualTask
+cactor_testkit :: ManualTime.public func timePasses(amount: Duration): Unit
+cactor_testkit :: ManualTime.public init()
+cactor_testkit :: ProcessBarrier.public func arrive(name: String, expected: Int64): Bool
+cactor_testkit :: ProcessBarrier.public func arrive(name: String, expected: Int64, timeout: Duration): Bool
+cactor_testkit :: ProcessBarrier.public func await(expected: Int64): Bool
+cactor_testkit :: ProcessBarrier.public func await(expected: Int64, timeout: Duration): Bool
+cactor_testkit :: ProcessBarrier.public func count(): Int64
+cactor_testkit :: ProcessBarrier.public func isOpen(): Bool
+cactor_testkit :: ProcessBarrier.public func markReady(name: String): Unit
+cactor_testkit :: ProcessBarrier.public func parties(): Array<String>
+cactor_testkit :: ProcessBarrier.public func readyPath(name: String): String
+cactor_testkit :: ProcessBarrier.public func reset(): Unit
+cactor_testkit :: ProcessBarrier.public init(directory: String, timeout!: Duration = Duration.second * 30)
+cactor_testkit :: ProcessBarrier.public let directory: String
+cactor_testkit :: ProcessBarrier.public static func tempDirectory(prefix: String): String
+cactor_testkit :: ReceivedMessage.public init(message: Message, sender: Option<ActorRef>)
+cactor_testkit :: ReceivedMessage.public let message: Message
+cactor_testkit :: ReceivedMessage.public let sender: Option<ActorRef>
+cactor_testkit :: TestActorContext.public func actorOf(factory: ()->Actor, name: String): ActorRef
+cactor_testkit :: TestActorContext.public func actorSelection(path: String): Option<ActorRef>
+cactor_testkit :: TestActorContext.public func become(behavior: Receive): Unit
+cactor_testkit :: TestActorContext.public func reply(message: Message): Unit
+cactor_testkit :: TestActorContext.public func schedule(delay: Duration, message: Message, target: ActorRef): Unit
+cactor_testkit :: TestActorContext.public func scheduleOnce(delay: Duration, message: Message, target: ActorRef): Unit
+cactor_testkit :: TestActorContext.public func sender(): Option<String>
+cactor_testkit :: TestActorContext.public func senderRef(): Option<ActorRef>
+cactor_testkit :: TestActorContext.public func setSender(sender: ActorRef): Unit
+cactor_testkit :: TestActorContext.public func stop(actor: ActorRef): Unit
+cactor_testkit :: TestActorContext.public func unbecome(): Unit
+cactor_testkit :: TestActorContext.public func underlyingSystem(): CActorSystem
+cactor_testkit :: TestActorContext.public func unwatch(actor: ActorRef): Unit
+cactor_testkit :: TestActorContext.public func watch(actor: ActorRef): Unit
+cactor_testkit :: TestActorContext.public init(system: CActorSystem)
+cactor_testkit :: TestActorContext.public prop self: ActorRef
+cactor_testkit :: TestActorRef.public func getActorRef(): ActorRef
+cactor_testkit :: TestActorRef.public func getLastException(): Option<Exception>
+cactor_testkit :: TestActorRef.public func getLastResult(): MessageResult
+cactor_testkit :: TestActorRef.public func getUnderlyingActor(): Actor
+cactor_testkit :: TestActorRef.public func isHealthy(): Bool
+cactor_testkit :: TestActorRef.public func reset(): Unit
+cactor_testkit :: TestActorRef.public func tell(message: Message): Unit
+cactor_testkit :: TestActorRef.public func tellAndWait(message: Message): MessageResult
+cactor_testkit :: TestActorRef.public func tellAndWait(message: Message, timeout: Duration): MessageResult
+cactor_testkit :: TestActorRef.public init(actor: Actor, actorRef: ActorRef, system: CActorSystem)
+cactor_testkit :: TestActorRefFactory.public static func create(actor: Actor, system: CActorSystem): TestActorRef
+cactor_testkit :: TestActorRefFactory.public static func createWithName(actor: Actor, name: String, system: CActorSystem): TestActorRef
+cactor_testkit :: TestAssertions.public static func assertExpectationSuccess<T>(expectation: TestExpectation<T>): Unit
+cactor_testkit :: TestAssertions.public static func assertExpectationTimeout<T>(expectation: TestExpectation<T>): Unit
+cactor_testkit :: TestAssertions.public static func assertMessageHandled(result: MessageResult): Unit
+cactor_testkit :: TestAssertions.public static func assertMessageUnhandled(result: MessageResult): Unit
+cactor_testkit :: TestExpectation.public func getValue(): Option<T>
+cactor_testkit :: TestExpectation.public func isSuccess(): Bool
+cactor_testkit :: TestExpectation.public func toString(): String
+cactor_testkit :: TestExpectation.| Error(Exception)
+cactor_testkit :: TestExpectation.| Success(T)
+cactor_testkit :: TestExpectation.| Timeout
+cactor_testkit :: TestExpectation.| UnexpectedMessage(Message)
+cactor_testkit :: TestInbox.public func equals(other: TypedActorRef<T>): Bool
+cactor_testkit :: TestInbox.public func expectMessage(description: String, pred: (T)->Bool): T
+cactor_testkit :: TestInbox.public func expectNoMessage(): Unit
+cactor_testkit :: TestInbox.public func hasMessages(): Bool
+cactor_testkit :: TestInbox.public func pathString(): String
+cactor_testkit :: TestInbox.public func receiveAll(): Array<T>
+cactor_testkit :: TestInbox.public func receiveMessage(): T
+cactor_testkit :: TestInbox.public func size(): Int64
+cactor_testkit :: TestInbox.public func tell(message: T): Unit
+cactor_testkit :: TestInbox.public init(name: String)
+cactor_testkit :: TestKitAssertionException.public init(message: String)
+cactor_testkit :: TestProbe.public func expectMsg(): Message
+cactor_testkit :: TestProbe.public func expectMsg(timeout: Duration): Message
+cactor_testkit :: TestProbe.public func expectMsgType<T>(): T where T <: Message
+cactor_testkit :: TestProbe.public func expectMsgType<T>(timeout: Duration): T where T <: Message
+cactor_testkit :: TestProbe.public func expectNoMsg(duration: Duration): Unit
+cactor_testkit :: TestProbe.public func expectTerminated(target: ActorRef): Terminated
+cactor_testkit :: TestProbe.public func expectTerminated(target: ActorRef, timeout: Duration): Terminated
+cactor_testkit :: TestProbe.public func lastSender(): Option<ActorRef>
+cactor_testkit :: TestProbe.public func pending(): Int64
+cactor_testkit :: TestProbe.public func receiveN(n: Int64, timeout: Duration): Array<Message>
+cactor_testkit :: TestProbe.public func reply(message: Message): Unit
+cactor_testkit :: TestProbe.public func send(target: ActorRef, message: Message): Unit
+cactor_testkit :: TestProbe.public func watch(target: ActorRef): Unit
+cactor_testkit :: TestProbe.public init(system: CActorSystem, name: String)
+cactor_testkit :: TestProbe.public init(system: CActorSystem, name: String, autoReply: Option<(Message)->Option<Message>>)
+cactor_testkit :: TestProbe.public prop ref: ActorRef
+cactor_testkit :: TestProbe.public static let DEFAULT_TIMEOUT: Duration
+cactor_testkit :: TypedTestProbe.public func expectMsg(): T
+cactor_testkit :: TypedTestProbe.public func expectMsg(timeout: Duration): T
+cactor_testkit :: TypedTestProbe.public func expectNoMsg(duration: Duration): Unit
+cactor_testkit :: TypedTestProbe.public func fishForMessage(timeout: Duration, predicate: (T)->Bool): T
+cactor_testkit :: TypedTestProbe.public func send(target: TypedActorRef<T>, message: T): Unit
+cactor_testkit :: TypedTestProbe.public init(system: CActorSystem, name: String)
+cactor_testkit :: TypedTestProbe.public let ref: TypedActorRef<T>
+cactor_testkit :: extend T>TestInbox<T>where T.public func expectMessage(expected: T): Unit
+cactor_testkit :: extend<T>TestInbox<T>where T <: Equatable<T>
+cactor_testkit :: public class ActorTestKit
+cactor_testkit :: public class BehaviorTestKit<T>
+cactor_testkit :: public class CapturedLogEvent
+cactor_testkit :: public class EventRecorder
+cactor_testkit :: public class LoggingTestKit
+cactor_testkit :: public class ManualTask <: TypedCancellable
+cactor_testkit :: public class ManualTime
+cactor_testkit :: public class ProcessBarrier
+cactor_testkit :: public class ReceivedMessage
+cactor_testkit :: public class TestActorContext <: ActorContext
+cactor_testkit :: public class TestActorRef
+cactor_testkit :: public class TestActorRefFactory
+cactor_testkit :: public class TestAssertions
+cactor_testkit :: public class TestInbox<T> <: TypedActorRef<T>
+cactor_testkit :: public class TestKitAssertionException <: Exception
+cactor_testkit :: public class TestProbe
+cactor_testkit :: public class TypedTestProbe<T>where T <: Message
+cactor_testkit :: public enum Effect <: Equatable<Effect>& ToString
+cactor_testkit :: public enum TestExpectation<T>
+cactor_testkit :: public func awaitAssert(timeout: Duration, description: String, cond: ()->Bool): Unit
+cactor_testkit :: public func awaitCondition(timeout: Duration, cond: ()->Bool): Bool
+cactor_testkit :: public func expectMessage(probe: TestProbe, expected: Message, timeout: Duration): TestExpectation<Message>
+cactor_testkit :: public func expectNoMessage(probe: TestProbe, duration: Duration): TestExpectation<Unit>

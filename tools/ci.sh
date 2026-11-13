@@ -47,6 +47,10 @@ cjpm build
 step "模块分层检查"
 python3 tools/check_module_deps.py
 
+step "公开 API 快照检查（E51）"
+# 签名有未登记的变化即失败；有意修改时 python3 tools/api_snapshot.py --update 并在 CHANGELOG 记录
+python3 tools/api_snapshot.py
+
 step "宏公开面检查（A5）"
 bash tools/check_macro_surface.sh
 
