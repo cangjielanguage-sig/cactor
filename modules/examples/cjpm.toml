@@ -169,5 +169,8 @@ output-type = "executable"
 [package.package-configuration."cactor_examples.durable_reminder_demo"]
 output-type = "executable"
 
+[package.package-configuration."cactor_examples.llm_token_stream"]
+output-type = "executable"
+
 [package.package-configuration."cactor_examples.typed_persistence_demo"]
 output-type = "executable"
