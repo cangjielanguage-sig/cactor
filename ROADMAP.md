@@ -101,6 +101,7 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 
 - [x] 计划 v2.37（团队并行，DA3 / DA5 / DA6 记满，DA4 / E51 部分）：DA3 修复入站帧预算异常泄漏、帧体总读时限、只回收已隔离代的入站通道、压力矩阵；DA4 `Lease` + fencing token、`FileLease`、`FencedEventStore` / `FencedDurableStateStore`、单例可选租约（分片按分片租约未做）；DA5 DData 成员变化一致性矩阵 10 例并修复旧实例迟到确认；DA6 握手能力协商与混合版本矩阵 10 例；E51 公开 API 快照门禁。验收见实施计划第 39 批，进度 31/44 ≈ 70.45%、加权 70.5%。
 - [x] 计划 v2.38（团队并行）：E60 按 Reactive Streams 重写流（E48 随之记满，删除四套旧实现）；E61 类型化流式回复 StreamRef（跨节点信用背压，示例 llm_token_stream）；E52 可注入调度器，ManualTime 驱动真实系统；DA4 分片按分片租约与 fencing 接线、跨进程租约验证；DA8 负载敏感用例修复。验收见实施计划第 40 批，进度 33.5/44 ≈ 76.14%、加权 79.5%。
+- [x] 计划 v2.39：流的管道写法 `source |> via(flow) |> to(sink) |> run(system)`（自由函数管道段，左侧推断类型与 lambda 参数；与链式写法逐一等价；StreamPipeTest 6 例）。
 - [ ] 下一批：DA7 收尾（StreamRef ↔ fromPublisher、SinkRef、E61 HTTP/LLM mock 与多 Agent 编排）→ E30 / E51 余项（tag、semver）→ DA8（E50 流水线、混合版本长期验证）。
 - [ ] 计划 v2.36（DA3，部分）：已实现隔离记录数量预算，复用 withPeerLimit；满额重启准入拒绝，隔离溢出关闭后续身份准入，不驱逐历史，新增 isPeerAdmissionClosed；stop/start 与扩容不清除保护，须替换管理器恢复。新增两个回归，验证见实施计划第 38 批。通道安全回收、全节点字节及压力矩阵仍开放，进度 69.32%、加权 69.5%。
 - [ ] 计划 v2.35（DA3，部分）：已实现已知对端身份与出站握手挑战表预算，默认分别 4096，withPeerLimit 配置；并发准入、不驱逐旧身份、满额旧地址重启/旧 UID 拒绝、stop/start 保留及同锁缩容保护。验证见实施计划第 37 批。隔离表预算、安全回收、全节点字节及故障压力矩阵仍待完成；进度保持 69.32%、加权 69.5%。

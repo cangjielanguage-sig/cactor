@@ -181,6 +181,55 @@ cactor_streams :: public class UniqueKillSwitch <: KillSwitch
 cactor_streams :: public enum OverflowStrategy
 cactor_streams :: public enum QueueOfferResult
 cactor_streams :: public enum SupervisionDirective
+cactor_streams :: public func ask<A, Req, Res, M>(parallelism: Int64, target: TypedActorRef<Req>, createRequest: (A, TypedActorRef<Res>)->Req, timeout: Duration): (Source<A, M>)->Source<Res, M>
+cactor_streams :: public func ask<I, A, Req, Res, M>(parallelism: Int64, target: TypedActorRef<Req>, createRequest: (A, TypedActorRef<Res>)->Req, timeout: Duration): (Flow<I, A, M>)->Flow<I, Res, M>
+cactor_streams :: public func async<A, M>(): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func buffer<A, M>(size: Int64, strategy: OverflowStrategy): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func collect<A, B, M>(f: (A)->Option<B>): (Source<A, M>)->Source<B, M>
+cactor_streams :: public func collect<I, A, B, M>(f: (A)->Option<B>): (Flow<I, A, M>)->Flow<I, B, M>
+cactor_streams :: public func drop<A, M>(n: Int64): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func dropWhile<A, M>(p: (A)->Bool): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func dropWhile<I, A, M>(p: (A)->Bool): (Flow<I, A, M>)->Flow<I, A, M>
+cactor_streams :: public func filter<A, M>(p: (A)->Bool): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func filter<I, A, M>(p: (A)->Bool): (Flow<I, A, M>)->Flow<I, A, M>
+cactor_streams :: public func filterNot<A, M>(p: (A)->Bool): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func filterNot<I, A, M>(p: (A)->Bool): (Flow<I, A, M>)->Flow<I, A, M>
+cactor_streams :: public func flatMapConcat<A, B, M>(f: (A)->Source<B, Unit>): (Source<A, M>)->Source<B, M>
+cactor_streams :: public func flatMapConcat<I, A, B, M>(f: (A)->Source<B, Unit>): (Flow<I, A, M>)->Flow<I, B, M>
+cactor_streams :: public func fold<A, U, M>(zero: U, f: (U, A)->U): (Source<A, M>)->Source<U, M>
+cactor_streams :: public func fold<I, A, U, M>(zero: U, f: (U, A)->U): (Flow<I, A, M>)->Flow<I, U, M>
+cactor_streams :: public func grouped<A, M>(n: Int64): (Source<A, M>)->Source<Array<A>, M>
+cactor_streams :: public func map<A, B, M>(f: (A)->B): (Source<A, M>)->Source<B, M>
+cactor_streams :: public func map<I, A, B, M>(f: (A)->B): (Flow<I, A, M>)->Flow<I, B, M>
+cactor_streams :: public func mapAsync<A, B, M>(parallelism: Int64, f: (A)->TypedPromise<B>): (Source<A, M>)->Source<B, M>
+cactor_streams :: public func mapAsync<I, A, B, M>(parallelism: Int64, f: (A)->TypedPromise<B>): (Flow<I, A, M>)->Flow<I, B, M>
+cactor_streams :: public func mapAsyncUnordered<A, B, M>(parallelism: Int64, f: (A)->TypedPromise<B>): (Source<A, M>)->Source<B, M>
+cactor_streams :: public func mapAsyncUnordered<I, A, B, M>(parallelism: Int64, f: (A)->TypedPromise<B>): (Flow<I, A, M>)->Flow<I, B, M>
+cactor_streams :: public func mapConcat<A, B, M>(f: (A)->Iterable<B>): (Source<A, M>)->Source<B, M>
+cactor_streams :: public func mapConcat<I, A, B, M>(f: (A)->Iterable<B>): (Flow<I, A, M>)->Flow<I, B, M>
+cactor_streams :: public func recover<A, M>(f: (Exception)->Option<A>): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func recover<I, A, M>(f: (Exception)->Option<A>): (Flow<I, A, M>)->Flow<I, A, M>
+cactor_streams :: public func run<M>(materializer: Materializer): (RunnableGraph<M>)->M
+cactor_streams :: public func run<M>(system: CActorSystem): (RunnableGraph<M>)->M
+cactor_streams :: public func runFold<A, M, U>(system: CActorSystem, zero: U, f: (U, A)->U): (Source<A, M>)->TypedPromise<U>
+cactor_streams :: public func runForeach<A, M>(system: CActorSystem, f: (A)->Unit): (Source<A, M>)->TypedPromise<Unit>
+cactor_streams :: public func runWith<A, M, M2>(sink: Sink<A, M2>, materializer: Materializer): (Source<A, M>)->M2
+cactor_streams :: public func runWith<A, M, M2>(sink: Sink<A, M2>, system: CActorSystem): (Source<A, M>)->M2
+cactor_streams :: public func scan<A, U, M>(zero: U, f: (U, A)->U): (Source<A, M>)->Source<U, M>
+cactor_streams :: public func scan<I, A, U, M>(zero: U, f: (U, A)->U): (Flow<I, A, M>)->Flow<I, U, M>
+cactor_streams :: public func take<A, M>(n: Int64): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func takeWhile<A, M>(p: (A)->Bool): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func takeWhile<I, A, M>(p: (A)->Bool): (Flow<I, A, M>)->Flow<I, A, M>
+cactor_streams :: public func throttle<A, M>(elements: Int64, per: Duration): (Source<A, M>)->Source<A, M>
+cactor_streams :: public func to<A, M, M2>(sink: Sink<A, M2>): (Source<A, M>)->RunnableGraph<M>
+cactor_streams :: public func to<I, A, M, M2>(sink: Sink<A, M2>): (Flow<I, A, M>)->Sink<I, M>
+cactor_streams :: public func toMat<A, M, M2, M3>(sink: Sink<A, M2>, combine: (M, M2)->M3): (Source<A, M>)->RunnableGraph<M3>
+cactor_streams :: public func toMat<I, A, M, M2, M3>(sink: Sink<A, M2>, combine: (M, M2)->M3): (Flow<I, A, M>)->Sink<I, M3>
+cactor_streams :: public func via<A, B, M, M2>(flow: Flow<A, B, M2>): (Source<A, M>)->Source<B, M>
+cactor_streams :: public func via<I, A, B, M, M2>(flow: Flow<A, B, M2>): (Flow<I, A, M>)->Flow<I, B, M>
+cactor_streams :: public func viaMat<A, B, M, M2, M3>(flow: Flow<A, B, M2>, combine: (M, M2)->M3): (Source<A, M>)->Source<B, M3>
+cactor_streams :: public func viaMat<I, A, B, M, M2, M3>(flow: Flow<A, B, M2>, combine: (M, M2)->M3): (Flow<I, A, M>)->Flow<I, B, M3>
+cactor_streams :: public func withSupervision<A, M>(decider: Decider): (Source<A, M>)->Source<A, M>
 cactor_streams :: public interface Cancellable
 cactor_streams :: public interface KillSwitch
 cactor_streams :: public struct Flows

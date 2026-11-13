@@ -8,6 +8,7 @@
  *   4. Source.queue：从流外送入元素，溢出策略决定满时的行为
  *   5. kill switch：从流外结束一条无限流
  *   6. actorRefWithBackpressure：逐条确认地把元素交给 Actor
+ *   7. 管道写法：source |> filter { ... } |> via(flow) |> runWith(sink, system)，与链式写法等价
  *
  * 运行：cjpm build && CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.streams_demo
  */
@@ -125,6 +126,17 @@ main(): Int64 {
     }
     println("6. 账本合计 ${total.load()}，已关闭：${closed.load()}")
     ok = ok && total.load() == 5050 && closed.load()
+
+    // 7. 管道写法：每段都是"蓝图 → 蓝图"的函数，类型与 lambda 参数类型都由左侧推断
+    let label = Flows.create<Int64>() |> map { x => "#${x}" }
+    let piped = Sources.range(1, 10)
+        |> filter { x => x % 3 == 0 }
+        |> map { x => x * x }
+        |> via(label)
+        |> runWith(Sinks.seq<String>(), system)
+    let pipedResult = piped.get(3.seconds)
+    println("7. 管道写法：${pipedResult}")
+    ok = ok && pipedResult == ["#9", "#36", "#81"]
 
     system.terminate()
     println(if (ok) { "streams_demo：通过" } else { "streams_demo：失败" })

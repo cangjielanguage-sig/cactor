@@ -398,26 +398,32 @@ Actor 用 `@actor`，转换表直接喂给 xstate 的 `StateMachineBuilder`）�
 
 ---
 
-## 8. 背压流：`Source` / `Flow` / `Sink`（E60，对标 Akka Streams）
+## 8. 流 DSL：`source |> via(flow) |> to(sink) |> run(system)`（E60 背压流）
 
 ```cangjie
 import cactor_streams.*
 
-// 蓝图惰性、可重复运行；run(system) 物化后得到物化值（这里是结果的 Promise）
-let graph = Sources.range(1, 6)
-    .filter({ x => x % 2 == 0 })
-    .map<String>({ x => "值${x}" })
-    .toMat(Sinks.seq<String>(), { _, r => r })
-let result = graph.run(system).get(3.seconds)   // ["值2", "值4", "值6"]
+let toText = Flows.create<Int64>() |> map { x => "值${x}" }
+
+let result = Sources.range(1, 6)
+    |> filter { x => x % 2 == 0 }
+    |> via(toText)
+    |> runWith(Sinks.seq<String>(), system)       // TypedPromise<Array<String>>
+result.get(3.seconds)                              // ["值2", "值4", "值6"]
+
+let graph = Sources.range(1, 6) |> via(toText) |> to(Sinks.ignore<String>())
+graph |> run(system)                               // 蓝图惰性、可反复运行
 ```
 
-* 遵循 Reactive Streams：下游 `request(n)` 才发送，慢消费者面对无限流时内存有界；
-* 默认整张图在一个类型化 Actor 内融合执行，`.async()` 切出异步边界（按批请求，默认 16）；
-* 常用：`mapAsync` / `ask`（有界并行）、`Sources.queue` / `Sources.actorRef`、`Sinks.actorRefWithBackpressure`、
-  `KillSwitches`、流内监督 `withSupervision`；与外部 Reactive Streams 互通用 `Sources.fromPublisher` / `Sinks.asPublisher`。
-* 旧的 `StreamSource` / `StreamFlow` / `StreamSink` 与 `|> via / to / keep` 管道写法已在 v2.38 删除（见 CHANGELOG 破坏性变更）。
+* `|>` 是仓颉内建管道运算符（`a |> f` 即 `f(a)`，不可重载）。`via` / `to` / `map` / `filter` … 都是返回
+  "蓝图 → 蓝图"函数的自由函数，类型参数（含物化值类型）与尾随 lambda 的参数类型都由 `|>` 左侧推断；
+* 与链式写法逐一对应：`a |> f(参数)` ≡ `a.f(参数)`，物化值规则相同（`to` 保留左侧，`runWith` 返回汇的结果）；
+* 背后是 Reactive Streams 背压流：下游 `request(n)` 才发送，慢消费者面对无限流时内存有界；
+* 与 `std.collection` 的同名管道函数共存（按左侧类型区分），`[1, 2] |> map { ... } |> collectArray` 照常可用；
+* 已知限制：`take` / `drop` / `async` 等无泛型参数的管道段只用于 Source；cjc 1.2.0 下管道段参数里嵌套含 lambda 的调用会触发编译器内部错误，
+  先绑定到变量再接入（详见 `modules/streams/README.md`「管道写法」）。
 
-完整示例见 `modules/examples/src/streams_demo`，API 说明见 `modules/streams/README.md`。
+完整示例见 `modules/examples/src/streams_demo`（第 7 段为管道写法）。
 
 ---
 

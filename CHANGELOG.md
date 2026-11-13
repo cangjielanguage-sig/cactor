@@ -7,6 +7,12 @@
 
 ## [未发布]
 
+### ✨ 新增（计划 v2.39：流的管道写法）
+
+- `cactor_streams` 恢复管道写法：`source |> filter { x => ... } |> via(flow) |> to(sink) |> run(system)`。每个算子都有同名自由函数，返回"蓝图 → 蓝图"的管道段，类型参数（含物化值类型）与尾随 lambda 的参数类型由 `|>` 左侧推断；`a |> f(参数)` 与 `a.f(参数)` 完全等价（物化值规则相同）。
+- 管道段：`via` / `viaMat` / `to` / `toMat` / `run` / `runWith` / `runForeach` / `runFold`，`map` / `filter` / `filterNot` / `collect` / `mapConcat` / `takeWhile` / `dropWhile` / `scan` / `fold` / `mapAsync` / `mapAsyncUnordered` / `ask` / `recover` / `flatMapConcat`（Source 与 Flow 都可用），`take` / `drop` / `grouped` / `throttle` / `buffer` / `async` / `withSupervision`（只用于 Source，Flow 版与之参数相同会被判为重载冲突）。与 `std.collection` 的同名管道函数同时导入不冲突。
+- 已知限制：cjc 1.2.0 下 `|>` 右侧管道段的参数里嵌套含 lambda 的调用（如 `|> to(Sinks.foreach<Int64>({ x => ... }))`）会触发编译器内部错误，先绑定到变量再接入。`streams_demo` 新增第 7 段管道写法。
+
 ### 💥 破坏性变更（计划 v2.38：E60 流重写）
 
 - `cactor_streams` 按 Reactive Streams 重写：旧 API（`StreamSource` / `StreamFlow` / `StreamSink` / `SourceFactory` / `SinkFactory` / `StreamGraph`、管道 `via` / `to` / `keep`、`ReactiveSource` / `ReactiveSink` / `DemandBox` 等，以及子包 `cactor_streams.core` / `.dsl` / `.unified`）全部移除；改用 `Sources` / `Flows` / `Sinks` + `Source` / `Flow` / `Sink` / `RunnableGraph`，`run(system)` 物化。`cactor_streams.reactive` 只保留 `Publisher` / `Subscriber` / `Subscription` / `Processor` 接口。

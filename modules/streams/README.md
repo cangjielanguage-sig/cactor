@@ -47,6 +47,44 @@ ks.shutdown()
 
 完整示例：`modules/examples/src/streams_demo`。
 
+## 管道写法：`source |> via(flow) |> to(sink) |> run(system)`
+
+仓颉内建的 `|>` 把左侧的值交给右侧的函数（`a |> f` 等价于 `f(a)`）。本包为每个算子提供同名的自由函数，
+返回"蓝图 → 蓝图"的管道段，所以可以像 `std.collection` 的集合管道那样书写流：
+
+```cangjie
+let enrich = Flows.create<Int64>() |> map { x => "v${x}" }    // Flow 也能用管道拼
+
+let result = Sources.range(1, 100)
+    |> filter { x => x % 2 == 0 }                 // lambda 参数类型由左侧推断，不用写
+    |> mapAsync(4) { x => lookup(x) }
+    |> via(enrich)
+    |> runWith(Sinks.seq<String>(), system)       // 汇的物化值：结果 Promise
+
+let queue = Sources.queue<Int64>(8, OverflowStrategy.Backpressure)
+    |> map { x => x * 2 }
+    |> to(sink)                                   // to 保留左侧物化值（队列），与 .to 相同
+    |> run(system)
+```
+
+- **对应规则只有一条**：`a |> f(参数)` 与链式写法 `a.f(参数)` 完全等价，物化值的保留方式也相同
+  （`to` / `via` 保留左侧，`runWith` 返回汇的，`toMat` / `viaMat` 自定）。两种写法可以混用。
+- 管道段：`via`、`viaMat`、`to`、`toMat`、`run`、`runWith`、`runForeach`、`runFold`，以及 `map`、`filter`、
+  `filterNot`、`collect`、`mapConcat`、`takeWhile`、`dropWhile`、`scan`、`fold`、`mapAsync`、
+  `mapAsyncUnordered`、`ask`、`recover`、`flatMapConcat`（Source 与 Flow 都可用），
+  `take`、`drop`、`grouped`、`throttle`、`buffer`、`async`、`withSupervision`（只用于 Source）。
+- 与 `std.collection` 的同名管道函数（`map` / `filter` / `fold` / `take` …）同时导入不冲突：按 `|>` 左侧类型选中。
+- 为什么不用运算符重载（如 `source >> flow`）：仓颉不允许泛型运算符函数，而 `via` / `map` 必须引入新的类型参数。
+
+**已知限制（cjc 1.2.0）**
+
+- `take` 等参数里没有泛型类型的算子只有 Source 版：它的 Source 版与 Flow 版参数完全相同，仓颉判为重载冲突。
+  在 Flow 上用链式写法 `flow.take(n)`。
+- 编译器缺陷：`|>` 右侧的管道段**参数里嵌套含 lambda 的调用**时，cjc 报内部错误
+  （`semantic error … please report this to Cangjie team`），例如
+  `source |> to(Sinks.foreach<Int64>({ x => ... }))`。先把汇或 Flow 绑定到变量（`let sink = Sinks.foreach<Int64>({ x => ... })`，
+  再 `|> to(sink)`）即可；尾随 lambda（`|> map { x => ... }`）与直接作参数的 lambda（`|> toMat(sink, { _, r => r })`）不受影响。
+
 ## 执行模型
 
 - **阶段与连接**：每两个相邻阶段之间是一条连接，下游 `pull` 一次上游才能 `push` 一个元素，连接上最多 1 个在途元素。
