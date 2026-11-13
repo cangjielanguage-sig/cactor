@@ -1,414 +1,209 @@
 # CActor 公开 API 快照：modules/streams（tools/api_snapshot.py 生成，勿手改）
 # 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
-cactor_streams.core :: BackpressureController.public func clear(): Unit
-cactor_streams.core :: BackpressureController.public func getBackpressureStats(): (Int64, Int64, Bool, Int64)
-cactor_streams.core :: BackpressureController.public func getBufferSize(): Int64
-cactor_streams.core :: BackpressureController.public func isUnderBackpressure(): Bool
-cactor_streams.core :: BackpressureController.public func take(): Option<StreamElement>
-cactor_streams.core :: BackpressureController.public func tryAdd(element: StreamElement): Bool
-cactor_streams.core :: BackpressureController.public init(strategy: OverflowStrategy)
-cactor_streams.core :: BackpressureMessage.public func getDemand(): Demand
-cactor_streams.core :: BackpressureMessage.public func getSourceId(): String
-cactor_streams.core :: BackpressureMessage.public func getTargetId(): String
-cactor_streams.core :: BackpressureMessage.public func messageType(): String
-cactor_streams.core :: BackpressureMessage.public func toString(): String
-cactor_streams.core :: BackpressureMessage.public init(demand: Demand, targetId: String, sourceId: String)
-cactor_streams.core :: BackpressureStrategy.public func toString(): String
-cactor_streams.core :: BackpressureStrategy.| Block
-cactor_streams.core :: BackpressureStrategy.| Drop
-cactor_streams.core :: BackpressureStrategy.| DropBuffer
-cactor_streams.core :: BackpressureStrategy.| DropHead
-cactor_streams.core :: BackpressureStrategy.| DropTail
-cactor_streams.core :: BackpressureStrategy.| Fail
-cactor_streams.core :: BatchDataMessage.public func getBatchId(): String
-cactor_streams.core :: BatchDataMessage.public func getBatchSize(): Int64
-cactor_streams.core :: BatchDataMessage.public func getElements(): Array<StreamElement>
-cactor_streams.core :: BatchDataMessage.public func getSourceId(): String
-cactor_streams.core :: BatchDataMessage.public func messageType(): String
-cactor_streams.core :: BatchDataMessage.public func toString(): String
-cactor_streams.core :: BatchDataMessage.public init(elements: Array<StreamElement>, batchId: String, sourceId: String)
-cactor_streams.core :: Completion.| Failure(Exception)
-cactor_streams.core :: Completion.| Success
-cactor_streams.core :: Demand.public func add(other: Demand): Demand
-cactor_streams.core :: Demand.public func isEmpty(): Bool
-cactor_streams.core :: Demand.public func subtract(other: Demand): Demand
-cactor_streams.core :: Demand.public init(count: Int64)
-cactor_streams.core :: Demand.public let count: Int64
-cactor_streams.core :: Demand.public static func many(count: Int64): Demand
-cactor_streams.core :: Demand.public static func one(): Demand
-cactor_streams.core :: Materialized.func await(timeout: Duration): T
-cactor_streams.core :: Materialized.func getValue(): T
-cactor_streams.core :: Materialized.func isCompleted(): Bool
-cactor_streams.core :: Materialized.func onComplete(callback: (T)->Unit): Unit
-cactor_streams.core :: Materializer.func getActorSystem(): CActorSystem
-cactor_streams.core :: Materializer.func getSettings(): MaterializerSettings
-cactor_streams.core :: Materializer.func materialize<Mat>(graph: String): Materialized<Mat>
-cactor_streams.core :: Materializer.func shutdown(): Unit
-cactor_streams.core :: MaterializerSettings.public init()
-cactor_streams.core :: MaterializerSettings.public let autoFusing: Bool
-cactor_streams.core :: MaterializerSettings.public let fuzzingMode: Bool
-cactor_streams.core :: MaterializerSettings.public let initialInputBufferSize: Int32
-cactor_streams.core :: MaterializerSettings.public let maxFixedBufferSize: Int32
-cactor_streams.core :: MaterializerSettings.public let maxInputBufferSize: Int32
-cactor_streams.core :: MaterializerSettings.public let outputBurstLimit: Int32
-cactor_streams.core :: MaterializerSettings.public let subscriptionTimeoutSettings: SubscriptionTimeoutSettings
-cactor_streams.core :: MaterializerSettings.public let syncProcessingLimit: Int32
-cactor_streams.core :: NotUsed.public init()
-cactor_streams.core :: NotUsed.public static func getInstance(): NotUsed
-cactor_streams.core :: NumberStreamElement.public func getElementId(): String
-cactor_streams.core :: NumberStreamElement.public func getTimestamp(): DateTime
-cactor_streams.core :: NumberStreamElement.public func getValue(): Int64
-cactor_streams.core :: NumberStreamElement.public func serialize(): String
-cactor_streams.core :: NumberStreamElement.public func toString(): String
-cactor_streams.core :: NumberStreamElement.public init(elementId: String, value: Int64)
-cactor_streams.core :: OverflowStrategy.public init(strategy: BackpressureStrategy, bufferSize: Int32, maxWaitTime: Duration)
-cactor_streams.core :: OverflowStrategy.public let bufferSize: Int32
-cactor_streams.core :: OverflowStrategy.public let maxWaitTime: Duration
-cactor_streams.core :: OverflowStrategy.public let strategy: BackpressureStrategy
-cactor_streams.core :: OverflowStrategy.public static func dropHead(bufferSize: Int32): OverflowStrategy
-cactor_streams.core :: OverflowStrategy.public static func dropTail(bufferSize: Int32): OverflowStrategy
-cactor_streams.core :: OverflowStrategy.public static func fail(): OverflowStrategy
-cactor_streams.core :: SimpleSink.public func getSinkId(): String
-cactor_streams.core :: SimpleSink.public func process(elements: Array<T>): R
-cactor_streams.core :: SimpleSink.public init(processor: (Array<T>)->R, sinkId: String)
-cactor_streams.core :: SimpleSource.public func filter(predicate: (T)->Bool): SimpleSource<T>
-cactor_streams.core :: SimpleSource.public func getElements(): Array<T>
-cactor_streams.core :: SimpleSource.public func getSourceId(): String
-cactor_streams.core :: SimpleSource.public func map<U>(transform: (T)->U): SimpleSource<U>
-cactor_streams.core :: SimpleSource.public func size(): Int64
-cactor_streams.core :: SimpleSource.public func take(n: Int64): SimpleSource<T>
-cactor_streams.core :: SimpleSource.public func to<U>(sink: SimpleSink<T, U>): SimpleStream<T, U>
-cactor_streams.core :: SimpleSource.public init(elements: Array<T>, sourceId: String)
-cactor_streams.core :: SimpleStream.public func getSink(): SimpleSink<T, R>
-cactor_streams.core :: SimpleStream.public func getSource(): SimpleSource<T>
-cactor_streams.core :: SimpleStream.public func run(): StreamResult<R>
-cactor_streams.core :: SimpleStream.public func runAsync(): Future<StreamResult<R>>
-cactor_streams.core :: SimpleStream.public func runAsync(actorSystem: CActorSystem): StreamResult<R>
-cactor_streams.core :: SimpleStream.public init(source: SimpleSource<T>, sink: SimpleSink<T, R>)
-cactor_streams.core :: SimpleStreamActor.public func getResult(): Option<R>
-cactor_streams.core :: SimpleStreamActor.public func receive(message: Message, context: ActorContext): MessageResult
-cactor_streams.core :: SimpleStreamActor.public init(source: SimpleSource<T>, sink: SimpleSink<T, R>)
-cactor_streams.core :: SimpleStreamActor.public prop description: String
-cactor_streams.core :: SimpleStreamActor.public prop name: String
-cactor_streams.core :: SimpleStreamElement.public func getData(): String
-cactor_streams.core :: SimpleStreamElement.public func getElementId(): String
-cactor_streams.core :: SimpleStreamElement.public func getTimestamp(): DateTime
-cactor_streams.core :: SimpleStreamElement.public func serialize(): String
-cactor_streams.core :: SimpleStreamElement.public func toString(): String
-cactor_streams.core :: SimpleStreamElement.public init(elementId: String, data: String)
-cactor_streams.core :: SimpleStreamMonitor.public func getStats(): StreamStats
-cactor_streams.core :: SimpleStreamMonitor.public func recordBackpressureEvent(): Unit
-cactor_streams.core :: SimpleStreamMonitor.public func recordElementDropped(): Unit
-cactor_streams.core :: SimpleStreamMonitor.public func recordElementProcessed(processingTime: Duration): Unit
-cactor_streams.core :: SimpleStreamMonitor.public func recordError(error: Exception): Unit
-cactor_streams.core :: SimpleStreamMonitor.public func reset(): Unit
-cactor_streams.core :: SimpleStreamMonitor.public init()
-cactor_streams.core :: StreamBuilder.public func filter(predicate: (T)->Bool): StreamBuilder<T>
-cactor_streams.core :: StreamBuilder.public func from(source: SimpleSource<T>): StreamBuilder<T>
-cactor_streams.core :: StreamBuilder.public func getSource(): Option<SimpleSource<T>>
-cactor_streams.core :: StreamBuilder.public func map<U>(transform: (T)->U): StreamBuilder<U>
-cactor_streams.core :: StreamBuilder.public func take(n: Int64): StreamBuilder<T>
-cactor_streams.core :: StreamBuilder.public func to<R>(sink: SimpleSink<T, R>): SimpleStream<T, R>
-cactor_streams.core :: StreamBuilder.public init()
-cactor_streams.core :: StreamCancelMessage.public func getReason(): String
-cactor_streams.core :: StreamCancelMessage.public func getStreamId(): String
-cactor_streams.core :: StreamCancelMessage.public func messageType(): String
-cactor_streams.core :: StreamCancelMessage.public func toString(): String
-cactor_streams.core :: StreamCancelMessage.public init(streamId: String, reason: String)
-cactor_streams.core :: StreamCompleteMessage.public func getSourceId(): String
-cactor_streams.core :: StreamCompleteMessage.public func getTotalElements(): Int64
-cactor_streams.core :: StreamCompleteMessage.public func messageType(): String
-cactor_streams.core :: StreamCompleteMessage.public func toString(): String
-cactor_streams.core :: StreamCompleteMessage.public init(sourceId: String, totalElements: Int64)
-cactor_streams.core :: StreamConfigMessage.public func getBufferSize(): Int32
-cactor_streams.core :: StreamConfigMessage.public func getOverflowStrategy(): OverflowStrategy
-cactor_streams.core :: StreamConfigMessage.public func getStreamId(): String
-cactor_streams.core :: StreamConfigMessage.public func messageType(): String
-cactor_streams.core :: StreamConfigMessage.public func toString(): String
-cactor_streams.core :: StreamConfigMessage.public init(streamId: String, bufferSize: Int32, overflowStrategy: OverflowStrategy)
-cactor_streams.core :: StreamDataMessage.public func getData(): StreamElement
-cactor_streams.core :: StreamDataMessage.public func getSequenceNumber(): Int64
-cactor_streams.core :: StreamDataMessage.public func getSourceId(): String
-cactor_streams.core :: StreamDataMessage.public func messageType(): String
-cactor_streams.core :: StreamDataMessage.public func toString(): String
-cactor_streams.core :: StreamDataMessage.public init(data: StreamElement, sequenceNumber: Int64, sourceId: String)
-cactor_streams.core :: StreamElement.func getElementId(): String
-cactor_streams.core :: StreamElement.func getTimestamp(): DateTime
-cactor_streams.core :: StreamElement.func serialize(): String
-cactor_streams.core :: StreamErrorMessage.public func getError(): Exception
-cactor_streams.core :: StreamErrorMessage.public func getFailedElement(): Option<StreamElement>
-cactor_streams.core :: StreamErrorMessage.public func getSourceId(): String
-cactor_streams.core :: StreamErrorMessage.public func messageType(): String
-cactor_streams.core :: StreamErrorMessage.public func toString(): String
-cactor_streams.core :: StreamErrorMessage.public init(error: Exception, sourceId: String, failedElement: Option<StreamElement>)
-cactor_streams.core :: StreamFactory.public static func collect<T>(): SimpleSink<T, Array<T>>
-cactor_streams.core :: StreamFactory.public static func count<T>(): SimpleSink<T, Int64>
-cactor_streams.core :: StreamFactory.public static func fold<T, R>(zero: R, combine: (R, T)->R): SimpleSink<T, R>
-cactor_streams.core :: StreamFactory.public static func foreach<T>(action: (T)->Unit): SimpleSink<T, Int64>
-cactor_streams.core :: StreamFactory.public static func fromArray<T>(elements: Array<T>): SimpleSource<T>
-cactor_streams.core :: StreamFactory.public static func range(start: Int64, end: Int64): SimpleSource<Int64>
-cactor_streams.core :: StreamInitMessage.public func getSettings(): MaterializerSettings
-cactor_streams.core :: StreamInitMessage.public func getStreamId(): String
-cactor_streams.core :: StreamInitMessage.public func messageType(): String
-cactor_streams.core :: StreamInitMessage.public func toString(): String
-cactor_streams.core :: StreamInitMessage.public init(streamId: String, settings: MaterializerSettings)
-cactor_streams.core :: StreamMessageFactory.public func createBackpressureMessage(demand: Demand, targetId: String, sourceId: String): BackpressureMessage
-cactor_streams.core :: StreamMessageFactory.public func createBatchMessage(elements: Array<StreamElement>, sourceId: String): BatchDataMessage
-cactor_streams.core :: StreamMessageFactory.public func createCompleteMessage(sourceId: String, totalElements: Int64): StreamCompleteMessage
-cactor_streams.core :: StreamMessageFactory.public func createDataMessage(data: StreamElement, sourceId: String): StreamDataMessage
-cactor_streams.core :: StreamMessageFactory.public func createErrorMessage(error: Exception, sourceId: String, failedElement: Option<StreamElement>): StreamErrorMessage
-cactor_streams.core :: StreamMessageFactory.public func createNumberElement(value: Int64): NumberStreamElement
-cactor_streams.core :: StreamMessageFactory.public func createSimpleElement(data: String): SimpleStreamElement
-cactor_streams.core :: StreamMessageFactory.public func reset(): Unit
-cactor_streams.core :: StreamMessageFactory.public init()
-cactor_streams.core :: StreamMonitor.func getStats(): StreamStats
-cactor_streams.core :: StreamMonitor.func recordBackpressureEvent(): Unit
-cactor_streams.core :: StreamMonitor.func recordElementDropped(): Unit
-cactor_streams.core :: StreamMonitor.func recordElementProcessed(processingTime: Duration): Unit
-cactor_streams.core :: StreamMonitor.func recordError(error: Exception): Unit
-cactor_streams.core :: StreamMonitor.func reset(): Unit
-cactor_streams.core :: StreamResult.| Empty
-cactor_streams.core :: StreamResult.| Failure(Exception)
-cactor_streams.core :: StreamResult.| Success(T)
-cactor_streams.core :: StreamStage.func canAcceptMore(): Bool
-cactor_streams.core :: StreamStage.func getStageName(): String
-cactor_streams.core :: StreamStage.func onComplete(): Unit
-cactor_streams.core :: StreamStage.func onError(error: Exception): Unit
-cactor_streams.core :: StreamStage.func process(input: In): Array<Out>
-cactor_streams.core :: StreamStats.public func toString(): String
-cactor_streams.core :: StreamStats.public init()
-cactor_streams.core :: StreamStats.public init(elementsProcessed: Int64, elementsDropped: Int64, averageProcessingTime: Duration, maxProcessingTime: Duration, minProcessingTime: Duration, throughputPerSecond: Float64, backpressureEvents: Int64, errorCount: Int64)
-cactor_streams.core :: StreamStats.public let averageProcessingTime: Duration
-cactor_streams.core :: StreamStats.public let backpressureEvents: Int64
-cactor_streams.core :: StreamStats.public let elementsDropped: Int64
-cactor_streams.core :: StreamStats.public let elementsProcessed: Int64
-cactor_streams.core :: StreamStats.public let errorCount: Int64
-cactor_streams.core :: StreamStats.public let maxProcessingTime: Duration
-cactor_streams.core :: StreamStats.public let minProcessingTime: Duration
-cactor_streams.core :: StreamStats.public let throughputPerSecond: Float64
-cactor_streams.core :: StreamStatusMessage.public func getStreamId(): String
-cactor_streams.core :: StreamStatusMessage.public func messageType(): String
-cactor_streams.core :: StreamStatusMessage.public func toString(): String
-cactor_streams.core :: StreamStatusMessage.public init(streamId: String)
-cactor_streams.core :: StreamStatusResponse.public func getIsRunning(): Bool
-cactor_streams.core :: StreamStatusResponse.public func getStats(): StreamStats
-cactor_streams.core :: StreamStatusResponse.public func getStreamId(): String
-cactor_streams.core :: StreamStatusResponse.public func messageType(): String
-cactor_streams.core :: StreamStatusResponse.public func toString(): String
-cactor_streams.core :: StreamStatusResponse.public init(streamId: String, isRunning: Bool, stats: StreamStats)
-cactor_streams.core :: SubscriptionTimeoutSettings.public init()
-cactor_streams.core :: SubscriptionTimeoutSettings.public let mode: TimeoutMode
-cactor_streams.core :: SubscriptionTimeoutSettings.public let timeout: Duration
-cactor_streams.core :: TimeoutMode.| Cancel
-cactor_streams.core :: TimeoutMode.| NoTimeout
-cactor_streams.core :: TimeoutMode.| Warn
-cactor_streams.core :: public class BackpressureController
-cactor_streams.core :: public class BackpressureMessage <: Message
-cactor_streams.core :: public class BatchDataMessage <: Message
-cactor_streams.core :: public class NumberStreamElement <: StreamElement
-cactor_streams.core :: public class SimpleSink<T, R>
-cactor_streams.core :: public class SimpleSource<T>
-cactor_streams.core :: public class SimpleStream<T, R>
-cactor_streams.core :: public class SimpleStreamActor<T, R> <: Actor
-cactor_streams.core :: public class SimpleStreamElement <: StreamElement
-cactor_streams.core :: public class SimpleStreamMonitor <: StreamMonitor
-cactor_streams.core :: public class StreamBuilder<T>
-cactor_streams.core :: public class StreamCancelMessage <: Message
-cactor_streams.core :: public class StreamCompleteMessage <: Message
-cactor_streams.core :: public class StreamConfigMessage <: Message
-cactor_streams.core :: public class StreamDataMessage <: Message
-cactor_streams.core :: public class StreamErrorMessage <: Message
-cactor_streams.core :: public class StreamFactory
-cactor_streams.core :: public class StreamInitMessage <: Message
-cactor_streams.core :: public class StreamMessageFactory
-cactor_streams.core :: public class StreamStatusMessage <: Message
-cactor_streams.core :: public class StreamStatusResponse <: Message
-cactor_streams.core :: public enum BackpressureStrategy <: ToString
-cactor_streams.core :: public enum Completion
-cactor_streams.core :: public enum StreamResult<T>
-cactor_streams.core :: public enum TimeoutMode
-cactor_streams.core :: public interface Materialized<T>
-cactor_streams.core :: public interface Materializer
-cactor_streams.core :: public interface StreamElement
-cactor_streams.core :: public interface StreamMonitor
-cactor_streams.core :: public interface StreamStage<In, Out>
-cactor_streams.core :: public struct Demand
-cactor_streams.core :: public struct MaterializerSettings
-cactor_streams.core :: public struct NotUsed
-cactor_streams.core :: public struct OverflowStrategy
-cactor_streams.core :: public struct StreamStats
-cactor_streams.core :: public struct SubscriptionTimeoutSettings
-cactor_streams.dsl :: AdvancedFlowFactory.public static func buffer<T>(source: StreamSource<T>, size: Int64, overflowStrategy: String): StreamSource<Array<T>>
-cactor_streams.dsl :: AdvancedFlowFactory.public static func concat<T>(sources: Array<StreamSource<T>>): StreamSource<T>
-cactor_streams.dsl :: AdvancedFlowFactory.public static func delay<T>(source: StreamSource<T>, delayMs: Int64): StreamSource<T>
-cactor_streams.dsl :: AdvancedFlowFactory.public static func groupedWithin<T>(source: StreamSource<T>, maxElements: Int64, predicate: (T)->Bool): StreamSource<Array<T>>
-cactor_streams.dsl :: AdvancedFlowFactory.public static func interleave<T>(source1: StreamSource<T>, source2: StreamSource<T>): StreamSource<T>
-cactor_streams.dsl :: AdvancedFlowFactory.public static func merge<T>(sources: Array<StreamSource<T>>): StreamSource<T>
-cactor_streams.dsl :: AdvancedFlowFactory.public static func partition<T>(source: StreamSource<T>, predicate: (T)->Bool): (StreamSource<T>, StreamSource<T>)
-cactor_streams.dsl :: AdvancedFlowFactory.public static func throttle<T>(source: StreamSource<T>, elementsPerSecond: Int64): StreamSource<T>
-cactor_streams.dsl :: AdvancedFlowFactory.public static func zip<T, U>(source1: StreamSource<T>, source2: StreamSource<U>): StreamSource<(T, U)>
-cactor_streams.dsl :: FlowFactory.public static func batch<T>(batchSize: Int64): StreamFlow<T, Array<T>>
-cactor_streams.dsl :: FlowFactory.public static func distinct<T>(): StreamFlow<T, T>where T <: Hashable & Equatable<T>
-cactor_streams.dsl :: FlowFactory.public static func drop<T>(count: Int64): StreamFlow<T, T>
-cactor_streams.dsl :: FlowFactory.public static func filter<T>(predicate: (T)->Bool): StreamFlow<T, T>
-cactor_streams.dsl :: FlowFactory.public static func flatMap<T, U>(mapper: (T)->Array<U>): StreamFlow<T, U>
-cactor_streams.dsl :: FlowFactory.public static func fold<T, U>(zero: U, folder: (U, T)->U): StreamFlow<T, U>
-cactor_streams.dsl :: FlowFactory.public static func groupByString<T>(keyExtractor: (T)->String): StreamFlow<T, (String, Array<T>)>
-cactor_streams.dsl :: FlowFactory.public static func identity<T>(): StreamFlow<T, T>
-cactor_streams.dsl :: FlowFactory.public static func map<T, U>(mapper: (T)->U): StreamFlow<T, U>
-cactor_streams.dsl :: FlowFactory.public static func reduce<T>(reducer: (T, T)->T): StreamFlow<T, Option<T>>
-cactor_streams.dsl :: FlowFactory.public static func scan<T, U>(zero: U, scanner: (U, T)->U): StreamFlow<T, U>
-cactor_streams.dsl :: FlowFactory.public static func slidingWindow<T>(windowSize: Int64, step: Int64): StreamFlow<T, Array<T>>
-cactor_streams.dsl :: FlowFactory.public static func take<T>(count: Int64): StreamFlow<T, T>
-cactor_streams.dsl :: SimpleMaterializer.public func getActorSystem(): CActorSystem
-cactor_streams.dsl :: SimpleMaterializer.public func getSettings(): MaterializerSettings
-cactor_streams.dsl :: SimpleMaterializer.public func isShutdown(): Bool
-cactor_streams.dsl :: SimpleMaterializer.public func materializeAndRun<T, R>(graph: StreamGraph<T, R>): R
-cactor_streams.dsl :: SimpleMaterializer.public func shutdown(): Unit
-cactor_streams.dsl :: SimpleMaterializer.public init(actorSystem: CActorSystem)
-cactor_streams.dsl :: SinkFactory.public static func collect<T>(): StreamSink<T, Array<T>>
-cactor_streams.dsl :: SinkFactory.public static func count<T>(): StreamSink<T, Int64>
-cactor_streams.dsl :: SinkFactory.public static func fold<T, R>(zero: R, folder: (R, T)->R): StreamSink<T, R>
-cactor_streams.dsl :: SinkFactory.public static func foreach<T>(action: (T)->Unit): StreamSink<T, Int64>
-cactor_streams.dsl :: SinkFactory.public static func head<T>(): StreamSink<T, Option<T>>
-cactor_streams.dsl :: SinkFactory.public static func last<T>(): StreamSink<T, Option<T>>
-cactor_streams.dsl :: SourceFactory.public static func empty<T>(): StreamSource<T>
-cactor_streams.dsl :: SourceFactory.public static func fromArray<T>(elements: Array<T>): StreamSource<T>
-cactor_streams.dsl :: SourceFactory.public static func range(start: Int64, end: Int64): StreamSource<Int64>
-cactor_streams.dsl :: SourceFactory.public static func repeat<T>(element: T, times: Int64): StreamSource<T>
-cactor_streams.dsl :: SourceFactory.public static func single<T>(element: T): StreamSource<T>
-cactor_streams.dsl :: StreamFlow.public func apply(source: StreamSource<In>): StreamSource<Out>
-cactor_streams.dsl :: StreamFlow.public func filter(predicate: (Out)->Bool): StreamFlow<In, Out>
-cactor_streams.dsl :: StreamFlow.public func getFlowId(): String
-cactor_streams.dsl :: StreamFlow.public func map<U>(mapper: (Out)->U): StreamFlow<In, U>
-cactor_streams.dsl :: StreamFlow.public init(transform: (Array<In>)->Array<Out>, flowId: String)
-cactor_streams.dsl :: StreamGraph.public func getGraphId(): String
-cactor_streams.dsl :: StreamGraph.public func getSink(): StreamSink<T, R>
-cactor_streams.dsl :: StreamGraph.public func getSource(): StreamSource<T>
-cactor_streams.dsl :: StreamGraph.public func map<R2>(mapper: (R)->R2): StreamGraph<T, R2>
-cactor_streams.dsl :: StreamGraph.public func run(): R
-cactor_streams.dsl :: StreamGraph.public func runWith(materializer: Materializer): R
-cactor_streams.dsl :: StreamGraph.public init(source: StreamSource<T>, sink: StreamSink<T, R>)
-cactor_streams.dsl :: StreamProcessingException.public init(message: String)
-cactor_streams.dsl :: StreamProcessingException.public init(message: String, cause: Exception)
-cactor_streams.dsl :: StreamSink.public func consume(source: StreamSource<T>): R
-cactor_streams.dsl :: StreamSink.public func contramap<U>(mapper: (U)->T): StreamSink<U, R>
-cactor_streams.dsl :: StreamSink.public func getSinkId(): String
-cactor_streams.dsl :: StreamSink.public func process(elements: Array<T>): R
-cactor_streams.dsl :: StreamSink.public init(processor: (Array<T>)->R, sinkId: String)
-cactor_streams.dsl :: StreamSource.public func drop(count: Int64): StreamSource<T>
-cactor_streams.dsl :: StreamSource.public func filter(predicate: (T)->Bool): StreamSource<T>
-cactor_streams.dsl :: StreamSource.public func flatMap<U>(mapper: (T)->Array<U>): StreamSource<U>
-cactor_streams.dsl :: StreamSource.public func fold<U>(zero: U, folder: (U, T)->U): StreamSource<U>
-cactor_streams.dsl :: StreamSource.public func getElements(): Array<T>
-cactor_streams.dsl :: StreamSource.public func getSourceId(): String
-cactor_streams.dsl :: StreamSource.public func isEmpty(): Bool
-cactor_streams.dsl :: StreamSource.public func map<U>(mapper: (T)->U): StreamSource<U>
-cactor_streams.dsl :: StreamSource.public func runWith<R>(sink: StreamSink<T, R>): R
-cactor_streams.dsl :: StreamSource.public func runWithMaterializer<R>(sink: StreamSink<T, R>, materializer: SimpleMaterializer): R
-cactor_streams.dsl :: StreamSource.public func scan<U>(zero: U, scanner: (U, T)->U): StreamSource<U>
-cactor_streams.dsl :: StreamSource.public func size(): Int64
-cactor_streams.dsl :: StreamSource.public func take(count: Int64): StreamSource<T>
-cactor_streams.dsl :: StreamSource.public func to<R>(sink: StreamSink<T, R>): StreamGraph<T, R>
-cactor_streams.dsl :: StreamSource.public func via<U>(flow: StreamFlow<T, U>): StreamSource<U>
-cactor_streams.dsl :: StreamSource.public init(elements: Array<T>, sourceId: String)
-cactor_streams.dsl :: StreamValidationException.public init(message: String)
-cactor_streams.dsl :: extend T>StreamSource<T>where T.public func distinct(): StreamSource<T>
-cactor_streams.dsl :: extend<T>StreamSource<T>where T <: Hashable & Equatable<T>
-cactor_streams.dsl :: public class AdvancedFlowFactory
-cactor_streams.dsl :: public class FlowFactory
-cactor_streams.dsl :: public class SimpleMaterializer
-cactor_streams.dsl :: public class SinkFactory
-cactor_streams.dsl :: public class SourceFactory
-cactor_streams.dsl :: public class StreamFlow<In, Out>
-cactor_streams.dsl :: public class StreamGraph<T, R>
-cactor_streams.dsl :: public class StreamProcessingException <: Exception
-cactor_streams.dsl :: public class StreamSink<T, R>
-cactor_streams.dsl :: public class StreamSource<T>
-cactor_streams.dsl :: public class StreamValidationException <: Exception
-cactor_streams.dsl :: public func keep<T>(predicate: (T)->Bool): StreamFlow<T, T>
-cactor_streams.dsl :: public func to<T, R>(sink: StreamSink<T, R>): (StreamSource<T>)->R
-cactor_streams.dsl :: public func via<T, U>(flow: StreamFlow<T, U>): (StreamSource<T>)->StreamSource<U>
-cactor_streams.reactive :: Completed.public func messageType(): String
-cactor_streams.reactive :: DemandBox.public func acquire(timeout: Duration): Bool
-cactor_streams.reactive :: DemandBox.public func close(): Unit
-cactor_streams.reactive :: DemandBox.public func deliver(message: Message): Unit
-cactor_streams.reactive :: DemandBox.public func forwardTo(f: (Message)->Unit): Unit
-cactor_streams.reactive :: DemandBox.public func outstandingDemand(): Int64
-cactor_streams.reactive :: DemandBox.public func pending(): Int64
-cactor_streams.reactive :: DemandBox.public func poll(): Option<Message>
-cactor_streams.reactive :: DemandBox.public func request(n: Int64): Unit
-cactor_streams.reactive :: DemandBox.public func send(message: Message, timeout: Duration): Bool
-cactor_streams.reactive :: DemandBox.public func take(timeout: Duration): Option<Message>
-cactor_streams.reactive :: DemandBox.public init()
-cactor_streams.reactive :: Failed.public func messageType(): String
-cactor_streams.reactive :: Failed.public init(cause: String)
-cactor_streams.reactive :: Failed.public let cause: String
-cactor_streams.reactive :: Next.public func messageType(): String
-cactor_streams.reactive :: Next.public init(value: String)
-cactor_streams.reactive :: Next.public let value: String
-cactor_streams.reactive :: ProcessorActor.public init(transform: (String)->String, sink: ReactiveSink)
-cactor_streams.reactive :: ReactiveRun.public func isSuccess(): Bool
-cactor_streams.reactive :: ReactiveRun.public let collected: Array<String>
-cactor_streams.reactive :: ReactiveRun.public let completed: Bool
-cactor_streams.reactive :: ReactiveRun.public let error: ?String
-cactor_streams.reactive :: ReactiveSink.public func accept(signal: Message): Unit
-cactor_streams.reactive :: ReactiveSink.public func attachUpstream(box: DemandBox): Unit
-cactor_streams.reactive :: ReactiveSink.public func awaitCount(n: Int64, timeout: Duration): Bool
-cactor_streams.reactive :: ReactiveSink.public func collected(): Array<String>
-cactor_streams.reactive :: ReactiveSink.public func errorMessage(): ?String
-cactor_streams.reactive :: ReactiveSink.public func isCompleted(): Bool
-cactor_streams.reactive :: ReactiveSink.public func isTerminated(): Bool
-cactor_streams.reactive :: ReactiveSink.public func outstandingDemand(): Int64
-cactor_streams.reactive :: ReactiveSink.public func request(n: Int64): Unit
-cactor_streams.reactive :: ReactiveSink.public init()
-cactor_streams.reactive :: ReactiveSource.public func publishTo(downstream: DemandBox, timeout: Duration): Int64
-cactor_streams.reactive :: ReactiveSource.public func remaining(): Int64
-cactor_streams.reactive :: ReactiveSource.public init(values: Array<String>)
-cactor_streams.reactive :: public class Completed <: Message
-cactor_streams.reactive :: public class DemandBox
-cactor_streams.reactive :: public class Failed <: Message
-cactor_streams.reactive :: public class Next <: Message
-cactor_streams.reactive :: public class ProcessorActor <: Actor
-cactor_streams.reactive :: public class ReactiveRun
-cactor_streams.reactive :: public class ReactiveSink
-cactor_streams.reactive :: public class ReactiveSource
-cactor_streams.reactive :: public func runStream(values: Array<String>, timeout: Duration, transform: (String)->String): ReactiveRun
-cactor_streams.reactive :: public func runVia(source: ReactiveSource, processor: ActorRef, sink: ReactiveSink, timeout: Duration): ReactiveRun
-cactor_streams.unified :: FilterProcessor.public func getName(): String
-cactor_streams.unified :: FilterProcessor.public func process(element: StreamElement): Option<StreamElement>
-cactor_streams.unified :: FilterProcessor.public init(name: String, predicate: (String)->Bool)
-cactor_streams.unified :: MapProcessor.public func getName(): String
-cactor_streams.unified :: MapProcessor.public func process(element: StreamElement): Option<StreamElement>
-cactor_streams.unified :: MapProcessor.public init(name: String, transform: (String)->String)
-cactor_streams.unified :: SimpleStreamElement.public func getTimestamp(): Int64
-cactor_streams.unified :: SimpleStreamElement.public func getValue(): String
-cactor_streams.unified :: SimpleStreamElement.public init(value: String)
-cactor_streams.unified :: StreamBuilder.public func build(): UnifiedStreamPipeline
-cactor_streams.unified :: StreamBuilder.public func filter(name: String, predicate: (String)->Bool): StreamBuilder
-cactor_streams.unified :: StreamBuilder.public func map(name: String, transform: (String)->String): StreamBuilder
-cactor_streams.unified :: StreamBuilder.public init(name: String)
-cactor_streams.unified :: StreamElement.func getTimestamp(): Int64
-cactor_streams.unified :: StreamElement.func getValue(): String
-cactor_streams.unified :: StreamProcessor.func getName(): String
-cactor_streams.unified :: StreamProcessor.func process(element: StreamElement): Option<StreamElement>
-cactor_streams.unified :: UnifiedStreamManager.public func getAllPipelines(): ArrayList<String>
-cactor_streams.unified :: UnifiedStreamManager.public func getPipeline(name: String): Option<UnifiedStreamPipeline>
-cactor_streams.unified :: UnifiedStreamManager.public func getStats(): String
-cactor_streams.unified :: UnifiedStreamManager.public func registerPipeline(name: String, pipeline: UnifiedStreamPipeline): Unit
-cactor_streams.unified :: UnifiedStreamManager.public static func getInstance(): UnifiedStreamManager
-cactor_streams.unified :: UnifiedStreamPipeline.public func addProcessor(processor: StreamProcessor): UnifiedStreamPipeline
-cactor_streams.unified :: UnifiedStreamPipeline.public func getName(): String
-cactor_streams.unified :: UnifiedStreamPipeline.public func getProcessedCount(): Int64
-cactor_streams.unified :: UnifiedStreamPipeline.public func getProcessorCount(): Int64
-cactor_streams.unified :: UnifiedStreamPipeline.public func process(element: StreamElement): Option<StreamElement>
-cactor_streams.unified :: UnifiedStreamPipeline.public func processAll(elements: ArrayList<StreamElement>): ArrayList<StreamElement>
-cactor_streams.unified :: UnifiedStreamPipeline.public init(name: String)
-cactor_streams.unified :: public class FilterProcessor <: StreamProcessor
-cactor_streams.unified :: public class MapProcessor <: StreamProcessor
-cactor_streams.unified :: public class StreamBuilder
-cactor_streams.unified :: public class UnifiedStreamManager
-cactor_streams.unified :: public class UnifiedStreamPipeline
-cactor_streams.unified :: public interface StreamElement
-cactor_streams.unified :: public interface StreamProcessor
-cactor_streams.unified :: public struct SimpleStreamElement <: StreamElement
+cactor_streams :: AbruptStageTerminationException.public init(message: String)
+cactor_streams :: BufferOverflowException.public init(message: String)
+cactor_streams :: Cancellable.func cancel(): Bool
+cactor_streams :: Cancellable.func isCancelled(): Bool
+cactor_streams :: EmptyStreamException.public init(message: String)
+cactor_streams :: Flow.public func ask<Req, Res>(parallelism: Int64, target: TypedActorRef<Req>, createRequest: (Out, TypedActorRef<Res>)->Req, timeout: Duration): Flow<In, Res, Mat>
+cactor_streams :: Flow.public func async(): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func async(bufferSize: Int64): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func buffer(size: Int64, strategy: OverflowStrategy): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func collect<U>(f: (Out)->Option<U>): Flow<In, U, Mat>
+cactor_streams :: Flow.public func drop(n: Int64): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func dropWhile(p: (Out)->Bool): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func filter(p: (Out)->Bool): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func filterNot(p: (Out)->Bool): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func flatMapConcat<U>(f: (Out)->Source<U, Unit>): Flow<In, U, Mat>
+cactor_streams :: Flow.public func fold<U>(zero: U, f: (U, Out)->U): Flow<In, U, Mat>
+cactor_streams :: Flow.public func map<U>(f: (Out)->U): Flow<In, U, Mat>
+cactor_streams :: Flow.public func mapAsync<U>(parallelism: Int64, f: (Out)->TypedPromise<U>): Flow<In, U, Mat>
+cactor_streams :: Flow.public func mapAsyncUnordered<U>(parallelism: Int64, f: (Out)->TypedPromise<U>): Flow<In, U, Mat>
+cactor_streams :: Flow.public func mapConcat<U>(f: (Out)->Iterable<U>): Flow<In, U, Mat>
+cactor_streams :: Flow.public func mapMaterializedValue<M2>(f: (Mat)->M2): Flow<In, Out, M2>
+cactor_streams :: Flow.public func recover(f: (Exception)->Option<Out>): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func recoverWithRetries(attempts: Int64, f: (Exception)->Option<Source<Out, Unit>>): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func scan<U>(zero: U, f: (U, Out)->U): Flow<In, U, Mat>
+cactor_streams :: Flow.public func take(n: Int64): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func takeWhile(p: (Out)->Bool): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func takeWhile(p: (Out)->Bool, inclusive: Bool): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func throttle(elements: Int64, per: Duration): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func throttle(elements: Int64, per: Duration, maximumBurst: Int64): Flow<In, Out, Mat>
+cactor_streams :: Flow.public func to<M2>(sink: Sink<Out, M2>): Sink<In, Mat>
+cactor_streams :: Flow.public func toMat<M2, M3>(sink: Sink<Out, M2>, combine: (Mat, M2)->M3): Sink<In, M3>
+cactor_streams :: Flow.public func toProcessor(materializer: Materializer): Processor<In, Out>
+cactor_streams :: Flow.public func via<U, M2>(flow: Flow<Out, U, M2>): Flow<In, U, Mat>
+cactor_streams :: Flow.public func viaMat<U, M2, M3>(flow: Flow<Out, U, M2>, combine: (Mat, M2)->M3): Flow<In, U, M3>
+cactor_streams :: Flow.public func watchTermination(): Flow<In, Out, TypedPromise<Unit>>
+cactor_streams :: Flow.public func watchTermination<M2>(combine: (Mat, TypedPromise<Unit>)->M2): Flow<In, Out, M2>
+cactor_streams :: Flow.public func withSupervision(decider: Decider): Flow<In, Out, Mat>
+cactor_streams :: Flows.public static func create<T>(): Flow<T, T, Unit>
+cactor_streams :: Flows.public static func fromFunction<A, B>(f: (A)->B): Flow<A, B, Unit>
+cactor_streams :: Flows.public static func grouped<T>(n: Int64): Flow<T, Array<T>, Unit>
+cactor_streams :: KillSwitch.func abort(cause: Exception): Unit
+cactor_streams :: KillSwitch.func shutdown(): Unit
+cactor_streams :: KillSwitches.public static func shared(name: String): SharedKillSwitch
+cactor_streams :: KillSwitches.public static func single<T>(): Flow<T, T, UniqueKillSwitch>
+cactor_streams :: Materializer.public func withSettings(settings: StreamSettings): Materializer
+cactor_streams :: Materializer.public prop settings: StreamSettings
+cactor_streams :: Materializer.public static func create(system: CActorSystem): Materializer
+cactor_streams :: Materializer.public static func create(system: TypedActorSystem): Materializer
+cactor_streams :: Materializer.public static func create<T>(ctx: TypedActorContext<T>): Materializer
+cactor_streams :: OverflowStrategy.public func toString(): String
+cactor_streams :: OverflowStrategy.| Backpressure
+cactor_streams :: OverflowStrategy.| DropBuffer
+cactor_streams :: OverflowStrategy.| DropHead
+cactor_streams :: OverflowStrategy.| DropNew
+cactor_streams :: OverflowStrategy.| DropTail
+cactor_streams :: OverflowStrategy.| Fail
+cactor_streams :: QueueOfferResult.public func isEnqueued(): Bool
+cactor_streams :: QueueOfferResult.public func toString(): String
+cactor_streams :: QueueOfferResult.| Dropped
+cactor_streams :: QueueOfferResult.| Enqueued
+cactor_streams :: QueueOfferResult.| QueueClosed
+cactor_streams :: QueueOfferResult.| QueueFailure(Exception)
+cactor_streams :: RunnableGraph.public func mapMaterializedValue<M2>(f: (Mat)->M2): RunnableGraph<M2>
+cactor_streams :: RunnableGraph.public func run(materializer: Materializer): Mat
+cactor_streams :: RunnableGraph.public func run(system: CActorSystem): Mat
+cactor_streams :: SharedKillSwitch.public func abort(cause: Exception): Unit
+cactor_streams :: SharedKillSwitch.public func flow<T>(): Flow<T, T, SharedKillSwitch>
+cactor_streams :: SharedKillSwitch.public func shutdown(): Unit
+cactor_streams :: SharedKillSwitch.public let name: String
+cactor_streams :: Sink.public func async(): Sink<In, Mat>
+cactor_streams :: Sink.public func contramap<U>(f: (U)->In): Sink<U, Mat>
+cactor_streams :: Sink.public func mapMaterializedValue<M2>(f: (Mat)->M2): Sink<In, M2>
+cactor_streams :: Sink.public func withSupervision(decider: Decider): Sink<In, Mat>
+cactor_streams :: SinkQueue.public func cancel(): Unit
+cactor_streams :: SinkQueue.public func pull(): TypedPromise<Option<T>>
+cactor_streams :: Sinks.public static func actorRefWithBackpressure<T, M, Ack>(target: TypedActorRef<M>, messageAdapter: (TypedActorRef<Ack>, T)->M, onInitMessage: (TypedActorRef<Ack>)->M, onCompleteMessage: M, onFailureMessage: (Exception)->M): Sink<T, Unit>
+cactor_streams :: Sinks.public static func asPublisher<T>(): Sink<T, Publisher<T>>
+cactor_streams :: Sinks.public static func cancelled<T>(): Sink<T, Unit>
+cactor_streams :: Sinks.public static func fold<T, U>(zero: U, f: (U, T)->U): Sink<T, TypedPromise<U>>
+cactor_streams :: Sinks.public static func foreach<T>(f: (T)->Unit): Sink<T, TypedPromise<Unit>>
+cactor_streams :: Sinks.public static func fromSubscriber<T>(subscriber: Subscriber<T>): Sink<T, Unit>
+cactor_streams :: Sinks.public static func head<T>(): Sink<T, TypedPromise<T>>
+cactor_streams :: Sinks.public static func headOption<T>(): Sink<T, TypedPromise<Option<T>>>
+cactor_streams :: Sinks.public static func ignore<T>(): Sink<T, TypedPromise<Unit>>
+cactor_streams :: Sinks.public static func queue<T>(): Sink<T, SinkQueue<T>>
+cactor_streams :: Sinks.public static func seq<T>(): Sink<T, TypedPromise<Array<T>>>
+cactor_streams :: Sinks.public static func seq<T>(maxElements: Int64): Sink<T, TypedPromise<Array<T>>>
+cactor_streams :: Source.public func ask<Req, Res>(parallelism: Int64, target: TypedActorRef<Req>, createRequest: (Out, TypedActorRef<Res>)->Req, timeout: Duration): Source<Res, Mat>
+cactor_streams :: Source.public func async(): Source<Out, Mat>
+cactor_streams :: Source.public func async(bufferSize: Int64): Source<Out, Mat>
+cactor_streams :: Source.public func buffer(size: Int64, strategy: OverflowStrategy): Source<Out, Mat>
+cactor_streams :: Source.public func collect<U>(f: (Out)->Option<U>): Source<U, Mat>
+cactor_streams :: Source.public func drop(n: Int64): Source<Out, Mat>
+cactor_streams :: Source.public func dropWhile(p: (Out)->Bool): Source<Out, Mat>
+cactor_streams :: Source.public func filter(p: (Out)->Bool): Source<Out, Mat>
+cactor_streams :: Source.public func filterNot(p: (Out)->Bool): Source<Out, Mat>
+cactor_streams :: Source.public func flatMapConcat<U>(f: (Out)->Source<U, Unit>): Source<U, Mat>
+cactor_streams :: Source.public func fold<U>(zero: U, f: (U, Out)->U): Source<U, Mat>
+cactor_streams :: Source.public func map<U>(f: (Out)->U): Source<U, Mat>
+cactor_streams :: Source.public func mapAsync<U>(parallelism: Int64, f: (Out)->TypedPromise<U>): Source<U, Mat>
+cactor_streams :: Source.public func mapAsyncUnordered<U>(parallelism: Int64, f: (Out)->TypedPromise<U>): Source<U, Mat>
+cactor_streams :: Source.public func mapConcat<U>(f: (Out)->Iterable<U>): Source<U, Mat>
+cactor_streams :: Source.public func mapMaterializedValue<M2>(f: (Mat)->M2): Source<Out, M2>
+cactor_streams :: Source.public func recover(f: (Exception)->Option<Out>): Source<Out, Mat>
+cactor_streams :: Source.public func recoverWithRetries(attempts: Int64, f: (Exception)->Option<Source<Out, Unit>>): Source<Out, Mat>
+cactor_streams :: Source.public func runFold<U>(zero: U, f: (U, Out)->U, materializer: Materializer): TypedPromise<U>
+cactor_streams :: Source.public func runFold<U>(zero: U, f: (U, Out)->U, system: CActorSystem): TypedPromise<U>
+cactor_streams :: Source.public func runForeach(f: (Out)->Unit, materializer: Materializer): TypedPromise<Unit>
+cactor_streams :: Source.public func runForeach(f: (Out)->Unit, system: CActorSystem): TypedPromise<Unit>
+cactor_streams :: Source.public func runWith<M2>(sink: Sink<Out, M2>, materializer: Materializer): M2
+cactor_streams :: Source.public func runWith<M2>(sink: Sink<Out, M2>, system: CActorSystem): M2
+cactor_streams :: Source.public func scan<U>(zero: U, f: (U, Out)->U): Source<U, Mat>
+cactor_streams :: Source.public func take(n: Int64): Source<Out, Mat>
+cactor_streams :: Source.public func takeWhile(p: (Out)->Bool): Source<Out, Mat>
+cactor_streams :: Source.public func takeWhile(p: (Out)->Bool, inclusive: Bool): Source<Out, Mat>
+cactor_streams :: Source.public func throttle(elements: Int64, per: Duration): Source<Out, Mat>
+cactor_streams :: Source.public func throttle(elements: Int64, per: Duration, maximumBurst: Int64): Source<Out, Mat>
+cactor_streams :: Source.public func to<M2>(sink: Sink<Out, M2>): RunnableGraph<Mat>
+cactor_streams :: Source.public func toMat<M2, M3>(sink: Sink<Out, M2>, combine: (Mat, M2)->M3): RunnableGraph<M3>
+cactor_streams :: Source.public func via<U, M2>(flow: Flow<Out, U, M2>): Source<U, Mat>
+cactor_streams :: Source.public func viaMat<U, M2, M3>(flow: Flow<Out, U, M2>, combine: (Mat, M2)->M3): Source<U, M3>
+cactor_streams :: Source.public func watchTermination(): Source<Out, TypedPromise<Unit>>
+cactor_streams :: Source.public func watchTermination<M2>(combine: (Mat, TypedPromise<Unit>)->M2): Source<Out, M2>
+cactor_streams :: Source.public func withSupervision(decider: Decider): Source<Out, Mat>
+cactor_streams :: SourceQueue.public func bufferedCount(): Int64
+cactor_streams :: SourceQueue.public func complete(): Unit
+cactor_streams :: SourceQueue.public func fail(cause: Exception): Unit
+cactor_streams :: SourceQueue.public func offer(element: T): TypedPromise<QueueOfferResult>
+cactor_streams :: SourceQueue.public func watchCompletion(): TypedPromise<Unit>
+cactor_streams :: Sources.public static func actorRef<T>(bufferSize: Int64, overflow: OverflowStrategy, completeWhen: (T)->Bool, failWhen: (T)->Option<Exception>): Source<T, TypedActorRef<T>>
+cactor_streams :: Sources.public static func asSubscriber<T>(): Source<T, Subscriber<T>>
+cactor_streams :: Sources.public static func empty<T>(): Source<T, Unit>
+cactor_streams :: Sources.public static func failed<T>(cause: Exception): Source<T, Unit>
+cactor_streams :: Sources.public static func from<T>(elements: Iterable<T>): Source<T, Unit>
+cactor_streams :: Sources.public static func fromIterator<T>(mk: ()->Iterator<T>): Source<T, Unit>
+cactor_streams :: Sources.public static func fromPromise<T>(promise: TypedPromise<T>): Source<T, Unit>
+cactor_streams :: Sources.public static func fromPublisher<T>(publisher: Publisher<T>): Source<T, Unit>
+cactor_streams :: Sources.public static func iterate<T>(seed: T, f: (T)->T): Source<T, Unit>
+cactor_streams :: Sources.public static func queue<T>(bufferSize: Int64, overflow: OverflowStrategy): Source<T, SourceQueue<T>>
+cactor_streams :: Sources.public static func queue<T>(bufferSize: Int64, overflow: OverflowStrategy, maxConcurrentOffers: Int64): Source<T, 
+cactor_streams :: Sources.public static func range(start: Int64, end: Int64): Source<Int64, Unit>
+cactor_streams :: Sources.public static func range(start: Int64, end: Int64, step: Int64): Source<Int64, Unit>
+cactor_streams :: Sources.public static func repeat<T>(element: T): Source<T, Unit>
+cactor_streams :: Sources.public static func single<T>(element: T): Source<T, Unit>
+cactor_streams :: Sources.public static func tick<T>(initialDelay: Duration, interval: Duration, element: T): Source<T, Cancellable>
+cactor_streams :: Sources.public static func unfold<S, T>(seed: S, f: (S)->Option<(S, T)>): Source<T, Unit>
+cactor_streams :: StreamLimitReachedException.public init(message: String)
+cactor_streams :: StreamSettings.public func withInputBufferSize(size: Int64): StreamSettings
+cactor_streams :: StreamSettings.public func withIslandProps(props: TypedProps): StreamSettings
+cactor_streams :: StreamSettings.public func withNamePrefix(prefix: String): StreamSettings
+cactor_streams :: StreamSettings.public func withSyncProcessingLimit(limit: Int64): StreamSettings
+cactor_streams :: StreamSettings.public init()
+cactor_streams :: StreamSettings.public let inputBufferSize: Int64
+cactor_streams :: StreamSettings.public let islandProps: TypedProps
+cactor_streams :: StreamSettings.public let namePrefix: String
+cactor_streams :: StreamSettings.public let syncProcessingLimit: Int64
+cactor_streams :: StreamSupervision.public static let restartingDecider: Decider
+cactor_streams :: StreamSupervision.public static let resumingDecider: Decider
+cactor_streams :: StreamSupervision.public static let stoppingDecider: Decider
+cactor_streams :: SupervisionDirective.public func toString(): String
+cactor_streams :: SupervisionDirective.| Restart
+cactor_streams :: SupervisionDirective.| Resume
+cactor_streams :: SupervisionDirective.| Stop
+cactor_streams :: UniqueKillSwitch.public func abort(cause: Exception): Unit
+cactor_streams :: UniqueKillSwitch.public func shutdown(): Unit
+cactor_streams :: public class AbruptStageTerminationException <: Exception
+cactor_streams :: public class BufferOverflowException <: Exception
+cactor_streams :: public class EmptyStreamException <: Exception
+cactor_streams :: public class Flow<In, Out, Mat>
+cactor_streams :: public class Materializer
+cactor_streams :: public class RunnableGraph<Mat>
+cactor_streams :: public class SharedKillSwitch <: KillSwitch
+cactor_streams :: public class Sink<In, Mat>
+cactor_streams :: public class SinkQueue<T>
+cactor_streams :: public class Source<Out, Mat>
+cactor_streams :: public class SourceQueue<T>
+cactor_streams :: public class StreamLimitReachedException <: Exception
+cactor_streams :: public class UniqueKillSwitch <: KillSwitch
+cactor_streams :: public enum OverflowStrategy
+cactor_streams :: public enum QueueOfferResult
+cactor_streams :: public enum SupervisionDirective
+cactor_streams :: public interface Cancellable
+cactor_streams :: public interface KillSwitch
+cactor_streams :: public struct Flows
+cactor_streams :: public struct KillSwitches
+cactor_streams :: public struct Sinks
+cactor_streams :: public struct Sources
+cactor_streams :: public struct StreamSettings
+cactor_streams :: public struct StreamSupervision
+cactor_streams :: public type Decider
+cactor_streams.reactive :: Publisher.func subscribe(subscriber: Subscriber<T>): Unit
+cactor_streams.reactive :: ReactiveStreams.public static func addDemand(current: Int64, n: Int64): Int64
+cactor_streams.reactive :: ReactiveStreams.public static func cancelledSubscription(): Subscription
+cactor_streams.reactive :: ReactiveStreams.public static func nonPositiveRequest(n: Int64): IllegalArgumentException
+cactor_streams.reactive :: ReactiveStreamsSpecException.public init(message: String)
+cactor_streams.reactive :: Subscriber.func onComplete(): Unit
+cactor_streams.reactive :: Subscriber.func onError(cause: Exception): Unit
+cactor_streams.reactive :: Subscriber.func onNext(element: T): Unit
+cactor_streams.reactive :: Subscriber.func onSubscribe(subscription: Subscription): Unit
+cactor_streams.reactive :: Subscription.func cancel(): Unit
+cactor_streams.reactive :: Subscription.func request(n: Int64): Unit
+cactor_streams.reactive :: public class ReactiveStreamsSpecException <: Exception
+cactor_streams.reactive :: public interface Processor<In, Out> <: Subscriber<In>& Publisher<Out>
+cactor_streams.reactive :: public interface Publisher<T>
+cactor_streams.reactive :: public interface Subscriber<T>
+cactor_streams.reactive :: public interface Subscription
+cactor_streams.reactive :: public struct ReactiveStreams
