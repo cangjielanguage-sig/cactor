@@ -66,6 +66,11 @@ public class NetworkMessageSerializer {
      * 序列化网络消息
      */
     public func serialize(networkMessage: NetworkMessage): Array<UInt8> {
+        serialize(networkMessage, WireProtocol.LOCAL_CAPABILITIES)
+    }
+
+    /** 按对端能力序列化（DA6）；对端读不了且无法降级时抛 WireIncompatibleException */
+    public func serialize(networkMessage: NetworkMessage, peerCapabilities: UInt64): Array<UInt8> {
         let result = ArrayList<UInt8>()
         
         // 序列化目标Actor
@@ -101,7 +106,7 @@ public class NetworkMessageSerializer {
         }
 
         // 序列化消息内容
-        let messageBytes = messageSerializer.serialize(networkMessage.message)
+        let messageBytes = messageSerializer.serialize(networkMessage.message, peerCapabilities)
         writeInt32(result, Int32(messageBytes.size))
         for (byte in messageBytes) {
             result.add(byte)
@@ -127,7 +132,12 @@ public class NetworkMessageSerializer {
         }
         let timestamp = serializationManager.deserializeInt(data.slice(offset, 8))
         offset += 8
-        let message = messageSerializer.deserialize(readBlock(data, offset))
+        let message = try {
+            messageSerializer.deserialize(readBlock(data, offset))
+        } catch (e: UnsupportedWireFormatException) {
+            // 补上外层已读出的目标与发送方：远程层据此通知死信监听，运维能知道是谁发给谁的帧读不懂
+            throw UnsupportedWireFormatException(e.messageType, e.message, Some(targetActor), sender)
+        }
         NetworkMessage(targetActor, message, sender, messageId, timestamp)
     }
 

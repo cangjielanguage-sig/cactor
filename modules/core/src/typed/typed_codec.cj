@@ -18,12 +18,20 @@
  *
  * 线上格式：v2 的 kind 1 = 嵌套消息帧，kind 2 = 命名载荷；v3 增加 kind 3 = 带协议标记的嵌套消息。
  * 新解码器保留 v1/v2 支持。显式协议标记的 Message 载荷要求两端均升级到 v3，不支持旧节点读取 kind 3。
+ *
+ * 混合版本（DA6）：发送方按对端在握手里宣告的能力编码（encodeFor）——
+ * - 对端具备 CAP_TYPED_CODEC_V3：写 v3；
+ * - 对端不具备：kind 1/2 的字节在 v2 与 v3 中完全相同，只把版本头写成 2（无损降级，v1.2.x 可读）；
+ *   kind 3 没有旧格式可退（退成 kind 1 会悄悄丢掉协议标记、绕过接收方的类型期望校验），
+ *   抛 WireIncompatibleException，由远程层计数并明确失败。
+ * 接收方遇到不认识的 kind 抛 UnsupportedWireFormatException（单独计数，不投递）。
  */
 package cactor_core.typed
 
 import std.collection.*
 import std.sync.*
-import cactor_core.message.{Message, MessageSerializer, MessageCodec, MessageCodecRegistry, SerializationException, DeserializationException}
+import cactor_core.message.{Message, MessageSerializer, MessageCodec, MessageCodecRegistry, SerializationException, DeserializationException,
+    WireProtocol, WireIncompatibleException, UnsupportedWireFormatException}
 
 /** 线上名称：与 TypedPayloadBox.messageType() 保持一致 */
 public let TYPED_PAYLOAD_BOX_TYPE: String = "TypedPayloadBox"
@@ -365,6 +373,35 @@ public class TypedPayloadBoxCodec <: MessageCodec {
         3
     }
 
+    /** 只有 kind 3（Message 载荷 + 协议标记）要求对端能读 v3；kind 1/2 可以无损写成 v2 */
+    public func requiredCapabilities(message: Message): UInt64 {
+        match (message as TypedPayloadBox) {
+            case Some(box) where box.typeTag.isSome() && (box.payload is Message) => WireProtocol.CAP_TYPED_CODEC_V3
+            case _ => WireProtocol.CAP_NONE
+        }
+    }
+
+    public func encodeFor(message: Message, peerCapabilities: UInt64): (Int64, Array<UInt8>) {
+        if (WireProtocol.supports(peerCapabilities, WireProtocol.CAP_TYPED_CODEC_V3)) {
+            return (3, encode(message))
+        }
+        let missing = requiredCapabilities(message) & !peerCapabilities
+        if (missing != 0) {
+            let tag = match (message as TypedPayloadBox) {
+                case Some(b) => match (b.typeTag) {
+                    case Some(t) => t.typeName
+                    case None => ""
+                }
+                case None => ""
+            }
+            throw WireIncompatibleException(TYPED_PAYLOAD_BOX_TYPE, missing,
+                "对端不支持 TypedPayloadBox codec v3（缺少能力 ${WireProtocol.describe(missing)}），" +
+                "带协议标记 ${tag} 的消息无法降级发送：请先升级对端，或改用不带协议标记的引用")
+        }
+        // kind 1/2 的字节布局在 v2/v3 中相同；kind 2 尾部的可选类型期望旧解码器按长度切片时会忽略
+        (2, encode(message))
+    }
+
     public func encode(message: Message): Array<UInt8> {
         let box = match (message as TypedPayloadBox) {
             case Some(b) => b
@@ -494,7 +531,8 @@ public class TypedPayloadBoxCodec <: MessageCodec {
                         "没有注册载荷类型 ${name} 的编解码器：两端 TypedPayloadCodecs 配置不一致")
                 }
             case other =>
-                throw DeserializationException("未知的类型化信封种类：${other}")
+                // 更新版本的对端写出的新种类：单独的异常类型，远程层据此计入"线格式不兼容"而非数据损坏
+                throw UnsupportedWireFormatException(TYPED_PAYLOAD_BOX_TYPE, "未知的类型化信封种类：${other}")
         }
     }
 }

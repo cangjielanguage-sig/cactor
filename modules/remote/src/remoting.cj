@@ -614,7 +614,8 @@ class RemoteHandshake <: TransportHandshake {
     }
 
     public func hello(peer: NetworkAddress): Array<UInt8> {
-        let body = "${HELLO_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${peer.toString()}"
+        // 能力扩展追加在目标地址字段末尾（DA6，格式与兼容性见 wire_negotiation.cj）
+        let body = "${HELLO_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${peer.toString()}${core.wireHandshakeExtension()}"
         let mac = core.macOf(body)
         core.rememberHello(peer.toString(), mac)
         "${body}|${mac}".toArray()
@@ -634,10 +635,18 @@ class RemoteHandshake <: TransportHandshake {
         if (!core.verifyMac(body, mac, tsText)) {
             return core.rejectHandshake("来自 ${addr} 的握手鉴权失败")
         }
+        // 鉴权之后再看协议版本：未鉴权的帧不值得记录版本拒绝原因
+        let wire = core.parseWireField(parts[5])
+        if (let Some(reason) <- core.wireRejection(addr, wire)) {
+            return core.rejectHandshake(reason)
+        }
         if (!core.admitPeer(addr, uid, inbound: true)) {
             return core.rejectHandshake("${addr}#${uid} 已被隔离或对端状态容量已满")
         }
-        let reply = "${HELLO_ACK_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${mac}"
+        core.recordPeerWire(addr, uid, wire.advertised)
+        // 只对宣告了能力的连接方回带扩展的 ACK：旧连接方在有密钥时逐字比较回显的 mac
+        let echoed = if (wire.advertised.isSome()) { "${mac}${core.wireHandshakeExtension()}" } else { mac }
+        let reply = "${HELLO_ACK_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${echoed}"
         Some(("${reply}|${core.macOf(reply)}".toArray(), quarantineKey(addr, uid)))
     }
 
@@ -652,14 +661,20 @@ class RemoteHandshake <: TransportHandshake {
             case None => return false
         }
         let body = "${parts[0]}|${parts[1]}|${parts[2]}|${parts[3]}|${parts[4]}|${parts[5]}"
-        if (!core.verifyMac(body, parts[6], parts[4]) || !core.helloMatches(peer.toString(), parts[5])) {
+        let wire = core.parseWireField(parts[5])
+        if (!core.verifyMac(body, parts[6], parts[4]) || !core.helloMatches(peer.toString(), wire.base)) {
             core.rejectHandshake("${peer.toString()} 的握手应答鉴权失败") |> ignoreRejected
+            return false
+        }
+        if (let Some(reason) <- core.wireRejection(peer.toString(), wire)) {
+            core.rejectHandshake(reason) |> ignoreRejected
             return false
         }
         if (!core.admitPeer(peer.toString(), uid)) {
             core.rejectHandshake("${peer.toString()}#${uid} 已被隔离或对端状态容量已满") |> ignoreRejected
             return false
         }
+        core.recordPeerWire(peer.toString(), uid, wire.advertised)
         true
     }
 }
@@ -739,6 +754,15 @@ public class RemotingCore {
     // 连接方：目标地址 -> 最近一次 HELLO 的 mac（校验 ACK 的回显）
     private let lastHelloMac = HashMap<String, String>()
 
+    // 线协议能力协商（DA6，逻辑见 wire_negotiation.cj）：地址 -> 握手得知的对端画像（带 uid）。
+    // 只在 admitPeer 成功后登记，键集合是 peerUids 的子集，受同一个 maxKnownPeers 约束
+    var wireSettings: WireProtocolSettings = WireProtocolSettings.defaults()
+    let peerWire = HashMap<String, PeerWireProfile>()
+    let wireLock = Mutex()
+    let wireIncompatibleSent = AtomicInt64(0)
+    let wireProtocolRejected = AtomicInt64(0)
+    var wireListener: Option<(WireIncompatibleEvent) -> Unit> = None<(WireIncompatibleEvent) -> Unit>
+
     init(sender: SimpleRemoteSender, receiver: SimpleRemoteReceiver) {
         this.sender = sender
         this.receiver = receiver
@@ -750,6 +774,7 @@ public class RemotingCore {
         managerValue = Some(manager)
         let me = this
         receiver.setInterceptor({ nm => me.intercept(nm) })
+        sender.setWireGate(WireGate({ a => me.wireCapabilitiesOf(a) }, { a, t, m, e => me.onWireIncompatible(a, t, m, e) }))
         receiver.registerHandler(SYS_NAME, { m: Message, _: Option<String> => me.onSystemMessage(m) })
     }
 
@@ -971,6 +996,10 @@ public class RemotingCore {
         } else {
             quarantined.add(k)
         }
+    }
+
+    func currentPeerUid(addrText: String): Option<UInt64> {
+        synchronized(lock) { peerUids.get(addrText) }
     }
 
     func isPeerAdmissionClosed(): Bool {
@@ -1384,6 +1413,8 @@ public class RemotingCore {
      */
     func sendReliable(target: RemoteActorRef, message: Message, senderInfo: String): Unit {
         let addr = target.getTargetAddress()
+        // 对端读不了的消息不入队（DA6）：入队后只会被重发到放弃，期间看起来像"在途"
+        sender.checkWire(addr, target.getActorName(), message)
         let k = key(addr.toString(), target.getActorName())
         let limit = settings.maxUnacked
         let queued = synchronized(lock) {

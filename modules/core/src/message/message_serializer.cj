@@ -12,6 +12,9 @@ import cactor_foundation.serialization.{Serializer, SerializationManager}
 /** 版本帧标记：写在负载长度的位置（合法长度不会为负） */
 const VERSIONED_FRAME: Int32 = -1
 
+/** 当前线程正在为哪种能力的对端编码（嵌套编解码器据此沿用外层的对端能力，见 serialize） */
+let AMBIENT_PEER_CAPABILITIES = ThreadLocal<UInt64>()
+
 /**
  * 消息序列化器
  * 基于Foundation层的通用序列化框架实现消息序列化
@@ -23,7 +26,30 @@ public class MessageSerializer <: Serializer<Message> {
         this.serializationManager = SerializationManager()
     }
 
+    /**
+     * 序列化。处在某次 serialize(message, peerCapabilities) 内部时（嵌套信封的编解码器在 encode 里
+     * 再调 MessageSerializer().serialize(内层)）沿用外层的对端能力，因此分片信封、可靠投递信封里
+     * 嵌套的类型化消息同样按对端能力编码，编解码器不需要逐个改签名。
+     */
     public func serialize(message: Message): Array<UInt8> {
+        serialize(message, AMBIENT_PEER_CAPABILITIES.get() ?? WireProtocol.LOCAL_CAPABILITIES)
+    }
+
+    /**
+     * 按对端能力序列化（DA6）：peerCapabilities 是对端在握手里宣告的能力位。
+     * 编解码器能降级时写对端读得懂的旧版本；不能降级时抛 WireIncompatibleException，帧不会发出。
+     */
+    public func serialize(message: Message, peerCapabilities: UInt64): Array<UInt8> {
+        let previous = AMBIENT_PEER_CAPABILITIES.get()
+        AMBIENT_PEER_CAPABILITIES.set(Some(peerCapabilities))
+        try {
+            serializeFrame(message, peerCapabilities)
+        } finally {
+            AMBIENT_PEER_CAPABILITIES.set(previous)
+        }
+    }
+
+    private func serializeFrame(message: Message, peerCapabilities: UInt64): Array<UInt8> {
         let messageType = message.messageType()
         let result = ArrayList<UInt8>()
         
@@ -86,8 +112,7 @@ public class MessageSerializer <: Serializer<Message> {
             case _ =>
                 match (MessageCodecRegistry.get(messageType)) {
                     case Some(codec) =>
-                        let payload = codec.encode(message)
-                        let version = codec.version()
+                        let (version, payload) = codec.encodeFor(message, peerCapabilities)
                         if (version < 1 || version > Int64(Int32.Max)) {
                             throw SerializationException("${messageType} 的编解码器版本无效: ${version}")
                         }
@@ -208,7 +233,8 @@ public class MessageSerializer <: Serializer<Message> {
                                 throw DeserializationException("${messageType} 版本号无效: ${version}")
                             }
                             if (version > codec.version()) {
-                                throw DeserializationException(
+                                // 单独的异常类型：远程层据此区分"混合版本不兼容"与数据损坏（DA6）
+                                throw UnsupportedWireFormatException(messageType,
                                     "${messageType} 的版本 ${version} 高于本节点支持的版本 ${codec.version()}，请先升级接收方")
                             }
                         }
@@ -224,6 +250,14 @@ public class MessageSerializer <: Serializer<Message> {
 
     public func getName(): String {
         "MessageSerializer"
+    }
+
+    /** 编码这条消息时对端必须具备的能力位（内置类型与未注册类型为 CAP_NONE） */
+    public static func requiredCapabilities(message: Message): UInt64 {
+        match (MessageCodecRegistry.get(message.messageType())) {
+            case Some(codec) => codec.requiredCapabilities(message)
+            case None => WireProtocol.CAP_NONE
+        }
     }
 
     private func writeInt32(buffer: ArrayList<UInt8>, value: Int32): Unit {
@@ -305,6 +339,22 @@ public interface MessageCodec {
     func decode(payload: Array<UInt8>, version: Int64): Message {
         decode(payload)
     }
+
+    /**
+     * 这条消息要求对端具备的能力位（DA6）。默认不要求：version() 高于对端能读的版本时由接收方拒绝，
+     * 与引入能力协商之前的行为一致。新格式需要对端升级时覆盖它，并在 encodeFor 里给出降级或拒绝。
+     */
+    func requiredCapabilities(message: Message): UInt64 {
+        WireProtocol.CAP_NONE
+    }
+
+    /**
+     * 按对端能力编码，返回 (写出的版本, 负载)。默认忽略能力、按 version() 编码。
+     * 覆盖时：能降级就返回旧版本与旧格式；不能降级抛 WireIncompatibleException（不得悄悄丢字段）。
+     */
+    func encodeFor(message: Message, peerCapabilities: UInt64): (Int64, Array<UInt8>) {
+        (version(), encode(message))
+    }
 }
 
 /**
@@ -364,7 +414,7 @@ public class MessageCodecRegistry {
 /**
  * 序列化异常
  */
-public class SerializationException <: Exception {
+public open class SerializationException <: Exception {
     public init(message: String) {
         super(message)
     }
@@ -373,7 +423,7 @@ public class SerializationException <: Exception {
 /**
  * 反序列化异常
  */
-public class DeserializationException <: Exception {
+public open class DeserializationException <: Exception {
     public init(message: String) {
         super(message)
     }

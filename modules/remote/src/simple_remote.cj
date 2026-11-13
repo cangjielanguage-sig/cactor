@@ -11,12 +11,15 @@ package cactor_remote
 import std.collection.*
 import std.sync.*
 import cactor_core.actor.{ActorRef, ActorPath}
-import cactor_core.message.{Message, NetworkMessage, NetworkMessageSerializer}
+import cactor_core.message.{Message, NetworkMessage, NetworkMessageSerializer, WireIncompatibleException,
+    UnsupportedWireFormatException}
 import cactor_core.typed.{TypedActorRef, ClassicTypedRef, ensureTypedPayloadCodecRegistered, PromiseActorRef}
 import cactor_foundation.network.{NetworkTransport, NetworkAddress, TransportFactory, TransportProtocol}
-import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.logging.{Logger, Logging, LogRateLimiter}
 
 let log_simple_remote: Logger = Logging.logger("cactor_remote.simple_remote")
+// 线格式不兼容往往成批出现（混合版本期间每条消息都会撞上）：每 5 分钟逐条记前 10 条
+let wireIncompatibleLog: LogRateLimiter = LogRateLimiter(10, Duration.minute * 5)
 
 /**
  * 远程消息发送器
@@ -27,6 +30,8 @@ public class SimpleRemoteSender {
     private let networkMessageSerializer: NetworkMessageSerializer
     private let isStarted: AtomicBool
     private let sentCount: AtomicInt64
+    // 线协议能力门禁（DA6）：由远程层装上；没有时按本节点全部能力编码（旧行为）
+    private var wireGate: Option<WireGate> = None<WireGate>
 
     public init(localAddress: NetworkAddress, protocol: TransportProtocol) {
         this(TransportFactory.createTransport(protocol, localAddress), true)
@@ -67,8 +72,33 @@ public class SimpleRemoteSender {
             throw IllegalStateException("发送器未启动")
         }
         let networkMessage = NetworkMessage(targetActor, message, sender)
-        transport.send(targetAddress, networkMessageSerializer.serialize(networkMessage))
+        transport.send(targetAddress, encodeFor(targetAddress, networkMessage))
         sentCount.fetchAdd(1)
+    }
+
+    func setWireGate(gate: WireGate): Unit {
+        wireGate = Some(gate)
+    }
+
+    /** 可靠投递入队前的能力预检：对端读不了时计数、告警并抛 WireIncompatibleException */
+    func checkWire(targetAddress: NetworkAddress, targetActor: String, message: Message): Unit {
+        if (let Some(g) <- wireGate) {
+            g.check(targetAddress, targetActor, message)
+        }
+    }
+
+    /** 按对端能力编码；对端读不了且无法降级时由门禁计数、告警、通知监听，再把异常抛给调用方（不算发送成功） */
+    private func encodeFor(targetAddress: NetworkAddress, networkMessage: NetworkMessage): Array<UInt8> {
+        match (wireGate) {
+            case Some(g) =>
+                try {
+                    networkMessageSerializer.serialize(networkMessage, g.capabilitiesOf(targetAddress))
+                } catch (e: WireIncompatibleException) {
+                    g.onIncompatible(targetAddress, networkMessage.targetActor, networkMessage.message, e)
+                    throw e
+                }
+            case None => networkMessageSerializer.serialize(networkMessage)
+        }
     }
 
     /**
@@ -80,7 +110,7 @@ public class SimpleRemoteSender {
             throw IllegalStateException("发送器未启动")
         }
         let networkMessage = NetworkMessage(targetActor, message, None<String>)
-        transport.sendPriority(targetAddress, networkMessageSerializer.serialize(networkMessage))
+        transport.sendPriority(targetAddress, encodeFor(targetAddress, networkMessage))
         sentCount.fetchAdd(1)
     }
 
@@ -110,6 +140,9 @@ public class SimpleRemoteReceiver {
     private let receivedCount: AtomicInt64
     private let undeliverableCount: AtomicInt64
     private let decodeFailures: AtomicInt64
+    // 读不懂的版本 / 种类（混合版本不兼容，DA6）：decodeFailures 的子集，单独计数便于告警
+    private let wireIncompatible: AtomicInt64 = AtomicInt64(0)
+    private var wireListener: Option<(WireIncompatibleEvent) -> Unit> = None<(WireIncompatibleEvent) -> Unit>
     private var interceptor: Option<(NetworkMessage) -> Bool> = None<(NetworkMessage) -> Bool>
 
     public init(localAddress: NetworkAddress, protocol: TransportProtocol) {
@@ -170,6 +203,10 @@ public class SimpleRemoteReceiver {
     private func handleReceivedData(data: Array<UInt8>): Unit {
         let networkMessage = try {
             networkMessageSerializer.deserialize(data)
+        } catch (e: UnsupportedWireFormatException) {
+            decodeFailures.fetchAdd(1)
+            onUnsupportedWireFormat(e)
+            return
         } catch (e: Exception) {
             decodeFailures.fetchAdd(1)
             log_simple_remote.error("反序列化网络消息失败: ${e.message}")
@@ -188,6 +225,35 @@ public class SimpleRemoteReceiver {
             }
         }
         dispatch(networkMessage.targetActor, networkMessage.message, networkMessage.sender)
+    }
+
+    /** 读不懂的帧：不投递、单独计数、限速告警，并交给死信监听（帧本身无法还原成消息） */
+    private func onUnsupportedWireFormat(e: UnsupportedWireFormatException): Unit {
+        wireIncompatible.fetchAdd(1)
+        let target = e.targetActor ?? "?"
+        wireIncompatibleLog.tryLog({ text => log_simple_remote.warn(text) }, { =>
+            "收到本节点读不懂的帧（发送方 ${e.senderPath ?? "?"} → ${target}，类型 ${e.messageType}）：${e.message}；" +
+            "集群处于不兼容的混合版本，请先升级本节点或回退发送方"
+        })
+        if (let Some(l) <- synchronized(mutex) { wireListener }) {
+            try {
+                l(WireIncompatibleEvent(WireDirection.Inbound, e.senderPath, target, e.messageType, e.message,
+                    None<Message>))
+            } catch (ex: Exception) {
+                log_simple_remote.error("线格式不兼容监听失败: ${ex.message}")
+            }
+        }
+    }
+
+    func setWireListener(l: (WireIncompatibleEvent) -> Unit): Unit {
+        synchronized(mutex) {
+            wireListener = Some(l)
+        }
+    }
+
+    /** 读不懂（版本更高或种类未知）而丢弃的帧数，是 getDecodeFailures 的子集 */
+    public func getWireIncompatibleCount(): Int64 {
+        wireIncompatible.load()
     }
 
     /** 按目标名称把消息交给已注册的处理器；找不到时计为不可投递 */
