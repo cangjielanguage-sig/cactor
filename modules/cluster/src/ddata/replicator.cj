@@ -615,8 +615,10 @@ class LocalUpdate <: Message {
 
 /**
  * 写一致性：本地应用后，等多少个副本（含本节点）确认收到新值才算成功。
- * 过半 = ⌊n/2⌋ + 1，n 为本节点 + 当前对等节点数；时限内达不到时以 ReplicatorConsistencyException 失败
- * （本地值已更新，之后仍经推送与反熵传播，同 Akka）
+ * 过半 = ⌊n/2⌋ + 1，n 为本节点 + 操作开始时的对等节点数（集群绑定下 = 未 Down 的成员，不可达的也计入，
+ * 分区的少数派因此不会"自成多数"）；n 在操作期间冻结，之后加入的对等节点不会收到这次 W、也不计入确认。
+ * 时限内达不到时以 ReplicatorConsistencyException 失败（本地值已更新、部分副本可能已收到，
+ * 之后仍经推送与反熵传播，同 Akka）：失败表示结果未知，不是回滚
  */
 public enum WriteConsistency {
     | WriteLocal
@@ -626,7 +628,9 @@ public enum WriteConsistency {
 
 /**
  * 读一致性：向对等节点取值并与本地值合并，收到多少个副本（含本节点）的回应才返回；
- * 合并结果写回本地（同 Akka）。过半写 + 过半读必然相交，读得到之前成功的过半写
+ * 合并结果写回本地（同 Akka）。写方与读方的成员视图相同时，过半写 + 过半读必然相交，读得到之前成功的过半写；
+ * 视图不同（扩缩容尚未传播到某一方）时不保证相交（DA5，ddata_consistency_matrix_test 的 Q5）。
+ * 这不是线性一致：没有全局顺序，也不保证读到并发进行中的写
  */
 public enum ReadConsistency {
     | ReadLocal
@@ -634,10 +638,32 @@ public enum ReadConsistency {
     | ReadAll(Duration)
 }
 
-/** 一致性级别要求的副本数没有在时限内达到 */
+/**
+ * 一致性级别要求的副本数没有在时限内达到。
+ * 失败不代表回滚：本地值已更新、部分副本可能已收到，之后仍经推送与反熵传播（结果"未知"而非"未发生"）。
+ * replied / needed / total 是本次操作开始时冻结的计数（total = 本节点 + 当时的对等节点数），
+ * 供调用方与验收测试区分"副本不足"与"视图变化"，不必解析消息文本
+ */
 public class ReplicatorConsistencyException <: Exception {
+    /** 时限内回应的副本数（含本节点） */
+    public let replied: Int64
+    /** 需要的副本数 */
+    public let needed: Int64
+    /** 操作开始时视图中的副本总数（含本节点） */
+    public let total: Int64
+
     public init(message: String) {
         super(message)
+        this.replied = 0
+        this.needed = 0
+        this.total = 0
+    }
+
+    public init(message: String, replied: Int64, needed: Int64, total: Int64) {
+        super(message)
+        this.replied = replied
+        this.needed = needed
+        this.total = total
     }
 }
 
@@ -860,7 +886,14 @@ class ReplicatorActor <: Actor {
     let digests = HashMap<String, String>()
     // 进行中的一致性读写（只在本 Actor 线程访问）
     let pendingOps = HashMap<Int64, PendingOp>()
-    var nextOpId: Int64 = 0
+    /**
+     * 操作序号随 W / R 发出、由 WA / RA 原样带回，是确认与操作对应的唯一依据。
+     * 起点取随机值而不是 0（DA5）：同一地址上重建的 Replicator（节点同址重启、或在同一远程管理器上重建）
+     * 若从 0 计数，旧实例滞留在网络里的确认会命中新实例同序号的进行中操作，被算作副本确认——
+     * 过半写在 W 一个都没送达时就"成功"。随机起点（2^62 范围）让跨实例碰撞的概率可忽略，且不改报文格式
+     * （REPLICATOR_PROTOCOL_VERSION 不变，新旧节点照常混部）
+     */
+    var nextOpId: Int64
     // delta 传播（只在本 Actor 线程访问）：本节点每个键的增量序号；已按序应用到的各来源序号；断档请求的发出时间
     let selfNode: String
     let localSeq = HashMap<String, Int64>()
@@ -875,6 +908,7 @@ class ReplicatorActor <: Actor {
         this.manager = manager
         this.gossipInterval = gossipInterval
         this.selfNode = selfNode
+        this.nextOpId = Int64(rnd.nextUInt64() >> 2)
     }
 
     public prop name: String {
@@ -1092,7 +1126,8 @@ class ReplicatorActor <: Actor {
     private func onOpTimeout(id: Int64): Unit {
         if (let Some(op) <- pendingOps.remove(id)) {
             let ex = ReplicatorConsistencyException(
-                "${op.key}：时限内只有 ${op.replied.size}/${op.total} 个副本回应，需要 ${op.needed}")
+                "${op.key}：时限内只有 ${op.replied.size}/${op.total} 个副本回应，需要 ${op.needed}",
+                op.replied.size, op.needed, op.total)
             if (let Some(p) <- op.writePromise) {
                 p.tryFailure(ex) |> ignoreOutcome
             }
