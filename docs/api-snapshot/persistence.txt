@@ -169,6 +169,27 @@ cactor_persistence :: FailedFuture.public func get(): T
 cactor_persistence :: FailedFuture.public func isCompleted(): Bool
 cactor_persistence :: FailedFuture.public func onComplete(callback: (T)->Unit): Unit
 cactor_persistence :: FailedFuture.public init(exception: Exception)
+cactor_persistence :: FencedDurableStateStore.public func delete(persistenceId: String, revision: Int64): Unit
+cactor_persistence :: FencedDurableStateStore.public func get(persistenceId: String): Option<DurableStateRecord>
+cactor_persistence :: FencedDurableStateStore.public func persistenceIds(): Array<String>
+cactor_persistence :: FencedDurableStateStore.public func revisionOf(persistenceId: String): Int64
+cactor_persistence :: FencedDurableStateStore.public func upsert(persistenceId: String, revision: Int64, state: String): Unit
+cactor_persistence :: FencedDurableStateStore.public init(inner: DurableStateStore, fence: FencingTokenStore, lease: Lease)
+cactor_persistence :: FencedDurableStateStore.public init(inner: DurableStateStore, fence: FencingTokenStore, resource: String, tokenSource: ()->Option<Int64>)
+cactor_persistence :: FencedEventStore.public func append(persistenceId: String, events: Array<Event>, expectedSeq: Int64): Int64
+cactor_persistence :: FencedEventStore.public func close(): Unit
+cactor_persistence :: FencedEventStore.public func deleteEvents(actorId: String): Unit
+cactor_persistence :: FencedEventStore.public func deleteTo(persistenceId: String, toSeq: Int64): Unit
+cactor_persistence :: FencedEventStore.public func getEvents(actorId: String): Array<Event>
+cactor_persistence :: FencedEventStore.public func getEventsAfter(actorId: String, timestamp: Int64): Array<Event>
+cactor_persistence :: FencedEventStore.public func highestSequenceNr(persistenceId: String): Int64
+cactor_persistence :: FencedEventStore.public func persistenceIds(): Array<String>
+cactor_persistence :: FencedEventStore.public func replay(persistenceId: String, fromSeq: Int64, toSeq: Int64): Array<EventEnvelope>
+cactor_persistence :: FencedEventStore.public func saveEvent(event: Event): Unit
+cactor_persistence :: FencedEventStore.public init(inner: EventStore, fence: FencingTokenStore, lease: Lease)
+cactor_persistence :: FencedEventStore.public init(inner: EventStore, fence: FencingTokenStore, resource: String, tokenSource: ()->Option<Int64>)
+cactor_persistence :: FencingTokenStore.func fenced(resource: String, token: Int64, write: ()->Unit): Unit
+cactor_persistence :: FencingTokenStore.func highestToken(resource: String): Int64
 cactor_persistence :: FileDurableStateStore.public func delete(persistenceId: String, revision: Int64): Unit
 cactor_persistence :: FileDurableStateStore.public func get(persistenceId: String): Option<DurableStateRecord>
 cactor_persistence :: FileDurableStateStore.public func persistenceIds(): Array<String>
@@ -189,6 +210,13 @@ cactor_persistence :: FileEventStore.public func replay(persistenceId: String, f
 cactor_persistence :: FileEventStore.public func saveEvent(event: Event): Unit
 cactor_persistence :: FileEventStore.public init(basePath: String)
 cactor_persistence :: FileEventStore.public init(basePath: String, fsync!: Bool, maxOpenFiles!: Int64 = 256)
+cactor_persistence :: FileFencingTokenStore.public func fenced(resource: String, token: Int64, write: ()->Unit): Unit
+cactor_persistence :: FileFencingTokenStore.public func highestToken(resource: String): Int64
+cactor_persistence :: FileFencingTokenStore.public init(directory: String)
+cactor_persistence :: FileFencingTokenStore.public init(directory: String, sync!: Bool)
+cactor_persistence :: FileLease.public func latestIssuedToken(): Int64
+cactor_persistence :: FileLease.public init(directory: String, settings: LeaseSettings)
+cactor_persistence :: FileLease.public init(directory: String, settings: LeaseSettings, wallClock!: ()->Int64, monoClock!: ()->Int64, sync!: Bool)
 cactor_persistence :: FileSnapshotStore.public func close(): Unit
 cactor_persistence :: FileSnapshotStore.public func deleteSnapshots(actorId: String): Unit
 cactor_persistence :: FileSnapshotStore.public func deleteSnapshotsTo(actorId: String, maxSequenceNr: Int64): Unit
@@ -206,6 +234,7 @@ cactor_persistence :: JournalConflictException.public init(persistenceId: String
 cactor_persistence :: JournalConflictException.public let actualSequenceNr: Int64
 cactor_persistence :: JournalConflictException.public let expectedSequenceNr: Int64
 cactor_persistence :: JournalConflictException.public let persistenceId: String
+cactor_persistence :: LeaseNotHeldException.public init(resource: String)
 cactor_persistence :: MemoryDurableStateStore.public func delete(persistenceId: String, revision: Int64): Unit
 cactor_persistence :: MemoryDurableStateStore.public func get(persistenceId: String): Option<DurableStateRecord>
 cactor_persistence :: MemoryDurableStateStore.public func persistenceIds(): Array<String>
@@ -229,6 +258,9 @@ cactor_persistence :: MemoryEventStore.public func persistenceIds(): Array<Strin
 cactor_persistence :: MemoryEventStore.public func replay(persistenceId: String, fromSeq: Int64, toSeq: Int64): Array<EventEnvelope>
 cactor_persistence :: MemoryEventStore.public func saveEvent(event: Event): Unit
 cactor_persistence :: MemoryEventStore.public init()
+cactor_persistence :: MemoryFencingTokenStore.public func fenced(resource: String, token: Int64, write: ()->Unit): Unit
+cactor_persistence :: MemoryFencingTokenStore.public func highestToken(resource: String): Int64
+cactor_persistence :: MemoryFencingTokenStore.public init()
 cactor_persistence :: MemorySnapshotStore.public func close(): Unit
 cactor_persistence :: MemorySnapshotStore.public func deleteSnapshots(actorId: String): Unit
 cactor_persistence :: MemorySnapshotStore.public func deleteSnapshotsTo(actorId: String, maxSequenceNr: Int64): Unit
@@ -375,6 +407,10 @@ cactor_persistence :: SnapshotStore.func getSnapshot(actorId: String, sequenceNu
 cactor_persistence :: SnapshotStore.func saveSnapshot(snapshot: Snapshot): Unit
 cactor_persistence :: SnapshotStoreFactory.public static func createFileStore(basePath: String): SnapshotStore
 cactor_persistence :: SnapshotStoreFactory.public static func createMemoryStore(): SnapshotStore
+cactor_persistence :: StaleFencingTokenException.public init(resource: String, token: Int64, highestSeen: Int64)
+cactor_persistence :: StaleFencingTokenException.public let highestSeen: Int64
+cactor_persistence :: StaleFencingTokenException.public let resource: String
+cactor_persistence :: StaleFencingTokenException.public let token: Int64
 cactor_persistence :: TakeSnapshotMessage.public func getStateData(): String
 cactor_persistence :: TakeSnapshotMessage.public func messageType(): String
 cactor_persistence :: TakeSnapshotMessage.public func toString(): String
@@ -398,14 +434,20 @@ cactor_persistence :: public class EventEnvelope
 cactor_persistence :: public class EventHandlerException <: PersistenceException
 cactor_persistence :: public class EventStoreFactory
 cactor_persistence :: public class FailedFuture<T> <: Future<T>
+cactor_persistence :: public class FencedDurableStateStore <: DurableStateStore
+cactor_persistence :: public class FencedEventStore <: EventStore
 cactor_persistence :: public class FileDurableStateStore <: DurableStateStore
 cactor_persistence :: public class FileEventStore <: EventStore
+cactor_persistence :: public class FileFencingTokenStore <: FencingTokenStore
+cactor_persistence :: public class FileLease <: AbstractLease
 cactor_persistence :: public class FileSnapshotStore <: SnapshotStore
 cactor_persistence :: public class FutureFactory
 cactor_persistence :: public class JournalConflictException <: PersistenceException
+cactor_persistence :: public class LeaseNotHeldException <: PersistenceException
 cactor_persistence :: public class MemoryDurableStateStore <: DurableStateStore
 cactor_persistence :: public class MemoryEnhancedEventStore <: EnhancedEventStore
 cactor_persistence :: public class MemoryEventStore <: EventStore
+cactor_persistence :: public class MemoryFencingTokenStore <: FencingTokenStore
 cactor_persistence :: public class MemorySnapshotStore <: SnapshotStore
 cactor_persistence :: public class PersistEventMessage <: Message
 cactor_persistence :: public class PersistenceConfig
@@ -423,8 +465,10 @@ cactor_persistence :: public class SimpleEventPayload <: EventPayload
 cactor_persistence :: public class SimpleQuerySpec <: QuerySpec
 cactor_persistence :: public class SimpleReadModel <: ReadModel
 cactor_persistence :: public class SnapshotStoreFactory
+cactor_persistence :: public class StaleFencingTokenException <: PersistenceException
 cactor_persistence :: public class TakeSnapshotMessage <: Message
 cactor_persistence :: public func persistenceFsyncCount(): Int64
+cactor_persistence :: public func wallClockMillis(): Int64
 cactor_persistence :: public interface AggregateRoot
 cactor_persistence :: public interface Command
 cactor_persistence :: public interface CommandHandler
@@ -433,6 +477,7 @@ cactor_persistence :: public interface EnhancedEventStore
 cactor_persistence :: public interface Event
 cactor_persistence :: public interface EventPayload
 cactor_persistence :: public interface EventStore
+cactor_persistence :: public interface FencingTokenStore
 cactor_persistence :: public interface Future<T>
 cactor_persistence :: public interface PersistencePlugin
 cactor_persistence :: public interface PersistentActor <: Actor

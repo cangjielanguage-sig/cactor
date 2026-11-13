@@ -122,6 +122,10 @@ cactor_cluster.ddata :: Replicator.public init(system: CActorSystem, manager: Si
 cactor_cluster.ddata :: Replicator.public init(system: CActorSystem, manager: SimpleRemoteManager, gossipInterval: Duration, selfNode: String)
 cactor_cluster.ddata :: Replicator.public let selfNode: String
 cactor_cluster.ddata :: ReplicatorConsistencyException.public init(message: String)
+cactor_cluster.ddata :: ReplicatorConsistencyException.public init(message: String, replied: Int64, needed: Int64, total: Int64)
+cactor_cluster.ddata :: ReplicatorConsistencyException.public let needed: Int64
+cactor_cluster.ddata :: ReplicatorConsistencyException.public let replied: Int64
+cactor_cluster.ddata :: ReplicatorConsistencyException.public let total: Int64
 cactor_cluster.ddata :: ReplicatorDeltaStats.public init(deltaPushes: Int64, fullPushes: Int64, deltasApplied: Int64, gaps: Int64)
 cactor_cluster.ddata :: ReplicatorDeltaStats.public let deltaPushes: Int64
 cactor_cluster.ddata :: ReplicatorDeltaStats.public let deltasApplied: Int64
@@ -241,7 +245,9 @@ cactor_cluster.membership :: ClusterSharding.public let typeName: String
 cactor_cluster.membership :: ClusterSingleton.public func ask(message: Message, timeout: Duration): TypedPromise<Message>
 cactor_cluster.membership :: ClusterSingleton.public func droppedCount(): Int64
 cactor_cluster.membership :: ClusterSingleton.public func handOverCount(): Int64
+cactor_cluster.membership :: ClusterSingleton.public func isLeaseHeld(): Bool
 cactor_cluster.membership :: ClusterSingleton.public func isRunningHere(): Bool
+cactor_cluster.membership :: ClusterSingleton.public func leaseStats(): (Int64, Int64, Int64)
 cactor_cluster.membership :: ClusterSingleton.public func location(): Option<String>
 cactor_cluster.membership :: ClusterSingleton.public func startCount(): Int64
 cactor_cluster.membership :: ClusterSingleton.public func stop(): Unit
@@ -249,6 +255,17 @@ cactor_cluster.membership :: ClusterSingleton.public func tell(message: Message)
 cactor_cluster.membership :: ClusterSingleton.public func tell(message: Message, sender: ActorRef): Unit
 cactor_cluster.membership :: ClusterSingleton.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: ()->Actor)
 cactor_cluster.membership :: ClusterSingleton.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: ()->Actor, bufferSize: Int64)
+cactor_cluster.membership :: ClusterSingleton.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: ()->Actor, settings: ClusterSingletonSettings)
+cactor_cluster.membership :: ClusterSingletonSettings.public func withBufferSize(n: Int64): ClusterSingletonSettings
+cactor_cluster.membership :: ClusterSingletonSettings.public func withLease(l: Lease): ClusterSingletonSettings
+cactor_cluster.membership :: ClusterSingletonSettings.public func withLeaseRetry(min: Duration, max: Duration): ClusterSingletonSettings
+cactor_cluster.membership :: ClusterSingletonSettings.public func withoutLease(): ClusterSingletonSettings
+cactor_cluster.membership :: ClusterSingletonSettings.public init()
+cactor_cluster.membership :: ClusterSingletonSettings.public init(bufferSize: Int64, lease: Option<Lease>, leaseRetryMin: Duration, leaseRetryMax: Duration)
+cactor_cluster.membership :: ClusterSingletonSettings.public let bufferSize: Int64
+cactor_cluster.membership :: ClusterSingletonSettings.public let lease: Option<Lease>
+cactor_cluster.membership :: ClusterSingletonSettings.public let leaseRetryMax: Duration
+cactor_cluster.membership :: ClusterSingletonSettings.public let leaseRetryMin: Duration
 cactor_cluster.membership :: ClusterSnapshot.public func member(address: String): Option<Member>
 cactor_cluster.membership :: ClusterSnapshot.public func statusOf(address: String): Option<MemberStatus>
 cactor_cluster.membership :: ClusterSnapshot.public func upCount(): Int64
@@ -422,6 +439,7 @@ cactor_cluster.membership :: public let SHARDING_PROTOCOL_VERSION: Int64
 cactor_cluster.membership :: public let SINGLETON_HANDOVER_GRACE_MS: Int64
 cactor_cluster.membership :: public struct AcquisitionHealth <: ToString
 cactor_cluster.membership :: public struct ClusterSettings
+cactor_cluster.membership :: public struct ClusterSingletonSettings
 cactor_cluster.membership :: public struct RebalancePolicy <: ToString
 cactor_cluster.membership :: public struct ShardMove <: ToString
 cactor_cluster.ops :: public func attachClusterRoutes(mgmt: ManagementServer, cluster: Cluster, sharding!: Option<ClusterSharding>= None<ClusterSharding>): ManagementServer

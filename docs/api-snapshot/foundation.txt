@@ -407,6 +407,48 @@ cactor_foundation.contracts :: public interface FoundationContract <: ModuleCont
 cactor_foundation.contracts :: public interface ModuleContract
 cactor_foundation.contracts :: public interface RuntimeContract <: ModuleContract
 cactor_foundation.contracts :: public struct GlobalModuleRegistry
+cactor_foundation.coordination :: AbstractLease.public func acquire(onLost: (Option<Exception>)->Unit): Bool
+cactor_foundation.coordination :: AbstractLease.public func checkLease(): Bool
+cactor_foundation.coordination :: AbstractLease.public func fencingToken(): Option<Int64>
+cactor_foundation.coordination :: AbstractLease.public func lostCount(): Int64
+cactor_foundation.coordination :: AbstractLease.public func release(): Bool
+cactor_foundation.coordination :: AbstractLease.public prop settings: LeaseSettings
+cactor_foundation.coordination :: InMemoryLease.public init(store: InMemoryLeaseStore, settings: LeaseSettings)
+cactor_foundation.coordination :: InMemoryLeaseStore.public func deniedCount(name: String): Int64
+cactor_foundation.coordination :: InMemoryLeaseStore.public func expiresAt(name: String): Int64
+cactor_foundation.coordination :: InMemoryLeaseStore.public func lastToken(name: String): Int64
+cactor_foundation.coordination :: InMemoryLeaseStore.public func owner(name: String): Option<String>
+cactor_foundation.coordination :: InMemoryLeaseStore.public func revoke(name: String): Unit
+cactor_foundation.coordination :: InMemoryLeaseStore.public func setAvailable(v: Bool): Unit
+cactor_foundation.coordination :: InMemoryLeaseStore.public func setOwnerReachable(owner: String, reachable: Bool): Unit
+cactor_foundation.coordination :: InMemoryLeaseStore.public init()
+cactor_foundation.coordination :: InMemoryLeaseStore.public init(clock: ()->Int64)
+cactor_foundation.coordination :: InMemoryLeaseStore.public prop clock: ()->Int64
+cactor_foundation.coordination :: Lease.func acquire(onLost: (Option<Exception>)->Unit): Bool
+cactor_foundation.coordination :: Lease.func checkLease(): Bool
+cactor_foundation.coordination :: Lease.func fencingToken(): Option<Int64>
+cactor_foundation.coordination :: Lease.func release(): Bool
+cactor_foundation.coordination :: Lease.prop settings: LeaseSettings
+cactor_foundation.coordination :: LeaseException.public init(message: String)
+cactor_foundation.coordination :: LeaseSettings.public func validityMillis(): Int64
+cactor_foundation.coordination :: LeaseSettings.public func withClockSkewMargin(d: Duration): LeaseSettings
+cactor_foundation.coordination :: LeaseSettings.public func withHeartbeatInterval(d: Duration): LeaseSettings
+cactor_foundation.coordination :: LeaseSettings.public func withLeaseName(name: String): LeaseSettings
+cactor_foundation.coordination :: LeaseSettings.public func withOwnerName(owner: String): LeaseSettings
+cactor_foundation.coordination :: LeaseSettings.public func withTtl(d: Duration): LeaseSettings
+cactor_foundation.coordination :: LeaseSettings.public init(leaseName: String, ownerName: String)
+cactor_foundation.coordination :: LeaseSettings.public init(leaseName: String, ownerName: String, ttl: Duration, heartbeatInterval: Duration, clockSkewMargin: Duration)
+cactor_foundation.coordination :: LeaseSettings.public let clockSkewMargin: Duration
+cactor_foundation.coordination :: LeaseSettings.public let heartbeatInterval: Duration
+cactor_foundation.coordination :: LeaseSettings.public let leaseName: String
+cactor_foundation.coordination :: LeaseSettings.public let ownerName: String
+cactor_foundation.coordination :: LeaseSettings.public let ttl: Duration
+cactor_foundation.coordination :: public abstract class AbstractLease <: Lease
+cactor_foundation.coordination :: public class InMemoryLease <: AbstractLease
+cactor_foundation.coordination :: public class InMemoryLeaseStore
+cactor_foundation.coordination :: public class LeaseException <: Exception
+cactor_foundation.coordination :: public interface Lease
+cactor_foundation.coordination :: public struct LeaseSettings
 cactor_foundation.detector :: FailureDetectorRegistry.public func heartbeat(node: String): Unit
 cactor_foundation.detector :: FailureDetectorRegistry.public func isAvailable(node: String): Bool
 cactor_foundation.detector :: FailureDetectorRegistry.public func phi(node: String): Float64
@@ -1027,6 +1069,7 @@ cactor_foundation.network :: TcpTransport.public func getHandshakeFailures(): In
 cactor_foundation.network :: TcpTransport.public func getInboundByteRejections(): Int64
 cactor_foundation.network :: TcpTransport.public func getInboundCapacityRejections(): Int64
 cactor_foundation.network :: TcpTransport.public func getInboundConnectionCount(): Int64
+cactor_foundation.network :: TcpTransport.public func getInboundFrameTimeouts(): Int64
 cactor_foundation.network :: TcpTransport.public func getInboundPendingBytes(): Int64
 cactor_foundation.network :: TcpTransport.public func getLocalAddress(): NetworkAddress
 cactor_foundation.network :: TcpTransport.public func getOutboundCapacityRejections(): Int64
@@ -1048,8 +1091,9 @@ cactor_foundation.network :: TcpTransport.public func start(): Unit
 cactor_foundation.network :: TcpTransport.public func stop(): Unit
 cactor_foundation.network :: TcpTransport.public init(localAddress: NetworkAddress, connectTimeout: Duration, limits!: TcpTransportLimits = TcpTransportLimits())
 cactor_foundation.network :: TcpTransport.public init(localAddress: NetworkAddress, limits!: TcpTransportLimits = TcpTransportLimits())
-cactor_foundation.network :: TcpTransportLimits.public init(maxOutboundAssociations!: Int64 = 256, maxInboundConnections!: Int64 = 256, idleRetireAfter!: Duration = Duration.second * 10, maxPendingBytes!: Int64 = 256 * 1024 * 1024, maxControlPendingBytes!: Int64 = 16 * 1024 * 1024, maxInboundPendingBytes!: Int64 = 64 * 1024 * 1024)
+cactor_foundation.network :: TcpTransportLimits.public init(maxOutboundAssociations!: Int64 = 256, maxInboundConnections!: Int64 = 256, idleRetireAfter!: Duration = Duration.second * 10, maxPendingBytes!: Int64 = 256 * 1024 * 1024, maxControlPendingBytes!: Int64 = 16 * 1024 * 1024, maxInboundPendingBytes!: Int64 = 64 * 1024 * 1024, inboundFrameReadTimeout!: Duration = Duration.second * 30)
 cactor_foundation.network :: TcpTransportLimits.public let idleRetireAfter: Duration
+cactor_foundation.network :: TcpTransportLimits.public let inboundFrameReadTimeout: Duration
 cactor_foundation.network :: TcpTransportLimits.public let maxControlPendingBytes: Int64
 cactor_foundation.network :: TcpTransportLimits.public let maxInboundConnections: Int64
 cactor_foundation.network :: TcpTransportLimits.public let maxInboundPendingBytes: Int64

@@ -7,14 +7,22 @@ cactor_remote :: PeerWireProfile.public let capabilities: UInt64
 cactor_remote :: PeerWireProfile.public let negotiated: Bool
 cactor_remote :: PeerWireProfile.public let protocolVersion: Int64
 cactor_remote :: PeerWireProfile.public let uid: UInt64
+cactor_remote :: ReliableBudgetUsage.public init(unacked: Int64, retainedUnacked: Int64, inboundBuffered: Int64, retainedInboundBuffered: Int64, maxTotalUnacked: Int64, maxInboundBuffered: Int64)
+cactor_remote :: ReliableBudgetUsage.public let inboundBuffered: Int64
+cactor_remote :: ReliableBudgetUsage.public let maxInboundBuffered: Int64
+cactor_remote :: ReliableBudgetUsage.public let maxTotalUnacked: Int64
+cactor_remote :: ReliableBudgetUsage.public let retainedInboundBuffered: Int64
+cactor_remote :: ReliableBudgetUsage.public let retainedUnacked: Int64
+cactor_remote :: ReliableBudgetUsage.public let unacked: Int64
 cactor_remote :: ReliableChannelStats.public init(outboundChannels: Int64, inboundChannels: Int64, outboundRejected: Int64, inboundRejected: Int64)
 cactor_remote :: ReliableChannelStats.public let inboundChannels: Int64
 cactor_remote :: ReliableChannelStats.public let inboundRejected: Int64
 cactor_remote :: ReliableChannelStats.public let outboundChannels: Int64
 cactor_remote :: ReliableChannelStats.public let outboundRejected: Int64
-cactor_remote :: ReliableDeliveryStats.public init(resent: Int64, duplicatesDropped: Int64, unacked: Int64, overflowDropped: Int64, gaveUp: Int64, peerRestarts: Int64, nodeBudgetDropped!: Int64 = 0, staleGenerationRejected!: Int64 = 0)
+cactor_remote :: ReliableDeliveryStats.public init(resent: Int64, duplicatesDropped: Int64, unacked: Int64, overflowDropped: Int64, gaveUp: Int64, peerRestarts: Int64, nodeBudgetDropped!: Int64 = 0, staleGenerationRejected!: Int64 = 0, inboundBuffered!: Int64 = 0)
 cactor_remote :: ReliableDeliveryStats.public let duplicatesDropped: Int64
 cactor_remote :: ReliableDeliveryStats.public let gaveUp: Int64
+cactor_remote :: ReliableDeliveryStats.public let inboundBuffered: Int64
 cactor_remote :: ReliableDeliveryStats.public let nodeBudgetDropped: Int64
 cactor_remote :: ReliableDeliveryStats.public let overflowDropped: Int64
 cactor_remote :: ReliableDeliveryStats.public let peerRestarts: Int64
@@ -164,6 +172,7 @@ cactor_remote :: extend SimpleRemoteManager.public func quarantine(address: Netw
 cactor_remote :: extend SimpleRemoteManager.public func quarantinedCount(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func rejectedConnections(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func rejectedHandshakes(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func reliableBudgetUsage(): ReliableBudgetUsage
 cactor_remote :: extend SimpleRemoteManager.public func reliableChannelStats(): ReliableChannelStats
 cactor_remote :: extend SimpleRemoteManager.public func reliableDeliveryStats(): ReliableDeliveryStats
 cactor_remote :: extend SimpleRemoteManager.public func reliableStats(): (Int64, Int64, Int64)
@@ -193,6 +202,7 @@ cactor_remote :: public func encodeRemoteSender(address: NetworkAddress, name: S
 cactor_remote :: public func parseRemoteSender(text: String): Option<(NetworkAddress, String)>
 cactor_remote :: public let REPLY_ENTRY_IDLE_TTL_MS: Int64
 cactor_remote :: public struct PeerWireProfile <: ToString
+cactor_remote :: public struct ReliableBudgetUsage
 cactor_remote :: public struct ReliableChannelStats
 cactor_remote :: public struct ReliableDeliveryStats
 cactor_remote :: public struct RemotingSettings
