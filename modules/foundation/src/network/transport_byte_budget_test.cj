@@ -27,6 +27,9 @@ public class TransportByteBudgetTest {
         @ExpectThrows[IllegalArgumentException](TcpTransportLimits(maxPendingBytes: 0))
         @ExpectThrows[IllegalArgumentException](TcpTransportLimits(maxControlPendingBytes: -1))
         @ExpectThrows[IllegalArgumentException](TcpTransportLimits(maxInboundPendingBytes: 0))
+        @ExpectThrows[IllegalArgumentException](TcpTransportLimits(inboundFrameReadTimeout: Duration.Zero))
+        @ExpectThrows[IllegalArgumentException](TcpTransportLimits(inboundFrameReadTimeout: Duration.second * -1))
+        @Expect(TcpTransportLimits().inboundFrameReadTimeout, Duration.second * 30)
     }
 
     @TestCase
@@ -54,8 +57,8 @@ public class TransportByteBudgetTest {
     @TestCase
     func controlChannelHasItsOwnByteBudget(): Unit {
         let counters = TransportCounters()
-        // 普通预算 60：控制预算 100，两者互不占用
-        let limits = TcpTransportLimits(maxPendingBytes: 60, maxControlPendingBytes: 100)
+        // 普通预算 60、控制预算 80，两者互不占用（控制 30 + 30 后再来 30 即超 80）
+        let limits = TcpTransportLimits(maxPendingBytes: 60, maxControlPendingBytes: 80)
         let conn = OutboundConnection(NetworkAddress("127.0.0.1", 1), Duration.second, Duration.hour,
             counters, limits, { _ => }, { => None }, { => None })
         let frame = Array<UInt8>(30, repeat: 0)
@@ -142,6 +145,130 @@ public class TransportByteBudgetTest {
             @Expect(waitUntil(Duration.second * 5, { => got.load() == 1 }), true)
             @Expect(waitUntil(Duration.second * 5, { => server.getInboundPendingBytes() == 0 }), true)
             @Expect(server.getInboundByteRejections(), 0)
+        } finally {
+            client.stop()
+            server.stop()
+        }
+    }
+
+    /** 裸 TCP 连上服务端，发一个声称 len 字节的帧头和少量负载，返回连接（帧未写完） */
+    func openPartialFrame(server: TcpTransport, len: Int64, sent: Int64): TcpSocket {
+        let raw = TcpSocket("127.0.0.1", UInt16(server.getLocalAddress().port))
+        raw.connect()
+        let header: Array<UInt8> = [UInt8((len >> 24) & 0xFF), UInt8((len >> 16) & 0xFF),
+            UInt8((len >> 8) & 0xFF), UInt8(len & 0xFF)]
+        raw.write(header)
+        raw.write(Array<UInt8>(sent, repeat: 1))
+        raw
+    }
+
+    /** 正常对端在 got 计数上再收到一帧 */
+    func legitFrameGetsThrough(server: TcpTransport, got: AtomicInt64): Bool {
+        let before = got.load()
+        let client = TcpTransport(NetworkAddress("127.0.0.1", 0))
+        client.start()
+        try {
+            client.send(server.getLocalAddress(), bytesOf("hello"))
+            waitUntil(Duration.second * 5, { => got.load() > before })
+        } finally {
+            client.stop()
+        }
+    }
+
+    @TestCase
+    func inboundBudgetIsReleasedWhenPeerResetsMidFrame(): Unit {
+        // 预算恰好容纳一个 1 MB 帧：只要泄漏一次，之后所有入站帧都会被拒（远程 DoS）
+        let frame: Int64 = 1024 * 1024
+        let server = TcpTransport(NetworkAddress("127.0.0.1", 0), limits: TcpTransportLimits(
+            maxInboundPendingBytes: frame, idleRetireAfter: Duration.hour))
+        let got = AtomicInt64(0)
+        server.setDataHandler({ _ => got.fetchAdd(1) |> ignoreInt })
+        server.start()
+        try {
+            let raw = openPartialFrame(server, frame, 100)
+            @Expect(waitUntil(Duration.second * 5, { => server.getInboundPendingBytes() == frame }), true)
+            // SO_LINGER = 0：close 发 RST，服务端读负载时抛异常而不是读到 EOF
+            raw.linger = Duration.Zero
+            raw.close()
+            @Expect(waitUntil(Duration.second * 5, { => server.getInboundPendingBytes() == 0 }), true)
+            @Expect(legitFrameGetsThrough(server, got), true)
+            @Expect(server.getInboundByteRejections(), 0)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @TestCase
+    func inboundBudgetIsReleasedWhenTransportStopsMidFrame(): Unit {
+        let server = TcpTransport(NetworkAddress("127.0.0.1", 0), limits: TcpTransportLimits(
+            idleRetireAfter: Duration.hour))
+        server.start()
+        let raw = openPartialFrame(server, 4096, 10)
+        try {
+            @Expect(waitUntil(Duration.second * 5, { => server.getInboundPendingBytes() == 4096 }), true)
+            // 停机关闭入站连接：读协程从阻塞的 read 中以异常退出，预算也必须归还
+            server.stop()
+            @Expect(waitUntil(Duration.second * 5, { => server.getInboundPendingBytes() == 0 }), true)
+        } finally {
+            closeQuietly({ => raw.close() })
+            server.stop()
+        }
+    }
+
+    @TestCase
+    func tricklingPeerIsClosedAtFrameDeadlineAndBudgetReturns(): Unit {
+        // 预算只够一个 4 KB 帧：慢速对端若能无限期占着，其他对端的帧全部被拒
+        let server = TcpTransport(NetworkAddress("127.0.0.1", 0), limits: TcpTransportLimits(
+            maxInboundPendingBytes: 4096, inboundFrameReadTimeout: Duration.millisecond * 300,
+            idleRetireAfter: Duration.hour))
+        let got = AtomicInt64(0)
+        server.setDataHandler({ _ => got.fetchAdd(1) |> ignoreInt })
+        server.start()
+        let raw = openPartialFrame(server, 4096, 10)
+        let trickling = AtomicBool(true)
+        // 每 50 ms 挤一个字节：单次 read 超时永远等得到数据，只有整帧总时限能截断它
+        spawn {
+            let deadline = MonoTime.now() + Duration.second * 10
+            try {
+                while (MonoTime.now() < deadline) {
+                    raw.write([UInt8(1)])
+                    sleep(Duration.millisecond * 50)
+                }
+            } catch (_: Exception) {
+                ()
+            }
+            trickling.store(false)
+        }
+        try {
+            @Expect(waitUntil(Duration.second * 5, { => server.getInboundPendingBytes() == 4096 }), true)
+            @Expect(waitUntil(Duration.second * 5, { => server.getInboundFrameTimeouts() == 1 }), true)
+            @Expect(waitUntil(Duration.second * 5, { => server.getInboundPendingBytes() == 0 }), true)
+            // 被关闭的是慢连接本身：对端继续写会失败，正常对端照常收发
+            @Expect(waitUntil(Duration.second * 8, { => !trickling.load() }), true)
+            @Expect(legitFrameGetsThrough(server, got), true)
+        } finally {
+            closeQuietly({ => raw.close() })
+            server.stop()
+        }
+    }
+
+    @TestCase
+    func frameDeadlineDoesNotCutHealthyLargeFrames(): Unit {
+        // 时限针对单帧：连续的大帧各自计时，正常速度的对端不受影响
+        let server = TcpTransport(NetworkAddress("127.0.0.1", 0), limits: TcpTransportLimits(
+            inboundFrameReadTimeout: Duration.second * 5, idleRetireAfter: Duration.hour))
+        let got = AtomicInt64(0)
+        server.setDataHandler({ d => if (d.size == 1024 * 1024) { got.fetchAdd(1) |> ignoreInt } })
+        server.start()
+        let client = TcpTransport(NetworkAddress("127.0.0.1", 0))
+        client.start()
+        try {
+            for (_ in 0..8) {
+                client.send(server.getLocalAddress(), Array<UInt8>(1024 * 1024, repeat: 3))
+            }
+            @Expect(waitUntil(Duration.second * 20, { => got.load() == 8 }), true)
+            @Expect(server.getInboundFrameTimeouts(), 0)
+            @Expect(waitUntil(Duration.second * 5, { => server.getInboundPendingBytes() == 0 }), true)
         } finally {
             client.stop()
             server.stop()

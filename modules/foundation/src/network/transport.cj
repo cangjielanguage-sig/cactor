@@ -340,6 +340,8 @@ class TransportCounters {
     func releaseInboundBytes(n: Int64): Unit {
         inboundBytes.fetchSub(n)
     }
+    // 帧负载没能在 inboundFrameReadTimeout 内读完而被关闭的入站连接数（慢速/恶意对端）
+    let inboundFrameTimeouts = AtomicInt64(0)
     let framesDropped = AtomicInt64(0)
     let connectFailures = AtomicInt64(0)
     let writes = AtomicInt64(0)
@@ -763,12 +765,21 @@ class OutboundConnection {
     }
 }
 
+/** 帧负载没有在期限内读完：对端过慢或故意慢发，连接要被关闭以归还入站预算 */
+class FrameReadTimeoutException <: Exception {
+    init() {
+        super("入站帧负载读取超时")
+    }
+}
+
 /** 带缓冲的帧读取：一次 read 读入多帧，减少系统调用 */
 class FrameReader {
     private let socket: Channel
     private let buffer: Array<UInt8> = Array<UInt8>(64 * 1024, repeat: 0)
     private var start: Int64 = 0
     private var end: Int64 = 0
+    // 本次读帧是否设置过 socket 读超时，读完要复位
+    private var timeoutArmed: Bool = false
 
     init(socket: Channel) {
         this.socket = socket
@@ -776,9 +787,47 @@ class FrameReader {
 
     /** 读满 dst；对端关闭返回 false */
     func readFully(dst: Array<UInt8>): Bool {
+        readFullyBefore(dst, None<MonoTime>)
+    }
+
+    /**
+     * 读满 dst，且必须在 deadline 前读完，否则抛 FrameReadTimeoutException（socket 超时异常原样抛出）。
+     * 期限是整帧的总时限而不是单次 read 的超时：对端每隔不到单次超时就挤一个字节，
+     * 单次超时永远不触发，却能无限期占住已预留的入站字节。
+     * 只在缓冲读空、确实要碰 socket 时才设置超时，整帧已在缓冲里时没有额外系统调用
+     */
+    func readFullyBefore(dst: Array<UInt8>, deadline: ?MonoTime): Bool {
+        try {
+            readFullyInner(dst, deadline)
+        } finally {
+            if (timeoutArmed) {
+                timeoutArmed = false
+                // 连接可能已被关闭：恢复超时失败无关紧要，读协程随后就会退出
+                try {
+                    socket.setReadTimeout(None)
+                } catch (_: Exception) {
+                    ()
+                }
+            }
+        }
+    }
+
+    private func armDeadline(deadline: ?MonoTime): Unit {
+        if (let Some(d) <- deadline) {
+            let left = d - MonoTime.now()
+            if (left <= Duration.Zero) {
+                throw FrameReadTimeoutException()
+            }
+            socket.setReadTimeout(left)
+            timeoutArmed = true
+        }
+    }
+
+    private func readFullyInner(dst: Array<UInt8>, deadline: ?MonoTime): Bool {
         var offset: Int64 = 0
         while (offset < dst.size) {
             if (start >= end) {
+                armDeadline(deadline)
                 // 大块数据直接读入目标，避免二次拷贝
                 if (dst.size - offset >= buffer.size) {
                     let n = socket.read(dst[offset..])
@@ -813,12 +862,17 @@ public struct TcpTransportLimits {
     public let maxControlPendingBytes: Int64
     /** 所有入站连接合计的在途解码字节。 */
     public let maxInboundPendingBytes: Int64
+    /**
+     * 单帧负载从读到帧头起必须读完的总时限。帧头一到就预留了入站字节，
+     * 慢速对端若可以无限期慢慢发，就能长期占住预算、让其他连接被拒；超时关闭的是慢连接本身
+     */
+    public let inboundFrameReadTimeout: Duration
     public let idleRetireAfter: Duration
 
     public init(maxOutboundAssociations!: Int64 = 256, maxInboundConnections!: Int64 = 256,
         idleRetireAfter!: Duration = Duration.second * 10,
         maxPendingBytes!: Int64 = 256 * 1024 * 1024, maxControlPendingBytes!: Int64 = 16 * 1024 * 1024,
-        maxInboundPendingBytes!: Int64 = 64 * 1024 * 1024) {
+        maxInboundPendingBytes!: Int64 = 64 * 1024 * 1024, inboundFrameReadTimeout!: Duration = Duration.second * 30) {
         if (maxPendingBytes <= 0 || maxControlPendingBytes <= 0) {
             throw IllegalArgumentException("TCP 出站帧字节预算必须为正数")
         }
@@ -828,6 +882,10 @@ public struct TcpTransportLimits {
         this.maxPendingBytes = maxPendingBytes
         this.maxControlPendingBytes = maxControlPendingBytes
         this.maxInboundPendingBytes = maxInboundPendingBytes
+        if (inboundFrameReadTimeout <= Duration.Zero) {
+            throw IllegalArgumentException("TCP 入站帧读取时限必须为正数")
+        }
+        this.inboundFrameReadTimeout = inboundFrameReadTimeout
         if (maxOutboundAssociations <= 0 || maxInboundConnections <= 0 || idleRetireAfter <= Duration.Zero) {
             throw IllegalArgumentException("TCP 连接预算和空闲期限必须为正数")
         }
@@ -1096,6 +1154,9 @@ public class TcpTransport <: NetworkTransport {
     /** 因入站字节预算满额而关闭的连接数 */
     public func getInboundByteRejections(): Int64 { counters.inboundByteRejections.load() }
 
+    /** 帧负载超过 inboundFrameReadTimeout 仍未读完而被关闭的入站连接数 */
+    public func getInboundFrameTimeouts(): Int64 { counters.inboundFrameTimeouts.load() }
+
     public func getDroppedFrames(): Int64 { counters.framesDropped.load() }
 
     /** 连接失败次数（每次尝试计一次，含退避后的重试） */
@@ -1243,21 +1304,17 @@ public class TcpTransport <: NetworkTransport {
                     log_transport.warn("TCP 入站字节预算已满，关闭该入站连接")
                     break
                 }
-                let payload = Array<UInt8>(len, repeat: 0)
-                if (len > 0 && !reader.readFully(payload)) {
+                // 预留之后的每条出路（读到 EOF、读时抛异常、超时、分配失败、回调结束）都恰好归还一次：
+                // 对端在帧中途 RST 或停机关闭 socket 时 read 会抛异常，漏还一次就永久少一帧的预算
+                var delivered = false
+                try {
+                    delivered = readAndDeliver(reader, len)
+                } finally {
                     counters.releaseInboundBytes(len)
+                }
+                if (!delivered) {
                     break
                 }
-                framesReceived.fetchAdd(1)
-                let handler = synchronized(mutex) { dataHandler }
-                if (let Some(h) <- handler) {
-                    try {
-                        h(payload)
-                    } catch (e: Exception) {
-                        log_transport.error("TCP 数据处理回调失败: ${e.message}")
-                    }
-                }
-                counters.releaseInboundBytes(len)
             }
         } catch (e: Exception) {
             // 对端断开或传输已停止
@@ -1268,6 +1325,37 @@ public class TcpTransport <: NetworkTransport {
             inboundPeers.removeIf({ p => refEq(p[0], client) })
         }
         client.close()
+    }
+
+    /** 在帧时限内读完负载并交给回调；对端关闭返回 false，超时与 I/O 异常向上抛出以关闭连接 */
+    private func readAndDeliver(reader: FrameReader, len: Int64): Bool {
+        let payload = Array<UInt8>(len, repeat: 0)
+        if (len > 0) {
+            let deadline = MonoTime.now() + limits.inboundFrameReadTimeout
+            let complete = try {
+                reader.readFullyBefore(payload, deadline)
+            } catch (e: Exception) {
+                // 超时可能表现为我们自己的异常，也可能是 socket / TLS 层的超时异常：按期限统一判断
+                if (MonoTime.now() >= deadline) {
+                    counters.inboundFrameTimeouts.fetchAdd(1)
+                    log_transport.warn("TCP 入站帧 ${len} 字节未在 ${limits.inboundFrameReadTimeout} 内读完，关闭该慢速连接")
+                }
+                throw e
+            }
+            if (!complete) {
+                return false
+            }
+        }
+        framesReceived.fetchAdd(1)
+        let handler = synchronized(mutex) { dataHandler }
+        if (let Some(h) <- handler) {
+            try {
+                h(payload)
+            } catch (e: Exception) {
+                log_transport.error("TCP 数据处理回调失败: ${e.message}")
+            }
+        }
+        true
     }
 
     /** 入站握手：限时读第一帧交给 accept，通过则回应答帧并登记对端标识 */
