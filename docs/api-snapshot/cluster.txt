@@ -447,3 +447,123 @@ cactor_cluster.ops :: public func attachFaultInjectionRoutes(mgmt: ManagementSer
 cactor_cluster.ops :: public func clusterStatusJson(cluster: Cluster): String
 cactor_cluster.ops :: public func faultInjectionJson(transport: BlackholeTransport): String
 cactor_cluster.ops :: public func shardingStatusJson(region: ClusterSharding): String
+cactor_cluster.streamref :: OfferResult.public func isBackpressured(): Bool
+cactor_cluster.streamref :: OfferResult.public func isClosed(): Bool
+cactor_cluster.streamref :: OfferResult.public func isEnqueued(): Bool
+cactor_cluster.streamref :: OfferResult.public func toString(): String
+cactor_cluster.streamref :: OfferResult.| Backpressured
+cactor_cluster.streamref :: OfferResult.| Closed
+cactor_cluster.streamref :: OfferResult.| Enqueued
+cactor_cluster.streamref :: SourceRef.public func isSerializable(): Bool
+cactor_cluster.streamref :: SourceRef.public func toString(): String
+cactor_cluster.streamref :: SourceRef.public func toWireString(): String
+cactor_cluster.streamref :: SourceRef.public init(streamId: String, location: String, localRef: Option<TypedActorRef<StreamRefMsg>>)
+cactor_cluster.streamref :: SourceRef.public let localRef: Option<TypedActorRef<StreamRefMsg>>
+cactor_cluster.streamref :: SourceRef.public let location: String
+cactor_cluster.streamref :: SourceRef.public let streamId: String
+cactor_cluster.streamref :: SourceRef.public static func fromWireString(text: String): SourceRef<T>
+cactor_cluster.streamref :: StreamProducer.public func bufferedCount(): Int64
+cactor_cluster.streamref :: StreamProducer.public func complete(): Unit
+cactor_cluster.streamref :: StreamProducer.public func fail(reason: String): Unit
+cactor_cluster.streamref :: StreamProducer.public func grantedDemand(): Int64
+cactor_cluster.streamref :: StreamProducer.public func isAttached(): Bool
+cactor_cluster.streamref :: StreamProducer.public func isClosed(): Bool
+cactor_cluster.streamref :: StreamProducer.public func maxOverGrant(): Int64
+cactor_cluster.streamref :: StreamProducer.public func offer(element: T): OfferResult
+cactor_cluster.streamref :: StreamProducer.public func sentCount(): Int64
+cactor_cluster.streamref :: StreamProducer.public func stageRef(): TypedActorRef<StreamRefMsg>
+cactor_cluster.streamref :: StreamProducer.public func termination(): TypedPromise<StreamTermination>
+cactor_cluster.streamref :: StreamProducer.public func whenReady(): TypedPromise<Bool>
+cactor_cluster.streamref :: StreamRefEvent.| OnComplete
+cactor_cluster.streamref :: StreamRefEvent.| OnError(StreamRefException)
+cactor_cluster.streamref :: StreamRefEvent.| OnNext(T)
+cactor_cluster.streamref :: StreamRefEvent.| OnSubscribe(StreamRefSubscription)
+cactor_cluster.streamref :: StreamRefException.public init(message: String)
+cactor_cluster.streamref :: StreamRefIdleTimeoutException.public init(message: String)
+cactor_cluster.streamref :: StreamRefMsg.public func streamIdOrEmpty(): String
+cactor_cluster.streamref :: StreamRefMsg.| Cancel(String, String)
+cactor_cluster.streamref :: StreamRefMsg.| Completed(String, Int64)
+cactor_cluster.streamref :: StreamRefMsg.| Demand(String, Int64)
+cactor_cluster.streamref :: StreamRefMsg.| Element(String, Int64, Any)
+cactor_cluster.streamref :: StreamRefMsg.| Failed(String, String)
+cactor_cluster.streamref :: StreamRefMsg.| IdleTimeout
+cactor_cluster.streamref :: StreamRefMsg.| Offer(Any)
+cactor_cluster.streamref :: StreamRefMsg.| OnSubscribe(String)
+cactor_cluster.streamref :: StreamRefMsg.| ProducerComplete
+cactor_cluster.streamref :: StreamRefMsg.| ProducerFail(String)
+cactor_cluster.streamref :: StreamRefMsg.| Rejected(String, String)
+cactor_cluster.streamref :: StreamRefMsg.| Subscribe(String, String, Int64)
+cactor_cluster.streamref :: StreamRefMsg.| SubscribeLocal(String, TypedActorRef<StreamRefMsg>, Int64)
+cactor_cluster.streamref :: StreamRefMsg.| SubscriberCancel(String)
+cactor_cluster.streamref :: StreamRefMsg.| SubscriberRequest(Int64)
+cactor_cluster.streamref :: StreamRefMsg.| SubscriptionTimeout
+cactor_cluster.streamref :: StreamRefMsg.| TerminationDeadline
+cactor_cluster.streamref :: StreamRefPeerTerminatedException.public init(message: String)
+cactor_cluster.streamref :: StreamRefProtocolException.public init(message: String)
+cactor_cluster.streamref :: StreamRefRejectedException.public init(message: String)
+cactor_cluster.streamref :: StreamRefRemoteFailureException.public init(reason: String)
+cactor_cluster.streamref :: StreamRefRemoteFailureException.public let reason: String
+cactor_cluster.streamref :: StreamRefSettings.public func withBufferSize(n: Int64): StreamRefSettings
+cactor_cluster.streamref :: StreamRefSettings.public func withFinalTerminationSignalDeadline(d: Duration): StreamRefSettings
+cactor_cluster.streamref :: StreamRefSettings.public func withIdleTimeout(d: Duration): StreamRefSettings
+cactor_cluster.streamref :: StreamRefSettings.public func withSubscriptionTimeout(d: Duration): StreamRefSettings
+cactor_cluster.streamref :: StreamRefSettings.public init()
+cactor_cluster.streamref :: StreamRefSettings.public init(bufferSize: Int64, subscriptionTimeout: Duration, idleTimeout: Option<Duration>, finalTerminationSignalDeadline: Duration)
+cactor_cluster.streamref :: StreamRefSettings.public let bufferSize: Int64
+cactor_cluster.streamref :: StreamRefSettings.public let finalTerminationSignalDeadline: Duration
+cactor_cluster.streamref :: StreamRefSettings.public let idleTimeout: Option<Duration>
+cactor_cluster.streamref :: StreamRefSettings.public let subscriptionTimeout: Duration
+cactor_cluster.streamref :: StreamRefSubscriber.func onComplete(): Unit
+cactor_cluster.streamref :: StreamRefSubscriber.func onError(error: StreamRefException): Unit
+cactor_cluster.streamref :: StreamRefSubscriber.func onNext(element: T): Unit
+cactor_cluster.streamref :: StreamRefSubscriber.func onSubscribe(subscription: StreamRefSubscription): Unit
+cactor_cluster.streamref :: StreamRefSubscriberException.public init(message: String)
+cactor_cluster.streamref :: StreamRefSubscription.public func cancel(): Unit
+cactor_cluster.streamref :: StreamRefSubscription.public func cancel(reason: String): Unit
+cactor_cluster.streamref :: StreamRefSubscription.public func deliveredCount(): Int64
+cactor_cluster.streamref :: StreamRefSubscription.public func isCancelled(): Bool
+cactor_cluster.streamref :: StreamRefSubscription.public func isSubscribed(): Bool
+cactor_cluster.streamref :: StreamRefSubscription.public func isTerminated(): Bool
+cactor_cluster.streamref :: StreamRefSubscription.public func maxUnconsumed(): Int64
+cactor_cluster.streamref :: StreamRefSubscription.public func receivedCount(): Int64
+cactor_cluster.streamref :: StreamRefSubscription.public func request(n: Int64): Unit
+cactor_cluster.streamref :: StreamRefSubscription.public func requestedDemand(): Int64
+cactor_cluster.streamref :: StreamRefSubscription.public let streamId: String
+cactor_cluster.streamref :: StreamRefSubscriptionTimeoutException.public init(message: String)
+cactor_cluster.streamref :: StreamRefUndecodable.public init(reason: String)
+cactor_cluster.streamref :: StreamRefUndecodable.public let reason: String
+cactor_cluster.streamref :: StreamRefs.public func sourceRef<T>(settings!: StreamRefSettings = StreamRefSettings(), owner!: Option<ActorRef>= None<ActorRef>): (SourceRef<T>, StreamProducer<T>)
+cactor_cluster.streamref :: StreamRefs.public func subscribe<T>(ref: SourceRef<T>, onNext!: (T)->Unit, onComplete!: ()->Unit, onError!: (StreamRefException)->Unit, settings!: StreamRefSettings = StreamRefSettings()): StreamRefSubscription
+cactor_cluster.streamref :: StreamRefs.public func subscribe<T>(ref: SourceRef<T>, subscriber: StreamRefSubscriber<T>, settings!: StreamRefSettings = StreamRefSettings()): StreamRefSubscription
+cactor_cluster.streamref :: StreamRefs.public func subscribeActor<T>(ref: SourceRef<T>, target: TypedActorRef<StreamRefEvent<T>>, settings!: StreamRefSettings = StreamRefSettings()): StreamRefSubscription
+cactor_cluster.streamref :: StreamRefs.public init(system: CActorSystem, remote!: Option<SimpleRemoteManager>= None<SimpleRemoteManager>, installRemoteWatch!: Bool = true)
+cactor_cluster.streamref :: StreamTermination.public func isCancelled(): Bool
+cactor_cluster.streamref :: StreamTermination.public func isCompleted(): Bool
+cactor_cluster.streamref :: StreamTermination.public func isFailed(): Bool
+cactor_cluster.streamref :: StreamTermination.public func reason(): String
+cactor_cluster.streamref :: StreamTermination.public func toString(): String
+cactor_cluster.streamref :: StreamTermination.| Cancelled(String)
+cactor_cluster.streamref :: StreamTermination.| Completed
+cactor_cluster.streamref :: StreamTermination.| Failed(String)
+cactor_cluster.streamref :: public class SourceRef<T>
+cactor_cluster.streamref :: public class StreamProducer<T>
+cactor_cluster.streamref :: public class StreamRefIdleTimeoutException <: StreamRefException
+cactor_cluster.streamref :: public class StreamRefPeerTerminatedException <: StreamRefException
+cactor_cluster.streamref :: public class StreamRefProtocolException <: StreamRefException
+cactor_cluster.streamref :: public class StreamRefRejectedException <: StreamRefException
+cactor_cluster.streamref :: public class StreamRefRemoteFailureException <: StreamRefException
+cactor_cluster.streamref :: public class StreamRefSubscriberException <: StreamRefException
+cactor_cluster.streamref :: public class StreamRefSubscription
+cactor_cluster.streamref :: public class StreamRefSubscriptionTimeoutException <: StreamRefException
+cactor_cluster.streamref :: public class StreamRefUndecodable
+cactor_cluster.streamref :: public class StreamRefs
+cactor_cluster.streamref :: public enum OfferResult <: ToString
+cactor_cluster.streamref :: public enum StreamRefEvent<T>
+cactor_cluster.streamref :: public enum StreamRefMsg
+cactor_cluster.streamref :: public enum StreamTermination <: ToString
+cactor_cluster.streamref :: public func ensureStreamRefCodecRegistered(): Bool
+cactor_cluster.streamref :: public interface StreamRefSubscriber<T>
+cactor_cluster.streamref :: public let STREAM_REF_PROTOCOL_VERSION: Int64
+cactor_cluster.streamref :: public let STREAM_REF_WIRE_TYPE: String
+cactor_cluster.streamref :: public open class StreamRefException <: Exception
+cactor_cluster.streamref :: public struct StreamRefSettings
