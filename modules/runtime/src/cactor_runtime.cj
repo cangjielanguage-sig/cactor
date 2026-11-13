@@ -8,7 +8,7 @@ package cactor_runtime
 import std.sync.*
 import std.time.*
 import cactor_foundation.logging.{Logging}
-import cactor_core.actor.{Actor, ActorRef, Props, ActorSystemView, PoisonPill, isAffinityWorkerThread}
+import cactor_core.actor.{Actor, ActorRef, Props, ActorSystemView, PoisonPill, isAffinityWorkerThread, ActorScheduler, RealTimeScheduler}
 import cactor_core.message.{Message}
 import cactor_core.system.{ActorSystem}
 import cactor_runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian, SimpleUserActorRef, isActorThread}
@@ -89,7 +89,7 @@ public class CActorRuntime {
 
         // 创建Guardian Actors
         this.systemGuardian = RuntimeSystemGuardian(actorSystem)
-        this.userGuardian = RuntimeUserGuardian(actorSystem)
+        this.userGuardian = RuntimeUserGuardian(actorSystem, config.scheduler)
 
         // 创建运行时组件
         this.mailboxFactory = DefaultAdvancedMailboxFactory()
@@ -368,6 +368,11 @@ public class CActorRuntime {
         config
     }
 
+    /** 本系统的调度器（E52） */
+    public func scheduler(): ActorScheduler {
+        config.scheduler
+    }
+
     // 私有辅助方法
     private func createBaseActorSystem(name: String): ActorSystem {
         // 创建基础ActorSystem实现
@@ -488,19 +493,32 @@ public struct CActorRuntimeConfig {
     public let highPerformanceConfig: HighPerformanceActorSystemConfig
     public let enableMonitoring: Bool
     public let enablePersistence: Bool
+    /**
+     * 定时器 / 接收超时 / 退避重启 / Actor 内 ask 超时使用的调度器（E52）。
+     * 默认真实时间；测试注入 cactor_testkit.ManualTime 后这些路径只随虚拟时间触发
+     */
+    public let scheduler: ActorScheduler
 
     public init(
         mailboxConfig: MailboxConfig,
         dispatcherConfig: DispatcherConfig,
         highPerformanceConfig: HighPerformanceActorSystemConfig,
         enableMonitoring: Bool,
-        enablePersistence: Bool
+        enablePersistence: Bool,
+        scheduler!: ActorScheduler = RealTimeScheduler.instance
     ) {
         this.mailboxConfig = mailboxConfig
         this.dispatcherConfig = dispatcherConfig
         this.highPerformanceConfig = highPerformanceConfig
         this.enableMonitoring = enableMonitoring
         this.enablePersistence = enablePersistence
+        this.scheduler = scheduler
+    }
+
+    /** 换用另一个调度器（其余配置不变） */
+    public func withScheduler(scheduler: ActorScheduler): CActorRuntimeConfig {
+        CActorRuntimeConfig(mailboxConfig, dispatcherConfig, highPerformanceConfig, enableMonitoring, enablePersistence,
+            scheduler: scheduler)
     }
 
     /**
@@ -692,6 +710,10 @@ class RuntimeSystemView <: ActorSystemView {
 
     public func isTerminated(): Bool {
         !runtime.getRuntimeStats().isRunning
+    }
+
+    public func scheduler(): ActorScheduler {
+        runtime.scheduler()
     }
 }
 

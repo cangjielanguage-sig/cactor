@@ -13,6 +13,7 @@ import cactor.api.{CActorSystem, CActorSystemFactory}
 import cactor_core.actor.*
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_testkit.*
+import cactor_runtime.{CActorRuntimeConfig}
 
 class Tree <: Actor {
     let depth: Int64
@@ -72,13 +73,18 @@ class Terminator <: Actor {
 public class TerminateTest {
     @TestCase
     public func testTerminateStopsWholeTreeAndTimers(): Unit {
-        let system = CActorSystemFactory.create("terminate-tree")
+        // 虚拟时钟（E52）：定时器只随 timePasses 触发，"终止后不再触发"可以确定地断言
+        let time = ManualTime()
+        let system = CActorSystemFactory.create("terminate-tree", CActorRuntimeConfig.createDefault().withScheduler(time))
         let rec = EventRecorder()
         let ticks = AtomicInt64(0)
-        // 两棵深度为 3 的树：每棵 1 + 2 + 4 + 8 = 15 个 Actor
+        // 两棵深度为 3 的树：每棵 1 + 2 + 4 + 8 = 15 个 Actor，每个 Actor 一个 5ms 固定频率定时器
         system.actorOf({ => Tree(3, rec, ticks) }, "t1")
         system.actorOf({ => Tree(3, rec, ticks) }, "t2")
-        @Expect(awaitCondition(Duration.second * 3, { => ticks.load() > 100 }), true)
+        @Expect(time.awaitPending(30), true)
+        // 30 个定时器 × 4 次（5、10、15、20ms）
+        time.timePasses(Duration.millisecond * 20)
+        @Expect(awaitCondition(Duration.second * 3, { => ticks.load() == 120 }), true)
         system.terminate()
         // terminate 返回时全部 postStop 已执行
         @Expect(rec.size(), 30)
@@ -86,10 +92,10 @@ public class TerminateTest {
         @Expect(rec.count("stop:3"), 2)
         // 子 Actor 先于父 Actor 停止
         @Expect(rec.indexOf("stop:0") < rec.indexOf("stop:3"), true)
-        // 定时器不再触发
-        let after = ticks.load()
-        sleep(Duration.millisecond * 50)
-        @Expect(ticks.load(), after)
+        // 定时器全部取消：没有待触发的任务，再推进多久也不会有新的 tick
+        @Expect(time.pendingCount(), 0)
+        time.timePasses(Duration.second * 10)
+        @Expect(ticks.load(), 120)
         @Expect(system.isTerminated(), true)
     }
 

@@ -23,6 +23,7 @@ cactor_core.actor :: ActorContext.func log(): Logger
 cactor_core.actor :: ActorContext.func lookup(path: String): Option<ActorRef>
 cactor_core.actor :: ActorContext.func parent(): Option<ActorRef>
 cactor_core.actor :: ActorContext.func reply(message: Message): Unit
+cactor_core.actor :: ActorContext.func scheduler(): ActorScheduler
 cactor_core.actor :: ActorContext.func send(target: ActorRef, message: Message): Unit
 cactor_core.actor :: ActorContext.func sender(): Option<String>
 cactor_core.actor :: ActorContext.func senderRef(): Option<ActorRef>
@@ -43,9 +44,10 @@ cactor_core.actor :: ActorErrorException.public let error: Error
 cactor_core.actor :: ActorErrorException.public let path: String
 cactor_core.actor :: ActorFactory.func create(): T
 cactor_core.actor :: ActorFactory.func rawCreator(): ()->T
-cactor_core.actor :: ActorFailure.public init(actor: ActorRef, cause: Exception, failureCount: Int64, lastRestartAt!: Option<MonoTime>= None)
+cactor_core.actor :: ActorFailure.public init(actor: ActorRef, cause: Exception, failureCount: Int64, lastRestartAt!: Option<MonoTime>= None, failedAt!: Option<MonoTime>= None)
 cactor_core.actor :: ActorFailure.public let actor: ActorRef
 cactor_core.actor :: ActorFailure.public let cause: Exception
+cactor_core.actor :: ActorFailure.public let failedAt: Option<MonoTime>
 cactor_core.actor :: ActorFailure.public let failureCount: Int64
 cactor_core.actor :: ActorFailure.public let lastRestartAt: Option<MonoTime>
 cactor_core.actor :: ActorFailure.public let timestamp: Int64
@@ -79,6 +81,11 @@ cactor_core.actor :: ActorRef.func tell(message: Message, sender: ActorRef): Uni
 cactor_core.actor :: ActorRef.func tell(message: Message, sender: Option<String>): Unit
 cactor_core.actor :: ActorRef.operator func<<(message: Message): ActorRef
 cactor_core.actor :: ActorRef.prop path: ActorPath
+cactor_core.actor :: ActorScheduler.func monotonicNow(): MonoTime
+cactor_core.actor :: ActorScheduler.func scheduleAtFixedRate(initialDelay: Duration, interval: Duration, task: ()->Unit): ScheduledTask
+cactor_core.actor :: ActorScheduler.func scheduleOnce(delay: Duration, task: ()->Unit): ScheduledTask
+cactor_core.actor :: ActorScheduler.func scheduleOnceAt(deadline: MonoTime, task: ()->Unit): ScheduledTask
+cactor_core.actor :: ActorScheduler.func scheduleWithFixedDelay(initialDelay: Duration, delay: Duration, task: ()->Unit): ScheduledTask
 cactor_core.actor :: ActorSelection.func resolveOne(timeout: Duration): Option<ActorRef>
 cactor_core.actor :: ActorSelection.func tell(message: Message): Unit
 cactor_core.actor :: ActorSelection.func tell(message: Message, sender: Option<String>): Unit
@@ -87,6 +94,7 @@ cactor_core.actor :: ActorSystemView.func actorOf(props: Props<Actor>, name: Str
 cactor_core.actor :: ActorSystemView.func deadLetterCount(): Int64
 cactor_core.actor :: ActorSystemView.func isTerminated(): Bool
 cactor_core.actor :: ActorSystemView.func lookup(path: String): Option<ActorRef>
+cactor_core.actor :: ActorSystemView.func scheduler(): ActorScheduler
 cactor_core.actor :: ActorSystemView.func stop(ref: ActorRef): Unit
 cactor_core.actor :: ActorSystemView.func terminate(): Unit
 cactor_core.actor :: ActorSystemView.prop name: String
@@ -135,10 +143,16 @@ cactor_core.actor :: Props.public func withSupervisorStrategy(strategy: Supervis
 cactor_core.actor :: Props.public init(factory: ActorFactory<T>)
 cactor_core.actor :: PropsFactory.public static func create<T>(creator: ()->T): Props<T>where T <: Actor
 cactor_core.actor :: PropsFactory.public static func createWithDispatcher<T>(creator: ()->T, dispatcher: String): Props<T>where T <: Actor
+cactor_core.actor :: RealTimeScheduler.public func monotonicNow(): MonoTime
+cactor_core.actor :: RealTimeScheduler.public func scheduleAtFixedRate(initialDelay: Duration, interval: Duration, task: ()->Unit): ScheduledTask
+cactor_core.actor :: RealTimeScheduler.public func scheduleOnce(delay: Duration, task: ()->Unit): ScheduledTask
+cactor_core.actor :: RealTimeScheduler.public func scheduleWithFixedDelay(initialDelay: Duration, delay: Duration, task: ()->Unit): ScheduledTask
+cactor_core.actor :: RealTimeScheduler.public static let instance: RealTimeScheduler
 cactor_core.actor :: ReceiveTimeout.public func messageType(): String
 cactor_core.actor :: ReceiveTimeout.public init()
 cactor_core.actor :: Result.| Failure(Exception)
 cactor_core.actor :: Result.| Success(T)
+cactor_core.actor :: ScheduledTask.func cancel(): Unit
 cactor_core.actor :: SimpleActorFactory.public func create(): T
 cactor_core.actor :: SimpleActorFactory.public func rawCreator(): ()->T
 cactor_core.actor :: SimpleActorFactory.public init(creator: ()->T)
@@ -170,6 +184,7 @@ cactor_core.actor :: UnhandledMessage.public init(message: Message, recipient: S
 cactor_core.actor :: UnhandledMessage.public let message: Message
 cactor_core.actor :: UnhandledMessage.public let recipient: String
 cactor_core.actor :: UnsupportedContextException.public init(operation: String)
+cactor_core.actor :: extend Timer <: ScheduledTask
 cactor_core.actor :: public class ActorErrorException <: Exception
 cactor_core.actor :: public class ActorInitializationException <: Exception
 cactor_core.actor :: public class ActorKilledException <: Exception
@@ -179,6 +194,7 @@ cactor_core.actor :: public class InvalidActorNameException <: Exception
 cactor_core.actor :: public class Kill <: AutoReceivedMessage
 cactor_core.actor :: public class MailboxFullException <: Exception
 cactor_core.actor :: public class PoisonPill <: AutoReceivedMessage
+cactor_core.actor :: public class RealTimeScheduler <: ActorScheduler
 cactor_core.actor :: public class ReceiveTimeout <: NotInfluenceReceiveTimeout
 cactor_core.actor :: public class SimpleActorFactory<T> <: ActorFactory<T>where T <: Actor
 cactor_core.actor :: public class SimpleFuture<T>
@@ -195,12 +211,14 @@ cactor_core.actor :: public interface Actor
 cactor_core.actor :: public interface ActorContext
 cactor_core.actor :: public interface ActorFactory<T>where T <: Actor
 cactor_core.actor :: public interface ActorRef
+cactor_core.actor :: public interface ActorScheduler
 cactor_core.actor :: public interface ActorSelection
 cactor_core.actor :: public interface ActorSystemView
 cactor_core.actor :: public interface CActorFuture<T>
 cactor_core.actor :: public interface DeadLetterActorRef <: ActorRef
 cactor_core.actor :: public interface LocalActorRef <: ActorRef
 cactor_core.actor :: public interface NotInfluenceReceiveTimeout <: Message
+cactor_core.actor :: public interface ScheduledTask
 cactor_core.actor :: public interface SupervisionStrategy
 cactor_core.actor :: public interface TimerScheduler
 cactor_core.actor :: public struct ActorFailure
@@ -830,7 +848,7 @@ cactor_core.supervision :: BackoffDecision.| GiveUp
 cactor_core.supervision :: BackoffDecision.| RestartIn(Duration, BackoffState)
 cactor_core.supervision :: BackoffPolicy.public func delayFor(restartCount: Int64, rnd: Float64): Duration
 cactor_core.supervision :: BackoffPolicy.public func next(prev: Option<BackoffState>, now: MonoTime, rnd: Float64, restartedAt!: Option<MonoTime>= None): BackoffDecision
-cactor_core.supervision :: BackoffPolicy.public func next(prev: Option<BackoffState>, restartedAt!: Option<MonoTime>= None): BackoffDecision
+cactor_core.supervision :: BackoffPolicy.public func next(prev: Option<BackoffState>, restartedAt!: Option<MonoTime>= None, failedAt!: Option<MonoTime>= None): BackoffDecision
 cactor_core.supervision :: BackoffPolicy.public func toString(): String
 cactor_core.supervision :: BackoffPolicy.public func withMaxRestarts(n: Int64): BackoffPolicy
 cactor_core.supervision :: BackoffPolicy.public func withResetBackoffAfter(d: Duration): BackoffPolicy

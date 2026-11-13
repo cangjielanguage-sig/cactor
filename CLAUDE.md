@@ -53,8 +53,10 @@ stdx 只允许 remote 及以上的模块导入（foundation / core / runtime 等
 - **经典 Actor**（`modules/core/src/actor/`）仍受支持，但新代码请用类型化 API。
 - **测试**（`modules/testkit/`）：`TestInbox<T>` / `TestProbe`、`BehaviorTestKit`（Effect 断言）、
   `ManualTime` 虚拟时钟。同步行为测试用 BehaviorTestKit + ManualTime；
-  涉及真实运行时的测试用 `awaitCondition` / `TestProbe` 等待条件，不要 sleep 固定时长
-  （ManualTime 目前驱动不了真实调度器，见计划 E52）。
+  真实运行时里带定时器的用例（timers / withTimers、接收超时、退避重启、ctx.scheduleOnce、Actor 内 ask 超时）
+  用 `ActorTestKit(name, ManualTime())` 注入虚拟时钟（E52）：先 `time.awaitPending(n)` 确认定时器已登记，
+  再 `time.timePasses(d)`，结果用 `TestProbe` / `awaitCondition` 等待，无消息断言用 `time.expectNoMessageFor(d, [probe])`。
+  其余异步断言也用 `awaitCondition` / `TestProbe` 等待条件，不要 sleep 固定时长；Actor 外的 `TypedAsk.ask` 仍按真实时间超时。
 
 ## 代码风格（docs/CODE_STYLE_GUIDE.md）
 

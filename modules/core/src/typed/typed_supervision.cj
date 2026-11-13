@@ -355,7 +355,8 @@ class SupervisionRules <: SupervisionHost {
     }
 
     /** duringStart：失败发生在 setup / 启动阶段 */
-    func decide(cause: Exception, duringStart: Bool, restartedAt: Option<MonoTime>): SupervisionDirective {
+    func decide(cause: Exception, duringStart: Bool, restartedAt: Option<MonoTime>,
+        failedAt!: Option<MonoTime> = None): SupervisionDirective {
         synchronized(lock) {
             let layers = snapshot ?? Array<Array<SupervisionRule>>()
             snapshot = None<Array<Array<SupervisionRule>>>
@@ -367,7 +368,7 @@ class SupervisionRules <: SupervisionHost {
                 for (j in 0..layer.size) {
                     let rule = layer[j]
                     if (rule.matches(cause)) {
-                        return apply(rule.strategy, progressFor(keyOf(depth, j)), duringStart, restartedAt)
+                        return apply(rule.strategy, progressFor(keyOf(depth, j)), duringStart, restartedAt, failedAt)
                     }
                 }
                 depth--
@@ -408,9 +409,9 @@ class SupervisionRules <: SupervisionHost {
     }
 
     private func apply(strategy: TypedSupervisorStrategy, state: RuleProgress, duringStart: Bool,
-        restartedAt: Option<MonoTime>): SupervisionDirective {
+        restartedAt: Option<MonoTime>, failedAt: Option<MonoTime>): SupervisionDirective {
         if (let Some(policy) <- strategy.backoff) {
-            return match (policy.next(state.backoff, restartedAt: restartedAt)) {
+            return match (policy.next(state.backoff, restartedAt: restartedAt, failedAt: failedAt)) {
                 case BackoffDecision.RestartIn(delay, next) =>
                     state.backoff = Some(next)
                     SupervisionDirective.RestartAfter(delay)
@@ -426,7 +427,8 @@ class SupervisionRules <: SupervisionHost {
                     // 与 Akka Typed 一致：不限次数的 restart 遇到 setup 失败直接停止，否则就是无限重启
                     return if (duringStart) { SupervisionDirective.Stop } else { SupervisionDirective.Restart }
                 }
-                let now = MonoTime.now()
+                // 失败时刻按系统调度器的时钟（E52），未提供时用真实时钟
+                let now = failedAt ?? MonoTime.now()
                 if (strategy.within > Duration.Zero) {
                     // 丢弃时间窗口之外的记录
                     let recent = ArrayList<MonoTime>()
@@ -463,8 +465,9 @@ class TypedDeciderStrategy <: SupervisionStrategy {
         // setup 失败由运行时包成 ActorInitializationException；规则按原异常匹配，
         // 这样 onFailureOf<E> 对 setup 里抛出的 E 同样生效（与 Akka Typed 一致）
         match (failure.cause) {
-            case ie: ActorInitializationException => rules.decide(ie.cause, true, failure.lastRestartAt)
-            case other => rules.decide(other, false, failure.lastRestartAt)
+            case ie: ActorInitializationException => rules.decide(ie.cause, true, failure.lastRestartAt,
+                failedAt: failure.failedAt)
+            case other => rules.decide(other, false, failure.lastRestartAt, failedAt: failure.failedAt)
         }
     }
 }

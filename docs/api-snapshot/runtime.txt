@@ -167,6 +167,7 @@
 ? :: CellContext.public func lookup(path: String): Option<ActorRef>
 ? :: CellContext.public func parent(): Option<ActorRef>
 ? :: CellContext.public func reply(message: Message): Unit
+? :: CellContext.public func scheduler(): ActorScheduler
 ? :: CellContext.public func send(target: ActorRef, message: Message): Unit
 ? :: CellContext.public func sender(): Option<String>
 ? :: CellContext.public func senderRef(): Option<ActorRef>
@@ -387,6 +388,7 @@
 ? :: RuntimeUserGuardian.public func publishDeadLetter(message: Message, path: String): Unit
 ? :: RuntimeUserGuardian.public func receive(message: Message, context: ActorContext): MessageResult
 ? :: RuntimeUserGuardian.public func removeUserActor(child: ActorRef): Bool
+? :: RuntimeUserGuardian.public func scheduler(): ActorScheduler
 ? :: RuntimeUserGuardian.public func setSystemView(view: ActorSystemView): Unit
 ? :: RuntimeUserGuardian.public func setTopLevelTerminatedHook(hook: (ActorRef)->Unit): Unit
 ? :: RuntimeUserGuardian.public func subscribeDeadLetters(listener: (Message, String)->Unit): Unit
@@ -394,6 +396,7 @@
 ? :: RuntimeUserGuardian.public func terminateAll(timeout: Duration): Int64
 ? :: RuntimeUserGuardian.public func unhandledCount(): Int64
 ? :: RuntimeUserGuardian.public init(system: ActorSystem)
+? :: RuntimeUserGuardian.public init(system: ActorSystem, scheduler: ActorScheduler)
 ? :: RuntimeUserGuardian.public prop description: String
 ? :: RuntimeUserGuardian.public prop name: String
 ? :: SchedulerConfig.public init(workerCount: Int32, loadBalancingStrategy: LoadBalancingStrategy, stealingStrategy: StealingStrategy, enableNumaAware: Bool, stealBatchSize: Int32, maxLocalQueueSize: Int64, globalQueueCapacity: Int64, enableAdaptiveThrottling: Bool)
@@ -606,6 +609,7 @@ cactor_runtime :: CActorRuntime.public func publishDeadLetter(message: Message, 
 cactor_runtime :: CActorRuntime.public func restart(actorRef: ActorRef, reason: Exception): Unit
 cactor_runtime :: CActorRuntime.public func restartActor(actorRef: ActorRef): Unit
 cactor_runtime :: CActorRuntime.public func resumeActor(actorRef: ActorRef): Unit
+cactor_runtime :: CActorRuntime.public func scheduler(): ActorScheduler
 cactor_runtime :: CActorRuntime.public func shutdown(): Unit
 cactor_runtime :: CActorRuntime.public func start(): Unit
 cactor_runtime :: CActorRuntime.public func stop(actorRef: ActorRef): Unit
@@ -614,12 +618,14 @@ cactor_runtime :: CActorRuntime.public func subscribeDeadLetters(listener: (Mess
 cactor_runtime :: CActorRuntime.public func unhandledCount(): Int64
 cactor_runtime :: CActorRuntime.public init(systemName: String, config: CActorRuntimeConfig)
 cactor_runtime :: CActorRuntimeConfig.public func getDescription(): String
-cactor_runtime :: CActorRuntimeConfig.public init(mailboxConfig: MailboxConfig, dispatcherConfig: DispatcherConfig, highPerformanceConfig: HighPerformanceActorSystemConfig, enableMonitoring: Bool, enablePersistence: Bool)
+cactor_runtime :: CActorRuntimeConfig.public func withScheduler(scheduler: ActorScheduler): CActorRuntimeConfig
+cactor_runtime :: CActorRuntimeConfig.public init(mailboxConfig: MailboxConfig, dispatcherConfig: DispatcherConfig, highPerformanceConfig: HighPerformanceActorSystemConfig, enableMonitoring: Bool, enablePersistence: Bool, scheduler!: ActorScheduler = RealTimeScheduler.instance)
 cactor_runtime :: CActorRuntimeConfig.public let dispatcherConfig: DispatcherConfig
 cactor_runtime :: CActorRuntimeConfig.public let enableMonitoring: Bool
 cactor_runtime :: CActorRuntimeConfig.public let enablePersistence: Bool
 cactor_runtime :: CActorRuntimeConfig.public let highPerformanceConfig: HighPerformanceActorSystemConfig
 cactor_runtime :: CActorRuntimeConfig.public let mailboxConfig: MailboxConfig
+cactor_runtime :: CActorRuntimeConfig.public let scheduler: ActorScheduler
 cactor_runtime :: CActorRuntimeConfig.public static func createDefault(): CActorRuntimeConfig
 cactor_runtime :: CActorRuntimeConfig.public static func createExtreme(): CActorRuntimeConfig
 cactor_runtime :: CActorRuntimeConfig.public static func createHighThroughput(): CActorRuntimeConfig

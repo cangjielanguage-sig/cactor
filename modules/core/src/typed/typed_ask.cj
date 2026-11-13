@@ -9,7 +9,7 @@ package cactor_core.typed
 import std.time.*
 import std.sync.*
 import std.collection.*
-import cactor_core.actor.{ActorRef, ActorPath, isAffinityWorkerThread}
+import cactor_core.actor.{ActorRef, ActorPath, isAffinityWorkerThread, ActorScheduler, RealTimeScheduler}
 import cactor_core.message.{Message}
 
 /** 异步结果：成功或失败 */
@@ -484,13 +484,22 @@ public struct TypedAsk {
      */
     public static func ask<Req, Res>(target: TypedActorRef<Req>, createRequest: (TypedActorRef<Res>) -> Req,
         timeout: Duration, cancellation!: Option<AskCancellationToken> = None<AskCancellationToken>): TypedPromise<Res> {
+        askWith<Req, Res>(target, createRequest, timeout, RealTimeScheduler.instance, cancellation)
+    }
+
+    /**
+     * 同 ask，超时由给定调度器安排（E52）：Actor 内的 ctx.ask 用所在系统的调度器，
+     * 注入虚拟时钟时超时随虚拟时间触发；Actor 外的 ask 由调用线程阻塞等待，保持真实时间
+     */
+    static func askWith<Req, Res>(target: TypedActorRef<Req>, createRequest: (TypedActorRef<Res>) -> Req,
+        timeout: Duration, scheduler: ActorScheduler, cancellation: Option<AskCancellationToken>): TypedPromise<Res> {
         let promise = TypedPromise<Res>()
         let targetPath = target.pathString()
         if (let Some(token) <- cancellation) { token.bind(promise, targetPath) }
         if (promise.isCompleted()) { return promise }
         let path = nextPath()
         let replyTo = PromiseRef<Res>(promise, path)
-        let timer = Timer.once(timeout, { =>
+        let timer = scheduler.scheduleOnce(timeout, { =>
             promise.tryFailure(TypedAskTimeoutException("ask ${targetPath} 在 ${timeout} 内没有回复"))
             ()
         })

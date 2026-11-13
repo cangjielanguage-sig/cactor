@@ -31,4 +31,9 @@ public interface ActorSystemView {
     func terminate(): Unit
 
     func isTerminated(): Bool
+
+    /** 系统调度器（E52）；默认真实时间 */
+    func scheduler(): ActorScheduler {
+        RealTimeScheduler.instance
+    }
 }

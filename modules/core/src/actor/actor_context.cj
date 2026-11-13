@@ -159,6 +159,14 @@ public interface ActorContext {
         }
     }
 
+    /**
+     * 所在系统的调度器（E52）：定时器、接收超时、退避重启都经它安排。
+     * 默认是真实时间；测试系统可注入虚拟时钟（cactor_testkit.ManualTime）
+     */
+    func scheduler(): ActorScheduler {
+        RealTimeScheduler.instance
+    }
+
     /** 暂存当前消息，稍后用 unstashAll 放回邮箱队首 */
     func stash(): Unit {
         throw UnsupportedContextException("stash")

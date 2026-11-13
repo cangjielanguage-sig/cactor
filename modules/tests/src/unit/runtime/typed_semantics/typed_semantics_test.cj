@@ -133,8 +133,10 @@ public class TypedSemanticsTest {
 
     @TestCase
     public func testSetupStartsTimersWithoutMessages(): Unit {
-        // setup 在 Actor 启动时执行，即使没有任何消息到达
-        let (kit, sys) = newSystem("typed-setup-eager")
+        // setup 在 Actor 启动时执行，即使没有任何消息到达：定时器在没有消息的情况下已经登记（虚拟时钟，E52）
+        let time = ManualTime()
+        let kit = ActorTestKit("typed-setup-eager", time)
+        let sys = kit.system.typed()
         let rec = EventRecorder()
         sys.actorOf(TypedBehaviors.withTimers<String>({ timers =>
             timers.startSingleTimer("t", "tick", Duration.millisecond * 20)
@@ -143,6 +145,10 @@ public class TypedSemanticsTest {
                 TypedBehaviors.same<String>()
             })
         }), "eager")
+        @Expect(time.awaitPending(1), true)
+        time.timePasses(Duration.millisecond * 19)
+        @Expect(rec.size(), 0)
+        time.timePasses(Duration.millisecond)
         @Expect(rec.await("tick", T3S), true)
         kit.shutdown()
     }
@@ -364,7 +370,9 @@ public class TypedSemanticsTest {
 
     @TestCase
     public func testTimersPeriodicAndCancel(): Unit {
-        let (kit, sys) = newSystem("typed-timers")
+        let time = ManualTime()
+        let kit = ActorTestKit("typed-timers", time)
+        let sys = kit.system.typed()
         let col = Collector<String>()
         let r = sys.actorOf(TypedBehaviors.withTimers<String>({ timers =>
             timers.startTimerWithFixedDelay("tick", "tick", Duration.millisecond * 10)
@@ -378,8 +386,12 @@ public class TypedSemanticsTest {
                 TypedBehaviors.same<String>()
             })
         }), "timers")
+        @Expect(time.awaitPending(1), true)
+        time.timePasses(Duration.millisecond * 30)
         @Expect(col.awaitSize(3), true)
-        sleep(Duration.millisecond * 100)
+        // 第 3 次处理时取消：取消后没有残留任务，再推进多久也不会有第 4 次
+        @Expect(awaitCondition(T3S, { => time.pendingCount() == 0 }), true)
+        time.timePasses(Duration.second * 10)
         @Expect(col.size(), 3)
         kit.shutdown()
     }
@@ -495,7 +507,9 @@ public class TypedSemanticsTest {
 
     @TestCase
     public func testReceiveTimeout(): Unit {
-        let (kit, sys) = newSystem("typed-rt")
+        let time = ManualTime()
+        let kit = ActorTestKit("typed-rt", time)
+        let sys = kit.system.typed()
         let rec = EventRecorder()
         sys.actorOf(TypedBehaviors.setup<String>({ ctx =>
             ctx.setReceiveTimeout(Duration.millisecond * 30, "idle")
@@ -507,8 +521,14 @@ public class TypedSemanticsTest {
                 TypedBehaviors.same<String>()
             })
         }), "rt")
+        @Expect(time.awaitPending(1), true)
+        time.timePasses(Duration.millisecond * 29)
+        @Expect(rec.size(), 0)
+        time.timePasses(Duration.millisecond)
         @Expect(rec.await("idle", T3S), true)
-        sleep(Duration.millisecond * 120)
+        // 处理 idle 时取消：没有残留检查，之后空闲多久都不会再投递
+        @Expect(awaitCondition(T3S, { => time.pendingCount() == 0 }), true)
+        time.timePasses(Duration.second * 10)
         @Expect(rec.count("idle"), 1)
         kit.shutdown()
     }

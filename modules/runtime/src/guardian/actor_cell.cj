@@ -1299,7 +1299,13 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
     }
 
-    /** 最近一次实际完成重启的时刻；从未重启返回 None。可从任意线程调用 */
+    /** 调度器时钟相对 MONO_EPOCH 的纳秒数（> 0），与 lastRestartTime 的还原方式配对 */
+    private func schedulerNanos(): Int64 {
+        let n = (guardian.scheduler().monotonicNow() - MONO_EPOCH).toNanoseconds()
+        if (n <= 0) { 1 } else { n }
+    }
+
+    /** 最近一次实际完成重启的时刻（调度器时钟）；从未重启返回 None。可从任意线程调用 */
     func lastRestartTime(): Option<MonoTime> {
         match (mailbox.anomaliesIfAny()) {
             case Some(a) =>
@@ -1313,9 +1319,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
     }
 
-    /** 交给监督策略的失败信息：带上实际重启时刻（退避据此判断重启后稳定运行了多久） */
+    /**
+     * 交给监督策略的失败信息：带上实际重启时刻（退避据此判断重启后稳定运行了多久）与失败时刻，
+     * 两者都按系统调度器的时钟（E52），注入虚拟时钟时退避复位 / 次数窗口随虚拟时间计算
+     */
     func failureInfo(cause: Exception): ActorFailure {
-        ActorFailure(this, cause, 1, lastRestartAt: lastRestartTime())
+        ActorFailure(this, cause, 1, lastRestartAt: lastRestartTime(), failedAt: Some(guardian.scheduler().monotonicNow()))
     }
 
     /** receive 返回 Unhandled 的次数 */
@@ -1568,7 +1577,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         match (timeoutStateValue) {
             case Some(t) =>
                 if (t.value > Duration.Zero && !(payload is NotInfluenceReceiveTimeout)) {
-                    t.lastActivity = MonoTime.now()
+                    // 用系统调度器的时钟（E52）：虚拟时钟下空闲时长按虚拟时间计算
+                    t.lastActivity = guardian.scheduler().monotonicNow()
                 }
             case None => ()
         }
@@ -1722,9 +1732,9 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             target.sendSystem(SysRecreate(cause))
             return
         }
-        Timer.once(delay, { =>
+        guardian.scheduler().scheduleOnce(delay, { =>
             target.sendSystem(SysRecreate(cause))
-        })
+        }) |> discardTask
     }
 
     /**
@@ -1770,7 +1780,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             fresh.postRestart(reason)
             let stats = mailbox.anomalies()
             stats.restarts.fetchAdd(1)
-            stats.lastRestartNanos.store(monoNanos())
+            stats.lastRestartNanos.store(schedulerNanos())
             state = STATE_RUNNING
         } catch (e: Exception) {
             // 无法重建实例时停止该 Actor，避免继续用损坏的状态处理消息
@@ -2146,8 +2156,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         let s = timeoutState()
         s.value = timeout
-        s.lastActivity = MonoTime.now()
-        scheduleReceiveTimeoutCheck(timeout)
+        s.lastActivity = guardian.scheduler().monotonicNow()
+        scheduleReceiveTimeoutCheck(s.lastActivity + timeout)
     }
 
     func cancelReceiveTimeoutInternal(): Unit {
@@ -2159,15 +2169,16 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 if (let Some(t) <- s.timer) {
                     t.cancel()
                 }
-                s.timer = None<Timer>
+                s.timer = None<ScheduledTask>
             case None => ()
         }
     }
 
-    private func scheduleReceiveTimeoutCheck(delay: Duration): Unit {
+    /** 在调度器时钟的 deadline 检查一次是否空闲超时（按绝对时刻登记，见 ActorScheduler.scheduleOnceAt） */
+    private func scheduleReceiveTimeoutCheck(deadline: MonoTime): Unit {
         let s = timeoutState()
         let gen = s.generation
-        s.timer = Some(Timer.once(delay, { => this.sendSystem(SysReceiveTimeout(gen)) }))
+        s.timer = Some(guardian.scheduler().scheduleOnceAt(deadline, { => this.sendSystem(SysReceiveTimeout(gen)) }))
     }
 
     private func onReceiveTimeoutCheck(generation: Int64): Unit {
@@ -2179,20 +2190,22 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             return
         }
         // 随上层暂停：不执行用户代码，稍后再查（不能直接返回，否则恢复后接收超时再也不会触发）
+        let clock = guardian.scheduler()
         if (pausedByParent()) {
-            scheduleReceiveTimeoutCheck(s.value)
+            scheduleReceiveTimeoutCheck(clock.monotonicNow() + s.value)
             return
         }
-        let elapsed = MonoTime.now() - s.lastActivity
+        let elapsed = clock.monotonicNow() - s.lastActivity
         if (elapsed >= s.value) {
             invoke(ReceiveTimeout(), None<String>, None<ActorRef>)
             // 空闲期间每隔 timeout 重复投递
-            s.lastActivity = MonoTime.now()
+            s.lastActivity = clock.monotonicNow()
             if (s.value > Duration.Zero && generation == s.generation) {
-                scheduleReceiveTimeoutCheck(s.value)
+                scheduleReceiveTimeoutCheck(s.lastActivity + s.value)
             }
         } else {
-            scheduleReceiveTimeoutCheck(s.value - elapsed)
+            // 期间有过活动：到"最后一次活动 + timeout"再查（绝对时刻，与检查本身何时被处理无关）
+            scheduleReceiveTimeoutCheck(s.lastActivity + s.value)
         }
     }
 
@@ -2548,6 +2561,10 @@ public class CellContext <: ActorContext {
         get() { cell.timersImpl() }
     }
 
+    public func scheduler(): ActorScheduler {
+        cell.guardian.scheduler()
+    }
+
     public func stash(): Unit {
         cell.stashInternal()
     }
@@ -2580,11 +2597,13 @@ public class CellContext <: ActorContext {
 
 // ======================= 定时器 =======================
 
+func discardTask(_: ScheduledTask): Unit {}
+
 class TimerEntry {
     let generation: Int64
-    let timer: Timer
+    let timer: ScheduledTask
     let single: Bool
-    init(generation: Int64, timer: Timer, single: Bool) {
+    init(generation: Int64, timer: ScheduledTask, single: Bool) {
         this.generation = generation
         this.timer = timer
         this.single = single
@@ -2592,7 +2611,7 @@ class TimerEntry {
 }
 
 /**
- * Actor 级定时器：基于 std.sync.Timer。
+ * Actor 级定时器：经系统调度器（ActorScheduler，默认 std.sync.Timer）安排（E52）。
  * 定时器线程只负责把带代次的 TimerEnvelope 放进邮箱；投递时在 Cell 内校验代次，
  * 因此 cancel 或同 key 重新 start 之后，已在途的旧消息不会被处理。
  */
@@ -2605,7 +2624,7 @@ class ReceiveTimeoutState {
     var value: Duration = Duration.Zero
     var lastActivity: MonoTime = MonoTime.now()
     var generation: Int64 = 0
-    var timer: Option<Timer> = None<Timer>
+    var timer: Option<ScheduledTask> = None<ScheduledTask>
 }
 
 class CellTimers <: TimerScheduler {
@@ -2626,7 +2645,7 @@ class CellTimers <: TimerScheduler {
         cancel(key)
         let gen = nextGeneration()
         let target = cell
-        let t = Timer.once(delay, { => target.deliverTimer(TimerEnvelope(key, gen, message)) })
+        let t = target.guardian.scheduler().scheduleOnce(delay, { => target.deliverTimer(TimerEnvelope(key, gen, message)) })
         entries.add(key, TimerEntry(gen, t, true))
     }
 
@@ -2634,8 +2653,8 @@ class CellTimers <: TimerScheduler {
         cancel(key)
         let gen = nextGeneration()
         let target = cell
-        let t = Timer.repeat(delay, delay, { => target.deliverTimer(TimerEnvelope(key, gen, message)) },
-            style: CatchupStyle.Delay)
+        let t = target.guardian.scheduler().scheduleWithFixedDelay(delay, delay,
+            { => target.deliverTimer(TimerEnvelope(key, gen, message)) })
         entries.add(key, TimerEntry(gen, t, false))
     }
 
@@ -2643,8 +2662,8 @@ class CellTimers <: TimerScheduler {
         cancel(key)
         let gen = nextGeneration()
         let target = cell
-        let t = Timer.repeat(interval, interval, { => target.deliverTimer(TimerEnvelope(key, gen, message)) },
-            style: CatchupStyle.Burst)
+        let t = target.guardian.scheduler().scheduleAtFixedRate(interval, interval,
+            { => target.deliverTimer(TimerEnvelope(key, gen, message)) })
         entries.add(key, TimerEntry(gen, t, false))
     }
 

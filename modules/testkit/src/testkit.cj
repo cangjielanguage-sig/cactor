@@ -17,6 +17,7 @@ import cactor_core.actor.{Actor, ActorRef, ActorContext, Props, Terminated}
 import cactor_core.message.{Message, MessageResult}
 import cactor_core.typed.{TypedActorRef, ClassicTypedRef, TypedPayloadBox, TypedBehavior}
 import cactor.api.{CActorSystem, CActorSystemFactory}
+import cactor_runtime.{CActorRuntimeConfig}
 
 /** 断言失败 */
 public class TestKitAssertionException <: Exception {
@@ -377,9 +378,28 @@ public class TestProbe {
 public class ActorTestKit {
     public let system: CActorSystem
     private var probeSeq: Int64 = 0
+    private let manualTimeValue: Option<ManualTime>
 
     public init(name: String) {
         this.system = CActorSystemFactory.create(name)
+        this.manualTimeValue = None<ManualTime>
+    }
+
+    /**
+     * 用虚拟时钟创建测试系统（E52，对标 Akka ActorTestKit(ManualTime.config)）：
+     * 定时器、接收超时、退避重启、Actor 内 ask 超时只在 time.timePasses 时触发
+     */
+    public init(name: String, time: ManualTime) {
+        this.system = CActorSystemFactory.create(name, CActorRuntimeConfig.createDefault().withScheduler(time))
+        this.manualTimeValue = Some(time)
+    }
+
+    /** 创建时注入的虚拟时钟；未注入时抛出 TestKitAssertionException */
+    public func manualTime(): ManualTime {
+        match (manualTimeValue) {
+            case Some(t) => t
+            case None => throw TestKitAssertionException("该 ActorTestKit 没有注入 ManualTime，请用 ActorTestKit(name, ManualTime()) 创建")
+        }
     }
 
     public func createTestProbe(): TestProbe {

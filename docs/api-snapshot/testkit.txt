@@ -4,9 +4,11 @@ cactor_testkit :: ActorTestKit.public func actorOf(creator: ()->Actor, name: Str
 cactor_testkit :: ActorTestKit.public func actorOf(props: Props<Actor>, name: String): ActorRef
 cactor_testkit :: ActorTestKit.public func createTestProbe(): TestProbe
 cactor_testkit :: ActorTestKit.public func createTestProbe(name: String): TestProbe
+cactor_testkit :: ActorTestKit.public func manualTime(): ManualTime
 cactor_testkit :: ActorTestKit.public func shutdown(): Unit
 cactor_testkit :: ActorTestKit.public func spawnTyped<U>(behavior: TypedBehavior<U>, name: String): TypedActorRef<U>
 cactor_testkit :: ActorTestKit.public init(name: String)
+cactor_testkit :: ActorTestKit.public init(name: String, time: ManualTime)
 cactor_testkit :: ActorTestKit.public let system: CActorSystem
 cactor_testkit :: BehaviorTestKit.public func childInbox<U>(name: String): TestInbox<U>
 cactor_testkit :: BehaviorTestKit.public func childTestKit<U>(name: String): BehaviorTestKit<U>
@@ -71,10 +73,17 @@ cactor_testkit :: LoggingTestKit.public static func start(): LoggingTestKit
 cactor_testkit :: LoggingTestKit.public static func start(level: LogLevel): LoggingTestKit
 cactor_testkit :: ManualTask.public func cancel(): Bool
 cactor_testkit :: ManualTask.public func isCancelled(): Bool
+cactor_testkit :: ManualTime.public func awaitPending(atLeast: Int64, timeout!: Duration = TestProbe.DEFAULT_TIMEOUT): Bool
+cactor_testkit :: ManualTime.public func expectNoMessageFor(amount: Duration, probes: Array<TestProbe>, settle!: Duration = Duration.millisecond * 100): Unit
+cactor_testkit :: ManualTime.public func monotonicNow(): MonoTime
 cactor_testkit :: ManualTime.public func now(): Duration
 cactor_testkit :: ManualTime.public func pendingCount(): Int64
 cactor_testkit :: ManualTime.public func schedule(delay: Duration, action: ()->Unit): ManualTask
+cactor_testkit :: ManualTime.public func scheduleAtFixedRate(initialDelay: Duration, interval: Duration, task: ()->Unit): ScheduledTask
+cactor_testkit :: ManualTime.public func scheduleOnce(delay: Duration, task: ()->Unit): ScheduledTask
+cactor_testkit :: ManualTime.public func scheduleOnceAt(deadline: MonoTime, task: ()->Unit): ScheduledTask
 cactor_testkit :: ManualTime.public func scheduleRepeated(interval: Duration, action: ()->Unit): ManualTask
+cactor_testkit :: ManualTime.public func scheduleWithFixedDelay(initialDelay: Duration, delay: Duration, task: ()->Unit): ScheduledTask
 cactor_testkit :: ManualTime.public func timePasses(amount: Duration): Unit
 cactor_testkit :: ManualTime.public init()
 cactor_testkit :: ProcessBarrier.public func arrive(name: String, expected: Int64): Bool
@@ -175,7 +184,7 @@ cactor_testkit :: public class CapturedLogEvent
 cactor_testkit :: public class EventRecorder
 cactor_testkit :: public class LoggingTestKit
 cactor_testkit :: public class ManualTask <: TypedCancellable
-cactor_testkit :: public class ManualTime
+cactor_testkit :: public class ManualTime <: ActorScheduler
 cactor_testkit :: public class ProcessBarrier
 cactor_testkit :: public class ReceivedMessage
 cactor_testkit :: public class TestActorContext <: ActorContext

@@ -746,7 +746,9 @@ class ClassicTypedContext<T> <: TypedActorContext<T> & SupervisionHost {
 
     public func ask<Req, Res>(target: TypedActorRef<Req>, createRequest: (TypedActorRef<Res>) -> Req, timeout: Duration,
         mapResponse: (AskOutcome<Res>) -> T): Unit {
-        pipeToSelf<Res>(TypedAsk.ask<Req, Res>(target, createRequest, timeout), mapResponse)
+        // 超时走系统调度器（E52，与 Akka 相同）：注入虚拟时钟时，Actor 内 ask 的超时也只随虚拟时间触发
+        pipeToSelf<Res>(TypedAsk.askWith<Req, Res>(target, createRequest, timeout, classic.scheduler(),
+            None<AskCancellationToken>), mapResponse)
     }
 
     public func pipeToSelf<V>(future: TypedFuture<V>, map: (AskOutcome<V>) -> T): Unit {
@@ -788,7 +790,7 @@ class ClassicTypedContext<T> <: TypedActorContext<T> & SupervisionHost {
     }
 
     public func scheduleOnce<U>(delay: Duration, target: TypedActorRef<U>, message: U): TypedCancellable {
-        TimerCancellable(Timer.once(delay, { => target.tell(message) }))
+        TimerCancellable(classic.scheduler().scheduleOnce(delay, { => target.tell(message) }))
     }
 
     // ---------- 系统 ----------
@@ -801,7 +803,7 @@ class ClassicTypedContext<T> <: TypedActorContext<T> & SupervisionHost {
     }
 
     public func scheduler(): TypedScheduler {
-        TimerTypedScheduler()
+        TimerTypedScheduler(classic.scheduler())
     }
 
     public func toClassic(): Option<ActorContext> {
@@ -811,7 +813,7 @@ class ClassicTypedContext<T> <: TypedActorContext<T> & SupervisionHost {
     public func askMessage(target: TypedActorRef<Any>, message: Any, timeout: Duration): TypedFuture<Any> {
         let promise = TypedPromise<Any>()
         let replyTo = PromiseActorRef(promise, TypedAsk.nextPath())
-        let timer = Timer.once(timeout, { =>
+        let timer = classic.scheduler().scheduleOnce(timeout, { =>
             promise.tryFailure(TypedAskTimeoutException("askMessage ${target.pathString()} 在 ${timeout} 内没有回复"))
             ()
         })
@@ -853,12 +855,12 @@ class MessageAdapterTypedRef<U, T> <: TypedActorRef<U> {
     }
 }
 
-/** 基于 std Timer 的可取消任务 */
+/** 调度器任务句柄的可取消包装（E52 前直接包 std Timer） */
 class TimerCancellable <: TypedCancellable {
-    private let timer: Timer
+    private let timer: ScheduledTask
     private let cancelled = AtomicBool(false)
 
-    init(timer: Timer) {
+    init(timer: ScheduledTask) {
         this.timer = timer
     }
 
@@ -876,15 +878,21 @@ class TimerCancellable <: TypedCancellable {
     }
 }
 
-/** 基于 std Timer 的调度器 */
+/** 基于系统调度器（ActorScheduler）的类型化调度器 */
 class TimerTypedScheduler <: TypedScheduler {
+    private let underlying: ActorScheduler
+
+    init(underlying: ActorScheduler) {
+        this.underlying = underlying
+    }
+
     public func scheduleOnce(delay: Duration, target: TypedActorRef<Any>, message: Any): Unit {
-        Timer.once(delay, { => target.tell(message) })
+        underlying.scheduleOnce(delay, { => target.tell(message) })
         ()
     }
 
     public func schedule(initialDelay: Duration, interval: Duration, target: TypedActorRef<Any>, message: Any): TypedCancellable {
-        TimerCancellable(Timer.repeat(initialDelay, interval, { => target.tell(message) }, style: CatchupStyle.Delay))
+        TimerCancellable(underlying.scheduleWithFixedDelay(initialDelay, interval, { => target.tell(message) }))
     }
 }
 

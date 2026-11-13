@@ -134,10 +134,14 @@ public struct BackoffPolicy <: ToString {
         BackoffDecision.RestartIn(delay, BackoffState(count + 1, now + delay))
     }
 
-    /** 以当前时刻和随机抖动记录一次失败；restartedAt 见上 */
-    public func next(prev: Option<BackoffState>, restartedAt!: Option<MonoTime> = None): BackoffDecision {
+    /**
+     * 以随机抖动记录一次失败；restartedAt 见上。
+     * failedAt 为失败时刻（与 restartedAt 同一时钟，见 ActorFailure.failedAt），None 时取 MonoTime.now()
+     */
+    public func next(prev: Option<BackoffState>, restartedAt!: Option<MonoTime> = None,
+        failedAt!: Option<MonoTime> = None): BackoffDecision {
         let rnd = if (randomFactor > 0.0) { nextJitter() } else { 0.0 }
-        next(prev, MonoTime.now(), rnd, restartedAt: restartedAt)
+        next(prev, failedAt ?? MonoTime.now(), rnd, restartedAt: restartedAt)
     }
 
     public func toString(): String {
@@ -205,7 +209,7 @@ public class BackoffSupervisionStrategy <: SupervisionStrategy {
             case other => return other
         }
         let decision = synchronized(lock) {
-            let d = policy.next(states.get(key), restartedAt: failure.lastRestartAt)
+            let d = policy.next(states.get(key), restartedAt: failure.lastRestartAt, failedAt: failure.failedAt)
             match (d) {
                 case BackoffDecision.RestartIn(_, s) => states[key] = s
                 // 放弃后清理：之后再失败（例如被重新创建的同名 Actor）从 minBackoff 重新开始

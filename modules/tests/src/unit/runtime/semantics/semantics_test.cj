@@ -468,63 +468,77 @@ public class ActorSemanticsTest {
     }
 
     // ---------- 接收超时 ----------
+    // 以下接收超时与定时器用例跑在虚拟时钟上（E52）：时间只随 time.timePasses 前进，
+    // 断言精确到"差 1ms 不触发、到点触发"，不 sleep，也不受机器负载影响
 
     @TestCase
     public func receiveTimeoutFiresWhenIdle(): Unit {
-        let kit = ActorTestKit("sem-rt")
+        let time = ManualTime()
+        let kit = ActorTestKit("sem-rt", time)
         let rec = EventRecorder()
         let probe = kit.createTestProbe()
         let pr = probe.ref
-        let start = MonoTime.now()
         let a = kit.actorOf({ => Probeable("a", rec, { self, m, ctx =>
             match (m) {
                 case c: Cmd where c.text == "arm" => ctx.setReceiveTimeout(Duration.millisecond * 100)
-                case c: Cmd where c.text == "disarm" => ctx.cancelReceiveTimeout()
+                case c: Cmd where c.text == "disarm" =>
+                    ctx.cancelReceiveTimeout()
+                    pr.tell(Cmd("disarmed"))
                 case _: ReceiveTimeout => pr.tell(Cmd("timeout"))
                 case _ => ()
             }
             handled()
         }) }, "a")
         a << Cmd("arm")
+        // 超时检查登记之后再推进，否则时间先过去、检查才按新的"现在"登记
+        @Expect(time.awaitPending(1), true)
+        time.expectNoMessageFor(Duration.millisecond * 99, [probe])
+        time.timePasses(Duration.millisecond)
         @Expect(probe.expectMsgType<Cmd>().text, "timeout")
-        @Expect(MonoTime.now() - start >= Duration.millisecond * 100, true)
-        // 空闲期间重复投递
+        // 空闲期间重复投递：上一次处理完、重新登记后再推进
+        @Expect(time.awaitPending(1), true)
+        time.expectNoMessageFor(Duration.millisecond * 99, [probe])
+        time.timePasses(Duration.millisecond)
         @Expect(probe.expectMsgType<Cmd>().text, "timeout")
         a << Cmd("disarm")
-        probe.expectNoMsg(Duration.millisecond * 300)
+        @Expect(probe.expectMsgType<Cmd>().text, "disarmed")
+        @Expect(time.pendingCount(), 0)
+        time.expectNoMessageFor(Duration.second * 10, [probe])
         kit.shutdown()
     }
 
     @TestCase
     public func receiveTimeoutResetByActivity(): Unit {
-        // 不依赖测试线程的调度时机：机器繁忙时发送间隔可能超过超时时间，此时超时是正确行为。
-        // 检查的不变式是：每次 ReceiveTimeout 到达时，距离上一条普通消息都至少过了超时时间；停止发送后最终会超时。
-        let kit = ActorTestKit("sem-rt-reset")
+        // 每 50ms（虚拟）一条消息，共 500ms，远超 200ms 的超时：一次都不触发；
+        // 最后一条消息之后恰好 200ms 触发。此前用真实 sleep，机器繁忙时发送间隔会超过超时，只能检查弱不变式
+        let time = ManualTime()
+        let kit = ActorTestKit("sem-rt-reset", time)
         let rec = EventRecorder()
+        let probe = kit.createTestProbe()
+        let pr = probe.ref
         let timeout = Duration.millisecond * 200
-        let a = kit.actorOf({ =>
-            let last = Box<MonoTime>(MonoTime.now())
-            Probeable("a", rec, { self, m, ctx =>
-                match (m) {
-                    case c: Cmd where c.text == "arm" =>
-                        last.value = MonoTime.now()
-                        ctx.setReceiveTimeout(timeout)
-                    case _: ReceiveTimeout =>
-                        let idle = MonoTime.now() - last.value
-                        // 定时器精度留 20ms 余量
-                        rec.record(if (idle >= timeout - Duration.millisecond * 20) { "timeout-ok" } else { "timeout-early" })
-                    case _ => last.value = MonoTime.now()
-                }
-                handled()
-            })
-        }, "a")
+        let a = kit.actorOf({ => Probeable("a", rec, { self, m, ctx =>
+            match (m) {
+                case c: Cmd where c.text == "arm" => ctx.setReceiveTimeout(timeout)
+                case _: ReceiveTimeout => pr.tell(Cmd("timeout"))
+                case c: Cmd => pr.tell(Cmd("ack:${c.text}"))
+                case _ => ()
+            }
+            handled()
+        }) }, "a")
         a << Cmd("arm")
-        for (_ in 0..10) {
-            sleep(Duration.millisecond * 50)
-            a << Cmd("tick")
+        @Expect(time.awaitPending(1), true)
+        for (i in 0..10) {
+            time.timePasses(Duration.millisecond * 50)
+            a << Cmd("tick${i}")
+            // 先到的若是 timeout 就说明活动没有推迟超时
+            @Expect(probe.expectMsgType<Cmd>().text, "ack:tick${i}")
+            @Expect(time.awaitPending(1), true)
         }
-        @Expect(rec.await("timeout-ok", Duration.second * 5), true)
-        @Expect(rec.contains("timeout-early"), false)
+        time.expectNoMessageFor(Duration.millisecond * 199, [probe])
+        @Expect(time.awaitPending(1), true)
+        time.timePasses(Duration.millisecond)
+        @Expect(probe.expectMsgType<Cmd>().text, "timeout")
         kit.shutdown()
     }
 
@@ -532,7 +546,8 @@ public class ActorSemanticsTest {
 
     @TestCase
     public func singleAndPeriodicTimers(): Unit {
-        let kit = ActorTestKit("sem-timers")
+        let time = ManualTime()
+        let kit = ActorTestKit("sem-timers", time)
         let rec = EventRecorder()
         let probe = kit.createTestProbe()
         let pr = probe.ref
@@ -553,18 +568,25 @@ public class ActorSemanticsTest {
             handled()
         }) }, "a")
         a << Cmd("start")
-        let got = probe.receiveN(2, T)
-        let joined = "${text(got[0])}|${text(got[1])}"
-        @Expect(joined.contains("once:false"), true)
-        @Expect(joined.contains("ticks-done:false"), true)
-        // 取消之后不再有 tick
-        probe.expectNoMsg(Duration.millisecond * 150)
+        @Expect(time.awaitPending(2), true)
+        time.expectNoMessageFor(Duration.millisecond * 29, [probe])
+        time.timePasses(Duration.millisecond)
+        // 单次定时器触发后不再活跃
+        @Expect(probe.expectMsgType<Cmd>().text, "once:false")
+        // 第 5 次 tick 恰好在 100ms：99ms 时只有 4 次
+        time.expectNoMessageFor(Duration.millisecond * 69, [probe])
+        time.timePasses(Duration.millisecond)
+        @Expect(probe.expectMsgType<Cmd>().text, "ticks-done:false")
+        // 取消之后不再有 tick，也没有残留任务
+        @Expect(time.pendingCount(), 0)
+        time.expectNoMessageFor(Duration.second * 10, [probe])
         kit.shutdown()
     }
 
     @TestCase
     public func restartingTimerWithSameKeyReplacesOld(): Unit {
-        let kit = ActorTestKit("sem-timer-replace")
+        let time = ManualTime()
+        let kit = ActorTestKit("sem-timer-replace", time)
         let rec = EventRecorder()
         let probe = kit.createTestProbe()
         let pr = probe.ref
@@ -573,20 +595,27 @@ public class ActorSemanticsTest {
                 case c: Cmd where c.text == "start" =>
                     ctx.timers.startSingleTimer("k", Cmd("old"), Duration.millisecond * 40)
                     ctx.timers.startSingleTimer("k", Cmd("new"), Duration.millisecond * 60)
+                    pr.tell(Cmd("started"))
                 case c: Cmd => pr.tell(c)
                 case _ => ()
             }
             handled()
         }) }, "a")
         a << Cmd("start")
+        // 两次 start 都执行完再推进：旧定时器已被取消，只剩新定时器
+        @Expect(probe.expectMsgType<Cmd>().text, "started")
+        @Expect(time.pendingCount(), 1)
+        time.expectNoMessageFor(Duration.millisecond * 59, [probe])
+        time.timePasses(Duration.millisecond)
         @Expect(probe.expectMsgType<Cmd>().text, "new")
-        probe.expectNoMsg(Duration.millisecond * 150)
+        time.expectNoMessageFor(Duration.second, [probe])
         kit.shutdown()
     }
 
     @TestCase
     public func timersCancelledOnStop(): Unit {
-        let kit = ActorTestKit("sem-timer-stop")
+        let time = ManualTime()
+        let kit = ActorTestKit("sem-timer-stop", time)
         let rec = EventRecorder()
         let count = AtomicInt64(0)
         let a = kit.actorOf({ => Probeable("a", rec, { self, m, ctx =>
@@ -599,12 +628,16 @@ public class ActorSemanticsTest {
             handled()
         }) }, "a")
         a << Cmd("start")
+        @Expect(time.awaitPending(1), true)
+        // 固定频率 10ms：推进 30ms 恰好 3 次
+        time.timePasses(Duration.millisecond * 30)
         @Expect(awaitCondition(T, { => count.load() >= 3 }), true)
         a << PoisonPill()
         @Expect(rec.await("a:postStop", T), true)
-        let snap = count.load()
-        sleep(Duration.millisecond * 100)
-        @Expect(count.load(), snap)
+        // 停止时取消全部定时器：没有任何待触发任务，之后推进多久都不会再投递
+        @Expect(time.pendingCount(), 0)
+        time.timePasses(Duration.second * 10)
+        @Expect(count.load(), 3)
         kit.shutdown()
     }
 

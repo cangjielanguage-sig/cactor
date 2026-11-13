@@ -2,7 +2,7 @@
  * CActor - 退避重启的端到端语义（E6′，对照 Akka restartWithBackoff）
  *
  *   - 经典 BackoffSupervisionStrategy 与类型化 restartWithBackoff 在真实运行时上的重启间隔一致，按指数增长，
- *     达到上限后停止（此前经典旧策略恒返回 Stop（R9），类型化 API 没有 backoff）
+ *     达到上限后停止（E52 起用 ManualTime 驱动，间隔按虚拟时间精确断言：差 1ms 不重启、到点重启）（此前经典旧策略恒返回 Stop（R9），类型化 API 没有 backoff）
  *   - 退避等待期间 Actor 挂起：等待期间到达的消息由重启后的新实例处理，不丢失、也不被旧实例处理
  *   - 类型化 setup 失败：不限次数的 restart 不重试（Akka 语义，避免无限重启），限次 restart 照常重试；
  *     此前监督规则在 setup 之后才登记，首次 setup 失败时任何策略都不生效
@@ -20,6 +20,45 @@ import cactor_core.supervision.{BackoffSupervisionStrategy, BackoffPolicy}
 import cactor_core.typed.{TypedBehavior, TypedBehaviors, TypedSupervisorStrategy, TypedActorRef, TypedAsk}
 import cactor_testkit.*
 
+/** 线程安全的虚拟时间戳记录（E52：退避延迟由 ManualTime 驱动） */
+class VirtualStamps {
+    let lock = Mutex()
+    let time: ManualTime
+    let items = ArrayList<Int64>()
+
+    init(time: ManualTime) {
+        this.time = time
+    }
+
+    func add(): Unit {
+        let now = time.now().toMilliseconds()
+        synchronized(lock) { items.add(now) }
+    }
+
+    func size(): Int64 {
+        synchronized(lock) { items.size }
+    }
+
+    /** 每次启动时的虚拟时刻（毫秒） */
+    func millisAt(): Array<Int64> {
+        synchronized(lock) { items.toArray() }
+    }
+}
+
+/**
+ * 第 before 次启动失败后，退避延迟恰好是 delayMs（虚拟时间）：差 1ms 不重启，到点重启。
+ * 任务未到期时不会投递 SysRecreate，"不重启"是确定的，无需等待
+ */
+func expectRestartAfter(time: ManualTime, starts: VirtualStamps, before: Int64, delayMs: Int64): Unit {
+    @Expect(awaitCondition(T, { => starts.size() == before }), true)
+    // 退避延迟登记之后再推进
+    @Expect(time.awaitPending(1), true)
+    time.timePasses(millis(delayMs - 1))
+    @Expect(starts.size(), before)
+    time.timePasses(millis(1))
+    @Expect(awaitCondition(T, { => starts.size() == before + 1 }), true)
+}
+
 /** 线程安全的时间戳记录 */
 class Stamps {
     let lock = Mutex()
@@ -31,17 +70,6 @@ class Stamps {
 
     func size(): Int64 {
         synchronized(lock) { items.size }
-    }
-
-    /** 相邻两次的间隔（毫秒） */
-    func gapsMs(): Array<Int64> {
-        synchronized(lock) {
-            let out = ArrayList<Int64>()
-            for (i in 1..items.size) {
-                out.add((items[i] - items[i - 1]).toMilliseconds())
-            }
-            out.toArray()
-        }
     }
 }
 
@@ -89,22 +117,6 @@ class WithoutRestartTime <: SupervisionStrategy {
     }
 }
 
-/**
- * 每个间隔都不短于对应的退避延迟（定时器只会晚、不会早，留 2ms 时钟粒度余量），
- * 也不会长到离谱（说明重启没有卡住）；并且确实在增长。
- */
-func expectBackoffGaps(gaps: Array<Int64>, expected: Array<Int64>): Unit {
-    @Expect(gaps.size, expected.size)
-    if (gaps.size != expected.size) {
-        return
-    }
-    for (i in 0..gaps.size) {
-        @Expect(gaps[i] >= expected[i] - 2, true)
-        @Expect(gaps[i] < expected[i] + 2000, true)
-    }
-    @Expect(gaps[gaps.size - 1] > gaps[0], true)
-}
-
 enum BoCmd {
     | Add(Int64)
     | Get(TypedActorRef<Int64>)
@@ -131,35 +143,46 @@ func boCount(ref: TypedActorRef<BoCmd>): Int64 {
 public class BackoffSemanticsTest {
     @TestCase
     public func classicBackoffRestartsWithGrowingDelaysThenStops(): Unit {
-        let kit = ActorTestKit("bo-classic")
+        // 虚拟时钟（E52）：退避延迟精确到毫秒，不受定时器精度与机器负载影响
+        let time = ManualTime()
+        let kit = ActorTestKit("bo-classic", time)
         let rec = EventRecorder()
-        let starts = Stamps()
+        let starts = VirtualStamps(time)
         let props = PropsFactory.create<Actor>({ => Subject("db", rec, { _, _, _ => handled() }, { _, _ =>
             starts.add()
             throw Boom("数据库未就绪")
         }) }).withSupervisorStrategy(BackoffSupervisionStrategy(
             BackoffPolicy(millis(40), millis(160), randomFactor: 0.0, maxRestarts: 3)))
         kit.actorOf(props, "db")
-        @Expect(rec.await("db:postStop", T), true)
         // 首次启动 + 3 次退避重启（40、80、160ms），第 4 次失败放弃并停止
+        expectRestartAfter(time, starts, 1, 40)
+        expectRestartAfter(time, starts, 2, 80)
+        expectRestartAfter(time, starts, 3, 160)
+        @Expect(rec.await("db:postStop", T), true)
         @Expect(starts.size(), 4)
-        expectBackoffGaps(starts.gapsMs(), [40, 80, 160])
+        @Expect(starts.millisAt(), [0, 40, 120, 280])
+        @Expect(time.pendingCount(), 0)
         kit.shutdown()
     }
 
     @TestCase
     public func typedBackoffMatchesClassic(): Unit {
-        let kit = ActorTestKit("bo-typed")
+        let time = ManualTime()
+        let kit = ActorTestKit("bo-typed", time)
         let sys = kit.system.typed()
-        let starts = Stamps()
+        let starts = VirtualStamps(time)
         let b = TypedBehaviors.supervise(TypedBehaviors.setup<String>({ _ =>
             starts.add()
             throw Boom("数据库未就绪")
         })).onFailure(TypedSupervisorStrategy.restartWithBackoff(millis(40), millis(160), 0.0).withMaxRestarts(3))
         sys.actorOf(b, "db")
-        @Expect(awaitCondition(T, { => starts.size() >= 4 && kit.system.lookup("/user/db").isNone() }), true)
+        expectRestartAfter(time, starts, 1, 40)
+        expectRestartAfter(time, starts, 2, 80)
+        expectRestartAfter(time, starts, 3, 160)
+        @Expect(awaitCondition(T, { => kit.system.lookup("/user/db").isNone() }), true)
         @Expect(starts.size(), 4)
-        expectBackoffGaps(starts.gapsMs(), [40, 80, 160])
+        @Expect(starts.millisAt(), [0, 40, 120, 280])
+        @Expect(time.pendingCount(), 0)
         kit.shutdown()
     }
 
@@ -197,17 +220,23 @@ public class BackoffSemanticsTest {
 
     @TestCase
     public func typedBackoffSuspendsMailboxDuringDelay(): Unit {
-        let kit = ActorTestKit("bo-typed-suspend")
+        let time = ManualTime()
+        let kit = ActorTestKit("bo-typed-suspend", time)
         let sys = kit.system.typed()
         let c = sys.actorOf(TypedBehaviors.supervise(boCounter(0))
             .onFailure(TypedSupervisorStrategy.restartWithBackoff(millis(300), Duration.second, 0.0)), "c")
         c << BoCmd.Add(5)
         @Expect(boCount(c), 5)
-        let t0 = MonoTime.now()
-        // Crash 之后的 Add(1) 在退避期间到达：旧实例不处理它，重启后的新实例（状态归零）处理
+        // Crash 之后的 Add(1) 与 Get 在退避期间到达：旧实例不处理它们，重启后的新实例（状态归零）处理
         c << BoCmd.Crash << BoCmd.Add(1)
-        @Expect(boCount(c), 1)
-        @Expect((MonoTime.now() - t0).toMilliseconds() >= 298, true)
+        @Expect(time.awaitPending(1), true)
+        // Actor 外的 ask 用真实时间超时，不受虚拟时钟影响
+        let reply = TypedAsk.ask<BoCmd, Int64>(c, { r => BoCmd.Get(r) }, T)
+        time.timePasses(millis(299))
+        // 退避未到期：挂起中的 Actor 不会回复（给调度线程 100ms 真实时间，确认没有被旧实例处理）
+        @Expect(awaitCondition(millis(100), { => reply.isCompleted() }), false)
+        time.timePasses(millis(1))
+        @Expect(reply.get(T), 1)
         kit.shutdown()
     }
 

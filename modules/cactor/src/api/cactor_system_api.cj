@@ -6,7 +6,7 @@
  */
 package cactor.api
 
-import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory}
+import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory, ActorScheduler}
 import cactor_core.config.{MailboxConfig as CoreMailboxConfig, DispatcherConfig as CoreDispatcherConfig, SupervisionConfig as CoreSupervisionConfig}
 import cactor_core.typed.{TypedBehavior, TypedBehaviors, TypedActorRef, TypedActorSelection, TypedActorContext, ClassicTypedRef, TypedProps, TypedHooks, TypedSignal, NOT_MATCHED}
 import std.sync.{Mutex}
@@ -119,6 +119,11 @@ public class CActorSystem {
      */
     public func getName(): String {
         runtime.getRuntimeStats().systemName
+    }
+
+    /** 系统调度器（E52）：定时器、接收超时、退避重启、Actor 内 ask 超时都经它安排 */
+    public func scheduler(): ActorScheduler {
+        runtime.scheduler()
     }
 
     /**

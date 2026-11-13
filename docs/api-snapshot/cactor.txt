@@ -34,6 +34,7 @@ cactor.api :: CActorSystem.public func lookup(path: String): Option<ActorRef>
 cactor.api :: CActorSystem.public func metricsText(perActor: Bool): String
 cactor.api :: CActorSystem.public func metricsText(perActor: Bool, maxActorSeries: Int64): String
 cactor.api :: CActorSystem.public func publishDeadLetter(message: Message, recipient: String): Unit
+cactor.api :: CActorSystem.public func scheduler(): ActorScheduler
 cactor.api :: CActorSystem.public func stop(actorRef: ActorRef): Unit
 cactor.api :: CActorSystem.public func subscribeDeadLetters(listener: (Message, String)->Unit): Unit
 cactor.api :: CActorSystem.public func terminate(): Unit

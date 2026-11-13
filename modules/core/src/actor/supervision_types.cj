@@ -41,13 +41,20 @@ public struct ActorFailure {
      * 退避监督用它计算"重启后稳定运行了多久"，不受定时器 / 调度晚到的影响
      */
     public let lastRestartAt: Option<MonoTime>
+    /**
+     * 失败发生的时刻，按所在系统调度器的时钟（E52；运行时填写，None 时策略读 MonoTime.now()）。
+     * 与 lastRestartAt 同一时钟：注入虚拟时钟时，退避复位与重启次数窗口都按虚拟时间计算
+     */
+    public let failedAt: Option<MonoTime>
 
-    public init(actor: ActorRef, cause: Exception, failureCount: Int64, lastRestartAt!: Option<MonoTime> = None) {
+    public init(actor: ActorRef, cause: Exception, failureCount: Int64, lastRestartAt!: Option<MonoTime> = None,
+        failedAt!: Option<MonoTime> = None) {
         this.actor = actor
         this.cause = cause
         this.timestamp = DateTime.now().toUnixTimeStamp().toMilliseconds()
         this.failureCount = failureCount
         this.lastRestartAt = lastRestartAt
+        this.failedAt = failedAt
     }
 }
 
