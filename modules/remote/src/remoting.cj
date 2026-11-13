@@ -307,8 +307,12 @@ public struct ReliableDeliveryStats {
     /** 因启动标识不匹配（对端已换代）而拒绝的旧代信封数 */
     public let staleGenerationRejected: Int64
 
+    /** 所有入站通道当前保留的乱序缓冲条数 */
+    public let inboundBuffered: Int64
+
     public init(resent: Int64, duplicatesDropped: Int64, unacked: Int64, overflowDropped: Int64, gaveUp: Int64,
-        peerRestarts: Int64, nodeBudgetDropped!: Int64 = 0, staleGenerationRejected!: Int64 = 0) {
+        peerRestarts: Int64, nodeBudgetDropped!: Int64 = 0, staleGenerationRejected!: Int64 = 0,
+        inboundBuffered!: Int64 = 0) {
         this.resent = resent
         this.duplicatesDropped = duplicatesDropped
         this.unacked = unacked
@@ -317,6 +321,34 @@ public struct ReliableDeliveryStats {
         this.peerRestarts = peerRestarts
         this.nodeBudgetDropped = nodeBudgetDropped
         this.staleGenerationRejected = staleGenerationRejected
+        this.inboundBuffered = inboundBuffered
+    }
+}
+
+/**
+ * 全节点可靠消息预算的占用：准入用的节点级计数与各通道实际保留量。
+ * 两者应始终相等；不等说明某条删除路径漏还预算（计数漂移），诊断与测试用
+ */
+public struct ReliableBudgetUsage {
+    /** 节点级未确认计数（准入依据） */
+    public let unacked: Int64
+    /** 各出站通道实际保留的未确认消息合计 */
+    public let retainedUnacked: Int64
+    /** 节点级入站乱序缓冲计数（准入依据） */
+    public let inboundBuffered: Int64
+    /** 各入站通道实际保留的乱序缓冲合计 */
+    public let retainedInboundBuffered: Int64
+    public let maxTotalUnacked: Int64
+    public let maxInboundBuffered: Int64
+
+    public init(unacked: Int64, retainedUnacked: Int64, inboundBuffered: Int64, retainedInboundBuffered: Int64,
+        maxTotalUnacked: Int64, maxInboundBuffered: Int64) {
+        this.unacked = unacked
+        this.retainedUnacked = retainedUnacked
+        this.inboundBuffered = inboundBuffered
+        this.retainedInboundBuffered = retainedInboundBuffered
+        this.maxTotalUnacked = maxTotalUnacked
+        this.maxInboundBuffered = maxInboundBuffered
     }
 }
 
@@ -1484,6 +1516,22 @@ public class RemotingCore {
         }
     }
 
+    /** 节点级计数与通道实际保留量（同一把锁内取，互相可比） */
+    func budgetUsage(): ReliableBudgetUsage {
+        synchronized(lock) {
+            var unacked: Int64 = 0
+            for ((_, c) in outChannels) {
+                unacked += c.unacked.size
+            }
+            var buffered: Int64 = 0
+            for ((_, c) in inChannels) {
+                buffered += c.buffer.size
+            }
+            ReliableBudgetUsage(totalUnacked.load(), unacked, totalInboundBuffered.load(), buffered,
+                settings.maxTotalUnacked, settings.maxInboundBuffered)
+        }
+    }
+
     /** 尚未确认的消息数 */
     public func unackedCount(): Int64 {
         synchronized(lock) {
@@ -1582,24 +1630,25 @@ public class RemotingCore {
     /**
      * 回收某个对端地址的旧实例入站通道（对端重启后用）。
      *
-     * 安全回收的前提：旧实例的启动标识已经被隔离、并且本节点已经知道该地址的当前启动标识。
+     * 安全回收的前提：该通道所属的启动标识已经被隔离、并且本节点已经知道该地址的当前启动标识。
      * 只有两者都成立时才删去重状态——否则旧实例的在途信封会以"新通道"的身份被再投一次。
+     * 仅"不同于当前标识"不够：从未握手也未隔离的标识（通道前缀由对端填写）发来的信封不会被拒，
+     * 删掉它的去重水位，重放就会被再投一次。
      * 隔离记录本身不删：它是不可撤回的安全状态，删了就等于放行被隔离的实例。
      */
     private func reclaimInboundOf(addr: String): Int64 {
-        let current = synchronized(lock) { peerUids.get(addr) }
-        // 不知道当前启动标识时不能安全回收：无法区分旧实例的在途信封
-        if (current.isNone()) {
-            return 0
-        }
-        let currentUid = current.getOrThrow()
         synchronized(lock) {
+            // 不知道当前启动标识时不能安全回收：无法区分旧实例的在途信封
+            let currentUid = match (peerUids.get(addr)) {
+                case Some(u) => u
+                case None => return 0
+            }
             var reclaimed: Int64 = 0
             let prefixes = ArrayList<String>()
             for ((prefix, _) in inLatestGen) {
                 if (let Some((pa, uid)) <- parseChannelPrefix(prefix)) {
-                    // 只回收旧实例的通道：当前实例的通道还在用
-                    if (pa == addr && uid != currentUid) {
+                    // 只回收已隔离的旧实例通道：当前实例的通道还在用，未隔离的标识不能证明会被拒
+                    if (pa == addr && uid != currentUid && quarantined.contains(quarantineKey(addr, uid))) {
                         prefixes.add(prefix)
                     }
                 }
@@ -2026,6 +2075,12 @@ extend SimpleRemoteManager {
         ReliableDeliveryStats(core.resent.load(), core.duplicatesDropped.load(), core.unackedCount(),
             core.overflowDropped.load(), core.gaveUp.load(), core.peerRestarts.load(),
             nodeBudgetDropped: core.nodeBudgetDropped.load(),
-            staleGenerationRejected: core.staleGenerationRejected.load())
+            staleGenerationRejected: core.staleGenerationRejected.load(),
+            inboundBuffered: core.budgetUsage().retainedInboundBuffered)
+    }
+
+    /** 全节点可靠消息预算占用：节点级计数与通道实际保留量，两者应相等 */
+    public func reliableBudgetUsage(): ReliableBudgetUsage {
+        core.budgetUsage()
     }
 }
