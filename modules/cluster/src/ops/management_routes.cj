@@ -8,9 +8,11 @@
  *   attachClusterRoutes(mgmt, cluster, sharding: Some(carts))
  *   mgmt.start()
  *
- * 提供两个端点（与 docs/TROUBLESHOOTING.md 里的排障命令一致）：
- *   GET /cluster/status  —— 本节点视图、收敛状态、领导者、成员表（地址/状态/upNumber/uid/是否可达）
- *   GET /cluster/shards  —— 本节点的分片托管情况与负载（需要传入 ClusterSharding）
+ * 提供以下端点（与 docs/TROUBLESHOOTING.md 里的排障命令一致）：
+ *   GET /cluster/status      —— 本节点视图、收敛状态、领导者、成员表（地址/状态/upNumber/uid/是否可达）
+ *   GET /cluster/shards      —— 本节点的分片托管情况与负载（需要传入 ClusterSharding）；
+ *                               启用按分片租约时 "lease" 字段给出持有的分片与 token、只差租约的分片与等待时长（DA4）
+ *   GET /cluster/singletons  —— 本节点上各单例是否在此运行、位置、移交次数与租约状态（需要传入 ClusterSingleton）
  *
  * 两个端点都是同步快照：集群状态读的是守护 Actor 的不可变快照，分片计数读区域共享锁，
  * 不向其他节点发消息，因此可以在请求里直接调用（不会因为某个节点卡住而拖住管理端口）。
@@ -20,7 +22,7 @@ package cactor_cluster.ops
 import std.collection.*
 import std.sort.*
 import cactor.api.{ManagementServer, ManagementRoute}
-import cactor_cluster.membership.{Cluster, ClusterSharding, ClusterSnapshot}
+import cactor_cluster.membership.{Cluster, ClusterSharding, ClusterSingleton, ClusterSnapshot}
 
 /** GET /cluster/status 的响应体：本节点当前视图 */
 public func clusterStatusJson(cluster: Cluster): String {
@@ -93,7 +95,9 @@ public func shardingStatusJson(region: ClusterSharding): String {
         }
         sb.append("\"${jsonEscape(health.pendingMembers[i])}\"")
     }
-    sb.append("],\"busiest\":[")
+    sb.append("],\"lease\":")
+    appendShardLease(sb, region)
+    sb.append(",\"busiest\":[")
     for (i in 0..busiest.size) {
         if (i > 0) {
             sb.append(",")
@@ -120,14 +124,87 @@ public func shardingStatusJson(region: ClusterSharding): String {
     sb.toString()
 }
 
-/** 把集群视图挂到管理端口上；sharding 传 None 时只挂 /cluster/status */
+/**
+ * 分片租约状态（DA4）：{"enabled":true,"owner":"...","held":[{"shard":0,"token":3}],
+ * "waiting":[{"shard":1,"waitingMs":1200}],"attempts":..,"failures":..,"lost":..}；未启用时只有 enabled:false。
+ * waiting 长时间不空 = 旧宿主仍在续约或租约存储不可达，这正是"分片为什么不可用"时要先看的字段
+ */
+private func appendShardLease(sb: StringBuilder, region: ClusterSharding): Unit {
+    let st = region.leaseStatus()
+    if (!st.enabled) {
+        sb.append("{\"enabled\":false}")
+        return
+    }
+    sb.append("{\"enabled\":true,\"owner\":\"${jsonEscape(st.owner)}\",\"held\":[")
+    for (i in 0..st.held.size) {
+        if (i > 0) {
+            sb.append(",")
+        }
+        sb.append("{\"shard\":${st.held[i][0]},\"token\":${st.held[i][1]}}")
+    }
+    sb.append("],\"waiting\":[")
+    for (i in 0..st.waiting.size) {
+        if (i > 0) {
+            sb.append(",")
+        }
+        sb.append("{\"shard\":${st.waiting[i][0]},\"waitingMs\":${st.waiting[i][1]}}")
+    }
+    sb.append("],\"attempts\":${st.attempts},\"failures\":${st.failures},\"lost\":${st.lost}}")
+}
+
+/** 单个单例在本节点上的状态 */
+public func singletonStatusJson(singleton: ClusterSingleton): String {
+    let sb = StringBuilder()
+    sb.append("{\"name\":\"${jsonEscape(singleton.name)}\"")
+    sb.append(",\"runningHere\":${singleton.isRunningHere()}")
+    sb.append(",\"location\":${quoteOrNull(singleton.location())}")
+    sb.append(",\"startCount\":${singleton.startCount()}")
+    sb.append(",\"handOvers\":${singleton.handOverCount()}")
+    sb.append(",\"dropped\":${singleton.droppedCount()}")
+    sb.append(",\"lease\":")
+    match (singleton.lease()) {
+        case Some(l) =>
+            let (attempts, failures, lost) = singleton.leaseStats()
+            let token = match (singleton.fencingToken()) {
+                case Some(t) => "${t}"
+                case None => "null"
+            }
+            sb.append("{\"enabled\":true,\"name\":\"${jsonEscape(l.settings.leaseName)}\"")
+            sb.append(",\"owner\":\"${jsonEscape(l.settings.ownerName)}\"")
+            sb.append(",\"held\":${singleton.isLeaseHeld()},\"token\":${token}")
+            sb.append(",\"attempts\":${attempts},\"failures\":${failures},\"lost\":${lost}}")
+        case None => sb.append("{\"enabled\":false}")
+    }
+    sb.append("}")
+    sb.toString()
+}
+
+/** GET /cluster/singletons 的响应体 */
+public func singletonsStatusJson(singletons: Array<ClusterSingleton>): String {
+    let sb = StringBuilder()
+    sb.append("{\"singletons\":[")
+    for (i in 0..singletons.size) {
+        if (i > 0) {
+            sb.append(",")
+        }
+        sb.append(singletonStatusJson(singletons[i]))
+    }
+    sb.append("]}")
+    sb.toString()
+}
+
+/** 把集群视图挂到管理端口上；sharding 传 None 时不挂 /cluster/shards，singletons 为空时不挂 /cluster/singletons */
 public func attachClusterRoutes(mgmt: ManagementServer, cluster: Cluster,
-    sharding!: Option<ClusterSharding> = None<ClusterSharding>): ManagementServer {
+    sharding!: Option<ClusterSharding> = None<ClusterSharding>,
+    singletons!: Array<ClusterSingleton> = Array<ClusterSingleton>()): ManagementServer {
     mgmt.addRoute(ManagementRoute("/cluster/status", "application/json", { => clusterStatusJson(cluster) }))
     match (sharding) {
         case Some(region) =>
             mgmt.addRoute(ManagementRoute("/cluster/shards", "application/json", { => shardingStatusJson(region) }))
         case None => ()
+    }
+    if (!singletons.isEmpty()) {
+        mgmt.addRoute(ManagementRoute("/cluster/singletons", "application/json", { => singletonsStatusJson(singletons) }))
     }
     mgmt
 }

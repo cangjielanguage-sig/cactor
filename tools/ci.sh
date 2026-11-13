@@ -96,6 +96,8 @@ guard tools/cluster_crash_demo.sh | grep -E "验证|重新加入|记录完整|�
 guard tools/cluster_chaos.sh | grep -E "✓|通过|失败"
 # 持久化日志：随机 kill -9 + 尾部零填充 / 写到一半，已确认的事件一条不少（E8′）
 guard tools/journal_crash_demo.sh | tail -2
+# 跨进程文件租约（DA4）：两个进程争抢、kill -9 持有者、ttl 后接手且 token 更大、旧 token 写入被 fencing 拒绝（约 3 s）
+guard tools/lease_contend_demo.sh | tail -1
 # 类型化持久化：三个系统先后共用一个目录，64 个购物车并发写入后恢复一件不少、结账快照、删除不回退（E44）
 CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.typed_persistence_demo | tail -1
 guard bash tools/reminder_demo.sh | tail -3

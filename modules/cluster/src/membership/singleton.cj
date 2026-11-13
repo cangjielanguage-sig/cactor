@@ -707,6 +707,7 @@ public class ClusterSingleton {
     private let system: CActorSystem
     private let singletonName: String
     private let remote: SimpleRemoteManager
+    private let singletonLease: Option<Lease>
 
     public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: () -> Actor) {
         this(cluster, system, remote, name, factory, 1000)
@@ -723,6 +724,7 @@ public class ClusterSingleton {
         this.system = system
         this.singletonName = name
         this.remote = remote
+        this.singletonLease = settings.lease
         let sh = shared
         let mgr = system.actorOf({ => SingletonManager(cluster, system, remote, name, factory, settings, sh) },
             "singleton-manager-${name}-${cluster.selfAddress.replace(":", "_").replace(".", "_")}")
@@ -813,6 +815,28 @@ public class ClusterSingleton {
     public func isLeaseHeld(): Bool {
         synchronized(shared.lock) {
             shared.leaseHeld
+        }
+    }
+
+    /** 单例名 */
+    public prop name: String {
+        get() { singletonName }
+    }
+
+    /**
+     * 保护本节点实例的租约（未配置时为 None）。实例的持久化写入应经它的 fencing token 校验：
+     * `FencedEventStore(inner, fence, lease)` / `FencedDurableStateStore(inner, fence, lease)`（cactor_persistence），
+     * 实例工厂里直接用传给 withLease 的同一个对象即可。
+     */
+    public func lease(): Option<Lease> {
+        singletonLease
+    }
+
+    /** 本节点当前持有租约时的 fencing token（未配置租约或未持有时为 None） */
+    public func fencingToken(): Option<Int64> {
+        match (singletonLease) {
+            case Some(l) => l.fencingToken()
+            case None => None<Int64>
         }
     }
 

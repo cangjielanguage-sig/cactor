@@ -174,3 +174,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.typed_persistence_demo"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.lease_contend"]
+output-type = "executable"

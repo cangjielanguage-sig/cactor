@@ -155,7 +155,9 @@ cactor_cluster.ddata :: public let REPLICATOR_PROTOCOL_VERSION: String
 cactor_cluster.ddata :: public struct ReplicatorDeltaStats
 cactor_cluster.membership :: AcquisitionHealth.public func toString(): String
 cactor_cluster.membership :: AcquisitionHealth.public init(hosted: Int64, acquiring: Int64, slow: Int64, oldestMs: Int64, pendingMembers: Array<String>, slowWarnings: Int64)
+cactor_cluster.membership :: AcquisitionHealth.public init(hosted: Int64, acquiring: Int64, slow: Int64, oldestMs: Int64, pendingMembers: Array<String>, slowWarnings: Int64, awaitingLease: Int64)
 cactor_cluster.membership :: AcquisitionHealth.public let acquiring: Int64
+cactor_cluster.membership :: AcquisitionHealth.public let awaitingLease: Int64
 cactor_cluster.membership :: AcquisitionHealth.public let hosted: Int64
 cactor_cluster.membership :: AcquisitionHealth.public let oldestMs: Int64
 cactor_cluster.membership :: AcquisitionHealth.public let pendingMembers: Array<String>
@@ -224,6 +226,9 @@ cactor_cluster.membership :: ClusterSettings.public static func withKeepMajority
 cactor_cluster.membership :: ClusterSharding.public func acquisitionHealth(): AcquisitionHealth
 cactor_cluster.membership :: ClusterSharding.public func ask(entityId: String, message: Message, timeout: Duration): TypedPromise<Message>
 cactor_cluster.membership :: ClusterSharding.public func busiestShards(n: Int64): Array<Int64>
+cactor_cluster.membership :: ClusterSharding.public func entityLease(entityId: String): Option<Lease>
+cactor_cluster.membership :: ClusterSharding.public func fencingToken(entityId: String): Option<Int64>
+cactor_cluster.membership :: ClusterSharding.public func leaseStatus(): ShardLeaseStatus
 cactor_cluster.membership :: ClusterSharding.public func localEntityCount(): Int64
 cactor_cluster.membership :: ClusterSharding.public func localEntityIds(): Array<String>
 cactor_cluster.membership :: ClusterSharding.public func ownerCount(): Int64
@@ -244,9 +249,11 @@ cactor_cluster.membership :: ClusterSharding.public let numberOfShards: Int64
 cactor_cluster.membership :: ClusterSharding.public let typeName: String
 cactor_cluster.membership :: ClusterSingleton.public func ask(message: Message, timeout: Duration): TypedPromise<Message>
 cactor_cluster.membership :: ClusterSingleton.public func droppedCount(): Int64
+cactor_cluster.membership :: ClusterSingleton.public func fencingToken(): Option<Int64>
 cactor_cluster.membership :: ClusterSingleton.public func handOverCount(): Int64
 cactor_cluster.membership :: ClusterSingleton.public func isLeaseHeld(): Bool
 cactor_cluster.membership :: ClusterSingleton.public func isRunningHere(): Bool
+cactor_cluster.membership :: ClusterSingleton.public func lease(): Option<Lease>
 cactor_cluster.membership :: ClusterSingleton.public func leaseStats(): (Int64, Int64, Int64)
 cactor_cluster.membership :: ClusterSingleton.public func location(): Option<String>
 cactor_cluster.membership :: ClusterSingleton.public func startCount(): Int64
@@ -256,6 +263,7 @@ cactor_cluster.membership :: ClusterSingleton.public func tell(message: Message,
 cactor_cluster.membership :: ClusterSingleton.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: ()->Actor)
 cactor_cluster.membership :: ClusterSingleton.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: ()->Actor, bufferSize: Int64)
 cactor_cluster.membership :: ClusterSingleton.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: ()->Actor, settings: ClusterSingletonSettings)
+cactor_cluster.membership :: ClusterSingleton.public prop name: String
 cactor_cluster.membership :: ClusterSingletonSettings.public func withBufferSize(n: Int64): ClusterSingletonSettings
 cactor_cluster.membership :: ClusterSingletonSettings.public func withLease(l: Lease): ClusterSingletonSettings
 cactor_cluster.membership :: ClusterSingletonSettings.public func withLeaseRetry(min: Duration, max: Duration): ClusterSingletonSettings
@@ -364,6 +372,22 @@ cactor_cluster.membership :: ShardControl.public let from: String
 cactor_cluster.membership :: ShardControl.public let items: Array<(Int64, Int64)>
 cactor_cluster.membership :: ShardControl.public let kind: String
 cactor_cluster.membership :: ShardControl.public let protocolVersion: Int64
+cactor_cluster.membership :: ShardLeaseStatus.public func holds(shardId: Int64): Bool
+cactor_cluster.membership :: ShardLeaseStatus.public func isWaiting(shardId: Int64): Bool
+cactor_cluster.membership :: ShardLeaseStatus.public func toString(): String
+cactor_cluster.membership :: ShardLeaseStatus.public init(enabled: Bool, owner: String, held: Array<(Int64, Int64)>, waiting: Array<(Int64, Int64)>, attempts: Int64, failures: Int64, lost: Int64)
+cactor_cluster.membership :: ShardLeaseStatus.public let attempts: Int64
+cactor_cluster.membership :: ShardLeaseStatus.public let enabled: Bool
+cactor_cluster.membership :: ShardLeaseStatus.public let failures: Int64
+cactor_cluster.membership :: ShardLeaseStatus.public let held: Array<(Int64, Int64)>
+cactor_cluster.membership :: ShardLeaseStatus.public let lost: Int64
+cactor_cluster.membership :: ShardLeaseStatus.public let owner: String
+cactor_cluster.membership :: ShardLeaseStatus.public let waiting: Array<(Int64, Int64)>
+cactor_cluster.membership :: ShardLeases.public func fencingToken(typeName: String, numberOfShards: Int64, entityId: String): Option<Int64>
+cactor_cluster.membership :: ShardLeases.public func leaseFor(leaseName: String): Lease
+cactor_cluster.membership :: ShardLeases.public func leaseForEntity(typeName: String, numberOfShards: Int64, entityId: String): Lease
+cactor_cluster.membership :: ShardLeases.public func leaseForShard(typeName: String, shardId: Int64): Lease
+cactor_cluster.membership :: ShardLeases.public init(factory: (String)->Lease)
 cactor_cluster.membership :: ShardLoadReport.public func messageType(): String
 cactor_cluster.membership :: ShardLoadReport.public init(nodeAddress: String, loads: Array<(Int64, Int64)>)
 cactor_cluster.membership :: ShardLoadReport.public let loads: Array<(Int64, Int64)>
@@ -386,11 +410,18 @@ cactor_cluster.membership :: ShardingEnvelope.public let entityId: String
 cactor_cluster.membership :: ShardingEnvelope.public let payload: Message
 cactor_cluster.membership :: ShardingSettings.public func withAcquireWarnAfter(after: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withBufferSize(size: Int64): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withLease(factory: (String)->Lease): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withLease(leases: ShardLeases): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withLeaseRetry(min: Duration, max: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withPassivation(idle: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withRebalance(policy: RebalancePolicy): ShardingSettings
-cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10)
+cactor_cluster.membership :: ShardingSettings.public func withoutLease(): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10, lease!: Option<ShardLeases>= None<ShardLeases>, leaseRetryMin!: Duration = Duration.millisecond * 200, leaseRetryMax!: Duration = Duration.second * 5)
 cactor_cluster.membership :: ShardingSettings.public let acquireWarnAfter: Duration
 cactor_cluster.membership :: ShardingSettings.public let bufferSize: Int64
+cactor_cluster.membership :: ShardingSettings.public let lease: Option<ShardLeases>
+cactor_cluster.membership :: ShardingSettings.public let leaseRetryMax: Duration
+cactor_cluster.membership :: ShardingSettings.public let leaseRetryMin: Duration
 cactor_cluster.membership :: ShardingSettings.public let passivateAfter: Option<Duration>
 cactor_cluster.membership :: ShardingSettings.public let rebalance: RebalancePolicy
 cactor_cluster.membership :: ShardingSettings.public let rememberEntities: Option<Replicator>
@@ -411,6 +442,7 @@ cactor_cluster.membership :: public class Grains
 cactor_cluster.membership :: public class Member <: ToString
 cactor_cluster.membership :: public class RebalanceView
 cactor_cluster.membership :: public class ShardControl <: Message
+cactor_cluster.membership :: public class ShardLeases
 cactor_cluster.membership :: public class ShardLoadReport <: Message
 cactor_cluster.membership :: public class ShardRebalance <: Message
 cactor_cluster.membership :: public class ShardingEnvelope <: Message
@@ -428,6 +460,7 @@ cactor_cluster.membership :: public func rebalanceSkipText(r: RebalanceSkipReaso
 cactor_cluster.membership :: public func rememberedEntitiesKey(typeName: String, shard: Int64): String
 cactor_cluster.membership :: public func sbrDecide(strategy: DowningStrategy, members: Array<Member>, unreachable: HashSet<String>): SbrDecision
 cactor_cluster.membership :: public func sbrDecide(strategy: DowningStrategy, members: Array<Member>, unreachable: HashSet<String>, indirect: HashSet<String>): SbrDecision
+cactor_cluster.membership :: public func shardLeaseName(typeName: String, shardId: Int64): String
 cactor_cluster.membership :: public func shardOf(entityId: String, numberOfShards: Int64): Int64
 cactor_cluster.membership :: public func shardOwner(shard: Int64, members: Array<String>): Option<String>
 cactor_cluster.membership :: public func stableHash(s: String): UInt64
@@ -441,12 +474,15 @@ cactor_cluster.membership :: public struct AcquisitionHealth <: ToString
 cactor_cluster.membership :: public struct ClusterSettings
 cactor_cluster.membership :: public struct ClusterSingletonSettings
 cactor_cluster.membership :: public struct RebalancePolicy <: ToString
+cactor_cluster.membership :: public struct ShardLeaseStatus <: ToString
 cactor_cluster.membership :: public struct ShardMove <: ToString
-cactor_cluster.ops :: public func attachClusterRoutes(mgmt: ManagementServer, cluster: Cluster, sharding!: Option<ClusterSharding>= None<ClusterSharding>): ManagementServer
+cactor_cluster.ops :: public func attachClusterRoutes(mgmt: ManagementServer, cluster: Cluster, sharding!: Option<ClusterSharding>= None<ClusterSharding>, singletons!: Array<ClusterSingleton>= Array<ClusterSingleton>()): ManagementServer
 cactor_cluster.ops :: public func attachFaultInjectionRoutes(mgmt: ManagementServer, transport: BlackholeTransport, allowAll!: Bool = true): ManagementServer
 cactor_cluster.ops :: public func clusterStatusJson(cluster: Cluster): String
 cactor_cluster.ops :: public func faultInjectionJson(transport: BlackholeTransport): String
 cactor_cluster.ops :: public func shardingStatusJson(region: ClusterSharding): String
+cactor_cluster.ops :: public func singletonStatusJson(singleton: ClusterSingleton): String
+cactor_cluster.ops :: public func singletonsStatusJson(singletons: Array<ClusterSingleton>): String
 cactor_cluster.streamref :: OfferResult.public func isBackpressured(): Bool
 cactor_cluster.streamref :: OfferResult.public func isClosed(): Bool
 cactor_cluster.streamref :: OfferResult.public func isEnqueued(): Bool

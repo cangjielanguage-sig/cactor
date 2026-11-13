@@ -18,6 +18,12 @@
  *   实体自己停止时从集合中删除。与钝化互斥（与 Akka 相同：记住的实体不会被自动钝化）。
  *   ORSet 经 gossip 复制，新创建的实体在一个 gossip 间隔内复制到其他节点；在此之前宕机则不会被自动重启。
  * - 前提：集群中每个节点都用相同的 typeName、numberOfShards 创建 Region（获取分片要等每个成员确认）。
+ * - 按分片租约（DA4，对标 Akka sharding use-lease，默认关闭）：许可式移交只防得住"双方视图都包含对方"的情形；
+ *   非对称分区 / 单侧 down / 长停顿下旧宿主仍在托管时，新宿主的 askSet 里已没有它，移交会立即"完成"。
+ *   ShardingSettings.withLease 后，移交确认收齐还必须取得该分片的租约（后台线程获取，失败指数退避，绝不超时强行托管）
+ *   才创建实体；持有期间失去租约立即停止该分片的实体并放弃托管；移交 / 放弃获取 / 区域停止时，实体全部终止后交还租约，
+ *   移交时先交还再回 STOPPED。实体用 ShardLeases.leaseForEntity 取得守护自己的租约，包装成
+ *   FencedEventStore / FencedDurableStateStore 后写入自动携带 fencing token。
  */
 package cactor_cluster.membership
 
@@ -34,6 +40,7 @@ import cactor_remote.{SimpleRemoteManager}
 import cactor_cluster.ddata.{Replicator, FieldWriter, FieldReader}
 import cactor_foundation.detector.{monotonicMillis}
 import cactor_core.typed.{TypedPromise}
+import cactor_foundation.coordination.{Lease}
 
 // ======================= 哈希 =======================
 
@@ -175,6 +182,75 @@ class ShardingEnvelopeCodec <: MessageCodec {
 
 // ======================= 设置 =======================
 
+/** 分片租约的名字（每种实体类型的每个分片一个；ShardLeases 的工厂收到的就是它） */
+public func shardLeaseName(typeName: String, shardId: Int64): String {
+    "shard-${typeName}-${shardId}"
+}
+
+/**
+ * 按分片的租约来源（DA4，对标 Akka sharding use-lease）：每个节点一个，工厂按租约名（shardLeaseName）
+ * 创建本节点在该分片上的 Lease（同一个 leaseName、本节点唯一的 ownerName）。
+ *
+ * 为什么是一个对象而不是裸闭包：同一个分片的 Lease 必须在区域与实体之间共享——区域用它判断能否托管，
+ * 实体用它的 fencing token 包装持久化存储（FencedEventStore / FencedDurableStateStore 直接接受 Lease）。
+ * 同名的两个 Lease 对象互相续约会让对方失去租约，所以这里按名字记忆，保证一个名字只有一个对象。
+ *
+ * ```
+ * let leases = ShardLeases({ name => FileLease("/shared/leases", LeaseSettings(name, "${addr}#${uid}")) })
+ * let carts = ClusterSharding(cluster, system, remote, "cart", 64, { id =>
+ *     let store = FencedDurableStateStore(inner, fence, leases.leaseForEntity("cart", 64, id))
+ *     CartActor(id, store)
+ * }, ShardingSettings.defaults().withLease(leases))
+ * ```
+ */
+public class ShardLeases {
+    private let factory: (String) -> Lease
+    private let lock = Mutex()
+    private let leases = HashMap<String, Lease>()
+
+    public init(factory: (String) -> Lease) {
+        this.factory = factory
+    }
+
+    /** 名为 leaseName 的租约（首次调用时创建，之后返回同一个对象）；工厂返回的租约名必须与之一致 */
+    public func leaseFor(leaseName: String): Lease {
+        synchronized(lock) {
+            if (let Some(l) <- leases.get(leaseName)) {
+                return l
+            }
+            let l = factory(leaseName)
+            if (l.settings.leaseName != leaseName) {
+                // 名字不一致会让多个分片共用一个后端记录：同一持有者重复获取会互相顶掉对方的 token
+                throw IllegalArgumentException("分片租约工厂返回的租约名 ${l.settings.leaseName} 与请求的 ${leaseName} 不一致")
+            }
+            leases[leaseName] = l
+            l
+        }
+    }
+
+    /** 保护 typeName 第 shardId 个分片的租约 */
+    public func leaseForShard(typeName: String, shardId: Int64): Lease {
+        leaseFor(shardLeaseName(typeName, shardId))
+    }
+
+    /** 保护实体 entityId 所在分片的租约（实体用它包装持久化存储，写入自动携带 fencing token） */
+    public func leaseForEntity(typeName: String, numberOfShards: Int64, entityId: String): Lease {
+        leaseForShard(typeName, shardOf(entityId, numberOfShards))
+    }
+
+    /** 实体所在分片的当前 fencing token（本节点未持有该分片的租约时为 None） */
+    public func fencingToken(typeName: String, numberOfShards: Int64, entityId: String): Option<Int64> {
+        leaseForEntity(typeName, numberOfShards, entityId).fencingToken()
+    }
+
+    /** 已创建过的租约（诊断用） */
+    func created(): Array<Lease> {
+        synchronized(lock) {
+            leases.values().toArray()
+        }
+    }
+}
+
 /** 分片的可选行为 */
 public class ShardingSettings {
     /** Region 中等待路由的消息上限，超出丢弃最旧的 */
@@ -190,10 +266,20 @@ public class ShardingSettings {
      * 只影响观测，不影响正确性：获取仍会一直重发直到对方确认（否则可能两个节点同时托管同一分片）。
      */
     public let acquireWarnAfter: Duration
+    /**
+     * 按分片的租约（DA4，默认 None = 不使用，行为与之前完全相同）。启用后，许可式移交完成还不够，
+     * 必须再取得该分片的租约才托管、才创建实体；获取失败按 leaseRetryMin ~ leaseRetryMax 指数退避，绝不超时强行托管。
+     */
+    public let lease: Option<ShardLeases>
+    public let leaseRetryMin: Duration
+    public let leaseRetryMax: Duration
 
     public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
         rebalance!: RebalancePolicy = RebalancePolicy(),
-        acquireWarnAfter!: Duration = Duration.second * 10) {
+        acquireWarnAfter!: Duration = Duration.second * 10,
+        lease!: Option<ShardLeases> = None<ShardLeases>,
+        leaseRetryMin!: Duration = Duration.millisecond * 200,
+        leaseRetryMax!: Duration = Duration.second * 5) {
         if (bufferSize <= 0) {
             throw IllegalArgumentException("缓冲区大小必须为正数: ${bufferSize}")
         }
@@ -208,6 +294,12 @@ public class ShardingSettings {
             throw IllegalArgumentException("acquireWarnAfter 必须为正数: ${acquireWarnAfter}")
         }
         this.acquireWarnAfter = acquireWarnAfter
+        if (leaseRetryMin <= Duration.Zero || leaseRetryMax < leaseRetryMin) {
+            throw IllegalArgumentException("租约重试间隔必须为正且 max >= min")
+        }
+        this.lease = lease
+        this.leaseRetryMin = leaseRetryMin
+        this.leaseRetryMax = leaseRetryMax
     }
 
     public static func defaults(): ShardingSettings {
@@ -222,22 +314,93 @@ public class ShardingSettings {
         ShardingSettings(10000, None<Duration>, Some(replicator))
     }
 
+    // 所有 withXxx 经这一处构造：新增字段时只需改这里与各自的参数
+    private func make(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
+        rebalance: RebalancePolicy, acquireWarnAfter: Duration, lease: Option<ShardLeases>, leaseRetryMin: Duration,
+        leaseRetryMax: Duration): ShardingSettings {
+        ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: rebalance,
+            acquireWarnAfter: acquireWarnAfter, lease: lease, leaseRetryMin: leaseRetryMin, leaseRetryMax: leaseRetryMax)
+    }
+
     /** 换再平衡策略（链式：ShardingSettings.passivating(1.minutes).withRebalance(...)） */
     public func withRebalance(policy: RebalancePolicy): ShardingSettings {
-        ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: policy, acquireWarnAfter: acquireWarnAfter)
+        make(bufferSize, passivateAfter, rememberEntities, policy, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax)
     }
 
     public func withBufferSize(size: Int64): ShardingSettings {
-        ShardingSettings(size, passivateAfter, rememberEntities, rebalance: rebalance, acquireWarnAfter: acquireWarnAfter)
+        make(size, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax)
     }
 
     public func withPassivation(idle: Duration): ShardingSettings {
-        ShardingSettings(bufferSize, Some(idle), None<Replicator>, rebalance: rebalance, acquireWarnAfter: acquireWarnAfter)
+        make(bufferSize, Some(idle), None<Replicator>, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax)
     }
 
     /** 换获取等待的告警阈值（只影响观测；链式与 withRebalance 一致） */
     public func withAcquireWarnAfter(after: Duration): ShardingSettings {
-        ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: rebalance, acquireWarnAfter: after)
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, after, lease, leaseRetryMin, leaseRetryMax)
+    }
+
+    /** 启用按分片租约（DA4）；leases 在本节点的区域与实体之间共享 */
+    public func withLease(leases: ShardLeases): ShardingSettings {
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, Some(leases), leaseRetryMin,
+            leaseRetryMax)
+    }
+
+    /** 启用按分片租约：factory 收到租约名（shardLeaseName），返回本节点在该分片上的 Lease */
+    public func withLease(factory: (String) -> Lease): ShardingSettings {
+        withLease(ShardLeases(factory))
+    }
+
+    public func withoutLease(): ShardingSettings {
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, None<ShardLeases>,
+            leaseRetryMin, leaseRetryMax)
+    }
+
+    /** 租约获取失败后的指数退避区间（默认 200 ms ~ 5 s，对标 Akka lease-retry-interval） */
+    public func withLeaseRetry(min: Duration, max: Duration): ShardingSettings {
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, min, max)
+    }
+}
+
+/**
+ * 按分片租约的状态快照（运维观测，DA4）。enabled = false 时其余字段为空 / 0。
+ *   - held：本节点持有租约的分片及 token；
+ *   - waiting：移交确认已收齐、只差租约的分片及已等待毫秒数（"waiting for lease"）——
+ *     长时间不为空通常意味着旧宿主仍在续约（分区 / 停顿的旧宿主），或租约存储不可达；
+ *   - attempts / failures / lost：累计发起获取、获取失败（含被他人占用与后端异常）、持有期间失去的次数。
+ */
+public struct ShardLeaseStatus <: ToString {
+    public let enabled: Bool
+    public let owner: String
+    public let held: Array<(Int64, Int64)>
+    public let waiting: Array<(Int64, Int64)>
+    public let attempts: Int64
+    public let failures: Int64
+    public let lost: Int64
+
+    public init(enabled: Bool, owner: String, held: Array<(Int64, Int64)>, waiting: Array<(Int64, Int64)>,
+        attempts: Int64, failures: Int64, lost: Int64) {
+        this.enabled = enabled
+        this.owner = owner
+        this.held = held
+        this.waiting = waiting
+        this.attempts = attempts
+        this.failures = failures
+        this.lost = lost
+    }
+
+    /** 某个分片当前是否由本节点持有租约 */
+    public func holds(shardId: Int64): Bool {
+        held.iterator().any({ p => p[0] == shardId })
+    }
+
+    /** 某个分片是否正在等待租约 */
+    public func isWaiting(shardId: Int64): Bool {
+        waiting.iterator().any({ p => p[0] == shardId })
+    }
+
+    public func toString(): String {
+        "ShardLeaseStatus(启用 ${enabled}, 持有 ${held.size}, 等待 ${waiting.size}, 获取 ${attempts}, 失败 ${failures}, 失去 ${lost})"
     }
 }
 
@@ -258,18 +421,26 @@ public struct AcquisitionHealth <: ToString {
     public let oldestMs: Int64
     public let pendingMembers: Array<String>
     public let slowWarnings: Int64
+    /** 移交确认已收齐、只差租约的分片数（DA4；未启用租约时恒为 0），计入 acquiring */
+    public let awaitingLease: Int64
 
     public init(hosted: Int64, acquiring: Int64, slow: Int64, oldestMs: Int64, pendingMembers: Array<String>, slowWarnings: Int64) {
+        this(hosted, acquiring, slow, oldestMs, pendingMembers, slowWarnings, 0)
+    }
+
+    public init(hosted: Int64, acquiring: Int64, slow: Int64, oldestMs: Int64, pendingMembers: Array<String>,
+        slowWarnings: Int64, awaitingLease: Int64) {
         this.hosted = hosted
         this.acquiring = acquiring
         this.slow = slow
         this.oldestMs = oldestMs
         this.pendingMembers = pendingMembers
         this.slowWarnings = slowWarnings
+        this.awaitingLease = awaitingLease
     }
 
     public func toString(): String {
-        "AcquisitionHealth(托管 ${hosted}, 获取中 ${acquiring}, 慢 ${slow}, 最久 ${oldestMs} ms, 等待 ${String.join(pendingMembers, delimiter: ",")})"
+        "AcquisitionHealth(托管 ${hosted}, 获取中 ${acquiring}, 等租约 ${awaitingLease}, 慢 ${slow}, 最久 ${oldestMs} ms, 等待 ${String.join(pendingMembers, delimiter: ",")})"
     }
 }
 
@@ -433,6 +604,85 @@ class RegionShared {
     let pendingAcquireMembers = HashSet<String>()
     // 每个分片上当前运行的实体数（供负载报告 / 再平衡决策，E62/E13′ 后续）
     let shardCounts = HashMap<Int64, Int64>()
+    // ---- 按分片租约（DA4）：区域线程维护、管理端点读取 ----
+    let leaseHeldTokens = HashMap<Int64, Int64>()
+    // 等租约的分片 -> 开始等待的单调时刻
+    let leaseWaitingSince = HashMap<Int64, Int64>()
+    var leaseAttempts: Int64 = 0
+    var leaseFailures: Int64 = 0
+    var leaseLost: Int64 = 0
+    // 区域已停止：后台线程上刚拿到的租约没人处理，由该线程自己交还
+    var regionStopped = false
+    // 后台已获取成功、区域还没处理结果的租约（区域在这期间停止时由 postStop 交还）
+    let unconfirmedLeases = HashMap<Int64, Lease>()
+}
+
+/** 分片租约获取结果（获取在独立线程上执行，结果回送区域） */
+class ShardLeaseResult <: Message {
+    let shard: Int64
+    let attempt: Int64
+    let acquired: Bool
+    let failure: Option<Exception>
+
+    init(shard: Int64, attempt: Int64, acquired: Bool, failure: Option<Exception>) {
+        this.shard = shard
+        this.attempt = attempt
+        this.acquired = acquired
+        this.failure = failure
+    }
+
+    public func messageType(): String {
+        "ShardLeaseResult"
+    }
+}
+
+/** 分片租约的释放已完成（释放同样不在区域线程上执行） */
+class ShardLeaseReleased <: Message {
+    let shard: Int64
+
+    init(shard: Int64) {
+        this.shard = shard
+    }
+
+    public func messageType(): String {
+        "ShardLeaseReleased"
+    }
+}
+
+/** 持有期间失去分片租约（租约内部线程回调后发给区域） */
+class ShardLeaseLost <: Message {
+    let shard: Int64
+    let attempt: Int64
+    let reason: Option<Exception>
+
+    init(shard: Int64, attempt: Int64, reason: Option<Exception>) {
+        this.shard = shard
+        this.attempt = attempt
+        this.reason = reason
+    }
+
+    public func messageType(): String {
+        "ShardLeaseLost"
+    }
+}
+
+/**
+ * 区域对一个分片租约的视角。所有字段只在区域线程上读写。
+ * inFlight：后台线程上有一个 acquire / release 在执行——Lease 约定同一对象不并发调用 acquire / release，
+ * 所以在它完成（结果消息到达）之前不再发起新的操作。attempt 用来识别作废的获取结果与旧的 lost 信号。
+ */
+class ShardLeaseSlot {
+    let lease: Lease
+    var held = false
+    var inFlight = false
+    var attempt: Int64 = 0
+    var nextAttemptMs: Int64 = 0
+    var backoffMs: Int64
+
+    init(lease: Lease, backoffMs: Int64) {
+        this.lease = lease
+        this.backoffMs = backoffMs
+    }
 }
 
 /** 本节点正在获取的分片：等其他成员确认已停止它 */
@@ -443,6 +693,8 @@ class Acquisition {
     let startedMs: Int64
     var lastSentMs: Int64 = -1
     var lastWarnMs: Int64 = -1
+    // 移交确认已收齐、正在等租约（DA4）：此时仍算"获取中"，消息继续缓冲，不创建实体
+    var awaitingLease = false
 
     init(round: Int64, startedMs: Int64) {
         this.round = round
@@ -534,6 +786,10 @@ class ShardRegionActor <: Actor {
     var restoreDue = false
     // 本节点已离开集群（离开、被 down、被脑裂处理停止）
     var left = false
+    // ---- 按分片租约（DA4）：未启用时 leaseSlots 始终为空 ----
+    let leaseSlots = HashMap<Int64, ShardLeaseSlot>()
+    var leaseAttemptSeq: Int64 = 0
+    var selfRef: Option<ActorRef> = None
     let log = Logging.logger("cactor.cluster.sharding")
 
     init(typeName: String, numberOfShards: Int64, cluster: Cluster, remote: SimpleRemoteManager, system: CActorSystem,
@@ -559,7 +815,39 @@ class ShardRegionActor <: Actor {
     }
 
     public func onStarted(context: ActorContext): Unit {
+        selfRef = Some(context.self)
         context.timers.startTimerWithFixedDelay("tick", RegionTick(), Duration.millisecond * 50)
+    }
+
+    /**
+     * 区域停止（ClusterSharding.stop / 系统关闭）：子 Actor（实体）此时已全部终止，交还持有的全部分片租约，
+     * 新宿主不必等 ttl 过期。这里同步释放——区域已经不再处理消息，没有可阻塞的后续工作；
+     * 后台还在执行的获取若随后成功，由它自己的线程看到区域已停止后立即交还（见 requestShardLease）
+     */
+    public func postStop(): Unit {
+        let orphans = synchronized(shared.lock) {
+            shared.regionStopped = true
+            let o = shared.unconfirmedLeases.values().toArray()
+            shared.unconfirmedLeases.clear()
+            shared.leaseHeldTokens.clear()
+            shared.leaseWaitingSince.clear()
+            o
+        }
+        let toRelease = ArrayList<Lease>(orphans)
+        for ((_, slot) in leaseSlots) {
+            slot.attempt = -1
+            if (slot.held) {
+                slot.held = false
+                toRelease.add(slot.lease)
+            }
+        }
+        for (l in toRelease) {
+            try {
+                l.release()
+            } catch (e: Exception) {
+                log.warn("${typeName} 区域停止时释放分片租约失败（将在 ttl 后过期）：${e}")
+            }
+        }
     }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
@@ -570,6 +858,7 @@ class ShardRegionActor <: Actor {
                 sendLoadReport(context)
                 sendAcquireRequests()
                 passivateIdle(context)
+                tickLeases(context)
                 if (ticks % REROUTE_PARKED_TICKS == 0) {
                     rerouteParked(context)
                 }
@@ -595,6 +884,9 @@ class ShardRegionActor <: Actor {
             case rl: ShardLoadReport => onLoadReport(rl, context)
             case _: RebalanceEvaluate => evaluateRebalance(context)
             case t: Terminated => onEntityTerminated(t.actor.path.toString(), context)
+            case r: ShardLeaseResult => onShardLeaseResult(r, context)
+            case r: ShardLeaseReleased => onShardLeaseReleased(r.shard, context)
+            case l: ShardLeaseLost => onShardLeaseLost(l.shard, l.attempt, l.reason, context)
             case _ => return MessageResult.Unhandled
         }
         MessageResult.Handled
@@ -882,6 +1174,12 @@ class ShardRegionActor <: Actor {
         for (sh in abandoned) {
             acquiring.remove(sh)
         }
+        // 放弃的获取、移出且实体已全部终止的分片：交还租约（还有实体的，等 Terminated 后再交还）
+        if (!leaseSlots.isEmpty()) {
+            for (sh in leaseSlots.keys().toArray()) {
+                reconcileShardLease(sh, context)
+            }
+        }
         // 本节点拥有、还没托管的分片：立即获取，不等第一条消息——
         // 视图建立时成员都可达，之后哪怕有成员不可达，已托管的分片照常工作
         for (sh in 0..numberOfShards) {
@@ -1005,10 +1303,41 @@ class ShardRegionActor <: Actor {
         }
     }
 
+    /**
+     * 移交确认已收齐。未启用租约：立即托管。启用租约（DA4）：还必须持有该分片的租约——没有就发起获取
+     * （后台线程执行，结果以消息回送），分片保持"获取中"、消息继续缓冲；获取失败只退避重试，
+     * 不会因为等了太久就强行托管：拿不到租约说明旧宿主可能还活着（分区 / 停顿），宁可不可用也不双活。
+     */
     private func completeAcquire(sh: Int64, context: ActorContext): Unit {
-        if (acquiring.remove(sh).isNone()) {
+        let a = match (acquiring.get(sh)) {
+            case Some(x) => x
+            case None => return
+        }
+        if (!a.pending.isEmpty()) {
             return
         }
+        if (settings.lease.isSome()) {
+            let slot = match (leaseSlot(sh)) {
+                case Some(x) => x
+                case None =>
+                    // 租约对象创建失败（工厂异常）：不托管，下个 tick 再试
+                    a.awaitingLease = true
+                    markLeaseWaiting(sh)
+                    return
+            }
+            if (slot.held && !slot.lease.checkLease()) {
+                // 本地有效期已过而 lost 回调还没到（回调线程被饿死）：按失去处理，重新获取
+                markLeaseLost(sh, slot, None<Exception>, context)
+            }
+            if (!slot.held) {
+                a.awaitingLease = true
+                markLeaseWaiting(sh)
+                requestShardLease(sh, slot)
+                return
+            }
+        }
+        acquiring.remove(sh)
+        clearLeaseWaiting(sh)
         hosting.add(sh)
         synchronized(shared.lock) {
             shared.acquisitionsCompleted++
@@ -1016,6 +1345,280 @@ class ShardRegionActor <: Actor {
         restoreRememberedShard(sh, context)
         flushShard(sh, context)
         updateShardStats()
+    }
+
+    // ---------- 按分片租约（DA4，对标 Akka sharding use-lease） ----------
+
+    /** 分片的租约槽（首次需要时经 ShardLeases 创建）；未启用租约或工厂失败时为 None */
+    private func leaseSlot(sh: Int64): Option<ShardLeaseSlot> {
+        let leases = match (settings.lease) {
+            case Some(l) => l
+            case None => return None<ShardLeaseSlot>
+        }
+        if (let Some(slot) <- leaseSlots.get(sh)) {
+            return Some(slot)
+        }
+        try {
+            let slot = ShardLeaseSlot(leases.leaseForShard(typeName, sh), settings.leaseRetryMin.toMilliseconds())
+            leaseSlots[sh] = slot
+            Some(slot)
+        } catch (e: Exception) {
+            log.error("${selfAddress} 创建 ${typeName} 分片 ${sh} 的租约失败（分片不会被托管）：${e}")
+            None<ShardLeaseSlot>
+        }
+    }
+
+    private func markLeaseWaiting(sh: Int64): Unit {
+        synchronized(shared.lock) {
+            if (!shared.leaseWaitingSince.contains(sh)) {
+                shared.leaseWaitingSince[sh] = monotonicMillis()
+            }
+        }
+    }
+
+    private func clearLeaseWaiting(sh: Int64): Unit {
+        synchronized(shared.lock) {
+            shared.leaseWaitingSince.remove(sh)
+        }
+    }
+
+    /**
+     * 发起一次获取（后台线程）。同一槽同时最多一个 acquire / release 在执行（inFlight），退避期内不发起。
+     * 后台线程拿到租约时区域可能已经停止：此时没人处理结果，由该线程自己交还，避免租约一直被心跳续着。
+     */
+    private func requestShardLease(sh: Int64, slot: ShardLeaseSlot): Unit {
+        if (slot.inFlight || slot.held || monotonicMillis() < slot.nextAttemptMs) {
+            return
+        }
+        let me = match (selfRef) {
+            case Some(r) => r
+            case None => return
+        }
+        leaseAttemptSeq++
+        let attempt = leaseAttemptSeq
+        slot.inFlight = true
+        let l = slot.lease
+        let sharedRef = shared
+        synchronized(shared.lock) {
+            shared.leaseAttempts++
+        }
+        spawn {
+            var acquired = false
+            var failure: Option<Exception> = None
+            try {
+                acquired = l.acquire({ reason => me.tell(ShardLeaseLost(sh, attempt, reason)) })
+            } catch (e: Exception) {
+                failure = Some(e)
+            }
+            let orphan = synchronized(sharedRef.lock) {
+                if (sharedRef.regionStopped) {
+                    true
+                } else {
+                    if (acquired) {
+                        sharedRef.unconfirmedLeases[sh] = l
+                    }
+                    false
+                }
+            }
+            if (orphan) {
+                if (acquired) {
+                    try {
+                        l.release()
+                    } catch (_: Exception) {}
+                }
+            } else {
+                me.tell(ShardLeaseResult(sh, attempt, acquired, failure))
+            }
+        }
+    }
+
+    private func onShardLeaseResult(r: ShardLeaseResult, context: ActorContext): Unit {
+        synchronized(shared.lock) {
+            shared.unconfirmedLeases.remove(r.shard)
+        }
+        let slot = match (leaseSlots.get(r.shard)) {
+            case Some(x) => x
+            case None => return
+        }
+        slot.inFlight = false
+        if (r.acquired) {
+            slot.held = true
+            // lost 回调带的是这次获取的编号：以它为准识别之后的失去信号
+            slot.attempt = r.attempt
+            slot.backoffMs = settings.leaseRetryMin.toMilliseconds()
+            let token = slot.lease.fencingToken() ?? -1
+            synchronized(shared.lock) {
+                shared.leaseHeldTokens[r.shard] = token
+            }
+            log.info("${selfAddress} 获得 ${typeName} 分片 ${r.shard} 的租约（token ${token}）")
+        } else {
+            let first = synchronized(shared.lock) {
+                shared.leaseFailures++
+                shared.leaseFailures == 1
+            }
+            let why = match (r.failure) {
+                case Some(e) => "：${e}"
+                case None => "（被其他持有者占用）"
+            }
+            // 只退避、不超时强行托管
+            slot.nextAttemptMs = monotonicMillis() + slot.backoffMs
+            let msg = "${selfAddress} 获取 ${typeName} 分片 ${r.shard} 的租约失败${why}，${slot.backoffMs} ms 后重试"
+            if (first) {
+                log.info(msg)
+            } else {
+                log.debug(msg)
+            }
+            slot.backoffMs = min(slot.backoffMs * 2, settings.leaseRetryMax.toMilliseconds())
+        }
+        reconcileShardLease(r.shard, context)
+        trySendStopAcks(r.shard)
+        updateShardStats()
+    }
+
+    private func onShardLeaseReleased(sh: Int64, context: ActorContext): Unit {
+        if (let Some(slot) <- leaseSlots.get(sh)) {
+            slot.inFlight = false
+        }
+        reconcileShardLease(sh, context)
+        trySendStopAcks(sh)
+    }
+
+    private func onShardLeaseLost(sh: Int64, attempt: Int64, reason: Option<Exception>, context: ActorContext): Unit {
+        let slot = match (leaseSlots.get(sh)) {
+            case Some(x) => x
+            case None => return
+        }
+        if (!slot.held || attempt != slot.attempt) {
+            return
+        }
+        markLeaseLost(sh, slot, reason, context)
+    }
+
+    /**
+     * 失去分片租约：立即停止该分片的全部实体（系统级 stop，不等邮箱处理完——新持有者可能已经在托管），
+     * 放弃托管；仍是拥有者时走正常的获取流程（移交确认 + 退避后重新取租约）。
+     */
+    private func markLeaseLost(sh: Int64, slot: ShardLeaseSlot, reason: Option<Exception>, context: ActorContext): Unit {
+        slot.held = false
+        slot.nextAttemptMs = monotonicMillis() + slot.backoffMs
+        synchronized(shared.lock) {
+            shared.leaseHeldTokens.remove(sh)
+            shared.leaseLost++
+        }
+        let why = match (reason) {
+            case Some(e) => "${e}"
+            case None => "本地有效期已过"
+        }
+        if (hosting.remove(sh)) {
+            let n = stopShardNow(sh)
+            log.warn("${selfAddress} 失去 ${typeName} 分片 ${sh} 的租约（${why}），立即停止 ${n} 个实体")
+        } else {
+            log.info("${selfAddress} 失去 ${typeName} 分片 ${sh} 的租约（${why}）")
+        }
+        if (!left && ownerOfShard(sh) == Some(selfAddress) && !acquiring.contains(sh)) {
+            startAcquire(sh, context)
+        }
+        updateShardStats()
+    }
+
+    /**
+     * 让分片的租约状态与托管状态一致：
+     *   - 正在获取且移交确认已收齐：持有租约就完成托管，否则（按退避）发起获取；
+     *   - 不再托管也不在获取、实体已全部终止：交还租约（异步，完成后再回复等待中的 STOPPED）。
+     */
+    private func reconcileShardLease(sh: Int64, context: ActorContext): Unit {
+        if (settings.lease.isNone()) {
+            return
+        }
+        match (acquiring.get(sh)) {
+            case Some(a) =>
+                if (a.pending.isEmpty() && !left) {
+                    completeAcquire(sh, context)
+                }
+                return
+            case None => ()
+        }
+        // 不在获取中就不算"等租约"（包括租约对象创建失败、随后放弃的获取）
+        clearLeaseWaiting(sh)
+        let slot = match (leaseSlots.get(sh)) {
+            case Some(x) => x
+            case None => return
+        }
+        if (hosting.contains(sh)) {
+            return
+        }
+        if (slot.held && !slot.inFlight && !shardHasEntities(sh)) {
+            releaseShardLease(sh, slot)
+        }
+    }
+
+    private func releaseShardLease(sh: Int64, slot: ShardLeaseSlot): Unit {
+        let me = match (selfRef) {
+            case Some(r) => r
+            case None => return
+        }
+        slot.held = false
+        slot.inFlight = true
+        synchronized(shared.lock) {
+            shared.leaseHeldTokens.remove(sh)
+        }
+        let l = slot.lease
+        let lg = log
+        let tn = typeName
+        spawn {
+            try {
+                l.release()
+            } catch (e: Exception) {
+                lg.warn("释放 ${tn} 分片 ${sh} 的租约失败（将在 ttl 后过期）：${e}")
+            }
+            me.tell(ShardLeaseReleased(sh))
+        }
+    }
+
+    /** 每个 tick：等租约的分片按退避重试；托管中的分片本地有效期已过而 lost 未到时按失去处理；多余的租约交还 */
+    private func tickLeases(context: ActorContext): Unit {
+        if (settings.lease.isNone() || left) {
+            return
+        }
+        let waiting = ArrayList<Int64>()
+        for ((sh, a) in acquiring) {
+            if (a.pending.isEmpty()) {
+                waiting.add(sh)
+            }
+        }
+        for (sh in waiting) {
+            completeAcquire(sh, context)
+        }
+        for (sh in hosting.toArray()) {
+            if (let Some(slot) <- leaseSlots.get(sh)) {
+                if (slot.held && !slot.lease.checkLease()) {
+                    markLeaseLost(sh, slot, None<Exception>, context)
+                }
+            }
+        }
+        for ((sh, slot) in leaseSlots) {
+            if (slot.held && !hosting.contains(sh) && !acquiring.contains(sh)) {
+                waiting.add(sh)
+            }
+        }
+        for (sh in waiting) {
+            if (!acquiring.contains(sh)) {
+                reconcileShardLease(sh, context)
+                trySendStopAcks(sh)
+            }
+        }
+        // 已不在获取中的"等租约"标记（例如租约对象创建失败后获取被放弃）：清掉，避免运维看到假的等待
+        let staleWaiting = ArrayList<Int64>()
+        synchronized(shared.lock) {
+            for ((sh, _) in shared.leaseWaitingSince) {
+                if (!acquiring.contains(sh)) {
+                    staleWaiting.add(sh)
+                }
+            }
+            for (sh in staleWaiting) {
+                shared.leaseWaitingSince.remove(sh)
+            }
+        }
     }
 
     // ---------- 控制消息 ----------
@@ -1061,7 +1664,9 @@ class ShardRegionActor <: Actor {
             }
             yielded[sh] = from
             touched.add(sh)
-            if (shardHasEntities(sh)) {
+            // 持有的租约要先交还（异步）再回 STOPPED：请求方收到 STOPPED 后马上获取租约，不必撞上本节点的租约
+            reconcileShardLease(sh, context)
+            if (shardBusy(sh)) {
                 let acks = match (pendingStopAcks.get(sh)) {
                     case Some(l) => l
                     case None =>
@@ -1134,6 +1739,26 @@ class ShardRegionActor <: Actor {
         n
     }
 
+    /** 失去租约时立即停止分片的实体（系统级 stop：邮箱里剩下的消息不再处理），返回停止的个数 */
+    private func stopShardNow(sh: Int64): Int64 {
+        var n: Int64 = 0
+        if (let Some(ids) <- shardEntities.get(sh)) {
+            for (id in ids.toArray()) {
+                if (let Some(ref) <- entities.remove(id)) {
+                    stopping[id] = ArrayList<ShardingEnvelope>(0)
+                    lastActive.remove(id)
+                    system.stop(ref)
+                    synchronized(shared.lock) {
+                        shared.entityIds.remove(id)
+                        shared.shardCounts[sh] = max(0, (shared.shardCounts.get(sh) ?? 1) - 1)
+                    }
+                    n++
+                }
+            }
+        }
+        n
+    }
+
     /**
      * Region 主动停止实体（钝化、移交）：经邮箱发送 PoisonPill，已投递的消息先处理完再停止
      * （系统级 stop 会丢弃邮箱中尚未处理的消息）；期间新到达的消息缓冲到 Terminated 之后
@@ -1182,12 +1807,31 @@ class ShardRegionActor <: Actor {
                     rep.removeFromSetAsync(rememberedEntitiesKey(typeName, sh), id)
                 }
         }
-        // 分片的实体全部终止：回复等待中的移交请求
+        // 分片的实体全部终止：不再托管的分片交还租约；全部完成后回复等待中的移交请求
         if (!shardHasEntities(sh)) {
-            if (let Some(acks) <- pendingStopAcks.remove(sh)) {
-                for ((requester, round) in acks) {
-                    sendControl(requester, "STOPPED", [(sh, round)])
-                }
+            reconcileShardLease(sh, context)
+        }
+        trySendStopAcks(sh)
+    }
+
+    /** 分片还不能回 STOPPED：实体未全部终止，或租约还没交还（DA4） */
+    private func shardBusy(sh: Int64): Bool {
+        if (shardHasEntities(sh)) {
+            return true
+        }
+        match (leaseSlots.get(sh)) {
+            case Some(slot) => slot.inFlight || (slot.held && !hosting.contains(sh) && !acquiring.contains(sh))
+            case None => false
+        }
+    }
+
+    private func trySendStopAcks(sh: Int64): Unit {
+        if (shardBusy(sh)) {
+            return
+        }
+        if (let Some(acks) <- pendingStopAcks.remove(sh)) {
+            for ((requester, round) in acks) {
+                sendControl(requester, "STOPPED", [(sh, round)])
             }
         }
     }
@@ -1478,6 +2122,9 @@ class ShardRegionActor <: Actor {
         hosting.clear()
         acquiring.clear()
         yielded.clear()
+        for (sh in leaseSlots.keys().toArray()) {
+            reconcileShardLease(sh, context)
+        }
         for (e in regionBuffer) {
             dropMessage(e, "本节点已离开集群")
         }
@@ -1532,6 +2179,7 @@ public class ClusterSharding {
     private let remote: SimpleRemoteManager
     public let typeName: String
     public let numberOfShards: Int64
+    private let leases: Option<ShardLeases>
 
     public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, typeName: String,
         numberOfShards: Int64, entityFactory: (String) -> Actor) {
@@ -1558,6 +2206,7 @@ public class ClusterSharding {
         this.remote = remote
         this.typeName = typeName
         this.numberOfShards = numberOfShards
+        this.leases = settings.lease
         if (let Some(rep) <- settings.rememberEntities) {
             ClusterReplicatorBinding.bind(cluster, rep)
         }
@@ -1645,7 +2294,56 @@ public class ClusterSharding {
             let pending = ArrayList<String>(shared.pendingAcquireMembers)
             pending.sort()
             AcquisitionHealth(shared.hostedShards, shared.acquiringShards, shared.slowAcquires,
-                shared.oldestAcquireMs, pending.toArray(), shared.acquireSlowWarnings)
+                shared.oldestAcquireMs, pending.toArray(), shared.acquireSlowWarnings, shared.leaseWaitingSince.size)
+        }
+    }
+
+    /**
+     * 按分片租约的状态（DA4）：本节点持有租约的分片与 token、只差租约的分片与已等待时长、累计计数。
+     * 未启用租约时 enabled = false。与 acquisitionHealth 一样读共享快照，可在任何线程调用。
+     */
+    public func leaseStatus(): ShardLeaseStatus {
+        let ls = match (leases) {
+            case Some(l) => l
+            case None => return ShardLeaseStatus(false, "", [], [], 0, 0, 0)
+        }
+        let created = ls.created()
+        let owner = if (created.isEmpty()) { "" } else { created[0].settings.ownerName }
+        let now = monotonicMillis()
+        synchronized(shared.lock) {
+            let held = ArrayList<(Int64, Int64)>()
+            for ((sh, t) in shared.leaseHeldTokens) {
+                held.add((sh, t))
+            }
+            let waiting = ArrayList<(Int64, Int64)>()
+            for ((sh, since) in shared.leaseWaitingSince) {
+                waiting.add((sh, now - since))
+            }
+            // 按分片号排序：HashMap 迭代顺序不稳定，运维比对与测试都需要确定的顺序
+            held.sortBy(comparator: { a, b => a[0].compare(b[0]) })
+            waiting.sortBy(comparator: { a, b => a[0].compare(b[0]) })
+            ShardLeaseStatus(true, owner, held.toArray(), waiting.toArray(), shared.leaseAttempts,
+                shared.leaseFailures, shared.leaseLost)
+        }
+    }
+
+    /**
+     * 保护实体 entityId 所在分片的租约（未启用租约时为 None）。实体用它包装持久化存储，写入自动携带 fencing token：
+     * `FencedDurableStateStore(inner, fence, lease)` / `FencedEventStore(inner, fence, lease)`（cactor_persistence）。
+     * 实体工厂里拿不到 ClusterSharding 实例时，直接用 ShardLeases.leaseForEntity（同一个对象）。
+     */
+    public func entityLease(entityId: String): Option<Lease> {
+        match (leases) {
+            case Some(l) => Some(l.leaseForEntity(typeName, numberOfShards, entityId))
+            case None => None<Lease>
+        }
+    }
+
+    /** 实体所在分片的当前 fencing token（未启用租约或本节点未持有时为 None） */
+    public func fencingToken(entityId: String): Option<Int64> {
+        match (entityLease(entityId)) {
+            case Some(l) => l.fencingToken()
+            case None => None<Int64>
         }
     }
 
