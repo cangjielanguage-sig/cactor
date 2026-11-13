@@ -107,7 +107,10 @@ public class ScaleTest {
         }
         // system.stop 的停止消息不能进入用户 receive
         @Expect(processed.load(), 2 * n)
-        @Expect(kit.system.getRuntime().getActorRegistry().getTotalActorCount(), 0)
+        // 注销在 postStop（stopped 计数）与 Guardian 移除之后才执行，最后一个 Actor 可能仍在途；
+        // 等待归零而不是立即断言：真泄漏时 5 秒内仍不归零，用例照样失败
+        let registry = kit.system.getRuntime().getActorRegistry()
+        @Expect(awaitCondition(Duration.second * 5, { => registry.getTotalActorCount() == 0 }), true)
         kit.shutdown()
     }
 }
