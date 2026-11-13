@@ -90,10 +90,9 @@ Ask.askAsync(actor, message, timeout,
 - **高内聚低耦合**: 企业级架构设计
 
 #### 架构设计
-- **StreamSource**: 数据源抽象
-- **StreamSink**: 数据汇聚抽象
-- **StreamFlow**: 流操作抽象
-- **StreamGraph**: 流图优化和融合
+- **Source / Flow / Sink / RunnableGraph**: 惰性蓝图，`run(system)` 物化
+- **Reactive Streams**: Publisher / Subscriber / Subscription（request(n)、cancel）
+- **融合岛 + async 边界**: 岛内单 Actor 融合执行，边界按批请求
 
 ### 🔄 XState状态机系统
 **状态**: ✅ 企业级状态机系统  

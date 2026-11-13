@@ -9,7 +9,7 @@
 - **Ask模式示例** - 请求-响应模式
 - **集群分片示例** - 集群分片接口演示（原型）
 - **持久化示例** - 事件溯源和CQRS接口演示（原型）
-- **流处理示例** - CActor Streams（实验性）
+- **流处理示例** - CActor 背压流（Reactive Streams）
 - **状态机示例** - XState 风格状态机（实验性）
 
 ## 🎯 入门示例
@@ -87,11 +87,10 @@
 **运行**: `cjpm run --name cactor_examples.streams_demo`
 **难度**: ⭐⭐⭐ 中级
 
-展示CActor Streams流处理：
-- 高性能流处理
-- 背压控制
-- 丰富操作符
-- DSL支持
+展示 CActor 背压流（E60，对标 Akka Streams）：
+- 惰性蓝图与物化（同一张图运行两次）
+- 无限源 + 慢消费者 + async 边界：已生产 − 已消费不超过边界缓冲
+- `ask` 有界并行、`Sources.queue` 溢出策略、kill switch、`actorRefWithBackpressure`
 
 ### 🔄 状态机示例
 **文件**: `xstate_demo/`

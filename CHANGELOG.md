@@ -7,6 +7,20 @@
 
 ## [未发布]
 
+### 💥 破坏性变更（计划 v2.38：E60 流重写）
+
+- `cactor_streams` 按 Reactive Streams 重写：旧 API（`StreamSource` / `StreamFlow` / `StreamSink` / `SourceFactory` / `SinkFactory` / `StreamGraph`、管道 `via` / `to` / `keep`、`ReactiveSource` / `ReactiveSink` / `DemandBox` 等，以及子包 `cactor_streams.core` / `.dsl` / `.unified`）全部移除；改用 `Sources` / `Flows` / `Sinks` + `Source` / `Flow` / `Sink` / `RunnableGraph`，`run(system)` 物化。`cactor_streams.reactive` 只保留 `Publisher` / `Subscriber` / `Subscription` / `Processor` 接口。
+- 删除示例 `dsl_pipeline`、`streams_advanced_demo`、`streams_backpressure_demo`、`streams_dsl_demo`、`streams_unified_demo`、`streams_integration_test`、`cangjie_streams_demo`、`streams_enhanced_dsl_demo`；`streams_demo` 改用新 API。
+
+### ✨ 新增与修复（计划 v2.38：E60 / E61 / E52 / DA4 / DA8）
+
+- **背压流（E60）**：融合岛（单个类型化 Actor 内执行）+ `.async()` 边界按批 request(n)（默认 16）；`mapAsync` / `mapAsyncUnordered` / `ask`（有界并行，物化带 `AskCancellationToken`，阶段结束撤销未回复的 ask）；`Sources.queue` / `actorRef` / `fromPublisher` / `asSubscriber` / `tick`；`Sinks.actorRefWithBackpressure` / `asPublisher` / `queue`；`KillSwitches`；流内监督 `withSupervision`（Stop / Resume / Restart）；`Materializer.create(ctx)`。慢消费者面对无限流时内存有界。
+- **类型化流式回复 StreamRef（E61 / DA7）**：新包 `cactor_cluster.streamref`。`StreamRefs.sourceRef<T>` 返回 `(SourceRef<T>, StreamProducer<T>)`，`SourceRef` 可放进 ask 回复跨节点传递；累计需求信用背压（非阻塞 `offer` / `whenReady`）、序号校验（缺号/重复/超发大声失败）、取消传播到生产方、属主停止/节点终止传播、单次挂接、订阅与空闲超时；Reactive Streams 形状的 `StreamRefSubscription` 与 `subscribeActor`。新增示例 `llm_token_stream`。
+- **可注入调度器（E52）**：`ActorScheduler` / `ScheduledTask` / `RealTimeScheduler`，`CActorRuntimeConfig.withScheduler`、`CActorSystem.scheduler()`、`ActorContext.scheduler()`；定时器、接收超时、退避重启延迟、`ctx.scheduleOnce`、Actor 内 ask 超时都经系统调度器（默认实现行为不变）；`ActorFailure.failedAt`、`BackoffPolicy.next(failedAt:)`（带默认值的命名参数，源码兼容），退避复位与 `withLimit` 窗口按调度器时钟计算。testkit：`ActorTestKit(name, ManualTime())` 让虚拟时钟驱动真实系统，`ManualTime` 线程安全，新增 `awaitPending`、`expectNoMessageFor`。
+- **分片按分片租约（DA4）**：`ShardingSettings.withLease`（默认关闭）——移交确认收齐后还须取得分片租约才托管，后台获取并指数退避、不超时强推；失去租约立即停止该分片实体；先交还租约再回 STOPPED；region 停止交还全部租约。`ShardLeases` 在 region 与实体间共享，`leaseForEntity` 可包装 `FencedEventStore` / `FencedDurableStateStore`，写入自动带 fencing token。`/cluster/shards` 增加 `lease` 字段，新增 `/cluster/singletons`。`tools/lease_contend_demo.sh` 跨进程验证 FileLease + fencing（已接入 ci.sh）。
+- **测试稳定性（DA8）**：四个负载敏感用例查清根因（自动再平衡合法迁移分片、固定时限过紧、栈溢出用例耗时、共享工作线程被占）并修复，不放宽被验证的语义。
+- 进度 33.5/44 ≈ 76.14%、加权 79.5%，验收见实施计划第 40 批。
+
 ### ✨ 新增、修复与行为变更（计划 v2.37：分布式加固 DA3 / DA4 / DA5 / DA6，API 快照 E51）
 
 - **修复（DA3）**：TCP 入站帧字节预算在读帧体抛异常（对端帧中途断开、停机关闭 socket）时不再泄漏；此前每次最多永久占用 16 MB，几次即可让节点拒收全部入站帧。新增 `TcpTransportLimits.inboundFrameReadTimeout`（默认 30 s，须为正）限制单帧帧体的总读取时间，慢速对端被关闭并归还预算；新增 `TcpTransport.getInboundFrameTimeouts()`。

@@ -55,7 +55,7 @@ CActor is also **DSL-first**, using Cangjie language features so agent code only
 - **Enums are protocols**: a typed actor's protocol is an `enum`, and exhaustive `match` catches unhandled messages at compile time
 - **`@actorReceive`**: generates a type-dispatching `receive` from `onXxx(msg: T, ctx)` methods at compile time, and rejects two handlers for the same type
 - **`100.millis`, `3.seconds`** duration literals; **`ref << a << b`** chained sends
-- **Declarative behaviors and workflows**: `TypedBehaviors` (`setup` / `receive` / `supervise` / `withTimers` / `withStash` / `intercept` ...) for actor behavior, Streams for data pipelines, XState-style state machines for workflows (Streams and XState are experimental)
+- **Declarative behaviors and workflows**: `TypedBehaviors` (`setup` / `receive` / `supervise` / `withTimers` / `withStash` / `intercept` ...) for actor behavior, Streams for data pipelines, XState-style state machines for workflows (XState is experimental)
 
 Agents describe *what* to do; scheduling, isolation and fault tolerance are left to CActor.
 
@@ -122,7 +122,7 @@ main() {
 | Remoting | TCP transport, remote ask / watch, cross-node replies, reliable delivery | Usable, no TLS yet |
 | Clustering | Gossip membership, split-brain resolver, Cluster Singleton, distributed pub/sub, cluster sharding (passivation, remember-entities), virtual actors (Grains), CRDTs and Replicator | Usable, verified with multi-node, network-partition and multi-process crash tests |
 | Persistence | File event journal, snapshots, event-sourced actors, durable state (optimistic concurrency), persistence query, URI-selected store plugins | Usable |
-| Streams | Streams DSL | Experimental |
+| Streams | Backpressured streams (Reactive Streams, E60) | Available |
 | State machines | XState-style state machines | Experimental |
 
 ---
@@ -402,7 +402,7 @@ Examples live in [`modules/examples/src`](modules/examples/src). After building,
 | [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | Typed actor system |
 | [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | Mailbox implementations |
 | [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | Dispatcher implementations |
-| [streams_demo](modules/examples/src/streams_demo/main.cj) | Stream processing (experimental) |
+| [streams_demo](modules/examples/src/streams_demo/main.cj) | Backpressured streams |
 | [xstate_demo](modules/examples/src/xstate_demo) | State machines (experimental) |
 | [simple_macro_demo](modules/examples/src/simple_macro_demo/main.cj) | DSL macros (prototype) |
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | Cluster sharding: gossip membership + `ClusterSharding` routing to a single entity per id (3 nodes in one process, self-checking) |

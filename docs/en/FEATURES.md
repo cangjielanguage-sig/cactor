@@ -90,10 +90,9 @@ Ask.askAsync(actor, message, timeout,
 - **High Cohesion and Low Coupling**: Enterprise-grade architecture design
 
 #### Architecture Design
-- **StreamSource**: Data source abstraction
-- **StreamSink**: Data sink abstraction
-- **StreamFlow**: Stream operation abstraction
-- **StreamGraph**: Stream graph optimization and fusion
+- **Source / Flow / Sink / RunnableGraph**: lazy blueprints, materialized with `run(system)`
+- **Reactive Streams**: Publisher / Subscriber / Subscription (request(n), cancel)
+- **Fused islands + async boundaries**: one actor per island, batched demand across boundaries
 
 ### 🔄 XState State Machine System
 **Status**: ✅ Enterprise-grade state machine system

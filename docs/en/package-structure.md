@@ -16,7 +16,7 @@ Dependency names below omit the `cactor_` prefix except for the facade, `cactor`
 | remote | `cactor_remote` | foundation, core | TCP, handshakes, quarantine, reliable delivery and TLS |
 | persistence | `cactor_persistence` | foundation, core | Journals, snapshots, classic and typed persistence |
 | cactor | `cactor` | core, runtime | System facade and management HTTP API |
-| streams | `cactor_streams` | macros, foundation, core, cactor | Stream DSL; E60 demand propagation and cancellation remain unfinished |
+| streams | `cactor_streams` | macros, foundation, core, cactor | Backpressured streams (E60): Reactive Streams interfaces, Source/Flow/Sink blueprints, fused islands + async boundaries, cancellation and in-stream supervision |
 | cluster | `cactor_cluster` | foundation, core, remote, cactor | Membership, sharding, singleton, service discovery and distributed data |
 | xstate | `cactor_xstate` | foundation, core, cactor | Experimental state machines; no cluster dependency |
 | testkit | `cactor_testkit` | foundation, core, runtime, cactor | TestProbe, BehaviorTestKit, ManualTime, ProcessBarrier and other testing tools |

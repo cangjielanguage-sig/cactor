@@ -398,34 +398,26 @@ Actor 用 `@actor`，转换表直接喂给 xstate 的 `StateMachineBuilder`）�
 
 ---
 
-## 8. 流 DSL：`Source |> Flow |> Sink`
+## 8. 背压流：`Source` / `Flow` / `Sink`（E60，对标 Akka Streams）
 
 ```cangjie
-import cactor_streams.dsl.*
+import cactor_streams.*
 
-let source = StreamSource<Int64>([1, 2, 3, 4, 5, 6], "numbers")
-let even = keep<Int64>({ x => x % 2 == 0 })
-let toText = StreamFlow<Int64, String>({ elements =>
-    Array<String>(elements.size, { i => "值${elements[i]}" })
-}, "toText")
-let sum = StreamSink<String, Int64>({ elements =>
-    var total: Int64 = 0
-    for (e in elements) {
-        total += e.size
-    }
-    total
-}, "sum")
-
-let result = source |> via(even) |> via(toText) |> to(sum)
+// 蓝图惰性、可重复运行；run(system) 物化后得到物化值（这里是结果的 Promise）
+let graph = Sources.range(1, 6)
+    .filter({ x => x % 2 == 0 })
+    .map<String>({ x => "值${x}" })
+    .toMat(Sinks.seq<String>(), { _, r => r })
+let result = graph.run(system).get(3.seconds)   // ["值2", "值4", "值6"]
 ```
 
-* `|>` 是仓颉内建管道运算符（右侧必须是函数值、不可重载），因此用 `via(flow)` / `to(sink)` 把
-  Flow / Sink 包装成管道中的一段；
-* 语义与链式写法 `source.via(flow).to(sink).run()` **完全等价**：`to(sink)` 内部就是 `runWith(sink)`，
-  空源校验、异常包装（`StreamProcessingException`）与链式写法一致（有测试保证）；
-* 辅助函数：`via`（接 Flow）、`to`（接 Sink）、`keep`（只做过滤的 Flow）。
+* 遵循 Reactive Streams：下游 `request(n)` 才发送，慢消费者面对无限流时内存有界；
+* 默认整张图在一个类型化 Actor 内融合执行，`.async()` 切出异步边界（按批请求，默认 16）；
+* 常用：`mapAsync` / `ask`（有界并行）、`Sources.queue` / `Sources.actorRef`、`Sinks.actorRefWithBackpressure`、
+  `KillSwitches`、流内监督 `withSupervision`；与外部 Reactive Streams 互通用 `Sources.fromPublisher` / `Sinks.asPublisher`。
+* 旧的 `StreamSource` / `StreamFlow` / `StreamSink` 与 `|> via / to / keep` 管道写法已在 v2.38 删除（见 CHANGELOG 破坏性变更）。
 
-完整示例见 `modules/examples/src/dsl_pipeline`。
+完整示例见 `modules/examples/src/streams_demo`，API 说明见 `modules/streams/README.md`。
 
 ---
 

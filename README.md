@@ -56,7 +56,7 @@ CActor 是仓颉语言的 Actor 模型库，定位为 **AI Agent 的底层运行
 - **枚举即协议**：类型化 Actor 的消息协议就是一个 `enum`，`match` 的穷尽检查在编译期发现漏处理的消息
 - **`@actorReceive`**：编译期根据 `onXxx(msg: T, ctx)` 方法生成按消息类型分派的 `receive`；同一类型写了两个处理方法也在编译期报错
 - **`100.millis`、`3.seconds`**：时间字面量；**`ref << a << b`**：连续发送
-- **声明式描述行为与工作流**：`TypedBehaviors`（`setup` / `receive` / `supervise` / `withTimers` / `withStash` / `intercept` …）描述 Actor 行为，Streams 描述数据流水线，XState 风格状态机描述工作流（Streams 与 XState 目前为实验性）
+- **声明式描述行为与工作流**：`TypedBehaviors`（`setup` / `receive` / `supervise` / `withTimers` / `withStash` / `intercept` …）描述 Actor 行为，Streams 描述数据流水线，XState 风格状态机描述工作流（XState 目前为实验性）
 
 Agent 只写“做什么”，调度、隔离与容错交给 CActor。
 
@@ -125,7 +125,7 @@ main() {
 | 远程 | TCP 传输、远程 ask / watch、跨节点回复、可靠投递、握手鉴权与隔离、TLS 1.3 双向认证 | 可用 |
 | 集群 | gossip 成员协议、脑裂处理、Cluster Singleton、分布式发布订阅、集群分片（钝化、remember-entities）、虚拟 Actor（Grains）、CRDT 与 Replicator（一致性级别、delta 传播、移除节点的 pruning） | 可用，有多节点、网络分区与多进程宕机验证 |
 | 持久化 | 文件事件日志、快照、事件溯源 Actor、持久化状态（乐观并发）、持久化查询、按 URI 选择存储的插件注册表 | 可用 |
-| 流处理 | Streams DSL | 实验性 |
+| 流处理 | 背压流（Reactive Streams，E60） | 可用 |
 | 状态机 | XState 风格的状态机 | 实验性 |
 
 ---
@@ -432,7 +432,7 @@ cactor → streams / xstate / testkit
 | [typed_actor_demo](modules/examples/src/typed_actor_demo/main.cj) | 类型化 Actor 系统 |
 | [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | 不同 mailbox 实现 |
 | [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | 不同 dispatcher 实现 |
-| [streams_demo](modules/examples/src/streams_demo/main.cj) | 流处理（实验性） |
+| [streams_demo](modules/examples/src/streams_demo/main.cj) | 背压流 |
 | [xstate_demo](modules/examples/src/xstate_demo) | 状态机（实验性） |
 | [simple_macro_demo](modules/examples/src/simple_macro_demo/main.cj) | DSL 宏（原型） |
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
