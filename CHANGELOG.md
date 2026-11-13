@@ -7,6 +7,17 @@
 
 ## [未发布]
 
+### ✨ 新增、修复与行为变更（计划 v2.37：分布式加固 DA3 / DA4 / DA5 / DA6，API 快照 E51）
+
+- **修复（DA3）**：TCP 入站帧字节预算在读帧体抛异常（对端帧中途断开、停机关闭 socket）时不再泄漏；此前每次最多永久占用 16 MB，几次即可让节点拒收全部入站帧。新增 `TcpTransportLimits.inboundFrameReadTimeout`（默认 30 s，须为正）限制单帧帧体的总读取时间，慢速对端被关闭并归还预算；新增 `TcpTransport.getInboundFrameTimeouts()`。
+- **修复（DA3）**：对端重启只回收**已隔离**启动标识的入站可靠通道；未握手/未隔离的旧代保留去重状态，重放不会再次投递。新增 `ReliableBudgetUsage` 与 `SimpleRemoteManager.reliableBudgetUsage()`（节点级计数与通道实际占用对照），`ReliableDeliveryStats.inboundBuffered`。
+- **新增（DA4）**：`cactor_foundation.coordination.Lease`（对标 Akka Coordination Lease）：获取带丢失回调、心跳续约、单调本地有效期（ttl − clockSkewMargin）、每次获取严格递增的 fencing token；`LeaseSettings`、`InMemoryLease` / `InMemoryLeaseStore`。`cactor_persistence.FileLease`（共享目录，`link(2)` 原子编号即 token）；`FencingTokenStore`（Memory / File）与 `FencedEventStore` / `FencedDurableStateStore` 拒绝旧 token 写入（`StaleFencingTokenException`）。`ClusterSingletonSettings.withLease`：取得租约才启动、失败退避不超时强启、丢失立即停止、移交前释放；默认关闭，旧构造签名与行为不变。
+- **修复（DA5）**：Replicator 一致性操作序号起点随机化，同址重建的新实例不再被旧实例迟到的确认造成过半写/读虚假成功（线格式不变）。`ReplicatorConsistencyException` 新增 `replied` / `needed` / `total`。新增成员变化一致性矩阵 10 例并写明一致性边界（过半基于操作开始时的视图；视图不一致时过半写与过半读可不相交）。
+- **新增（DA6）**：握手线协议能力协商，扩展附在旧节点视为不透明的字段末尾，旧节点无需升级即可互通。`SimpleRemoteManager.configureWire(WireProtocolSettings)`、`peerWireProfile`、`onWireIncompatible`、`wireIncompatibleSent` / `wireIncompatibleReceived` / `wireProtocolRejected`；`withMinPeerProtocol(n)` 拒绝低版本握手。`MessageCodec` 新增默认方法 `requiredCapabilities` / `encodeFor`；`SerializationException` / `DeserializationException` 改为 `open`。
+- **行为变更（DA6）**：发往不支持 codec v3 的对端的 kind 3 载荷（带协议标记的 Message）不再“发送成功、对端静默丢弃”，而是抛 `WireIncompatibleException`（tell 抛出、ask 失败、tellReliable 不入队）并计数；kind 1/2 对旧节点自动写 v2 版本头。尚未完成握手的对端按保守能力编码。接收侧未知种类/更高版本抛 `UnsupportedWireFormatException`，单独计数、不投递、连接保留。
+- **新增（E51）**：`tools/api_snapshot.py` 公开 API 快照（`docs/api-snapshot/`），`tools/ci.sh` 比对；有意修改公开签名后执行 `python3 tools/api_snapshot.py --update`。
+- **测试**：修正 `controlChannelHasItsOwnByteBudget` 的预算算术；`testTopLevelCreateStopDoesNotLeak` 等待注册表注销完成（注销发生在 postStop 之后）。进度 31/44 ≈ 70.45%、加权 70.5%，验收见实施计划第 39 批。
+
 ### ✨ 新增与行为变更（计划 v2.36：隔离状态数量预算）
 
 - `withPeerLimit` 同时限制隔离表条目数，默认 4096；满额时拒绝需要增加隔离历史的重启准入，保留当前身份。禁止缩容到已有隔离记录数量以下。
