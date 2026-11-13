@@ -55,18 +55,6 @@ output-type = "executable"
 [package.package-configuration."cactor_examples.streams_demo"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.streams_dsl_demo"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.streams_advanced_demo"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.streams_unified_demo"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.streams_backpressure_demo"]
-output-type = "executable"
-
 [package.package-configuration."cactor_examples.functional_actor_demo"]
 output-type = "executable"
 
@@ -83,15 +71,6 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.cangjie_dsl_features"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.streams_integration_test"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.cangjie_streams_demo"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.streams_enhanced_dsl_demo"]
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.simple_config_demo"]
@@ -164,9 +143,6 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.dsl_state_machine"]
-output-type = "executable"
-
-[package.package-configuration."cactor_examples.dsl_pipeline"]
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.dsl_bench"]
