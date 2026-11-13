@@ -19,6 +19,13 @@
  * - 投递仍是至多一次：已写入连接、但对方在处理前宕机的消息会丢失，需要可靠性时由业务层确认重发。
  * - 透传 sender（E12′，N16）：tell(message, sender) / ask 的发送方随缓冲与远程发送保留，实例 context.reply 即可回复。
  * - 实例自己停止（例如异常后被停止）时，管理器在下一轮重新获取并启动新实例。
+ * - 租约（DA4，对标 Akka singleton use-lease，默认关闭）：以上保证都建立在成员视图之上；非对称分区、长停顿、
+ *   手动 / 错误 down 后旧宿主仍在运行时，两侧都可能认为自己最老。配置 ClusterSingletonSettings.withLease 后，
+ *   HandOver 完成还不够，必须再获取租约（在独立线程上执行，结果以消息回送）才启动实例；获取失败按指数退避重试，
+ *   绝不因等待超时而强行启动。持有期间租约丢失（续约被拒 / 超出有效期 / 后端撤销）立即停止实例（不等邮箱处理完：
+ *   此时可能已有新持有者），之后仍是最老成员时重新获取。移交时旧实例终止后先释放租约再回 HANDOVER_DONE，
+ *   新宿主可立即获取。租约只保证"自认为持有"的时段不重叠，持久化写入还应经 fencing token 校验
+ *   （cactor_persistence.FencedEventStore / FencedDurableStateStore）。
  */
 package cactor_cluster.membership
 
@@ -32,6 +39,7 @@ import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.logging.{Logging}
 import cactor_foundation.detector.{monotonicMillis}
+import cactor_foundation.coordination.{Lease}
 import cactor_remote.{SimpleRemoteManager, RemoteActorRef, parseRemoteSender}
 import cactor_cluster.ddata.{FieldWriter, FieldReader}
 import cactor_core.typed.{TypedPromise}
@@ -76,6 +84,88 @@ class SingletonShared {
     var location: Option<String> = None
     var dropped: Int64 = 0
     var handOvers: Int64 = 0
+    var leaseHeld = false
+    var leaseAttempts: Int64 = 0
+    var leaseFailures: Int64 = 0
+    var leaseLost: Int64 = 0
+}
+
+/** 租约获取结果（获取在独立线程上执行，结果回送管理器） */
+class SingletonLeaseResult <: Message {
+    let attempt: Int64
+    let acquired: Bool
+    let failure: Option<Exception>
+
+    init(attempt: Int64, acquired: Bool, failure: Option<Exception>) {
+        this.attempt = attempt
+        this.acquired = acquired
+        this.failure = failure
+    }
+
+    public func messageType(): String {
+        "SingletonLeaseResult"
+    }
+}
+
+/** 租约丢失（租约内部线程回调后发给管理器） */
+class SingletonLeaseLost <: Message {
+    let attempt: Int64
+    let reason: Option<Exception>
+
+    init(attempt: Int64, reason: Option<Exception>) {
+        this.attempt = attempt
+        this.reason = reason
+    }
+
+    public func messageType(): String {
+        "SingletonLeaseLost"
+    }
+}
+
+/**
+ * ClusterSingleton 设置（不可变，withXxx 返回新值）。
+ *   - bufferSize：位置未知时代理缓冲的消息数（默认 1000）。
+ *   - lease：可选租约（默认无，行为与之前完全相同）。每个节点传入自己的 Lease 对象：同一个 leaseName、各自唯一的 ownerName。
+ *   - leaseRetryMin / leaseRetryMax：获取失败后的指数退避区间（默认 200 ms ~ 5 s，对标 Akka lease-retry-interval）。
+ */
+public struct ClusterSingletonSettings {
+    public let bufferSize: Int64
+    public let lease: Option<Lease>
+    public let leaseRetryMin: Duration
+    public let leaseRetryMax: Duration
+
+    public init() {
+        this(1000, None<Lease>, Duration.millisecond * 200, Duration.second * 5)
+    }
+
+    public init(bufferSize: Int64, lease: Option<Lease>, leaseRetryMin: Duration, leaseRetryMax: Duration) {
+        if (bufferSize <= 0) {
+            throw IllegalArgumentException("单例缓冲区大小必须为正：${bufferSize}")
+        }
+        if (leaseRetryMin <= Duration.Zero || leaseRetryMax < leaseRetryMin) {
+            throw IllegalArgumentException("租约重试间隔必须为正且 max >= min")
+        }
+        this.bufferSize = bufferSize
+        this.lease = lease
+        this.leaseRetryMin = leaseRetryMin
+        this.leaseRetryMax = leaseRetryMax
+    }
+
+    public func withBufferSize(n: Int64): ClusterSingletonSettings {
+        ClusterSingletonSettings(n, lease, leaseRetryMin, leaseRetryMax)
+    }
+
+    public func withLease(l: Lease): ClusterSingletonSettings {
+        ClusterSingletonSettings(bufferSize, Some(l), leaseRetryMin, leaseRetryMax)
+    }
+
+    public func withoutLease(): ClusterSingletonSettings {
+        ClusterSingletonSettings(bufferSize, None<Lease>, leaseRetryMin, leaseRetryMax)
+    }
+
+    public func withLeaseRetry(min: Duration, max: Duration): ClusterSingletonSettings {
+        ClusterSingletonSettings(bufferSize, lease, min, max)
+    }
 }
 
 /** 成员离开方式（集群事件经回调转给管理器） */
@@ -128,6 +218,16 @@ class SingletonManager <: Actor {
     let factory: () -> Actor
     let bufferSize: Int64
     let shared: SingletonShared
+    let lease: Option<Lease>
+    let leaseRetryMinMs: Int64
+    let leaseRetryMaxMs: Int64
+    // 租约状态：本管理器视角下是否持有、是否有获取在途、第几次获取（迟到的结果 / lost 信号按它过滤）
+    var leaseHeld = false
+    var leaseAcquiring = false
+    var leaseAttempt: Int64 = 0
+    var leaseNextAttemptMs: Int64 = 0
+    var leaseBackoffMs: Int64 = 0
+    var selfRef: Option<ActorRef> = None
     var instance: Option<ActorRef> = None
     // 正在停止的实例（已发 PoisonPill、等 Terminated）与等它停止后要回 DONE 的请求方
     var stopping: Option<ActorRef> = None
@@ -141,14 +241,18 @@ class SingletonManager <: Actor {
     let log = Logging.logger("cactor.cluster.singleton")
 
     init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, singletonName: String,
-        factory: () -> Actor, bufferSize: Int64, shared: SingletonShared) {
+        factory: () -> Actor, settings: ClusterSingletonSettings, shared: SingletonShared) {
         this.cluster = cluster
         this.system = system
         this.remote = remote
         this.singletonName = singletonName
         this.factory = factory
-        this.bufferSize = bufferSize
+        this.bufferSize = settings.bufferSize
         this.shared = shared
+        this.lease = settings.lease
+        this.leaseRetryMinMs = settings.leaseRetryMin.toMilliseconds()
+        this.leaseRetryMaxMs = settings.leaseRetryMax.toMilliseconds()
+        this.leaseBackoffMs = settings.leaseRetryMin.toMilliseconds()
     }
 
     public prop name: String {
@@ -160,6 +264,7 @@ class SingletonManager <: Actor {
     }
 
     public func onStarted(context: ActorContext): Unit {
+        selfRef = Some(context.self)
         context.timers.startTimerWithFixedDelay("check", SingletonTick(), Duration.millisecond * 50)
     }
 
@@ -171,6 +276,8 @@ class SingletonManager <: Actor {
         synchronized(shared.lock) {
             shared.runningHere = false
         }
+        // 管理器停止（节点离开 / 关闭）：实例已停，交还租约让新宿主不必等 ttl 过期
+        releaseLease()
     }
 
     public func receive(message: Message, context: ActorContext): MessageResult {
@@ -196,6 +303,8 @@ class SingletonManager <: Actor {
                     case _ => ()
                 }
             case t: Terminated => onTerminated(t.actor, context)
+            case r: SingletonLeaseResult => onLeaseResult(r, context)
+            case l: SingletonLeaseLost => onLeaseLost(l.attempt, l.reason, context)
             case _ => return MessageResult.Unhandled
         }
         MessageResult.Handled
@@ -251,11 +360,23 @@ class SingletonManager <: Actor {
             if (instance.isSome()) {
                 log.info("Singleton ${singletonName} 从 ${cluster.selfAddress} 移交")
                 beginStop(context)
+            } else if (stopping.isNone()) {
+                // 已不是最老成员且没有实例在跑：持有的租约交还（例如获取成功的结果到达时已不再是目标）
+                releaseLease()
             }
             return
         }
-        if (instance.isSome() || stopping.isSome()) {
-            // 已在运行；或自己的旧实例还在停止（它终止后下一轮再获取）
+        if (instance.isSome()) {
+            // 本地视角下租约已失效而 lost 回调尚未到达（例如回调线程被饿死）：同样立即停止
+            if (let Some(l) <- lease) {
+                if (leaseHeld && !l.checkLease()) {
+                    onLeaseLost(leaseAttempt, None<Exception>, context)
+                }
+            }
+            return
+        }
+        if (stopping.isSome()) {
+            // 自己的旧实例还在停止（它终止后下一轮再获取）
             return
         }
         let asked = askSet()
@@ -299,7 +420,7 @@ class SingletonManager <: Actor {
             acq.pending.remove(p)
         }
         if (acq.pending.isEmpty()) {
-            startInstance(context)
+            startWhenLeased(context)
             return
         }
         let now = monotonicMillis()
@@ -336,7 +457,7 @@ class SingletonManager <: Actor {
                         a.pending.remove(from)
                         if (a.pending.isEmpty() && instance.isNone() && stopping.isNone() &&
                             targetLocation() == Some(cluster.selfAddress)) {
-                            startInstance(context)
+                            startWhenLeased(context)
                         }
                     }
                 }
@@ -348,6 +469,10 @@ class SingletonManager <: Actor {
         if (let Some(s) <- stopping) {
             if (s.path.toString() == ref.path.toString()) {
                 stopping = None
+                // 先交还租约再回 DONE：新宿主收齐 DONE 后马上就能获取，不必等 ttl 过期
+                if (targetLocation() != Some(cluster.selfAddress)) {
+                    releaseLease()
+                }
                 for ((to, round) in doneOwed) {
                     sendControl(to, "HD", round)
                 }
@@ -362,6 +487,127 @@ class SingletonManager <: Actor {
                 instance = None
                 synchronized(shared.lock) {
                     shared.runningHere = false
+                }
+            }
+        }
+    }
+
+    /** HandOver 已完成：没有配置租约直接启动；否则持有租约才启动，未持有时发起（或按退避等待下一次）获取 */
+    private func startWhenLeased(context: ActorContext): Unit {
+        let l = match (lease) {
+            case Some(x) => x
+            case None =>
+                startInstance(context)
+                return
+        }
+        if (leaseHeld) {
+            if (l.checkLease()) {
+                startInstance(context)
+                return
+            }
+            onLeaseLost(leaseAttempt, None<Exception>, context)
+        }
+        if (leaseAcquiring || monotonicMillis() < leaseNextAttemptMs) {
+            return
+        }
+        let me = match (selfRef) {
+            case Some(r) => r
+            case None => return
+        }
+        leaseAcquiring = true
+        leaseAttempt++
+        let attempt = leaseAttempt
+        synchronized(shared.lock) {
+            shared.leaseAttempts++
+        }
+        // 获取可能访问外部存储（阻塞）：放到独立线程，结果与 lost 信号都以消息回送，管理器状态只在自己的线程上改
+        spawn {
+            let result = try {
+                let ok = l.acquire({ reason => me.tell(SingletonLeaseLost(attempt, reason)) })
+                SingletonLeaseResult(attempt, ok, None<Exception>)
+            } catch (e: Exception) {
+                SingletonLeaseResult(attempt, false, Some(e))
+            }
+            me.tell(result)
+        }
+    }
+
+    private func onLeaseResult(r: SingletonLeaseResult, context: ActorContext): Unit {
+        if (r.attempt != leaseAttempt) {
+            // 已作废的获取（期间释放过或管理器已不需要）：真拿到了也立即交还
+            if (r.acquired && !leaseHeld) {
+                if (let Some(l) <- lease) {
+                    try {
+                        l.release()
+                    } catch (_: Exception) {}
+                }
+            }
+            return
+        }
+        leaseAcquiring = false
+        if (r.acquired) {
+            leaseHeld = true
+            leaseBackoffMs = leaseRetryMinMs
+            synchronized(shared.lock) {
+                shared.leaseHeld = true
+            }
+            log.info("Singleton ${singletonName} 在 ${cluster.selfAddress} 获得租约")
+            // 仍是目标且握手已完成则立即启动；否则 evaluate 会把租约交还
+            evaluate(context)
+            return
+        }
+        synchronized(shared.lock) {
+            shared.leaseFailures++
+        }
+        let why = match (r.failure) {
+            case Some(e) => "：${e}"
+            case None => "（被其他持有者占用）"
+        }
+        log.info("Singleton ${singletonName} 在 ${cluster.selfAddress} 获取租约失败${why}，${leaseBackoffMs} ms 后重试")
+        // 只退避、不超时强启：拿不到租约就不启动，宁可不可用也不双活
+        leaseNextAttemptMs = monotonicMillis() + leaseBackoffMs
+        leaseBackoffMs = min(leaseBackoffMs * 2, leaseRetryMaxMs)
+    }
+
+    private func onLeaseLost(attempt: Int64, reason: Option<Exception>, context: ActorContext): Unit {
+        if (attempt != leaseAttempt || !leaseHeld) {
+            return
+        }
+        leaseHeld = false
+        synchronized(shared.lock) {
+            shared.leaseHeld = false
+            shared.leaseLost++
+        }
+        let why = match (reason) {
+            case Some(e) => "${e}"
+            case None => "本地有效期已过"
+        }
+        log.warn("Singleton ${singletonName} 在 ${cluster.selfAddress} 失去租约（${why}），立即停止实例")
+        if (let Some(ref) <- instance) {
+            // 不用 PoisonPill：新持有者可能已经启动，邮箱里剩下的消息不能再处理
+            instance = None
+            stopping = Some(ref)
+            system.stop(ref)
+            synchronized(shared.lock) {
+                shared.runningHere = false
+            }
+        }
+        leaseNextAttemptMs = monotonicMillis() + leaseBackoffMs
+    }
+
+    private func releaseLease(): Unit {
+        if (let Some(l) <- lease) {
+            leaseAttempt++ // 在途的获取结果与旧的 lost 信号都作废
+            leaseAcquiring = false
+            if (leaseHeld) {
+                leaseHeld = false
+                synchronized(shared.lock) {
+                    shared.leaseHeld = false
+                }
+                try {
+                    l.release()
+                } catch (e: Exception) {
+                    log.warn("Singleton ${singletonName} 释放租约失败（将在 ttl 后过期）：${e}")
                 }
             }
         }
@@ -468,11 +714,17 @@ public class ClusterSingleton {
 
     public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: () -> Actor,
         bufferSize: Int64) {
+        this(cluster, system, remote, name, factory, ClusterSingletonSettings().withBufferSize(bufferSize))
+    }
+
+    /** 完整设置（例如 withLease 启用租约，DA4） */
+    public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, name: String, factory: () -> Actor,
+        settings: ClusterSingletonSettings) {
         this.system = system
         this.singletonName = name
         this.remote = remote
         let sh = shared
-        let mgr = system.actorOf({ => SingletonManager(cluster, system, remote, name, factory, bufferSize, sh) },
+        let mgr = system.actorOf({ => SingletonManager(cluster, system, remote, name, factory, settings, sh) },
             "singleton-manager-${name}-${cluster.selfAddress.replace(":", "_").replace(".", "_")}")
         this.manager = mgr
         // 其他节点代理发来的消息先进本节点管理器（保留远程发送方，实例 reply 可以送回）；HandOver 控制消息走单独入口
@@ -554,6 +806,20 @@ public class ClusterSingleton {
     public func handOverCount(): Int64 {
         synchronized(shared.lock) {
             shared.handOvers
+        }
+    }
+
+    /** 本节点管理器当前是否持有租约（未配置租约时恒为 false） */
+    public func isLeaseHeld(): Bool {
+        synchronized(shared.lock) {
+            shared.leaseHeld
+        }
+    }
+
+    /** 租约统计：(发起获取次数, 获取失败次数, 持有期间失去次数) */
+    public func leaseStats(): (Int64, Int64, Int64) {
+        synchronized(shared.lock) {
+            (shared.leaseAttempts, shared.leaseFailures, shared.leaseLost)
         }
     }
 
