@@ -92,6 +92,27 @@ func shardings(nodes: Array<CNode>, ledger: Ledgers): Array<ClusterSharding> {
     })
 }
 
+/**
+ * 关闭按负载自动再平衡的区域（DA8）。默认开启的再平衡由领导者按负载报告定期评估：实体按会合哈希
+ * 落到各节点往往不均（实测 200 个实体分成 59/67/68、51/48/95），超过 150% 比例阈值时领导者会合法地
+ * 迁走一个分片——源节点停止该分片的实体（移交），新拥有者在下一条消息到来前不会重建，
+ * 于是 localEntityCount / localEntityIds 之和少一个分片（实测 194/200、39/40）。
+ * 验证"稳定成员下单宿主 / 成员变化时移交"的用例需要排除这个与用例无关的迁移；
+ * 成员变化引起的移交不受该开关影响，按负载再平衡由 sharding_rebalance_test 覆盖
+ */
+func staticShardingSettings(): ShardingSettings {
+    ShardingSettings.defaults().withRebalance(RebalancePolicy.disabled())
+}
+
+func staticShardings(nodes: Array<CNode>, ledger: Ledgers): Array<ClusterSharding> {
+    Array<ClusterSharding>(nodes.size, { i =>
+        let n = nodes[i]
+        let addr = n.address()
+        ClusterSharding(n.cluster, n.kit.system, n.remote, "counter", 64, { id => CountingEntity(id, addr, ledger) },
+            staticShardingSettings())
+    })
+}
+
 @Test
 public class ShardingHashTest {
     @TestCase
@@ -151,7 +172,9 @@ public class ClusterShardingTest {
         let nodes = startCluster(3, "sh-basic", FAST)
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 3) }), true)
         let ledger = Ledgers()
-        let regions = shardings(nodes, ledger)
+        // 关闭按负载自动再平衡（见 staticShardingSettings）：否则投递与单宿主断言都通过，
+        // localEntityCount 之和却因一次合法的分片迁移少了一个分片（此前偶发 194/200）
+        let regions = staticShardings(nodes, ledger)
         // 等三个分片区域都看到 3 个成员再发消息：区域每 50ms 才刷新一次成员快照，
         // 若在某个区域仍持 2 成员视图时发 200 个实体，它们会只落到 2 个节点。
         @Expect(awaitCondition(CLUSTER_WAIT, { =>
@@ -183,6 +206,11 @@ public class ClusterShardingTest {
         let (_, forwarded, _, dropped, _) = regions[0].stats()
         @Expect(forwarded > 0, true)
         @Expect(dropped, 0)
+        // 成员稳定、再平衡关闭：任何区域都不应移交过实体（移交正是 hostedTotal 变少的原因）
+        for (r in regions) {
+            let (_, _, handedOff, _, _) = r.stats()
+            @Expect(handedOff, 0)
+        }
         for (r in regions) {
             r.stop()
         }
@@ -194,7 +222,9 @@ public class ClusterShardingTest {
         let nodes = startCluster(2, "sh-join", FAST)
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 2) }), true)
         let ledger = Ledgers()
-        let regions = ArrayList<ClusterSharding>(shardings(nodes, ledger))
+        // 关闭按负载自动再平衡（见 staticShardingSettings）：本例验证成员变化引起的移交，
+        // 叠加一次负载迁移会让最后的实体总数少一个分片（此前偶发 39/40）
+        let regions = ArrayList<ClusterSharding>(staticShardings(nodes, ledger))
         for (e in 0..40) {
             regions[0].tell("e${e}", StringMessage("first"))
         }
@@ -205,7 +235,7 @@ public class ClusterShardingTest {
         @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(all, 3) }), true)
         let addr = third.address()
         regions.add(ClusterSharding(third.cluster, third.kit.system, third.remote, "counter", 64,
-            { id => CountingEntity(id, addr, ledger) }))
+            { id => CountingEntity(id, addr, ledger) }, staticShardingSettings()))
         // 旧节点移交不再拥有的实体
         @Expect(awaitCondition(CLUSTER_WAIT, { => regions[0].stats()[2] + regions[1].stats()[2] > 0 }), true)
         ledger.clearHosts()

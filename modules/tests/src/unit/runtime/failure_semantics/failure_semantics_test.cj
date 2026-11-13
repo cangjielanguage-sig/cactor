@@ -86,8 +86,21 @@ func textOf(m: Message): String {
 }
 
 /** 递归到栈溢出：用于制造 StackOverflowError */
-func deepRecursion(n: Int64): Int64 {
-    if (n == 0) { 0 } else { deepRecursion(n - 1) + 1 }
+/**
+ * 递归到栈溢出（真正的 StackOverflowError，用户代码无法构造 Error）。
+ * 实测溢出耗时随调用层数增长（DA8）：每层只有一个参数时约 75–145 s（负载 50–60），超过单例 120 s 时限；
+ * 每层带 16 个参数并在调用后全部使用（栈帧变宽、同样的栈更快用尽）约 15–45 s。
+ * 用 VArray 放大栈帧会越过保护页直接 SIGSEGV，不能用
+ */
+func deepRecursion(n: Int64, a: Int64, b: Int64, c: Int64, d: Int64, e: Int64, f: Int64, g: Int64, h: Int64,
+    i: Int64, j: Int64, k: Int64, l: Int64, m: Int64, o: Int64, p: Int64, q: Int64): Int64 {
+    if (n == 0) {
+        return a + b
+    }
+    let r = deepRecursion(n - 1, b, c, d, e, f, g, h, i, j, k, l, m, o, p, q, a + n)
+    // 调用之后还要用到全部参数：它们必须保存在本层栈帧里，防止被优化成窄帧或尾调用
+    r + a * 3 + b * 5 + c * 7 + d * 11 + e * 13 + f * 17 + g * 19 + h * 23 + i * 29 + j * 31 + k * 37 + l * 41 +
+        m * 43 + o * 47 + p * 53 + q * 59
 }
 
 let T = Duration.second * 5
@@ -314,7 +327,7 @@ public class FailureSemanticsTest {
         let pr = probe.ref
         let a = kit.actorOf({ => Subject("e", rec, { self, m, _ =>
             if (textOf(m) == "overflow") {
-                deepRecursion(100000000)
+                deepRecursion(100000000, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16)
                 ()
             }
             self.state++
@@ -325,8 +338,11 @@ public class FailureSemanticsTest {
         @Expect(probe.expectMsgType<Num>().value, 1)
         a << Cmd("overflow") << Cmd("y")
         // StackOverflowError 被包成 ActorErrorException 交给默认策略重启：状态清零后继续处理。
-        // 仓颉线程栈按需增长，递归到真正溢出需要十几秒（实测约 12 s），这里放宽等待时间
-        @Expect(probe.expectMsgType<Num>(Duration.second * 90).value, 1)
+        // 仓颉线程栈按需增长，递归到真正溢出耗时数十秒（见 deepRecursion）。等待上限 110 s 留在单例 120 s 时限内，
+        // 超时时给出明确的探针失败而不是框架超时。用例必须等到溢出结束才返回：溢出期间占着共享调度器的一个
+        // 工作线程，亲和到它的其他 Actor 都不运行——此前 90 s 先超时返回，后续 watchRacing 用例的 Actor
+        // 若落到这个仍在递归的线程上，3 s 内收不到 Terminated（DA8 中两例在同一次运行里先后失败，按此推断为连带）
+        @Expect(probe.expectMsgType<Num>(Duration.second * 110).value, 1)
         @Expect(rec.count("e:preRestart"), 1)
         kit.shutdown()
     }
@@ -361,7 +377,8 @@ public class FailureSemanticsTest {
             // 监视与停止同时发出：SysWatch 可能与 SysTerminate 落在子 Actor 的同一批系统消息里
             watcher << Cmd("watch")
             parent << PoisonPill()
-            @Expect(probe.expectMsgType<Cmd>().text, "terminated")
+            // 等待用文件统一的 T（5 s）：丢失 Terminated 仍会失败，只是给负载下的调度多留余量
+            @Expect(probe.expectMsgType<Cmd>(T).text, "terminated")
             kit.shutdown()
         }
     }

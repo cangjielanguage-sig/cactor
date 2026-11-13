@@ -26,6 +26,23 @@ import cactor_cluster.ddata.*
 import cactor_foundation.network.{NetworkTransport}
 import cactor_testkit.*
 
+/**
+ * 等到 done(进度) 成立。只要进度在 stall 内有推进就继续等；stall 内毫无推进才判失败。
+ * 进度单调且有上限，所以总等待有界（负载再高也会结束），不会因为整体变慢而误报
+ */
+func awaitWhileProgressing(stall: Duration, progress: () -> Int64, done: (Int64) -> Bool): Bool {
+    var last = progress()
+    while (!done(last)) {
+        let before = last
+        let moved = awaitCondition(stall, { => progress() != before })
+        last = progress()
+        if (!moved && !done(last)) {
+            return false
+        }
+    }
+    true
+}
+
 @Test
 public class CrdtConcurrencyTest {
     /**
@@ -147,8 +164,11 @@ public class CrdtConcurrencyTest {
             node.rep.addToSetAsync("set-${i % keys}", "element-${i}")
         }
         let expected: Int64 = 4000 / keys
-        @Expect(awaitCondition(Duration.second * 20, { =>
-            node.rep.setElements("set-0").size >= expected
+        // 按"写入是否在推进"判定而不是总时长（DA8）：4 个读线程持续抢 store 锁，机器超载时持锁的读线程
+        // 被抢占，写入方每次取锁都要等一个调度时间片，4000 次本地更新整体可能超过固定的 20 s，
+        // 但一直在推进。真正要抓的回归（读路径压住写入 / 死锁）表现为写入停滞：20 s 内一个元素都没有新增
+        @Expect(awaitWhileProgressing(Duration.second * 20, { => node.rep.setElements("set-0").size }, { n =>
+            n >= expected
         }), true)
         stop.store(true)
         for (f in futures) {
