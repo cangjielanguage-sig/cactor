@@ -22,11 +22,12 @@ import std.sync.*
 import std.time.*
 import std.collection.*
 import std.convert.*
+import std.env.{getVariable}
 import cactor.api.{CActorSystemFactory}
 import cactor_core.actor.{Actor, ActorContext}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.network.{NetworkAddress, TransportProtocol}
-import cactor_remote.{SimpleRemoteManager}
+import cactor_remote.{SimpleRemoteManager, WireProtocolSettings}
 import cactor_cluster.membership.*
 import cactor_cluster.ddata.{Replicator}
 
@@ -136,6 +137,11 @@ main(args: Array<String>): Int64 {
 
     let system = CActorSystemFactory.create("crash-${port}")
     let remote = SimpleRemoteManager(NetworkAddress("127.0.0.1", port), TransportProtocol.TCP)
+    // 混合版本演练（DA6 / DA8）：CACTOR_WIRE_LEGACY=1 时本节点按引入协商之前的 v1.2.x 行为过线
+    // （握手不带能力扩展、收发都按旧编码）。只用于 tools/mixed_version_soak.sh 的升级演练，生产节点不要打开。
+    if (getVariable("CACTOR_WIRE_LEGACY").isSome()) {
+        remote.configureWire(WireProtocolSettings.legacyEmulation())
+    }
     remote.start()
     let settings = ClusterSettings(Duration.millisecond * 200, Duration.millisecond * 200, 8.0, Duration.second * 2,
         DowningStrategy.KeepMajority(Duration.second * 2))
