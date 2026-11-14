@@ -257,14 +257,14 @@ func producerOnMessage(st: ProducerStageState, ctx: TypedActorContext<StreamRefM
     }
     match (msg) {
         case StreamRefMsg.Subscribe(sid, location, ver) =>
-            match (st.env.resolveRemote(location)) {
+            match (st.env.resolveRemote(location, reliable: st.settings.reliable)) {
                 case Some(peer) => onSubscribe(st, ctx, sid, peer, ver)
                 case None =>
                     streamRefLog.warn("StreamRef ${st.streamId} 收到无法解析的订阅方位置 ${location}，忽略")
                     TypedBehaviors.same<StreamRefMsg>()
             }
         case StreamRefMsg.SubscribeLocal(sid, ref, ver) =>
-            onSubscribe(st, ctx, sid, StreamPeer(ref, None<RemoteActorRef>, ref.pathString()), ver)
+            onSubscribe(st, ctx, sid, StreamPeer(ref, None<RemoteActorRef>, ref.pathString(), false), ver)
         case StreamRefMsg.Demand(sid, upTo) =>
             if (sid == st.streamId && st.consumer.isSome() && upTo > st.grantedUpTo) {
                 st.grantedUpTo = upTo

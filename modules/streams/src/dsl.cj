@@ -125,7 +125,15 @@ func opAsk<A, Req, Res>(parallelism: Int64, target: TypedActorRef<Req>, createRe
         // 每次物化一个取消令牌：阶段结束（完成、失败、取消）时撤掉尚未回复的 ask
         let token = AskCancellationToken()
         let f = { e: A =>
-            TypedAsk.ask<Req, Res>(target, { r => createRequest(e, r) }, timeout, cancellation: Some(token))
+            // 目标是否跨节点：远程引用的路径以 remote@ 开头（RemoteActorRef），本进程引用不会。
+            // 跨节点时回复引用过不了线，必须走 askRemote（回复走信封 sender 通道，请求消息不带引用，
+            // 因此 createRequest 收不到真实 replyTo——给它一个本地占位引用，远端须用 context.reply 应答）。
+            if (target.pathString().startsWith("remote@")) {
+                let request = createRequest(e, unusedReplyRef<Res>())
+                TypedAsk.askRemote<Req, Res>(target, request, timeout, cancellation: Some(token))
+            } else {
+                TypedAsk.ask<Req, Res>(target, { r => createRequest(e, r) }, timeout, cancellation: Some(token))
+            }
         }
         let l = MapAsyncLogic<A, Res>(b.current, c, parallelism, f, b.decider(), true, Some(token))
         b.add(l)
@@ -133,6 +141,13 @@ func opAsk<A, Req, Res>(parallelism: Int64, target: TypedActorRef<Req>, createRe
     }
 }
 
+/**
+ * 跨节点 ask 时给 createRequest 的占位回复引用：请求过线时真正的回复通道由远程层信封 sender 提供。
+ * 远端 Actor 若把这个占位引用回发到本进程（而不是用 context.reply），回复无法送达、按超时失败。
+ */
+func unusedReplyRef<Res>(): TypedActorRef<Res> {
+    PromiseRefPlaceholder<Res>()
+}
 func opThrottle<A>(elements: Int64, per: Duration, maximumBurst: Int64): (GraphBuilder, Conn<A>) -> Conn<A> {
     if (elements <= 0 || per <= Duration.Zero) {
         throw IllegalArgumentException("throttle 需要正的 elements 与 per")

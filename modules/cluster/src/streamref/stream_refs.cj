@@ -23,6 +23,7 @@ package cactor_cluster.streamref
 
 import cactor.api.{CActorSystem}
 import cactor_core.actor.{ActorRef}
+import cactor_core.message.{SerializationException, DeserializationException}
 import cactor_core.typed.*
 import cactor_foundation.reactive.*
 import cactor_remote.{SimpleRemoteManager, RemoteActorRef}
@@ -128,14 +129,95 @@ public class StreamRefs {
         start(ref.streamId, ref.location, ref.localRef, any, settings)
     }
 
+    /**
+     * SinkRef 的消费侧入口：创建一个接收端并返回可交给生产方节点的 SinkRef 与订阅句柄。
+     * 订阅语义与 subscribe<T>(ref, ...) 完全一致（信用窗口、序号校验、取消），只是方向相反——
+     * 不是本节点去挂生产方，而是生产方节点拿着 SinkRef 来挂本节点。
+     * onSubscriber 回调在挂接完成时收到 StreamRefSubscription，之后由消费方 request(n) 放行元素；
+     * 生产方在 sinkTimeout 内没有回 SinkAttach 时以 StreamRefSinkTimeoutException 失败。
+     */
+    public func sinkRef<T>(onSubscriber: (StreamRefSubscription) -> Unit,
+        settings!: StreamRefSettings = StreamRefSettings()): (SinkRef<T>, StreamRefSubscription) {
+        sinkRefWithSubscriber<T>(AnySubscriber(onSubscriber, { _ => () }, { => () }, { _ => () }), settings)
+    }
+
+    /** sinkRef 的回调式便捷版本：订阅时请求无界需求（速率仍受预取窗口限制） */
+    public func sinkRef<T>(onNext!: (T) -> Unit, onComplete!: () -> Unit,
+        onError!: (StreamRefException) -> Unit, settings!: StreamRefSettings = StreamRefSettings()):
+        (SinkRef<T>, StreamRefSubscription) {
+        let any = AnySubscriber({ s => s.request(Int64.Max) }, { a => onNext(castElement<T>(a)) }, onComplete, onError)
+        sinkRefWithSubscriber<T>(any, settings)
+    }
+
+    /** 把流事件投递给类型化 Actor 的 SinkRef 版本（Actor 自己决定何时 request） */
+    public func sinkRefActor<T>(target: TypedActorRef<StreamRefEvent<T>>,
+        settings!: StreamRefSettings = StreamRefSettings()): (SinkRef<T>, StreamRefSubscription) {
+        let any = AnySubscriber({ s => target.tell(StreamRefEvent<T>.OnSubscribe(s)) },
+            { a => target.tell(StreamRefEvent<T>.OnNext(castElement<T>(a))) },
+            { => target.tell(StreamRefEvent<T>.OnComplete) },
+            { e => target.tell(StreamRefEvent<T>.OnError(e)) })
+        sinkRefWithSubscriber<T>(any, settings)
+    }
+
+    private func sinkRefWithSubscriber<T>(subscriber: AnySubscriber, settings: StreamRefSettings):
+        (SinkRef<T>, StreamRefSubscription) {
+        ensureStreamRefCodecRegistered()
+        let streamId = env.nextStreamId()
+        let name = "streamref-sk-${streamId}"
+        let subscription = StreamRefSubscription(streamId)
+        let exposedName = if (env.remote.isSome()) { name } else { "" }
+        let st = SinkStageState(streamId, exposedName, settings, env, subscriber, subscription)
+        let stage = env.spawnStage(sinkStage(st), name)
+        subscription.bind(stage)
+        let location = env.expose(name, stage)
+        (SinkRef<T>(streamId, location, Some(stage)), subscription)
+    }
+
+    /**
+     * SinkRef 的生产侧入口：在本节点把生产端接到远端 SinkRef 上。
+     * 返回 StreamProducer（与 sourceRef 的句柄同形：offer / complete / fail / termination），
+     * 内部创建本地生产阶段并向 SinkRef 位置发 SinkAttach；对端把它当作消费方挂接，
+     * 此后的 Demand / Element / Cancel 走既有协议。onSubscriber 闭包的订阅者收到生产方的元素流。
+     */
+    public func asSink<T>(ref: SinkRef<T>, subscriber: StreamRefSubscriber<T>,
+        settings!: StreamRefSettings = StreamRefSettings()): StreamProducer<T> {
+        ensureStreamRefCodecRegistered()
+        let streamId = "sink-${env.nextStreamId()}"
+        let name = "streamref-ps-${streamId}"
+        // 生产阶段挂接的对端不是"消费方位置"而是 SinkRef 的暴露名：构造一个指向对端阶段的 peer
+        let peer = if (ref.localRef.isSome()) {
+            StreamPeer(ref.localRef.getOrThrow(), None<RemoteActorRef>, ref.localRef.getOrThrow().pathString(), false)
+        } else {
+            match (env.resolveRemote(ref.location, reliable: settings.reliable)) {
+                case Some(p) => p
+                case None => throw IllegalArgumentException(
+                    "无法解析 SinkRef 位置 ${ref.location}：本节点的 StreamRefs 没有远程层，或位置文本不合法")
+            }
+        }
+        let shared = ProducerShared(settings.bufferSize)
+        let st = SinkProducerStageState(streamId, name, settings, shared, env, peer)
+        // 生产阶段先把 SinkAttach 交给对端，等 OnSubscribe 确认后照常按 Demand 发元素
+        let stage = env.spawnStage(sinkProducerStage(st), name)
+        // 用既有消费入口把元素递给 subscriber：消费阶段在本进程内挂接生产阶段（SubscribeLocal）。
+        // 注意用独立的 streamId 前缀 "sink-c-"：与 SinkAttach 的流标识互不干扰
+        let any = AnySubscriber({ s => subscriber.onSubscribe(s) }, { a => subscriber.onNext(castElement<T>(a)) },
+            { => subscriber.onComplete() }, { e => subscriber.onError(e) })
+        let cName = "streamref-sc-${env.nextStreamId()}"
+        let cSt = ConsumerStageState(streamId, "", settings, env,
+            StreamPeer(stage, None<RemoteActorRef>, name, false),
+            any, StreamRefSubscription(streamId))
+        env.spawnStage(consumerStage(cSt), cName)
+        StreamProducer<T>(shared, stage)
+    }
+
     private func start(streamId: String, location: String, localRef: Option<TypedActorRef<StreamRefMsg>>,
         subscriber: AnySubscriber, settings: StreamRefSettings): StreamRefSubscription {
         ensureStreamRefCodecRegistered()
-        // 同进程的 SourceRef 直接用本地引用；否则按位置解析为远程引用
+        // 同进程的 SourceRef 直接用本地引用；否则按位置解析为远程引用（reliable 模式走可靠通道）
         let producer = match (localRef) {
-            case Some(r) => StreamPeer(r, None<RemoteActorRef>, r.pathString())
+            case Some(r) => StreamPeer(r, None<RemoteActorRef>, r.pathString(), false)
             case None =>
-                match (env.resolveRemote(location)) {
+                match (env.resolveRemote(location, reliable: settings.reliable)) {
                     case Some(p) => p
                     case None => throw IllegalArgumentException(
                         "无法解析 SourceRef 位置 ${location}：本节点的 StreamRefs 没有远程层，或位置文本不合法")
@@ -148,6 +230,68 @@ public class StreamRefs {
         let st = ConsumerStageState(streamId, exposedName, settings, env, producer, subscriber, subscription)
         subscription.bind(env.spawnStage(consumerStage(st), name))
         subscription
+    }
+}
+
+// ================= SinkRef =================
+
+private let SINK_REF_PREFIX: String = "sinkref:v1|"
+
+/**
+ * 指向消费方"接入点"的引用，可以交给生产方节点（对标 Akka SinkRef<T>）。
+ *
+ * 与 SourceRef 相反：消费方先创建 sinkRef 并把 SinkRef 文本交给生产方；生产方节点用
+ * `StreamRefs.asSink` 解析后拿到一个 Subscriber，把自己的生产端接到它上面即可。
+ * 消费方一侧照常收到 subscribe<T>(...) 语义的元素流（信用、序号、取消与 SourceRef 完全一致）。
+ *
+ * location 为空表示只能在本进程使用（消费方没有远程层）。
+ */
+public class SinkRef<T> {
+    public let streamId: String
+    public let location: String
+    public let localRef: Option<TypedActorRef<StreamRefMsg>>
+
+    /** 一般由 StreamRefs.sinkRef 创建；直接构造用于自定义消费端（测试中的手写协议端点） */
+    public init(streamId: String, location: String, localRef: Option<TypedActorRef<StreamRefMsg>>) {
+        if (streamId.isEmpty() || streamId.contains("|")) {
+            throw IllegalArgumentException("流标识不能为空且不能包含 '|'")
+        }
+        if (location.isEmpty() && localRef.isNone()) {
+            throw IllegalArgumentException("SinkRef 至少需要远程位置或本地引用之一")
+        }
+        this.streamId = streamId
+        this.location = location
+        this.localRef = localRef
+    }
+
+    /** 能否跨进程传递（消费方节点有远程层） */
+    public func isSerializable(): Bool {
+        !location.isEmpty()
+    }
+
+    /** 过线文本，放进请求消息即可；本地专用引用抛 SerializationException */
+    public func toWireString(): String {
+        if (location.isEmpty()) {
+            throw SerializationException("SinkRef ${streamId} 只在本进程有效（消费方的 StreamRefs 没有远程层），不能跨节点传递")
+        }
+        "${SINK_REF_PREFIX}${streamId}|${location}"
+    }
+
+    /** 由 toWireString 的文本还原（不带本地引用） */
+    public static func fromWireString(text: String): SinkRef<T> {
+        if (!text.startsWith(SINK_REF_PREFIX)) {
+            throw DeserializationException("不是 SinkRef 文本：${text}")
+        }
+        let rest = text[SINK_REF_PREFIX.size..]
+        match (rest.indexOf("|")) {
+            case Some(i) where i > 0 && i + 1 < rest.size =>
+                SinkRef<T>(rest[0..i], rest[(i + 1)..], None<TypedActorRef<StreamRefMsg>>)
+            case _ => throw DeserializationException("SinkRef 文本不完整：${text}")
+        }
+    }
+
+    public func toString(): String {
+        "SinkRef(${streamId}@${if (location.isEmpty()) { "local" } else { location }})"
     }
 }
 

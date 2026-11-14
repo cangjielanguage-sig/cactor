@@ -15,7 +15,6 @@ import cactor_core.actor.{ActorRef}
 import cactor_core.typed.*
 import cactor_remote.{SimpleRemoteManager, RemoteActorRef, parseRemoteSender, encodeRemoteSender}
 import cactor_foundation.logging.{Logger, Logging}
-
 let streamRefLog: Logger = Logging.logger("cactor_cluster.streamref")
 
 /** 解析后的对端：发送用的类型化引用 + 远程时的经典远程引用（用于 watch/unwatch） */
@@ -24,11 +23,18 @@ class StreamPeer {
     let remoteRef: Option<RemoteActorRef>
     /** 用于识别"同一个订阅者重发 Subscribe"的稳定键 */
     let key: String
+    /** 可靠模式（DA7）：远程对端且启用时，线上消息改走远程层可靠通道（序号 + ACK + 重发） */
+    let reliable: Bool
 
     init(ref: TypedActorRef<StreamRefMsg>, remoteRef: Option<RemoteActorRef>, key: String) {
+        this(ref, remoteRef, key, false)
+    }
+
+    init(ref: TypedActorRef<StreamRefMsg>, remoteRef: Option<RemoteActorRef>, key: String, reliable: Bool) {
         this.ref = ref
         this.remoteRef = remoteRef
         this.key = key
+        this.reliable = reliable && remoteRef.isSome()
     }
 
     func isRemote(): Bool {
@@ -37,10 +43,23 @@ class StreamPeer {
 
     /** 发送失败（编码失败、发送器已停）只记日志：调用方已处在终止路径上，不能再抛 */
     func tellQuietly(m: StreamRefMsg): Unit {
+        if (reliable) {
+            sendReliableQuietly(m)
+            return
+        }
         try {
             ref.tell(m)
         } catch (e: Exception) {
             streamRefLog.debug("StreamRef 向 ${key} 发送 ${m.streamIdOrEmpty()} 的终止消息失败：${e.message}")
+        }
+    }
+
+    /** 可靠发送：断连期间由远程层按 resendInterval 重发，对端重启后换新一代通道续传（至少一次） */
+    private func sendReliableQuietly(m: StreamRefMsg): Unit {
+        try {
+            remoteRef.getOrThrow().tell(TypedPayloadBox(m))
+        } catch (e: Exception) {
+            streamRefLog.debug("StreamRef 向 ${key} 可靠发送 ${m.streamIdOrEmpty()} 失败（由远程层重发或放弃）：${e.message}")
         }
     }
 }
@@ -88,12 +107,12 @@ class StreamRefEnv {
         }
     }
 
-    /** 位置文本 -> 对端（远程引用）；没有远程层或文本不合法时 None */
-    func resolveRemote(location: String): Option<StreamPeer> {
+    /** 位置文本 -> 对端（远程引用）；没有远程层或文本不合法时 None。reliable 开启时对端走可靠通道 */
+    func resolveRemote(location: String, reliable!: Bool = false): Option<StreamPeer> {
         match ((remote, parseRemoteSender(location))) {
             case (Some(r), Some((addr, name))) =>
                 let rr = r.remoteActorOf(addr, name)
-                Some(StreamPeer(ClassicTypedRef<StreamRefMsg>(rr), Some(rr), location))
+                Some(StreamPeer(ClassicTypedRef<StreamRefMsg>(rr), Some(rr), location, reliable))
             case _ => None<StreamPeer>
         }
     }

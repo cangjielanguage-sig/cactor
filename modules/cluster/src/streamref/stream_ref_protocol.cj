@@ -59,6 +59,12 @@ public enum StreamRefMsg {
     | Failed(String, String)
     /** 消费方 -> 生产方：取消 */
     | Cancel(String, String)
+    /**
+     * 生产方 -> 消费方：SinkRef 的反向挂接（DA7）。与 Subscribe 相反：SinkRef 的消费方先暴露自己
+     * 并把位置交给生产方，生产方创建好自己的生产阶段后再发本消息告知位置，此后 Demand / Element /
+     * Completed / Cancel 与 SourceRef 方向完全一致，全部复用既有阶段逻辑。
+     */
+    | SinkAttach(String, String, Int64)
     // ---------- 本节点内（不过线） ----------
     /** 同进程挂接：直接带消费方引用，免去暴露与网络回环 */
     | SubscribeLocal(String, TypedActorRef<StreamRefMsg>, Int64)
@@ -84,6 +90,7 @@ public enum StreamRefMsg {
             case StreamRefMsg.Completed(s, _) => s
             case StreamRefMsg.Failed(s, _) => s
             case StreamRefMsg.Cancel(s, _) => s
+            case StreamRefMsg.SinkAttach(s, _, _) => s
             case StreamRefMsg.SubscribeLocal(s, _, _) => s
             case _ => ""
         }
@@ -155,6 +162,13 @@ public class StreamRefPeerTerminatedException <: StreamRefException {
 
 /** 订阅者违反 Reactive Streams 规则（request(n ≤ 0)）或自身回调抛出异常 */
 public class StreamRefSubscriberException <: StreamRefException {
+    public init(message: String) {
+        super(message)
+    }
+}
+
+/** SinkRef 挂接失败：生产方对端在 sinkTimeout 内没有回 SinkAttach（对端没有远程层 / 不认识协议 / 消息丢失） */
+public class StreamRefSinkTimeoutException <: StreamRefException {
     public init(message: String) {
         super(message)
     }
@@ -259,23 +273,35 @@ public enum OfferResult <: ToString {
  *   默认关闭：LLM 生成本来就可能很慢，是否超时是业务决定。
  * - finalTerminationSignalDeadline：远程生产方被判定终止后，再等这么久终止信号（Completed 与 DEATH
  *   走不同通道，可能被后者超车），过期才失败。同进程引用之间有序，不等待。
+ * - sinkTimeout：SinkRef 消费方等待生产方 SinkAttach 的时限（生产方要先建好自己的阶段再回话）。
+ * - reliable：断连后可选可靠模式（DA7，默认关闭）。开启后消费方收到 / 发送的线上消息改走
+ *   远程层可靠通道（序号 + ACK + 重发，跨对端重启至少一次），断连期间的生产方元素在连接恢复后补齐。
+ *   仅在两端都有远程层时生效；同进程流忽略此选项（本地 tell 本来就不会丢）。
  */
 public struct StreamRefSettings {
     public let bufferSize: Int64
     public let subscriptionTimeout: Duration
     public let idleTimeout: Option<Duration>
     public let finalTerminationSignalDeadline: Duration
+    public let sinkTimeout: Duration
+    public let reliable: Bool
 
     public init() {
-        this(16, Duration.second * 10, None<Duration>, Duration.second)
+        this(16, Duration.second * 10, None<Duration>, Duration.second, Duration.second * 10, false)
     }
 
     public init(bufferSize: Int64, subscriptionTimeout: Duration, idleTimeout: Option<Duration>,
         finalTerminationSignalDeadline: Duration) {
+        this(bufferSize, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline, Duration.second * 10, false)
+    }
+
+    public init(bufferSize: Int64, subscriptionTimeout: Duration, idleTimeout: Option<Duration>,
+        finalTerminationSignalDeadline: Duration, sinkTimeout: Duration, reliable: Bool) {
         if (bufferSize <= 0) {
             throw IllegalArgumentException("StreamRef bufferSize 必须为正数")
         }
-        if (subscriptionTimeout <= Duration.Zero || finalTerminationSignalDeadline < Duration.Zero) {
+        if (subscriptionTimeout <= Duration.Zero || finalTerminationSignalDeadline < Duration.Zero ||
+            sinkTimeout <= Duration.Zero) {
             throw IllegalArgumentException("StreamRef 超时必须为正数")
         }
         if (let Some(d) <- idleTimeout) {
@@ -287,22 +313,33 @@ public struct StreamRefSettings {
         this.subscriptionTimeout = subscriptionTimeout
         this.idleTimeout = idleTimeout
         this.finalTerminationSignalDeadline = finalTerminationSignalDeadline
+        this.sinkTimeout = sinkTimeout
+        this.reliable = reliable
     }
 
     public func withBufferSize(n: Int64): StreamRefSettings {
-        StreamRefSettings(n, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline)
+        StreamRefSettings(n, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline, sinkTimeout, reliable)
     }
 
     public func withSubscriptionTimeout(d: Duration): StreamRefSettings {
-        StreamRefSettings(bufferSize, d, idleTimeout, finalTerminationSignalDeadline)
+        StreamRefSettings(bufferSize, d, idleTimeout, finalTerminationSignalDeadline, sinkTimeout, reliable)
     }
 
     public func withIdleTimeout(d: Duration): StreamRefSettings {
-        StreamRefSettings(bufferSize, subscriptionTimeout, Some(d), finalTerminationSignalDeadline)
+        StreamRefSettings(bufferSize, subscriptionTimeout, Some(d), finalTerminationSignalDeadline, sinkTimeout, reliable)
     }
 
     public func withFinalTerminationSignalDeadline(d: Duration): StreamRefSettings {
-        StreamRefSettings(bufferSize, subscriptionTimeout, idleTimeout, d)
+        StreamRefSettings(bufferSize, subscriptionTimeout, idleTimeout, d, sinkTimeout, reliable)
+    }
+
+    public func withSinkTimeout(d: Duration): StreamRefSettings {
+        StreamRefSettings(bufferSize, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline, d, reliable)
+    }
+
+    /** 开启断连后可靠续传（至少一次）：两端都要开启；需要两端都有远程层 */
+    public func withReliable(): StreamRefSettings {
+        StreamRefSettings(bufferSize, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline, sinkTimeout, true)
     }
 }
 
@@ -539,6 +576,11 @@ func encodeStreamRefMsg(m: StreamRefMsg): Array<UInt8> {
             w.u8(8)
             w.str(s)
             w.str(reason)
+        case StreamRefMsg.SinkAttach(s, loc, ver) =>
+            w.u8(9)
+            w.str(s)
+            w.str(loc)
+            w.i64(ver)
         case _ => throw SerializationException("StreamRef 本地控制消息不能跨进程发送")
     }
     w.out.toArray()
@@ -571,6 +613,10 @@ func decodeStreamRefMsg(b: Array<UInt8>): StreamRefMsg {
         case 8u8 =>
             let s = r.str()
             StreamRefMsg.Cancel(s, r.str())
+        case 9u8 =>
+            let s = r.str()
+            let loc = r.str()
+            StreamRefMsg.SinkAttach(s, loc, r.i64())
         case other => throw DeserializationException("未知的 StreamRef 消息种类 ${other}")
     }
 }
