@@ -404,7 +404,9 @@ Examples live in [`modules/examples/src`](modules/examples/src). After building,
 | [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | Dispatcher implementations |
 | [streams_demo](modules/examples/src/streams_demo/main.cj) | Backpressured streams |
 | [xstate_demo](modules/examples/src/xstate_demo) | State machines (experimental) |
-| [simple_macro_demo](modules/examples/src/simple_macro_demo/main.cj) | DSL macros (prototype) |
+| [dsl_showcase](modules/examples/src/dsl_showcase/main.cj) | DSL and classic Actor examples side by side |
+| [llm_http_demo](modules/examples/src/llm_http_demo/main.cj) | Local HTTP SSE, durable session recovery and continuation, cancellation during stalled reads |
+| [agent_orchestration_demo](modules/examples/src/agent_orchestration_demo/main.cj) | Multi-Agent orchestration, retries, cancellation, persistence and streamed progress |
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | Cluster sharding: gossip membership + `ClusterSharding` routing to a single entity per id (3 nodes in one process, self-checking) |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | Event sourcing (prototype) |
 
@@ -419,7 +421,7 @@ python3 tools/check_module_deps.py  # check module layering
 
 The workspace currently has 366 test cases (`tools/ci.sh`), all passing on Cangjie 1.2.0. CI also runs the chat room, a 50,000-child scale test, a 20-second soak test, and two 3-process cluster checks (normal traffic and a `kill -9` crash). Besides supervision strategies, typed actors (behavior transforms, stash, timers) and mailboxes, they cover concurrency semantics (serial processing, concurrent create/stop, supervised restart), queue stress, TCP/UDP transport, remote end-to-end messaging, and file-based event journal and event-sourcing recovery.
 
-Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measured on a 32-core machine: 5.6–7.2 M msg/s for a single actor, ping-pong round-trip P50 about 2 µs, about 150–190 k msg/s for remote TCP over loopback. A same-machine comparison with Akka 2.6.21 is in the [performance analysis](docs/plan/20261028-performance.md) (in Chinese): point-to-point scenarios match or beat Akka, while fan-out is still about 3× slower and remoting about 1.6× slower.
+Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. The [historical measurements from 2026-10-28](docs/plan/20261028-performance.md) (in Chinese) report 5.6–7.2 M msg/s for a single actor, ping-pong round-trip P50 around 2 µs, and 146–194 k msg/s for TCP over loopback on Linux / Xeon 8582C (32 logical CPUs), cjc 1.2.0, workspace `-O2`, and 8 dispatcher threads. Comparisons with Akka 2.6.21 / OpenJDK 17 apply to that report's scenarios and warm-up settings. Mailbox, scheduling, and remoting implementations have since changed; a current same-machine comparison on an idle host is still needed. See [ROADMAP §2.2](ROADMAP.md#22-历史性能记录) for later observations and their limitations.
 
 ---
 
@@ -427,12 +429,12 @@ Benchmark program: `./target/release/bin/cactor_examples.real_benchmark`. Measur
 
 The following issues are known and are being addressed according to the [development plan](docs/plan/20261028.md) (in Chinese):
 
-- **Scheduling**: affinity scheduling without work stealing yet; fan-out throughput is still well below Akka; blocking inside `receive` occupies a worker thread and slows other actors pinned to it.
+- **Scheduling**: blocking inside `receive` on the default dispatcher occupies a worker thread and slows other actors using it. The fan-out comparison with Akka comes from the historical report; the current implementation needs a same-machine rerun.
 - **Remoting**: TCP transport on `std.net`. Plain `tell` is at-most-once; `tellReliable` adds sequence numbers, acks, resends and de-duplication. Remote ask, cross-node replies and remote watch are supported. Message codecs are versioned for rolling upgrades (new code reads older versions; old nodes reject newer versions explicitly). No TLS yet.
 - **Clustering**: `cactor_cluster.membership` provides gossip membership, a split-brain resolver (KeepMajority / KeepOldest / StaticQuorum), Cluster Singleton, distributed pub/sub and cluster sharding (idle passivation, remember-entities, and state recovery after handoff or a crash when combined with event sourcing); `cactor_cluster.ddata` provides CRDTs and a Replicator. All are covered by multi-node tests and multi-process checks (`tools/cluster_demo.sh`, `tools/cluster_crash_demo.sh`). The split-brain resolver uses a gossiped reachability table, so indirectly connected members in asymmetric partitions are downed; virtual actors (`Grains`, Orleans-style) activate on demand, keep a single activation, deactivate when idle and reactivate after a crash; the Replicator uses digest-based anti-entropy and ships only differing keys. The old prototype classes in the `cactor_cluster` root package (`SimpleClusterManager`, `ShardRegion`, ...) were removed in Nov 2026; use the `membership` APIs for sharding and routing.
 - **Macros**: `@actorReceive` and `@Message` (generates the message type name and a codec) work; most other DSL macros do not yet perform real expansion.
 - **Logging**: library logging goes through a leveled logger (default WARN, written to stderr, adjustable with the `CACTOR_LOG_LEVEL` environment variable), but the repository still has three logging implementations; they are to be merged in 1.3.0.
-- **Old benchmark programs**: apart from `real_benchmark`, the benchmark programs in the repository measure synchronous function-call overhead, not message passing.
+- **Benchmark scope**: some early benchmarks measure synchronous function-call overhead. Before quoting results, check the timing window, whether messages were actually processed, compiler options, thread counts, and host load. Report microbenchmarks, live heap measurements, and end-to-end messaging results separately.
 
 ---
 
@@ -461,6 +463,7 @@ See [ROADMAP.md](ROADMAP.md) (in Chinese) for the full roadmap. Release plan in 
 | [Performance Tuning Guide](docs/en/performance.md) | Compiler flags, runtime parameters, performance rules for actors, how to measure |
 | [Documentation index](docs/en/README.md) | All English documents |
 | [Changelog](CHANGELOG.md) | Release history |
+| [Release guide](docs/RELEASE.md) | Version synchronization, API compatibility, CI, semver tags, and publishing (Chinese) |
 
 Some documents are still being updated alongside the code and may not match the current implementation in every detail. When in doubt, the code is authoritative, and corrections are welcome.
 

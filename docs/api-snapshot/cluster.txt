@@ -568,6 +568,9 @@ cactor_cluster.streamref :: StreamRefSubscription.public let streamId: String
 cactor_cluster.streamref :: StreamRefSubscriptionTimeoutException.public init(message: String)
 cactor_cluster.streamref :: StreamRefUndecodable.public init(reason: String)
 cactor_cluster.streamref :: StreamRefUndecodable.public let reason: String
+cactor_cluster.streamref :: StreamRefs.public func asPublisher<T>(ref: SourceRef<T>, settings!: StreamRefSettings = StreamRefSettings()): Publisher<T>
+cactor_cluster.streamref :: StreamRefs.public func asSubscriber<T>(producer: StreamProducer<T>): Subscriber<T>
+cactor_cluster.streamref :: StreamRefs.public func fromPublisher<T>(publisher: Publisher<T>, settings!: StreamRefSettings = StreamRefSettings(), owner!: Option<ActorRef>= None<ActorRef>): SourceRef<T>
 cactor_cluster.streamref :: StreamRefs.public func sourceRef<T>(settings!: StreamRefSettings = StreamRefSettings(), owner!: Option<ActorRef>= None<ActorRef>): (SourceRef<T>, StreamProducer<T>)
 cactor_cluster.streamref :: StreamRefs.public func subscribe<T>(ref: SourceRef<T>, onNext!: (T)->Unit, onComplete!: ()->Unit, onError!: (StreamRefException)->Unit, settings!: StreamRefSettings = StreamRefSettings()): StreamRefSubscription
 cactor_cluster.streamref :: StreamRefs.public func subscribe<T>(ref: SourceRef<T>, subscriber: StreamRefSubscriber<T>, settings!: StreamRefSettings = StreamRefSettings()): StreamRefSubscription

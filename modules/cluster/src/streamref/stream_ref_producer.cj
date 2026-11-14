@@ -220,6 +220,8 @@ class ProducerStageState {
     var sentSeq: Int64 = 0
     var grantedUpTo: Int64 = 0
     var completing: Bool = false
+    // Publisher 可能在 SourceRef 返回前失败；保留首个原因至首次挂接或原订阅期限，避免只剩死亡通知。
+    var pendingFailure: Option<String> = None<String>
     var terminal: Bool = false
     var cleaned: Bool = false
 
@@ -271,16 +273,29 @@ func producerOnMessage(st: ProducerStageState, ctx: TypedActorContext<StreamRefM
             }
             TypedBehaviors.same<StreamRefMsg>()
         case StreamRefMsg.Offer(value) =>
+            if (st.pendingFailure.isSome()) {
+                st.shared.release(1)
+                return TypedBehaviors.same<StreamRefMsg>()
+            }
             st.pending.add(value)
             flush(st, ctx)
         case StreamRefMsg.ProducerComplete =>
+            if (st.pendingFailure.isSome()) { return TypedBehaviors.same<StreamRefMsg>() }
             st.completing = true
             flush(st, ctx)
         case StreamRefMsg.ProducerFail(reason) =>
+            if (st.pendingFailure.isSome()) { return TypedBehaviors.same<StreamRefMsg>() }
             if (let Some(p) <- st.consumer) {
                 p.tellQuietly(StreamRefMsg.Failed(st.streamId, reason))
+                return terminate(st, ctx, StreamTermination.Failed(reason))
             }
-            terminate(st, ctx, StreamTermination.Failed(reason))
+            st.pendingFailure = Some(reason)
+            let dropped = st.pending.size
+            st.pending.clear()
+            // 先关闭准入再归还槽位，不能在失败时唤醒上游继续请求。
+            st.shared.close(StreamTermination.Failed(reason))
+            st.shared.release(dropped)
+            TypedBehaviors.same<StreamRefMsg>()
         case StreamRefMsg.Cancel(sid, reason) =>
             if (sid == st.streamId && st.consumer.isSome()) {
                 return terminate(st, ctx, StreamTermination.Cancelled(reason))
@@ -288,8 +303,8 @@ func producerOnMessage(st: ProducerStageState, ctx: TypedActorContext<StreamRefM
             TypedBehaviors.same<StreamRefMsg>()
         case StreamRefMsg.SubscriptionTimeout =>
             if (st.consumer.isNone()) {
-                return terminate(st, ctx, StreamTermination.Failed(
-                    "subscription timeout：${st.settings.subscriptionTimeout} 内没有消费方挂接"))
+                let reason = st.pendingFailure ?? "subscription timeout：${st.settings.subscriptionTimeout} 内没有消费方挂接"
+                return terminate(st, ctx, StreamTermination.Failed(reason))
             }
             TypedBehaviors.same<StreamRefMsg>()
         case _ =>
@@ -323,7 +338,11 @@ func onSubscribe(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>, s
             ctx.timers.cancel(KEY_SUBSCRIPTION_TIMEOUT)
             st.env.watchPeer(ctx, peer)
             peer.tellQuietly(StreamRefMsg.OnSubscribe(sid))
-            // 消费方之前已完成/失败的请求在挂接后立即生效（completing 但还没人挂接的情况）
+            if (let Some(reason) <- st.pendingFailure) {
+                peer.tellQuietly(StreamRefMsg.Failed(sid, reason))
+                return terminate(st, ctx, StreamTermination.Failed(reason))
+            }
+            // 消费方之前已完成的请求在挂接后立即生效。
             flush(st, ctx)
     }
 }

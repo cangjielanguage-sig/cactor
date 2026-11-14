@@ -24,6 +24,7 @@ package cactor_cluster.streamref
 import cactor.api.{CActorSystem}
 import cactor_core.actor.{ActorRef}
 import cactor_core.typed.*
+import cactor_foundation.reactive.*
 import cactor_remote.{SimpleRemoteManager, RemoteActorRef}
 
 public class StreamRefs {
@@ -61,6 +62,39 @@ public class StreamRefs {
         let stage = env.spawnStage(producerStage(st), name)
         let location = env.expose(name, stage)
         (SourceRef<T>(streamId, location, Some(stage)), StreamProducer<T>(shared, stage))
+    }
+
+    /** 接入 Sources.fromPublisher；仍是单次挂接，需求与取消直接传给 StreamRef。 */
+    public func asPublisher<T>(ref: SourceRef<T>, settings!: StreamRefSettings = StreamRefSettings()): Publisher<T> {
+        RefPublisher<T>(this, ref, settings)
+    }
+
+    /**
+     * 把 Publisher 接到有界 StreamRef；仅按生产端空位请求，禁止无界预读。
+     * 远程元素类型仍须有线格式；上游失败转换成 StreamRef 的 Failed(reason)。
+     */
+    public func fromPublisher<T>(publisher: Publisher<T>, settings!: StreamRefSettings = StreamRefSettings(),
+        owner!: Option<ActorRef> = None<ActorRef>): SourceRef<T> {
+        let (ref, producer) = sourceRef<T>(settings: settings, owner: owner)
+        let subscriber = asSubscriber<T>(producer)
+        try {
+            publisher.subscribe(subscriber)
+        } catch (e: Exception) {
+            subscriber.onError(e)
+        }
+        ref
+    }
+
+    /**
+     * 接入 Sinks.fromSubscriber；此适配器必须独占 producer 的写入权。
+     * 上游最多一个未回应请求，生产端缓冲与远程信用窗口分别由 StreamRefSettings 限定。
+     */
+    public func asSubscriber<T>(producer: StreamProducer<T>): Subscriber<T> {
+        let subscriber = ProducerSubscriber<T>(producer)
+        let pump = env.system.typedActorOf<RefPump>(producerSubscriberBehavior<T>(subscriber),
+            "streamref-pump-${env.nextStreamId()}")
+        subscriber.bind(pump)
+        subscriber
     }
 
     /** 以 Reactive Streams 订阅者消费（订阅者自己 request） */

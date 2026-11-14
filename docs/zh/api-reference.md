@@ -1732,6 +1732,37 @@ controller.reset()
 
 ---
 
+### StreamRef 与 Reactive Streams
+
+`cactor_cluster.streamref.StreamRefs` 提供三个桥接入口：
+
+```cangjie
+import cactor_cluster.streamref.*
+import cactor_streams.*
+import cactor_streams.reactive.*
+
+let refs = StreamRefs(system)
+let settings = StreamRefSettings().withBufferSize(4)
+// 已有 Publisher → 可传给其他节点的 SourceRef
+let ref = refs.fromPublisher<String>(publisher, settings: settings)
+// SourceRef → 本地流 DSL（跨节点时先从 wire string 还原 ref）
+let result = Sources.fromPublisher<String>(refs.asPublisher<String>(ref, settings: settings))
+    .runWith(Sinks.seq<String>(), system)
+// 已有生产句柄 → Subscriber，接入本地流的 Sink
+let (otherRef, producer) = refs.sourceRef<String>(settings: settings)
+Sources.single("hello").runWith(Sinks.fromSubscriber<String>(refs.asSubscriber<String>(producer)), system)
+```
+
+`asPublisher` 返回单订阅者 Publisher，第二次订阅先收到无效 Subscription，再收到 `onError`。
+`request`、`cancel` 直接传播至 StreamRef；非正 request 按 Reactive Streams 3.9 报 `IllegalArgumentException`。
+`asSubscriber` 必须独占生产句柄的写入权，每次有空位才向上游请求一个元素；同步上游在 `request` 内发元素也不会递归。
+生产端缓冲不超过生产方 `bufferSize`，远程在途加消费端缓冲不超过消费方 `bufferSize`；接入 `Sources.fromPublisher` 后还须计入流物化器的输入缓冲。
+下游取消、订阅超时、阶段停止都会取消上游。上游失败通过 StreamRef 的 `Failed(reason)` 传播；挂接前发生的首个失败会关闭生产句柄并保留原因，至首次挂接时交付，最迟在原订阅期限清理阶段。远程元素仍须有编解码器。
+该桥接没有断线重放或可靠恢复模式，也没有新增 SinkRef 线上协议。
+
+四个 Reactive Streams 接口与辅助类型定义在无运行时依赖的 `cactor_foundation.reactive`；
+`cactor_streams.reactive` 公开重导出相同类型，保留已有源码的导入路径。静态库使用方需一起重新构建。
+
 ## 11. 路由模式
 
 路由模式提供消息负载均衡功能，支持多种路由策略。

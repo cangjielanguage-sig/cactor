@@ -1264,6 +1264,23 @@ cactor_foundation.queue :: public interface Queue<T>
 cactor_foundation.queue :: public struct MPSCPerformanceStats
 cactor_foundation.queue :: public struct QueueStats
 cactor_foundation.queue :: public struct SPSCPerformanceStats
+cactor_foundation.reactive :: Publisher.func subscribe(subscriber: Subscriber<T>): Unit
+cactor_foundation.reactive :: ReactiveStreams.public static func addDemand(current: Int64, n: Int64): Int64
+cactor_foundation.reactive :: ReactiveStreams.public static func cancelledSubscription(): Subscription
+cactor_foundation.reactive :: ReactiveStreams.public static func nonPositiveRequest(n: Int64): IllegalArgumentException
+cactor_foundation.reactive :: ReactiveStreamsSpecException.public init(message: String)
+cactor_foundation.reactive :: Subscriber.func onComplete(): Unit
+cactor_foundation.reactive :: Subscriber.func onError(cause: Exception): Unit
+cactor_foundation.reactive :: Subscriber.func onNext(element: T): Unit
+cactor_foundation.reactive :: Subscriber.func onSubscribe(subscription: Subscription): Unit
+cactor_foundation.reactive :: Subscription.func cancel(): Unit
+cactor_foundation.reactive :: Subscription.func request(n: Int64): Unit
+cactor_foundation.reactive :: public class ReactiveStreamsSpecException <: Exception
+cactor_foundation.reactive :: public interface Processor<In, Out> <: Subscriber<In>& Publisher<Out>
+cactor_foundation.reactive :: public interface Publisher<T>
+cactor_foundation.reactive :: public interface Subscriber<T>
+cactor_foundation.reactive :: public interface Subscription
+cactor_foundation.reactive :: public struct ReactiveStreams
 cactor_foundation.serialization :: ByteSerializer.public func deserialize(data: Array<UInt8>): Array<UInt8>
 cactor_foundation.serialization :: ByteSerializer.public func getName(): String
 cactor_foundation.serialization :: ByteSerializer.public func serialize(obj: Array<UInt8>): Array<UInt8>

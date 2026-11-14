@@ -16,3 +16,4 @@ cactor = { path = "../cactor" }
 cactor_testkit = { path = "../testkit" }
 cactor_macros = { path = "../macros" }
 cactor_cluster = { path = "../cluster" }
+cactor_streams = { path = "../streams" }

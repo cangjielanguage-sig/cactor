@@ -434,7 +434,9 @@ cactor → streams / xstate / testkit
 | [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | 不同 dispatcher 实现 |
 | [streams_demo](modules/examples/src/streams_demo/main.cj) | 背压流 |
 | [xstate_demo](modules/examples/src/xstate_demo) | 状态机（实验性） |
-| [simple_macro_demo](modules/examples/src/simple_macro_demo/main.cj) | DSL 宏（原型） |
+| [dsl_showcase](modules/examples/src/dsl_showcase/main.cj) | DSL 与经典 Actor 的对照示例 |
+| [llm_http_demo](modules/examples/src/llm_http_demo/main.cj) | 本地 HTTP SSE、持久会话恢复续聊、取消停滞读取 |
+| [agent_orchestration_demo](modules/examples/src/agent_orchestration_demo/main.cj) | 多 Agent 编排、重试、取消、持久化与流式进度 |
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
@@ -449,7 +451,7 @@ python3 tools/check_module_deps.py  # 检查模块分层约束
 
 workspace 目前共有 366 个测试用例（`tools/ci.sh`），在仓颉 1.2.0 下全部通过；CI 另外运行聊天室、5 万子 Actor 规模测试、20 秒稳定性测试，以及两个 3 进程集群验证（正常收发与 `kill -9` 宕机）。除监督策略、类型化 Actor（行为变换、Stash、定时器）、mailbox 外，还覆盖并发语义（串行处理、并发创建/停止、监督重启）、队列压力、TCP/UDP 传输、远程端到端、文件事件日志与事件溯源恢复。
 
-基准程序：`./target/release/bin/cactor_examples.real_benchmark`。在 32 核机器上实测：单 Actor 5.6–7.2 M msg/s，ping-pong 往返 P50 约 2 µs，本机回环远程 TCP 约 150–190 k msg/s。同机与 Akka 2.6.21 的对比见 [性能分析](docs/plan/20261028-performance.md)：点对点场景已追平或超过 Akka，扇出仍慢约 3 倍，远程慢约 1.6 倍。
+基准程序：`./target/release/bin/cactor_examples.real_benchmark`。[2026-10-28 历史测量](docs/plan/20261028-performance.md)记录了 Linux / Xeon 8582C（32 逻辑核）、cjc 1.2.0、workspace `-O2`、8 个调度线程下的结果：单 Actor 5.6–7.2 M msg/s，ping-pong 往返 P50 约 2 µs，本机回环远程 TCP 146–194 k msg/s。与 Akka 2.6.21 / OpenJDK 17 的差异仅适用于该报告的场景和预热配置，不能代表当前工作区或其他机器。后续邮箱、调度与远程实现已有变化，当前版本的同机对比仍需在空闲机器复测；[ROADMAP §2.2](ROADMAP.md#22-历史性能记录)保留后续观察及限制。
 
 ---
 
@@ -457,18 +459,20 @@ workspace 目前共有 366 个测试用例（`tools/ci.sh`），在仓颉 1.2.0 
 
 以下问题已经确认，正在按 [开发计划](docs/plan/20261028.md) 逐步处理：
 
-- **调度**：亲和调度，还没有工作窃取；扇出吞吐仍明显低于 Akka；在 `receive` 中阻塞会占住工作线程，同一线程上的其他 Actor 也会被拖慢。
+- **调度**：在默认调度器的 `receive` 中阻塞会占住工作线程，同一线程上的其他 Actor 也会被拖慢。与 Akka 的扇出差距以历史报告为限，当前实现需要同机复测。
 - **远程通信**：基于 `std.net` 的 TCP 传输。普通 `tell` 是至多一次；需要可靠性时用 `tellReliable`（序号、确认、重发、去重）。支持远程 ask、跨节点回复和远程 watch。消息编解码器带版本号，可以滚动升级（新字段由新代码按旧版本解析，旧节点明确拒绝更新的版本）。暂不支持 TLS。
 - **集群**：`cactor_cluster.membership` 提供 gossip 成员协议、脑裂处理（KeepMajority / KeepOldest / StaticQuorum）、Cluster Singleton、分布式发布订阅和集群分片（空闲钝化、remember-entities，可与事件溯源结合在移交和宕机后恢复状态），`cactor_cluster.ddata` 提供 CRDT 与 Replicator，均有多节点测试与多进程验证（`tools/cluster_demo.sh`、`tools/cluster_crash_demo.sh`）。脑裂处理使用随 gossip 传播的可达性表，非对称分区中的间接连接成员会被 down；虚拟 Actor（`Grains`，对标 Orleans）支持按需激活、单一激活、空闲停用与宕机后重新激活；Replicator 的更新以增量推送（按来源序号、断档向来源补齐），摘要式反熵只传不同的键，支持 Majority / All 读写，节点移除后由 Leader 两阶段 pruning 把它的数据并入存活节点。`cactor_cluster` 根包中的旧原型类（`SimpleClusterManager`、`ShardRegion` 等）已在 2026-11 删除，分片/路由请直接用 `membership` 下的 API。
 - **宏**：`@actor`（协议清单编译期核对）、`@Message`（消息类型名 + 编解码器 + registerCodec）、
   `@StateMachine`（状态机骨架 + 编译期检查）已可用；`@actorReceive` 为 `@actor` 的兼容别名。
   详见 [docs/dsl.md](docs/dsl.md)。
 - **日志**：库内日志走分级日志（默认 WARN，输出到 stderr，用环境变量 `CACTOR_LOG_LEVEL` 调整），但仓库中还有三套日志实现，计划在 1.3.0 合并。
-- **旧基准程序**：除 `real_benchmark` 外，仓库里其他 benchmark 程序测到的是同步函数调用的开销，不代表消息传递性能。
+- **基准口径**：早期部分 benchmark 测的是同步函数调用开销，不能当作消息传递吞吐。使用任何基准数字前须核对计时区间、消息是否实际处理完、编译选项、线程数及机器负载；微基准、存活堆和端到端消息基准分别报告。
 
 ---
 
 ## 发布到中心仓
+
+完整的版本选择、API 兼容检查、CI 与 `vX.Y.Z` tag 流程见 [发布指南](docs/RELEASE.md)。下列命令会实际发布到中心仓，应在发布检查完成后执行。
 
 `tools/publish.sh` 负责把 12 个库模块按依赖顺序发布到 https://pkg.cangjie-lang.cn 。它把模块拷到
 workspace 之外、把 path 依赖改写成中心仓版本号后再 `cjpm bundle` + `cjpm publish`，因为 cjpm

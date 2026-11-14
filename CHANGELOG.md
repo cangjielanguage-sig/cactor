@@ -7,6 +7,23 @@
 
 ## [未发布]
 
+### 📚 文档（E30 / E51，部分）
+
+- 新增 `docs/RELEASE.md`：12 个库同步版本、公开 API 快照与破坏性变更记录、完整 CI、semver tag、中心仓发布顺序及产物守卫；列出弃用注解与发布自动化的剩余缺口，不表示已创建 tag 或完成发布。
+- README 中英文版与 ROADMAP 的性能数字补充历史测量日期、机器和配置范围；旧更新日志缺少可复现实验信息的性能宣传标为未验证，不作为当前版本指标。本次仅整理文档，没有新增测量。
+
+### ✨ 新增（DA7：StreamRef 与 Reactive Streams 桥接）
+
+- `StreamRefs.asPublisher` / `fromPublisher` / `asSubscriber` 将单次挂接的 SourceRef 和生产句柄接入 `Sources.fromPublisher` / `Sinks.fromSubscriber`。按生产端空位请求上游，串行控制 Actor 避免同步 Publisher 递归；传播完成、失败及取消，并保留消费者挂接前的原始失败原因至订阅超时。
+- Reactive Streams 接口及规范辅助下沉到 `cactor_foundation.reactive`，`cactor_streams.reactive` 公开重导出，保留原导入写法的源码兼容。声明包及二进制类型身份改变，依赖方须重新编译；同步更新公开 API 快照。
+- 新增 10 项适配器回归，覆盖实际信用上界、同步回调深度、非法需求、取消、失败、挂接前立即失败及真实 TCP；SinkRef 与可靠重连仍是后续工作。
+
+### ✨ 新增（E61：HTTP / LLM 与多 Agent 编排示例）
+
+- `llm_http_demo`：类型化 HTTP 客户端 Actor，后台协程执行 stdx HTTP IO，每个 token 经 `DurableStateBehavior` 落盘后确认继续读取；取消通过 `ClientBuilder.connector` 暴露的原始 TCP 句柄关闭连接，唤醒停滞的 HTTP 读取。本地真实 TCP mock 返回 OpenAI 风格 chunked SSE，验证响应完成前增量到达、跨 chunk 的中文 UTF-8、`[DONE]`、token 边界取消，以及无待确认 token 时的停滞读取取消。新系统与新文件存储恢复 token 历史及完成/取消终态，再沿同一会话继续下一轮 HTTP 生成并保留历史，无外部服务或凭据。
+- `agent_orchestration_demo`：Planner / Worker / Reporter 组合类型化监督、`TypedRetry`、取消令牌、`DurableStateBehavior` 与 StreamRef。新 ActorSystem 与新文件存储实例恢复同一会话，跳过已提交步骤；验证两次真实异常后第 3 次成功、慢请求登记后取消、实际发送的迟到回复不覆盖取消结果，以及按单条需求消费的 3 条提交进度。会话是单写者；外部工具副作用仍需业务幂等键，示例不提供集群存储复制。
+- 两个可执行示例登记到 examples manifest 和 `tools/ci.sh`，失败以非零退出码报告。
+
 ### ✨ 新增（计划 v2.39：流的管道写法）
 
 - `cactor_streams` 恢复管道写法：`source |> filter { x => ... } |> via(flow) |> to(sink) |> run(system)`。每个算子都有同名自由函数，返回"蓝图 → 蓝图"的管道段，类型参数（含物化值类型）与尾随 lambda 的参数类型由 `|>` 左侧推断；`a |> f(参数)` 与 `a.f(参数)` 完全等价（物化值规则相同）。
@@ -801,6 +818,9 @@
 - **序列化注册与 schema 演进（基础版）**：远程 codec 注册表 + 版本号，旧版本数据可读、更新版本明确拒绝（`schema_evolution_test.cj`）
 
 ### ⚡ 性能（与 protoactor-go 对比，详见 docs/plan/20261031-protoactor-performance.md）
+
+> 以下是 [2026-10-31 历史报告](docs/plan/20261031-protoactor-performance.md)的观察：同容器、cgroup 4 核限额、交替运行三轮；报告区分最好值、中位数与进程 CPU 时间，并说明部分后续修改尚未计入。33.6M / 36.2M 等数字只适用于对应场景，不能外推为当前版本或所有消息模式的吞吐。
+
 - **多线程吞吐不再随线程数下降**：`invoke` 不再对每条消息做 `message is AutoReceivedMessage`，改为直接匹配 5 种控制消息类。
   仓颉判断"别的包里的类是否实现某接口"在多线程并发时互相阻塞（4 线程每次约 1µs），用户消息总是命中这条慢路径。
   多对 ping-pong（场景 6）从 1.2M 升到 33.6M msg/s，同一时间窗口内约为 protoactor-go（36.2M）的 93%，进程 CPU 基本相同
@@ -856,6 +876,9 @@
   `dsl_bench`（宏 vs 手写零开销基准，最好成绩比值 97.5%）
 
 ### ⚡ 性能
+
+> 下列内存、吞吐与微基准数字记录不同优化步骤的历史对比，主要依据 [2026-11-01 性能记录](docs/plan/perf20261101.md)。1017 / 1072 / 1120 / 1170 / 1182 / 1280 B 等值来自不同阶段、Actor 层级与规模；存活堆不等于 RSS，也不是对当前版本的统一内存保证。未给出独立复现信息的局部倍数仅作当时观察，发布指标须重新测量并记录环境。
+
 - **每 Actor 存活堆突破 1 KB：3371 → 1017 B（-70%）**；5M 子 Actor 规模 **1072 B/Actor**（详见 perf20261101.md §7.13）
   - **`SysStarted` 系统消息改为 `schedState` 的 START_BIT**：`run()` 进入消息循环前先启动，
     每条 tell 省掉系统栈上的节点分配
@@ -1022,6 +1045,8 @@
 
 ## [1.1.0] - 2025-07-03
 
+> 历史条目说明（文档审计补记）：本节 Ask 的 657,894 req/s、1,520 ns/req、100 万 Actor、流处理 500 万元素/秒及“纳秒级 / 微秒级”等宣传缺少关联的源码提交、机器配置、原始输出和完整测量方法，尚未核实。保留原文作历史记录，不作为真实消息投递、分片规模、当前 Streams 或当前版本的性能保证；能力现状请参照当前 API 与测试。
+
 ### 🎉 重大版本更新
 
 这是 CActor 的重大版本更新，完成了所有核心企业级功能的实现。
@@ -1116,6 +1141,8 @@
 - **状态机**: XState状态机示例
 
 ## [1.0.0] - 2025-06-22
+
+> 历史条目说明（文档审计补记）：本节吞吐、排名、“所有场景最优”及最高 170000+ 倍的延迟差异未附足够的提交、配置、原始输出与同等工作量证据，尚未核实；这些数字不能用于当前框架对比。同步函数调用、提交消息和等待 Actor 实际处理完成是不同测量口径，须先核对，再引用。
 
 ### 🎉 首个正式版本
 
@@ -1250,4 +1277,4 @@ Foundation Layer (基础设施层) ← 并发、序列化、网络
 
 ---
 
-*更多详细信息请查看 [GitHub Releases](../../releases)*
+*发行步骤与兼容性要求见 [发布指南](docs/RELEASE.md)。*

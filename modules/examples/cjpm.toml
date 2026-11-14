@@ -177,3 +177,9 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.lease_contend"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.llm_http_demo"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.agent_orchestration_demo"]
+output-type = "executable"

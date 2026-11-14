@@ -101,6 +101,9 @@ guard tools/lease_contend_demo.sh | tail -1
 # 类型化持久化：三个系统先后共用一个目录，64 个购物车并发写入后恢复一件不少、结账快照、删除不回退（E44）
 CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.typed_persistence_demo | tail -1
 guard bash tools/reminder_demo.sh | tail -3
+# E61：无需外部凭据的真实 TCP SSE，以及会话磁盘恢复 / 重试 / 取消 / 流式进度
+CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.llm_http_demo
+CACTOR_LOG_LEVEL=off guard ./target/release/bin/cactor_examples.agent_orchestration_demo
 # 分布式数据：3 节点并发读写 + 四种 GC 配置各一轮，无崩溃、全部收敛（E43）
 guard tools/ddata_stress.sh 4 5 | tail -1
 # 20 秒稳定性自检：收发零丢失、故障全部重启、子 Actor 全部停止、静止存活堆不增长

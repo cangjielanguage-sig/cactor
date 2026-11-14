@@ -15,7 +15,7 @@
 1. **一条主路径**：每种能力只保留一个实现。新增功能之前先删除同类的旧实现。
 2. **以测试为准**：只有在主消息路径上生效、并有测试覆盖的能力才算完成；README 中列出的每一项都要能对应到测试。
 3. **以实测为准**：性能结论只来自同机、同等 CPU 的实测（测量规则见 20261029 §9.1），不再引用宣传数字。
-4. **性能不倒退**：每个版本都跑 `real_benchmark`，点对点场景相差不超过 ±3%。
+4. **性能不倒退（验收目标）**：发布前在空闲机器交替多轮运行基线与候选版本的 `real_benchmark`，记录提交、编译参数、CPU 限额、负载及原始结果，目标为点对点场景相差不超过 ±3%；该目标不表示历史版本已逐一通过，高噪声结果不能用来宣告达标。
 5. **兼容有节奏**：1.x 期间新旧 API 并存，旧 API 转调新实现并标记废弃；2.0.0 删除旧 API 并冻结公开面。
 
 ---
@@ -26,7 +26,7 @@
 
 | 领域 | 状态 | 依据 |
 |---|---|---|
-| 运行时 | ✅ 每个 Actor 一个双缓冲数组邮箱（稳态零分配）；亲和调度 + 侵入式就绪队列 + runNext + 空闲线程捐赠；线程数不超过 cgroup 限额；独立系统消息队列；阻塞调度器；吞吐参数可配置；每 Actor 存活堆 1.0–1.2 KB（5M 规模实测 1072–1182 B） | `runtime/guardian/actor_cell.cj`、`docs/plan/perf20261101.md` |
+| 运行时 | ✅ 每个 Actor 一个双缓冲数组邮箱（稳态零分配）；亲和调度 + 侵入式就绪队列 + runNext + 空闲线程捐赠；线程数不超过 cgroup 限额；独立系统消息队列；阻塞调度器；吞吐参数可配置；2026-11-01 历史基准的每 Actor 存活堆 1.0–1.2 KB（5M 规模观察 1072–1182 B，受 Actor 类型、状态及 GC 配置影响，非当前内存保证） | `runtime/guardian/actor_cell.cj`、`docs/plan/perf20261101.md` |
 | 经典 API 语义（R1） | ✅ 监督树（父停子、Escalate、OneForAll）、watch / watchWith / Terminated（Terminated 入用户邮箱，先于它发出的消息先到，与 Akka 一致）、协调关闭（Akka 阶段）、become、定时器、Stash、接收超时、PoisonPill / Kill、Props 生效、按路径查找、死信订阅；失败处理与 Akka 对齐（启动失败 / Kill / DeathPact 默认停止、延迟重启挂起、Error 交给监督）；经典与类型化共用的指数退避（E6′）；重启协议与钩子对齐 Akka（preRestart 默认 postStop、postRestart 默认 preStart、preStart 在 Actor 线程执行、等旧子 Actor 全部终止再建新实例、失败待决期间整棵子树暂停，E33）；`system.stop` 立即停止、剩余消息进死信、名字保留到终止，`gracefulStop` 处理完排队消息再停并等待终止（E33）；与 Akka 的逐条对照见 `docs/zh/akka-semantics.md`；路由器 Actor（`Routers.pool` / `group`：保留发送方、摘除已终止目标、管理消息，E37） | `semantics_test.cj` 34 个用例、`failure_semantics/` 13 个、`death_watch/` 7 个、`lifecycle/` 8 个、`patterns/router_actor_test.cj` 6 个用例、`stop_protocol/` 6 个用例 |
 | 类型化 API（R2） | ✅ 运行在经典 Cell 上；setup / receive / supervise / withTimers / withStash / ask / messageAdapter / pipeToSelf / Receptionist（单机，可退订，订阅者停止后自动退订）；类型化路由器（`TypedRouters.pool` / `group`，组路由器跟随 Receptionist，E37）；行为拦截器（`intercept` / `monitor` / `logMessages`）；监督按行为结构由内向外匹配、计数跨重启累计（E36）；未处理 / 协议之外的消息以 `UnhandledMessage` 进死信并限速记日志；`TypedPromise` 组合子（flatMap / recover / sequence）；以 `setup` 开头的子 Actor 走用户包快路径 | `typed_semantics_test.cj`、`typed_interceptor.cj`、`typed_routing/typed_router_test.cj` |
 | DSL | ✅ `@actor`（协议清单编译期核对，`@actorReceive` 为兼容别名）、`@Message`（编解码 + 注册）、`@StateMachine`（转换表 + 穷尽检查）；`Behaviors` 门面、`askInbox`、流管道 `\|>`；`<<` 运算符、时间字面量；占位宏已删除 | `macros/src/`、`core/src/dsl/`、`docs/dsl.md` |
@@ -38,9 +38,11 @@
 | 工程 | ✅ `tools/ci.sh`（构建、分层检查、全部测试、`println` 检查、`--bench` 门禁接入 bench_gate）；测试 698 / 698（2026-11-09 第 20 批，`tools/ci.sh` 单用例超时 120 s；另跑集群套件 8 进程并行 2 轮与 ddata GC 压测 4 轮）；`cactor_testkit`（TestProbe、BehaviorTestKit、ManualTime、`BlackholeTransport` 故障注入）；Akka 对比基准 | `tools/`、`bench/` |
 | HTTP | ✅ 最小可用（ManagementServer：健康检查 + Prometheus 指标，经真实 HTTP；绑定地址、并发上限、请求总时限可配置）。🟡 Ktor 风格插件体系未开始 | `cactor/api/` |
 
-### 2.2 性能（同机实测，32 核 Xeon 8582C，详见 20261028-performance.md）
+### 2.2 历史性能记录
 
-| 场景 | CActor | Akka 2.6.21 | 结论 |
+下表摘自 [2026-10-28 报告](docs/plan/20261028-performance.md)：Linux 5.15、Xeon 8582C（32 逻辑核）、cjc 1.2.0、workspace `-O2`、8 个调度线程，对照为 Akka 2.6.21 / OpenJDK 17（进程内三轮取第三轮）。数字及相对结论仅适用于该次报告的实现和场景；后续邮箱、调度、远程层已经修改，不能作为当前版本的性能承诺。单次 405 k/s 观察也未完成同机对照复测。
+
+| 场景 | 历史 CActor | 历史 Akka 2.6.21 | 当次观察 |
 |---|---|---|---|
 | 单 Actor 吞吐 | 5.6–7.2 M/s | 2.7–3.4 M/s | CActor 约快 2 倍 |
 | 扇出（8 发送方 × 100 Actor） | 2.5–4.5 M/s | 9.1–11.9 M/s | **Akka 约快 3 倍** |
@@ -49,7 +51,7 @@
 | 远程 TCP（回环） | 146–194 k/s（合并写后观察到 405 k/s，未复测） | 135–308 k/s | **需要在空闲机器上复测** |
 
 R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机负载过高（load 30–80）没有得到可信数字。
-2026-11-07 在负载 8.5–9 时与 `6183072` 交替各跑 5 次 `real_benchmark`：工作区单 Actor 中位 3.16 M/s、扇出 6.70 M/s，HEAD 分别为 3.06、6.21 M/s，没有回退；扇出单次波动 4.4–17 M/s，同日 E40（出站关联）之后再测一轮（负载 7.9–9.7）：远程 TCP 中位 36.7 万条/秒（HEAD 33.8 万），扇出中位 9.55 M/s（HEAD 6.78 M/s）；负载 4.8 时远程 TCP 42–50 万条/秒。上表数字待空闲机器与 Akka 同机复测。
+2026-11-07 在负载 8.5–9 时与 `6183072` 交替各跑 5 次 `real_benchmark`：工作区单 Actor 中位 3.16 M/s、扇出 6.70 M/s，对照提交分别为 3.06、6.21 M/s；这些中位数未见下降，但高负载和运行间波动不足以证明 ±3% 目标达标；扇出单次波动 4.4–17 M/s，同日 E40（出站关联）之后再测一轮（负载 7.9–9.7）：远程 TCP 中位 36.7 万条/秒（HEAD 33.8 万），扇出中位 9.55 M/s（HEAD 6.78 M/s）；负载 4.8 时远程 TCP 42–50 万条/秒。上表数字待空闲机器与 Akka 同机复测。
 
 ### 2.3 主要问题
 
@@ -102,7 +104,9 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 - [x] 计划 v2.37（团队并行，DA3 / DA5 / DA6 记满，DA4 / E51 部分）：DA3 修复入站帧预算异常泄漏、帧体总读时限、只回收已隔离代的入站通道、压力矩阵；DA4 `Lease` + fencing token、`FileLease`、`FencedEventStore` / `FencedDurableStateStore`、单例可选租约（分片按分片租约未做）；DA5 DData 成员变化一致性矩阵 10 例并修复旧实例迟到确认；DA6 握手能力协商与混合版本矩阵 10 例；E51 公开 API 快照门禁。验收见实施计划第 39 批，进度 31/44 ≈ 70.45%、加权 70.5%。
 - [x] 计划 v2.38（团队并行）：E60 按 Reactive Streams 重写流（E48 随之记满，删除四套旧实现）；E61 类型化流式回复 StreamRef（跨节点信用背压，示例 llm_token_stream）；E52 可注入调度器，ManualTime 驱动真实系统；DA4 分片按分片租约与 fencing 接线、跨进程租约验证；DA8 负载敏感用例修复。验收见实施计划第 40 批，进度 33.5/44 ≈ 76.14%、加权 79.5%。
 - [x] 计划 v2.39：流的管道写法 `source |> via(flow) |> to(sink) |> run(system)`（自由函数管道段，左侧推断类型与 lambda 参数；与链式写法逐一等价；StreamPipeTest 6 例）。
-- [ ] 下一批：DA7 收尾（StreamRef ↔ fromPublisher、SinkRef、E61 HTTP/LLM mock 与多 Agent 编排）→ E30 / E51 余项（tag、semver）→ DA8（E50 流水线、混合版本长期验证）。
+- [x] DA7 StreamRef ↔ Reactive Streams 桥接：`StreamRefs.asPublisher / fromPublisher / asSubscriber`，基础层共用接口、原 streams 导入路径兼容重导出；按生产空位请求上游、同步 request 不递归、跨 TCP 信用上界与取消传播。挂接前失败保留原始原因至首次订阅或订阅期限；10 个新增回归通过，连同原 StreamRef 用例共 26/26，streams 既有 42/42 通过。
+- [ ] 下一批：DA7 余项（SinkRef、断线后可选可靠模式、E61 HTTP/LLM mock 与多 Agent 编排验收）→ E30 / E51 余项（tag、semver）→ DA8（E50 流水线、混合版本长期验证）。
+- [ ] E30 / E51 文档补充：已补 [发布指南](docs/RELEASE.md)，说明 12 库版本同步、API 快照与迁移记录、完整 CI、semver tag 和不可覆盖发布；已将 README / 本文性能数字限定为历史测量。弃用移除版本、版本选择与实际 tag / 发布验收仍待完成，不能据此记满 E30 / E51。
 - [ ] 计划 v2.36（DA3，部分）：已实现隔离记录数量预算，复用 withPeerLimit；满额重启准入拒绝，隔离溢出关闭后续身份准入，不驱逐历史，新增 isPeerAdmissionClosed；stop/start 与扩容不清除保护，须替换管理器恢复。新增两个回归，验证见实施计划第 38 批。通道安全回收、全节点字节及压力矩阵仍开放，进度 69.32%、加权 69.5%。
 - [ ] 计划 v2.35（DA3，部分）：已实现已知对端身份与出站握手挑战表预算，默认分别 4096，withPeerLimit 配置；并发准入、不驱逐旧身份、满额旧地址重启/旧 UID 拒绝、stop/start 保留及同锁缩容保护。验证见实施计划第 37 批。隔离表预算、安全回收、全节点字节及故障压力矩阵仍待完成；进度保持 69.32%、加权 69.5%。
 - [ ] 计划 v2.34（DA3，部分）：可靠出站/入站通道默认各 4096，可配置；同锁准入、拒绝诊断、不确认被拒信封、满额同前缀新代替换与旧代拒绝已实现，新增六个回归（含 stop/start 后保留状态的缩容保护）通过，完整门禁通过（784/784、集群两轮各 137/137）。不按空闲/ACK 删除去重状态；对端/隔离表及全局字节预算仍待实现，总进度保持 69.32%、加权 69.5%。
@@ -191,8 +195,8 @@ R1 之后的点对点回归对比、R4 两项优化的收益，都因开发机�
 ### 6.1 性能（R4 剩余项 + P5）
 
 - [x] **多线程负扩展**（2026-10-31，[20261031-protoactor-performance.md](docs/plan/20261031-protoactor-performance.md)）：控制消息按具体类匹配、类型化特殊行为用种类标记、运行时不再启动 `DispatcherPool`、双缓冲邮箱、runNext 与捐赠。多对 ping-pong 约为 protoactor-go 的 93%。
-- [ ] **扇出**：发送方批量提交、减少每条消息的原子操作；空闲线程工作窃取。目标：与 Akka 的差距从约 3 倍缩小到 1.5 倍以内，负载不均时吞吐不下降。外部线程扇出目前约为 protoactor-go 的 1/3：每次运行只处理 3–4 条，调度与跨核缓存传递占大头。
-- [ ] **外部线程发送**：单发送方每次 tell 约 235ns（protoactor-go 约 120ns）；单线程同样步骤只要约 37ns，多出的部分是消费方频繁交换缓冲区造成的跨核缓存传递。考虑把 incoming 计数与调度标志合并为一个状态字，减少双方共同写的缓存行。
+- [ ] **扇出**：发送方批量提交、减少每条消息的原子操作；空闲线程工作窃取。目标：与 Akka 的差距从约 3 倍缩小到 1.5 倍以内，负载不均时吞吐不下降。2026-10-31 历史报告中外部线程扇出约为 protoactor-go 的 1/3，当时观察每次运行只处理 3–4 条；当前差距及瓶颈需重新测量。
+- [ ] **外部线程发送**：2026-10-31 报告的微基准记录单发送方每次 tell 约 235ns（protoactor-go 约 120ns），单线程同样步骤约 37ns；报告将额外开销归因于消费方频繁交换缓冲区造成的跨核缓存传递。该数值是历史微基准，不能代替当前端到端吞吐。考虑把 incoming 计数与调度标志合并为一个状态字，减少双方共同写的缓存行。
 - [ ] **类型化路径**：每条消息在 core 泛型代码里分配一次 `TypedEnvelope<T>`（多线程时争用）。评估协议类型是 `Message` 时免信封，或提供按具体类型实例化的发送入口。
 - [ ] **规模**：100 万个 Actor 的创建速度和每个 Actor 的内存，目标 < 1 KB / Actor。
 - [ ] **编译**：评估 `--lto=thin` 和 PGO。

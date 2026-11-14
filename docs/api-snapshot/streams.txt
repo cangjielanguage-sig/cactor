@@ -239,20 +239,3 @@ cactor_streams :: public struct Sources
 cactor_streams :: public struct StreamSettings
 cactor_streams :: public struct StreamSupervision
 cactor_streams :: public type Decider
-cactor_streams.reactive :: Publisher.func subscribe(subscriber: Subscriber<T>): Unit
-cactor_streams.reactive :: ReactiveStreams.public static func addDemand(current: Int64, n: Int64): Int64
-cactor_streams.reactive :: ReactiveStreams.public static func cancelledSubscription(): Subscription
-cactor_streams.reactive :: ReactiveStreams.public static func nonPositiveRequest(n: Int64): IllegalArgumentException
-cactor_streams.reactive :: ReactiveStreamsSpecException.public init(message: String)
-cactor_streams.reactive :: Subscriber.func onComplete(): Unit
-cactor_streams.reactive :: Subscriber.func onError(cause: Exception): Unit
-cactor_streams.reactive :: Subscriber.func onNext(element: T): Unit
-cactor_streams.reactive :: Subscriber.func onSubscribe(subscription: Subscription): Unit
-cactor_streams.reactive :: Subscription.func cancel(): Unit
-cactor_streams.reactive :: Subscription.func request(n: Int64): Unit
-cactor_streams.reactive :: public class ReactiveStreamsSpecException <: Exception
-cactor_streams.reactive :: public interface Processor<In, Out> <: Subscriber<In>& Publisher<Out>
-cactor_streams.reactive :: public interface Publisher<T>
-cactor_streams.reactive :: public interface Subscriber<T>
-cactor_streams.reactive :: public interface Subscription
-cactor_streams.reactive :: public struct ReactiveStreams
