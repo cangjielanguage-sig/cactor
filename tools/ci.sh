@@ -39,7 +39,15 @@ done
 TEST_TIMEOUT="${CI_TEST_TIMEOUT:-120s}"
 STEP_TIMEOUT="${CI_STEP_TIMEOUT:-300}"
 # 示例 / 脚本统一加超时：挂死即失败（timeout 退出码 124），而不是让门禁无限等待
-guard() { timeout --foreground "$STEP_TIMEOUT" "$@"; }
+guard() {
+    # macOS 的 /usr/bin/env shebang 会清掉 DYLD_*，让脚本启动的仓颉节点找不到运行时。
+    # 显式用当前 PATH 中的 Bash 执行 shell 步骤，保留 env.sh 已准备的动态库路径。
+    if [[ "$1" == *.sh ]]; then
+        timeout --foreground "$STEP_TIMEOUT" bash "$@"
+    else
+        timeout --foreground "$STEP_TIMEOUT" "$@"
+    fi
+}
 
 step "构建（workspace，-O2）"
 cjpm build
@@ -50,6 +58,9 @@ python3 tools/check_module_deps.py
 step "公开 API 快照检查（E51）"
 # 签名有未登记的变化即失败；有意修改时 python3 tools/api_snapshot.py --update 并在 CHANGELOG 记录
 python3 tools/api_snapshot.py
+
+step "@Deprecated 完整性检查（E51：每个弃用都必须有 since 和移除版本）"
+python3 tools/check_deprecations.py
 
 step "宏公开面检查（A5）"
 bash tools/check_macro_surface.sh

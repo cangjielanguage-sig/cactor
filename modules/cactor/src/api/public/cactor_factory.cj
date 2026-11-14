@@ -109,7 +109,7 @@ public class CActorSystemBuilder {
      * @param dispatcher 调度器类型，如"thread-pool"、"work-stealing"等
      * @return 当前构建器实例，支持链式调用
      */
-    @Deprecated["系统级调度器名称尚未接入运行时（计划 E49）；请在 Props 上用 withDispatcher 配置", since: "1.2.0"]
+    @Deprecated["系统级调度器名称尚未接入运行时（计划 E49）；请在 Props 上用 withDispatcher 配置；2.0.0 移除", since: "1.2.0"]
     public func withDispatcher(dispatcher: String): CActorSystemBuilder {
         this.dispatcherType = dispatcher
         this
@@ -121,7 +121,7 @@ public class CActorSystemBuilder {
      * @param mailbox 邮箱类型，如"bounded"、"unbounded"、"priority"等
      * @return 当前构建器实例，支持链式调用
      */
-    @Deprecated["系统级邮箱类型尚未接入运行时（计划 E49）；请在 Props 上用 withMailbox 配置", since: "1.2.0"]
+    @Deprecated["系统级邮箱类型尚未接入运行时（计划 E49）；请在 Props 上用 withMailbox 配置；2.0.0 移除", since: "1.2.0"]
     public func withMailbox(mailbox: String): CActorSystemBuilder {
         this.mailboxType = mailbox
         this

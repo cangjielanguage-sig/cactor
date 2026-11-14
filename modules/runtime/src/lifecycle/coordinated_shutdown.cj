@@ -58,7 +58,7 @@ public class CoordinatedShutdown {
      * 按名称取全局实例（旧 API）。
      * 静态表永不释放其中的闭包，同名系统之间还会共享任务；运行时请用 CActorRuntime.getCoordinatedShutdown()。
      */
-    @Deprecated["请改用 CActorRuntime.getCoordinatedShutdown()（实例持有，不泄漏、不跨系统共享任务）", since: "1.2.0"]
+    @Deprecated["请改用 CActorRuntime.getCoordinatedShutdown()（实例持有，不泄漏、不跨系统共享任务）；2.0.0 移除", since: "1.2.0"]
     public static func get(systemKey: String): CoordinatedShutdown {
         synchronized(regMutex) {
             match (registry.get(systemKey)) {

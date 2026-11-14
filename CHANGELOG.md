@@ -12,6 +12,10 @@
 - 新增 `docs/RELEASE.md`：12 个库同步版本、公开 API 快照与破坏性变更记录、完整 CI、semver tag、中心仓发布顺序及产物守卫；列出弃用注解与发布自动化的剩余缺口，不表示已创建 tag 或完成发布。
 - README 中英文版与 ROADMAP 的性能数字补充历史测量日期、机器和配置范围；旧更新日志缺少可复现实验信息的性能宣传标为未验证，不作为当前版本指标。本次仅整理文档，没有新增测量。
 
+### 🐛 修复（macOS CI 脚本启动）
+
+- `tools/ci.sh` 的 `guard` 显式用当前 Bash 执行 `.sh` 步骤，避免 `/usr/bin/env` shebang 清除 `DYLD_*`。多进程示例因此保留 `tools/env.sh` 准备的仓颉运行时路径，不再于启动时因缺少 LC_RPATH 而 abort。
+
 ### ✨ 新增（DA7：StreamRef 与 Reactive Streams 桥接）
 
 - `StreamRefs.asPublisher` / `fromPublisher` / `asSubscriber` 将单次挂接的 SourceRef 和生产句柄接入 `Sources.fromPublisher` / `Sinks.fromSubscriber`。按生产端空位请求上游，串行控制 Actor 避免同步 Publisher 递归；传播完成、失败及取消，并保留消费者挂接前的原始失败原因至订阅超时。

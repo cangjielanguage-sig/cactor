@@ -305,7 +305,7 @@ public class EscalateStrategy <: SupervisionStrategy {
  * 此前是假实现：先设"下次重试时间 = 现在 + 退避"再判断"现在 >= 下次重试时间"，退避 ≥1 ms 时一律返回 Stop；
  * 抖动用的 Math.random() 恒为 0.5（R9）。现在委托统一实现，返回 RestartAfter(退避延迟)，并带 Akka 式抖动与自动复位。
  */
-@Deprecated["请改用 BackoffSupervisionStrategy(BackoffPolicy(...))", since: "1.2.0"]
+@Deprecated["请改用 BackoffSupervisionStrategy(BackoffPolicy(...))；2.0.0 移除", since: "1.2.0"]
 public class BackoffSupervisorStrategy <: SupervisionStrategy {
     private let inner: BackoffSupervisionStrategy
 

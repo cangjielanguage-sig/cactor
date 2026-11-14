@@ -45,7 +45,7 @@ if has p1 ACQUIRED; then holder=p1; hpid=$p1; other=p2; else holder=p2; hpid=$p2
 t1=$(token_of "$holder")
 holder_wrote() { [[ $(writes_of "$holder") -ge 2 ]]; }
 wait_for 5 holder_wrote || fail "持有者 $holder 没有写入"
-echo "互斥：$holder 持有（token $t1），$other 被拒"
+echo "互斥：$holder 持有（token ${t1}），$other 被拒"
 
 kill -9 "$hpid"
 wait "$hpid" 2>/dev/null
@@ -61,10 +61,10 @@ t2=$(token_of "$other")
 [[ $waited -ge $(( TTL_MS - TTL_MS / 10 - 300 )) ]] || fail "$other 只等了 ${waited} ms 就接手，未等到租约过期"
 other_wrote() { [[ $(writes_of "$other") -ge 1 ]]; }
 wait_for 5 other_wrote || fail "$other 获得租约后没有写入"
-echo "接管：kill -9 $holder 后 ${waited} ms，$other 获得租约（token $t2 > $t1）"
+echo "接管：kill -9 $holder 后 ${waited} ms，$other 获得租约（token $t2 > ${t1}）"
 
 stale=$(CACTOR_LOG_LEVEL=error "$BIN" stale "$work" "$t1") || fail "旧 token 写入未被拒绝：$stale"
 show=$(CACTOR_LOG_LEVEL=error "$BIN" show "$work")
 [[ $show == "FENCE $t2 STATE $other:$t2 "* ]] || fail "fencing / 状态不符：$show"
-echo "fencing：被杀进程的旧 token $t1 写入被拒（$stale），状态仍是 $other 写的值（$show）"
+echo "fencing：被杀进程的旧 token ${t1} 写入被拒（${stale}），状态仍是 $other 写的值（${show}）"
 echo "跨进程租约验证：通过"

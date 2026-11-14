@@ -72,7 +72,7 @@ public struct Ask {
      * @param timeout 超时时间
      * @return 普通的Future对象，用户需要自行进行类型检查
      */
-    @Deprecated["askTyped 与 ask 等价，请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask", since: "1.2.0"]
+    @Deprecated["askTyped 与 ask 等价，请改用 cactor_core.typed.TypedAsk.ask 或 ctx.ask；2.0.0 移除", since: "1.2.0"]
     public static func askTyped(target: ActorRef, message: Message, timeout: Duration): AskFuture<Message> {
         // 简化实现：返回普通的Ask Future
         // 用户可以在获取响应后自行进行类型检查
