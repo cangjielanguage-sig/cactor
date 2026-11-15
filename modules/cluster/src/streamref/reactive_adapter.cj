@@ -89,14 +89,14 @@ enum RefPump {
 
 /** 锁只保护跨线程准入；任何 Publisher 回调均在锁外执行。 */
 class ProducerSubscriber<T> <: Subscriber<T> {
-    let producer: StreamProducer<T>
+    let producer: StreamWriter<T>
     let lock = Mutex()
     var upstream: Option<Subscription> = None<Subscription>
     var closed = false
     var outstanding = false
     var pump: Option<TypedActorRef<RefPump>> = None<TypedActorRef<RefPump>>
 
-    init(producer: StreamProducer<T>) {
+    init(producer: StreamWriter<T>) {
         this.producer = producer
     }
 

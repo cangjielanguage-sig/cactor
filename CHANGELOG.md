@@ -7,6 +7,23 @@
 
 ## [未发布]
 
+### ✨ 新增（DA7：SinkRef 反向流与 StreamConsumer）
+
+- `cactor_cluster.streamref` 新增 `SinkRef<T>`（`toWireString` / `fromWireString`，前缀 `sinkref:v1|`）、`StreamConsumer<T>`（逐次 `pull`、单次未完成 pull、终止恰好一次）、`SinkRefProducer<T>`（`offer` / `whenReady` / `complete` / `fail` / `termination`，同时是 Reactive Streams `Subscriber`）与 `StreamWriter<T>`；`StreamRefs.sinkRef<T>(settings!, owner!)` 返回 `(SinkRef<T>, StreamConsumer<T>)`，`StreamRefs.asSink<T>(ref, settings!, owner!)` 返回生产句柄。
+- 背压：sink 授予累计需求 = 已交付 + `bufferSize`（半窗补信用），本地缓冲 + 在途 ≤ `bufferSize`；生产方 `offer` 先预留槽位，缓冲满返回 `Backpressured`。单次挂接（第二个生产方 `Rejected`）、完成/失败恰好一次、双向取消、属主停止、订阅/空闲超时均沿用 `StreamRefSettings`。
+- 线上复用 `StreamRefMsg` 的 1..8 号帧，仅新增本地控制消息 `ConsumerPull`，`STREAM_REF_PROTOCOL_VERSION` 保持 1，旧帧可读。新增 11 个回归（`stream_ref_sink_test.cj`，含 3 个真实回环 TCP），StreamRef 合计 37/37；公开 API 快照已更新。
+
+### ⚡ 性能（DA8：Replicator 本地更新/合并临界区合并）
+
+- `modules/cluster/src/ddata/replicator.cj` 合并本地更新与合并路径的临界区：`onLocalUpdate` 单节点加锁 5→2 次（3 节点集群 7→3），`mergeEnvelope` 3→2，`onConsistentUpdate` 6+2N→3+N。用户 `modify`、编码、摘要与网络发送、订阅回调全部留在锁外；锁 2 内一次性发布新值与 pruning 标记并快照订阅者/对等节点/计数。序号、delta/整值判定、pruning 与推送计数语义不变，公开 API 与线协议未改。
+- 唯一可见差异：`deltaEnabled` 的读取从 apply 之后提前到更新开始时，并发 `setDeltaPropagation` 的生效边界移动几微秒；两种 payload 都合法且序号连续。新增高并发读写回归（计数正确、无死锁）。
+
+### ⚙️ 工程体系（E50 / E51 / DA8）
+
+- 新增 `tools/ci_nightly.sh`：串联完整 CI（`--soak 600`）、压测矩阵、并行集群 10 轮与混合版本多进程验证，每步带 timeout、挂死即失败；`--dry-run` 仅打印步骤，`--skip-ci` 可跳过第一步。`docs/RELEASE.md` 补充 PR 门禁、nightly 与 main 分支保护约定（平台侧尚未配置）。
+- `docs/deprecations.md` 盘点 46 处 `@Deprecated`（persistence 39、patterns 3、cactor 2、core 1、runtime 1），全部带 `since` 并统一声明 2.0.0 移除；`tools/check_deprecations.py` 接入 CI；`docs/RELEASE.md` 补充弃用生命周期与 semver 规则。实际 tag 与中心仓发布未执行。
+- 新增 `tools/mixed_version_soak.sh`：3 个真实进程以旧线协议（`CACTOR_WIRE_LEGACY=1`）与分片租约 / 实体 fencing 运行，kill -9 后在原端口以新节点重启，验证混合版本组集群、实体在存活进程恢复、旧 token 写入被拒（`FENCE_REJECT`）、remember-entities 完整、全部进程正常退出；已接入 `tools/ci.sh`。
+
 ### 📚 文档（E30 / E51，部分）
 
 - 新增 `docs/RELEASE.md`：12 个库同步版本、公开 API 快照与破坏性变更记录、完整 CI、semver tag、中心仓发布顺序及产物守卫；列出弃用注解与发布自动化的剩余缺口，不表示已创建 tag 或完成发布。

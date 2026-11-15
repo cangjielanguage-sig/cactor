@@ -70,6 +70,53 @@ public class StreamRefs {
     }
 
     /**
+     * 创建一条流的 sink：返回可以交给远端生产方的 SinkRef 与本地消费句柄。
+     * owner：消费该流的 Actor（经典引用，类型化 Actor 用 `ctx.self.toClassic()`）；
+     * 它停止时整条流以 Failed 结束，并通知生产方取消（停止生成）。
+     *
+     * 信用由 sink 侧按本地缓冲空位授予：不 pull 时本地缓冲填满 bufferSize，远端生产方随即被背压。
+     */
+    public func sinkRef<T>(settings!: StreamRefSettings = StreamRefSettings(),
+        owner!: Option<ActorRef> = None<ActorRef>): (SinkRef<T>, StreamConsumer<T>) {
+        ensureStreamRefCodecRegistered()
+        let streamId = env.nextStreamId()
+        let name = "streamref-s-${streamId}"
+        let shared = ConsumerShared<T>({ a => a as T })
+        let consumer = StreamConsumer<T>(streamId, shared)
+        let st = SinkStageState<T>(streamId, name, settings, env, shared, consumer, owner)
+        let stage = env.spawnStage(sinkStage<T>(st), name)
+        consumer.bind(stage)
+        let location = env.expose(name, stage)
+        (SinkRef<T>(streamId, location, Some(stage)), consumer)
+    }
+
+    /**
+     * 生产侧适配：把一个 SinkRef 变成可写入的句柄（同时是 Reactive Streams Subscriber）。
+     * 可直接 `Sinks.fromSubscriber(refs.asSink<T>(ref))` 把本地流接到远端 sink；
+     * 只在本端有空位且远端授予需求时向上游请求元素，不做无界预读。
+     */
+    public func asSink<T>(ref: SinkRef<T>, settings!: StreamRefSettings = StreamRefSettings(),
+        owner!: Option<ActorRef> = None<ActorRef>): SinkRefProducer<T> {
+        ensureStreamRefCodecRegistered()
+        // 位置解析失败在调用线程同步报错：阶段 Actor 里抛异常只会变成一条难查的日志
+        let sinkPeer = match (ref.localRef) {
+            case Some(r) => StreamPeer(r, None<RemoteActorRef>, r.pathString())
+            case None =>
+                match (env.resolveRemote(ref.location)) {
+                    case Some(p) => p
+                    case None => throw IllegalArgumentException(
+                        "无法解析 SinkRef 位置 ${ref.location}：本节点的 StreamRefs 没有远程层，或位置文本不合法")
+                }
+        }
+        let name = "streamref-sp-${env.nextStreamId()}"
+        let shared = ProducerShared(settings.bufferSize)
+        let exposedName = if (sinkPeer.isRemote()) { name } else { "" }
+        let st = SinkProducerState(ref.streamId, exposedName, settings, shared, env, sinkPeer, owner)
+        let stage = env.spawnStage(sinkProducerStage(st), name)
+        SinkRefProducer<T>(shared, stage, env)
+    }
+
+    /**
      * 把 Publisher 接到有界 StreamRef；仅按生产端空位请求，禁止无界预读。
      * 远程元素类型仍须有线格式；上游失败转换成 StreamRef 的 Failed(reason)。
      */

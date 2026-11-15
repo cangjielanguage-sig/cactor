@@ -123,6 +123,27 @@ class ProducerShared {
 }
 
 /**
+ * 可写入的流句柄（SourceRef 的 StreamProducer 与 SinkRef 的 SinkRefProducer 共用）。
+ * Reactive Streams 适配器只需要这三件事：投递、等待空位、观测结局。
+ */
+public interface StreamWriter<T> {
+    /** 非阻塞投递：Enqueued / Backpressured（缓冲满）/ Closed（流已结束） */
+    func offer(element: T): OfferResult
+
+    /** 有空位时完成为 true；流已结束时完成为 false */
+    func whenReady(): TypedPromise<Bool>
+
+    /** 流的结局，恰好完成一次 */
+    func termination(): TypedPromise<StreamTermination>
+
+    /** 上游正常结束（已投递的元素全部发出后发送 Completed） */
+    func complete(): Unit
+
+    /** 上游失败/立即失败（未发出的元素丢弃） */
+    func fail(reason: String): Unit
+}
+
+/**
  * 生产方句柄（线程安全，可以在任意线程/Actor 中使用）。
  *
  * 典型用法（Actor 内逐个生成 token）：
@@ -134,7 +155,7 @@ class ProducerShared {
  * }
  * ```
  */
-public class StreamProducer<T> {
+public class StreamProducer<T> <: StreamWriter<T> {
     let shared: ProducerShared
     let stage: TypedActorRef<StreamRefMsg>
 

@@ -178,6 +178,75 @@ public class CrdtConcurrencyTest {
         node.shutdown()
     }
 
+    /**
+     * DA8 回归：本地更新临界区合并后，高并发读写仍然正确、无死锁。
+     * 4 个写线程各 100 次同步 incrementCounter，同时 4 个读线程反复 get / counterValue / keys / stats：
+     * - 每次读到的计数单调不减且不超过最终值（get 返回不可变快照）；
+     * - 写线程在 update 的 10 s 超时前全部返回（死锁会让写线程抛超时异常）；
+     * - 最终计数精确，deltaPushes + fullPushes 恰好等于写次数（每次本地更新只记一次推送）。
+     */
+    @TestCase
+    public func testConcurrentWritersAndReadersStayConsistent(): Unit {
+        let node = Node("rep-crdt-rw", None<NetworkTransport>)
+        let writers: Int64 = 4
+        let perWriter: Int64 = 100
+        let total: Int64 = writers * perWriter
+        let writeErrors = AtomicInt64(0)
+        let readErrors = AtomicInt64(0)
+        let stop = AtomicBool(false)
+
+        // 读线程先起：持续与写入抢 store 锁（合并临界区要保证读不会压住写）
+        let readers = ArrayList<Future<Unit>>()
+        for (_ in 0..4) {
+            readers.add(spawn {
+                var last: Int64 = 0
+                while (!stop.load()) {
+                    let v = node.rep.counterValue("hot")
+                    // 只做正向 increment：并发读到的任何快照都必须落在 [last, total] 内
+                    if (v < last || v > total) {
+                        readErrors.fetchAdd(1)
+                    }
+                    last = v
+                    node.rep.get("hot")
+                    node.rep.keys()
+                    node.rep.stats()
+                    node.rep.deltaStats()
+                }
+            })
+        }
+
+        // 写线程：同步更新，每次都在 Actor 线程走 锁 1（取值）+ 锁 2（发布）的合并路径
+        let futures = ArrayList<Future<Unit>>()
+        for (_ in 0..writers) {
+            futures.add(spawn {
+                for (_ in 0..perWriter) {
+                    try {
+                        node.rep.incrementCounter("hot", 1)
+                    } catch (_: Exception) {
+                        writeErrors.fetchAdd(1)
+                    }
+                }
+            })
+        }
+        for (f in futures) {
+            f.get()
+        }
+        @Expect(writeErrors.load(), 0)
+        @Expect(awaitCondition(Duration.second * 30, { => node.rep.counterValue("hot") == total }), true)
+        @Expect(node.rep.counterValue("hot"), total)
+        let ds = node.rep.deltaStats()
+        @Expect(ds.deltaPushes + ds.fullPushes, total)
+        // 单节点没有对等节点：不应产生远程合并或发送
+        @Expect(node.rep.stats()[1], 0)
+        @Expect(node.rep.stats()[0], 0)
+        stop.store(true)
+        for (f in readers) {
+            f.get()
+        }
+        @Expect(readErrors.load(), 0)
+        node.shutdown()
+    }
+
     /** get() 是不可变快照：之后的本地更新生成新值，不改动已经交给调用方的那一份 */
     @TestCase
     public func testGetReturnsImmutableSnapshot(): Unit {

@@ -876,6 +876,42 @@ class ReplicaStore {
     var pruningPerformed: Int64 = 0
 }
 
+/**
+ * 一次写入/合并提交后的通知项：锁内取好的快照（before / next 均为不可变值）。
+ * 用户回调必须在锁外执行——回调可能很慢，不能压住并发读线程。
+ */
+class AppliedChange {
+    let before: Option<ReplicatedValue>
+    let next: ReplicatedValue
+    let subs: Array<(ReplicatedValue) -> Unit>
+
+    init(before: Option<ReplicatedValue>, next: ReplicatedValue, subs: Array<(ReplicatedValue) -> Unit>) {
+        this.before = before
+        this.next = next
+        this.subs = subs
+    }
+}
+
+/** 本地更新一次提交的全部结果：订阅通知、编码与网络推送都在锁外据此完成（DA8 合并临界区） */
+class LocalCommit {
+    let key: String
+    let applied: AppliedChange
+    let payload: ReplicatedDelta
+    let seq: Int64
+    let peers: Array<NetworkAddress>
+    let markers: Option<HashMap<String, PruningMarker>>
+
+    init(key: String, applied: AppliedChange, payload: ReplicatedDelta, seq: Int64,
+        peers: Array<NetworkAddress>, markers: Option<HashMap<String, PruningMarker>>) {
+        this.key = key
+        this.applied = applied
+        this.payload = payload
+        this.seq = seq
+        this.peers = peers
+        this.markers = markers
+    }
+}
+
 class ReplicatorActor <: Actor {
     let store: ReplicaStore
     let manager: SimpleRemoteManager
@@ -947,17 +983,11 @@ class ReplicatorActor <: Actor {
 
     private func onLocalUpdate(u: LocalUpdate): Unit {
         let result: Option<Exception> = try {
-            // 只有本 Actor 写 values，取出的值在本次处理期间不会被替换；值本身不可变，
-            // modify / merge 在锁外执行（用户的 modify 可能很慢，不能让读线程等它）
-            let existing = synchronized(store.lock) { store.values.get(u.key) }
-            let current = existing ?? u.initial
-            let next = u.modify(current)
-            // 防止 modify 返回其他类型的值（此前用一次完整 merge 来触发类型检查，白白复制整个值）
-            if (current.kind() != next.kind()) {
-                throw IllegalArgumentException("不能把 ${u.key} 从 ${current.kind()} 改为 ${next.kind()}")
-            }
-            apply(u.key, next)
-            pushDelta(u.key, existing, next)
+            // DA8：本地更新只取两次锁——锁 1 取当前值（连同 delta 开关），
+            // 用户 modify 与增量计算在锁外，锁 2 一次性发布新值并快照订阅者 / 对等节点 / 标记。
+            let commit = commitLocal(u.key, u.initial, u.modify)
+            notifyApplied(u.key, commit.applied)
+            pushCommitted(commit)
             None<Exception>
         } catch (e: Exception) {
             Some(e)
@@ -998,22 +1028,17 @@ class ReplicatorActor <: Actor {
     }
 
     private func onConsistentUpdate(c: ConsistentUpdate, context: ActorContext): Unit {
-        let existing = synchronized(store.lock) { store.values.get(c.key) }
-        let next = try {
-            let current = existing ?? c.initial
-            let n = c.modify(current)
-            if (current.kind() != n.kind()) {
-                throw IllegalArgumentException("不能把 ${c.key} 从 ${current.kind()} 改为 ${n.kind()}")
-            }
-            n
+        // 同本地更新：锁 1 取当前值、锁 2 发布并快照；modify / 增量 / 编码都在锁外
+        let commit = try {
+            commitLocal(c.key, c.initial, c.modify)
         } catch (e: Exception) {
             c.promise.tryFailure(e) |> ignoreOutcome
             return
         }
-        apply(c.key, next)
+        notifyApplied(c.key, commit.applied)
         // 增量照常推送（保持各节点的序号连续）；需要确认时另发带整值的 W，对方合并后回 WA
-        pushDelta(c.key, existing, next)
-        let peers = synchronized(store.lock) { store.peers.toArray() }
+        pushCommitted(commit)
+        let peers = commit.peers
         let total = peers.size + 1
         let needed = requiredReplicas(total, c.mode)
         if (needed <= 1) {
@@ -1021,7 +1046,7 @@ class ReplicatorActor <: Actor {
             return
         }
         nextOpId++
-        let op = PendingOp(nextOpId, c.key, needed, total, Some(next), Some(c.promise), None)
+        let op = PendingOp(nextOpId, c.key, needed, total, Some(commit.applied.next), Some(c.promise), None)
         op.replied.add(selfAddr())
         pendingOps[op.id] = op
         let w = FieldWriter()
@@ -1029,8 +1054,8 @@ class ReplicatorActor <: Actor {
         w.put(selfAddr())
         w.put(op.id)
         w.put(c.key)
-        w.sb.append(next.encode())
-        encodeMarkers(w, markersOf(c.key))
+        w.sb.append(commit.applied.next.encode())
+        encodeMarkers(w, commit.markers)
         let text = w.done()
         for (p in peers) {
             sendTo(p, text)
@@ -1238,7 +1263,7 @@ class ReplicatorActor <: Actor {
 
     /** 保存新值；用户可见的值变化时通知订阅者（在 Replicator Actor 线程中调用） */
     private func apply(key: String, next: ReplicatedValue, remote!: Bool = false): Unit {
-        let (before, subs) = synchronized(store.lock) {
+        let a = synchronized(store.lock) {
             let before = store.values.get(key)
             store.values[key] = next
             if (remote) {
@@ -1248,17 +1273,22 @@ class ReplicatorActor <: Actor {
                 case Some(l) => l.toArray()
                 case None => Array<(ReplicatedValue) -> Unit>()
             }
-            (before, subs)
+            AppliedChange(before, next, subs)
         }
+        notifyApplied(key, a)
+    }
+
+    /** 锁外的订阅通知：值确实变化时才回调；单个回调抛异常不影响其他订阅者 */
+    private func notifyApplied(key: String, a: AppliedChange): Unit {
         digests.remove(key)
-        let changed = match (before) {
-            case Some(b) => !b.sameValue(next)
+        let changed = match (a.before) {
+            case Some(b) => !b.sameValue(a.next)
             case None => true
         }
         if (changed) {
-            for (cb in subs) {
+            for (cb in a.subs) {
                 try {
-                    cb(next)
+                    cb(a.next)
                 } catch (_: Exception) {}
             }
         }
@@ -1280,8 +1310,28 @@ class ReplicatorActor <: Actor {
 
     private func sendToPeers(text: String): Unit {
         let peers = synchronized(store.lock) { store.peers.toArray() }
+        sendToAll(peers, text)
+    }
+
+    /**
+     * 向一组对等节点发送同一条报文：网络发送逐节点在锁外，统计量在所有发送结束后一次加锁累加
+     * （此前每个节点各加一次锁，3 节点集群里一次本地更新要为此多取 2 次锁，DA8）
+     */
+    private func sendToAll(peers: Array<NetworkAddress>, text: String): Unit {
+        var sent: Int64 = 0
         for (p in peers) {
-            sendTo(p, text)
+            try {
+                manager.remoteActorOf(p, "replicator").tell(StringMessage(text))
+                sent++
+            } catch (_: Exception) {
+                // 对等节点暂不可达：下一轮反熵重试
+            }
+        }
+        if (sent > 0) {
+            synchronized(store.lock) {
+                store.gossipsSent += sent
+                store.bytesSent += text.size * sent
+            }
         }
     }
 
@@ -1319,6 +1369,7 @@ class ReplicatorActor <: Actor {
      * （它已由执行者的分量代表），再合并值
      */
     private func mergeEnvelope(key: String, incoming: ReplicatedValue, inMarkers: HashMap<String, PruningMarker>): Unit {
+        // 锁 1：当前值与标记的快照（只取引用，合并 / cleanup 在锁外，与值的大小无关）
         let (cur, curMarkers) = synchronized(store.lock) { (store.values.get(key), store.pruning.get(key)) }
         let markers = mergeMarkers(curMarkers, inMarkers)
         var a = cur
@@ -1332,13 +1383,31 @@ class ReplicatorActor <: Actor {
                 b = b.cleanup(removed)
             }
         }
-        if (!sameMarkers(curMarkers, markers)) {
-            setMarkers(key, markers)
-        }
-        apply(key, match (a) {
+        let next = match (a) {
             case Some(x) => x.merge(b)
             case None => b
-        }, remote: true)
+        }
+        let updateMarkers = !sameMarkers(curMarkers, markers)
+        // 锁 2：新值与 pruning 标记一起提交，订阅者快照同锁取出（此前 setMarkers 与 apply 各取一次锁）。
+        // 所有写入 store.values / store.pruning 的路径都在 Replicator Actor 线程上，两次取锁之间不会有其他写入
+        let change = synchronized(store.lock) {
+            if (updateMarkers) {
+                if (markers.isEmpty()) {
+                    store.pruning.remove(key)
+                } else {
+                    store.pruning[key] = markers
+                }
+            }
+            let before = store.values.get(key)
+            store.values[key] = next
+            store.mergesReceived++
+            let subs = match (store.subscribers.get(key)) {
+                case Some(l) => l.toArray()
+                case None => Array<(ReplicatedValue) -> Unit>()
+            }
+            AppliedChange(before, next, subs)
+        }
+        notifyApplied(key, change)
     }
 
     /** 以整值（连同标记）推送，序号照常递增：pruning 的标记与改写不能表示为增量 */
@@ -1531,27 +1600,62 @@ class ReplicatorActor <: Actor {
     // ---------- delta 传播（E64，对标 Akka delta-CRDT） ----------
 
     /**
-     * 推送一次本地更新：增量（能表示时）或整值，都带本节点该键的下一个序号。
-     * 键第一次出现时发整值：initial 可能不是空值，相对 initial 的增量会漏掉 initial 本身
+     * 一次本地更新的两次取锁提交（DA8）：
+     * - 锁 1 只取当前值与 delta 开关；用户 modify、类型检查与增量计算都在锁外
+     *   （值不可变，modify 可能很慢，不能让读线程等它）；
+     * - 锁 2 发布新值，并把订阅者、对等节点、pruning 标记与推送计数一并快照。
+     * 返回的 LocalCommit 供调用方在锁外通知订阅者、编码并推送。
+     * 序号与 delta 判定不变：键第一次出现、无法表示为增量或关闭 delta 时推送整值。
      */
-    private func pushDelta(key: String, before: Option<ReplicatedValue>, next: ReplicatedValue): Unit {
+    private func commitLocal(key: String, initial: ReplicatedValue,
+        modify: (ReplicatedValue) -> ReplicatedValue): LocalCommit {
+        // 只有本 Actor 写 values；取出的值在本次处理期间不会被替换，值本身不可变
+        let (existing, enabled) = synchronized(store.lock) {
+            (store.values.get(key), store.deltaEnabled)
+        }
+        let current = existing ?? initial
+        let next = modify(current)
+        // 防止 modify 返回其他类型的值（此前用一次完整 merge 来触发类型检查，白白复制整个值）
+        if (current.kind() != next.kind()) {
+            throw IllegalArgumentException("不能把 ${key} 从 ${current.kind()} 改为 ${next.kind()}")
+        }
         let seq = (localSeq.get(key) ?? 0) + 1
         localSeq[key] = seq
-        let enabled = synchronized(store.lock) { store.deltaEnabled }
-        let payload = match (before) {
+        let payload = match (existing) {
             case Some(b) where enabled => next.deltaFrom(b, selfNode) ?? ReplicatedDelta.Full(next)
             case _ => ReplicatedDelta.Full(next)
         }
-        synchronized(store.lock) {
+        let (applied, peers, markers) = synchronized(store.lock) {
+            let before = store.values.get(key)
+            store.values[key] = next
             match (payload) {
                 case ReplicatedDelta.Full(_) => store.fullPushes++
                 case _ => store.deltaPushes++
             }
+            let subs = match (store.subscribers.get(key)) {
+                case Some(l) => l.toArray()
+                case None => Array<(ReplicatedValue) -> Unit>()
+            }
+            (AppliedChange(before, next, subs), store.peers.toArray(), store.pruning.get(key))
         }
-        sendToPeers(encodeDelta(key, seq, payload))
+        LocalCommit(key, applied, payload, seq, peers, markers)
+    }
+
+    /** 推送已提交的本地更新：编码与网络发送都在锁外（标记来自提交快照，不再取锁） */
+    private func pushCommitted(c: LocalCommit): Unit {
+        if (c.peers.isEmpty()) {
+            return
+        }
+        sendToAll(c.peers, encodeDeltaWithMarkers(c.key, c.seq, c.payload, c.markers))
     }
 
     private func encodeDelta(key: String, seq: Int64, payload: ReplicatedDelta): String {
+        encodeDeltaWithMarkers(key, seq, payload, markersOf(key))
+    }
+
+    /** 同 encodeDelta，但 pruning 标记由调用方提供（本地更新已在提交锁内取过快照，避免再次取锁） */
+    private func encodeDeltaWithMarkers(key: String, seq: Int64, payload: ReplicatedDelta,
+        markers: Option<HashMap<String, PruningMarker>>): String {
         let w = FieldWriter()
         w.put("DL")
         w.put(selfNode)
@@ -1560,7 +1664,7 @@ class ReplicatorActor <: Actor {
         w.put(seq)
         payload.encode(w)
         match (payload) {
-            case ReplicatedDelta.Full(_) => encodeMarkers(w, markersOf(key))
+            case ReplicatedDelta.Full(_) => encodeMarkers(w, markers)
             case _ => ()
         }
         w.done()

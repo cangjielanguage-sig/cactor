@@ -30,27 +30,47 @@ import cactor_foundation.network.{NetworkAddress, TransportProtocol}
 import cactor_remote.{SimpleRemoteManager, WireProtocolSettings}
 import cactor_cluster.membership.*
 import cactor_cluster.ddata.{Replicator}
+import cactor_foundation.coordination.{LeaseSettings}
+import cactor_persistence.{FileLease, FileFencingTokenStore, FileDurableStateStore, FencedDurableStateStore}
 
 let ENTITIES = 30
 let SHARDS = 32
+// 分片类型名（LEASE_TYPE）：启用租约时每分片一个 FileLease（名字 shard-tracked-<n>）
+let LEASE_TYPE = "tracked"
 
 class TrackedEntity <: Actor {
     let id: String
     let node: String
     let remote: SimpleRemoteManager
     let driver: NetworkAddress
+    // CACTOR_LEASE_DIR 设置时（DA8 混合版本 soak），实体写入经分片 fencing token 保护：
+    // 分片租约（DA4）+ FencedDurableStateStore，kill -9 后新实例拿更大 token，旧 token 写入被拒绝
+    let store: Option<FencedDurableStateStore>
 
-    init(id: String, node: String, remote: SimpleRemoteManager, driver: NetworkAddress) {
+    init(id: String, node: String, remote: SimpleRemoteManager, driver: NetworkAddress,
+        store: Option<FencedDurableStateStore>) {
         this.id = id
         this.node = node
         this.remote = remote
         this.driver = driver
+        this.store = store
     }
 
     public prop name: String { get() { "tracked" } }
     public prop description: String { get() { "tracked" } }
 
     public func preStart(): Unit {
+        // 启动即写一条（首次 rev=1，此后每次启动 rev+1）：脚本据此断言重启后计数完整、fencing 生效
+        match (store) {
+            case Some(s) =>
+                try {
+                    s.upsert(id, s.revisionOf(id) + 1, "started@${node}")
+                } catch (e: Exception) {
+                    // 旧 token 的写入被拒（StaleFencingTokenException）：记到 stderr，让脚本知道 fencing 挡住了谁
+                    eprintln("FENCE_REJECT ${id} ${e}")
+                }
+            case None => ()
+        }
         try {
             remote.remoteActorOf(driver, "collector").tell(StringMessage("started|${id}|${node}"))
         } catch (_: Exception) {}
@@ -152,8 +172,37 @@ main(args: Array<String>): Int64 {
         remote.exposeActor("collector", system.actorOf({ => Collector(starts) }, "collector"))
     }
     let rep = Replicator(system, remote, Duration.millisecond * 200)
-    let sharding = ClusterSharding(cluster, system, remote, "tracked", SHARDS, { id => TrackedEntity(id, me, remote, seed) },
-        ShardingSettings.remembering(rep))
+    // CACTOR_LEASE_DIR：DA8 混合版本 soak 使用的共享租约目录。设置后分片托管经 DA4 租约许可、
+    // 实体写入经 fencing token 保护——这是对"kill -9 + 原端口重启 + 混合版本"组合场景的验证。
+    // 每个实体一个 fencing 存储（内层 FileDurableStateStore / FileFencingTokenStore 按实体分目录，
+    // 避免多个实体竞争同一 resource 的修订号）；token 来自守护该实体的分片租约。
+    let leaseDir = getVariable("CACTOR_LEASE_DIR")
+    let shardLeases = match (leaseDir) {
+        case Some(dir) =>
+            let addr = "${me}#${cluster.selfUniqueAddress()}"
+            Some(ShardLeases({ name => FileLease(dir, LeaseSettings(name, addr)) }))
+        case None => None<ShardLeases>
+    }
+    let leasesRef = shardLeases
+    var shardingSettings = ShardingSettings.remembering(rep).withRebalance(RebalancePolicy.disabled())
+    match (shardLeases) {
+        case Some(leases) => shardingSettings = shardingSettings.withLease(leases)
+        case None => ()
+    }
+    let sharding = ClusterSharding(cluster, system, remote, LEASE_TYPE, SHARDS,
+        { id =>
+            var store: Option<FencedDurableStateStore> = None
+            match (leasesRef) {
+                case Some(leases) =>
+                    let dir = leaseDir.getOrThrow()
+                    store = Some(FencedDurableStateStore(FileDurableStateStore("${dir}/state/${id}"),
+                        FileFencingTokenStore("${dir}/fence/${id}"),
+                        leases.leaseForEntity(LEASE_TYPE, SHARDS, id)))
+                case None => ()
+            }
+            TrackedEntity(id, me, remote, seed, store)
+        },
+        shardingSettings)
 
     // "集群已形成" = 曾看到预期数量的成员都 Up。不要求轮询的那一刻本地视图恰好收敛：分片路由不等收敛（E13′），
     // driver 可能在本节点自己观察到收敛之前就完成校验并离开

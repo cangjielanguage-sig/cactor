@@ -74,7 +74,39 @@ git show --no-patch vX.Y.Z
 
 需要向远端发布 tag 时，按项目权限执行 `git push origin vX.Y.Z`。不要覆盖或移动已经公开的发行 tag。2026-11-14 静态核对未发现 `.github/workflows/`；此处是人工发行步骤，不表示 push tag 会自动运行 CI 或发布包。执行 tag / push / publish 前应完成对应授权和检查。
 
-## 5. 发布到中心仓
+### @Deprecated 生命周期与 2.0.0 移除清单
+
+弃用与移除遵循 Akka 惯例：`@Deprecated` 的 `since` 声明弃用版本，移除版本写在注解消息文本里（仓颉注解没有 `remove` 参数），固定为 **since 的下一个 semver 大版本**——当前全部为 `2.0.0`。2.x 系列内不移除任何公开符号；2.0.0 发布前对照 [`docs/deprecations.md`](deprecations.md) 逐项确认替代入口可用、迁移文档覆盖、api_snapshot 同步删除。
+
+- 全部 `@Deprecated` 注解必须带 `since` 与移除版本（CI 门禁 `tools/check_deprecations.py` 强制，见 §2 与 E51）；
+- 2026-11-14 盘点：46 处（persistence 39、patterns 3、cactor 2、core 1、runtime 1），46/46 已声明在 2.0.0 移除，明细见 [`docs/deprecations.md`](deprecations.md)。
+
+## 5. 流水线与分支保护（E50）
+
+CI 分两层：**PR 门禁**（每次合并请求必跑）与 **nightly 长压测**（每天一次）。托管平台为 atomgit（Cangjie-SIG 组织）；平台若支持声明式流水线配置，按其文档在仓库根目录放置对应配置文件（如 `.atomgit/pipeline.yml`），接线方式如下；若平台只支持界面配置，按同一张表在界面录入。本节描述的是应达成的约定，不代表平台侧已经配置完成。
+
+**PR 门禁（必须绿色才允许合并）：**
+
+| 项 | 约定 |
+|---|---|
+| 触发 | 每个 PR（opened / updated） |
+| 命令 | `source tools/env.sh && tools/ci.sh`（不带 `--soak` / `--bench`，全量约 5–10 min） |
+| 分支保护 | `main` 禁止直推：合并请求必须评审 + 上述流水线绿色；直推 main 应被平台拒绝 |
+| 失败处理 | 红了先修，不允许跳过门禁合并；flake 用例按记录重跑并注明 |
+
+**nightly（定时，建议凌晨低负载时段）：**
+
+| 项 | 约定 |
+|---|---|
+| 触发 | 定时（cron，每日一次） |
+| 命令 | `source tools/env.sh && tools/ci_nightly.sh` |
+| 内容 | `ci.sh --soak 600`（完整门禁 + 600 s 稳定性 soak）→ `stress_matrix.sh quick`（压测矩阵）→ `cluster_parallel_soak.sh 10 8`（集群套件 8 进程并行 10 轮，回归 N0）→ `mixed_version_soak.sh`（混合版本多进程验证，DA6 / DA4 / DA8） |
+| 失败处理 | 通知维护者；每步都有 timeout 防挂死，失败保留日志与 `bench/results/` 产物 |
+| 本地预演 | `tools/ci_nightly.sh --dry-run` 校验参数与步骤（不真正运行）；`--skip-ci` 跳过已单独跑过的第一步 |
+
+注意：nightly **不**接入默认 PR 门禁（时长与负载敏感）；`tools/ci.sh` 只包含轻量回归步骤（`mixed_version_soak.sh` 约 1 min 已作为一行 guard 接入示例自检段）。
+
+## 6. 发布到中心仓
 
 先确认中心仓凭据已在 `$CANGJIE_HOME/tools/config/cangjie-repo.toml` 的 `[repository.home]` 配好，避免把 token 写进文档或发行日志。所有库的模块根目录须有 README；本次静态核对 12 库都有 `README.md`。
 

@@ -69,6 +69,12 @@ public enum StreamRefMsg {
     /** StreamRefSubscription.request(n) / cancel */
     | SubscriberRequest(Int64)
     | SubscriberCancel(String)
+    /**
+     * SinkRef 本地消费句柄的一次 pull（本地控制消息，不过线）。
+     * 与 SubscriberRequest(1) 分开命名：SinkRef 的 sink 是消费方，语义是"本地缓冲空出一格"，
+     * 而不是 SourceRef 消费方向上游授予的预取窗口，混用会让两端的统计与超时判断难以自证。
+     */
+    | ConsumerPull
     /** 定时器 */
     | SubscriptionTimeout
     | IdleTimeout

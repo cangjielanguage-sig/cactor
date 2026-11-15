@@ -109,6 +109,8 @@ guard tools/cluster_chaos.sh | grep -E "✓|通过|失败"
 guard tools/journal_crash_demo.sh | tail -2
 # 跨进程文件租约（DA4）：两个进程争抢、kill -9 持有者、ttl 后接手且 token 更大、旧 token 写入被 fencing 拒绝（约 3 s）
 guard tools/lease_contend_demo.sh | tail -1
+# 混合版本多进程验证（DA8 / DA6 / DA4 组合）：旧线协议模拟 + 租约 + kill -9 + 原端口重启（约 1 min）
+guard tools/mixed_version_soak.sh | tail -1
 # 类型化持久化：三个系统先后共用一个目录，64 个购物车并发写入后恢复一件不少、结账快照、删除不回退（E44）
 CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.typed_persistence_demo | tail -1
 guard bash tools/reminder_demo.sh | tail -3
