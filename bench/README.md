@@ -17,6 +17,19 @@ bench/compare.sh                                         # 两边依次运行，
 bench/protoactor/run.sh                                  # protoactor-go（首次运行会下载依赖）
 ```
 
+回归门禁（`tools/bench_gate.sh`，E53）：
+
+```bash
+tools/bench_gate.sh --update      # 在本机实测并写入本机基线（需空闲机器，单独提交）
+tools/bench_gate.sh               # 与本机基线比较，超阈值退出码 1
+tools/bench_gate.sh 10 1          # 覆盖阈值（%）与采样次数（静止 CI 机器用）
+```
+
+基线按机器指纹分文件：`bench/results/baseline-<os>-<arch>-<cores>.json`，阈值与采样次数也写在
+JSON 里（`threshold_pct` / `repeats`）。**找不到本机基线时脚本以退出码 2 结束**并打印期望的文件名——
+不同机器吞吐差数倍，共用一份基线只会"换台机器就红"。临时改用别的基线可设
+`CACTOR_BENCH_BASELINE=/path/to/baseline.json`。
+
 约定：
 
 - `real_benchmark` 和 `AkkaBench.java`、`bench/protoactor/main.go` 的场景、消息数、计时方式必须保持一致，修改其中一个时请同步修改另一个。
@@ -24,7 +37,8 @@ bench/protoactor/run.sh                                  # protoactor-go（首�
 - 对比时两边要在同一台机器上运行，并且不要同时运行其他负载。
 - Akka 使用默认配置，不调参；JIT 需要预热，取最后一轮的结果。
 - CActor 的调度参数：`CACTOR_DISPATCHER_THREADS`（调度线程数）、`CACTOR_DISPATCHER_SPIN_US`（空闲自旋时长），以及仓颉运行时的 `cjProcessorNum`、`cjHeapSize` 等。
-- `bench/akka/jars/` 和 `bench/results/` 不纳入版本库。
+- `bench/akka/jars/` 与压力测试原始输出（`bench/results/stress-*`）不纳入版本库；
+  **性能基线 `bench/results/baseline-*.json` 必须入库**（门禁依赖它，且要能按机器回溯）。
 
 分析和历史数据见 [docs/plan/20261028-performance.md](../docs/plan/20261028-performance.md)（Akka）
 与 [docs/plan/20261031-protoactor-performance.md](../docs/plan/20261031-protoactor-performance.md)（protoactor-go）。

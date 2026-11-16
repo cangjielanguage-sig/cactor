@@ -43,7 +43,10 @@ guard() {
     # macOS 的 /usr/bin/env shebang 会清掉 DYLD_*，让脚本启动的仓颉节点找不到运行时。
     # 显式用当前 PATH 中的 Bash 执行 shell 步骤，保留 env.sh 已准备的动态库路径。
     if [[ "$1" == *.sh ]]; then
-        timeout --foreground "$STEP_TIMEOUT" bash "$@"
+        # 用当前解释器（$BASH）而不是 PATH 里的 bash：macOS 自带 /bin/bash 3.2，
+        # 而 ci.sh 可能由 /opt/homebrew/bin/bash 5.x 启动；子脚本若依赖 4+ 内建
+        # （mapfile/readarray/关联数组）会在 3.2 下报“未绑定变量”把门禁判红。
+        timeout --foreground "$STEP_TIMEOUT" "${BASH:-bash}" "$@"
     else
         timeout --foreground "$STEP_TIMEOUT" "$@"
     fi
@@ -63,13 +66,13 @@ step "@Deprecated 完整性检查（E51：每个弃用都必须有 since 和移�
 python3 tools/check_deprecations.py
 
 step "宏公开面检查（A5）"
-bash tools/check_macro_surface.sh
+"${BASH:-bash}" tools/check_macro_surface.sh
 
 step "DSL 行数对照（A1）"
-bash tools/dsl_line_count.sh
+"${BASH:-bash}" tools/dsl_line_count.sh
 
 step "宏负例编译测试（A2）"
-bash tools/negative_tests.sh
+"${BASH:-bash}" tools/negative_tests.sh
 
 step "全部测试"
 log=$(mktemp)
@@ -77,11 +80,18 @@ log=$(mktemp)
 # 在本机（桌面负载 40–55）上并行跑多个集群用例时，故障检测偶发把节点误判为不可达，
 # 出现 `distinct.size==2` / `localEntityCount()==0` 这类分布断言失败（隔离单跑 10/10 通过）。
 # 串行执行的墙钟时间与并行基本相同（约 2m50s，长等待本来就占主导），因此默认串行。
-# env -u CACTOR_LOG_LEVEL：调用方若导出了日志级别（例如 error），日志类用例的 warn 输出会被过滤而误报失败（E26）。
+# CACTOR_LOG_LEVEL：调用方若导出了日志级别（例如 error），日志类用例的 warn 输出会被过滤而误报失败（E26）。
+# 用「子 shell 里 unset」而不是 `env -u CACTOR_LOG_LEVEL cjpm ...`：
+# `/usr/bin/env`、`/bin/bash`、`/usr/bin/timeout` 都是 dyld 共享缓存里的平台二进制，
+# macOS 在执行平台二进制时会把环境里的 DYLD_* 全部剔除（SIP）。所以 `env -u X cjpm` 不仅删掉 X，
+# 连 tools/env.sh 刚准备的 DYLD_LIBRARY_PATH / DYLD_FALLBACK_LIBRARY_PATH 也一起丢掉，
+# 而 `cjpm test` 起的测试进程找不到仓颉运行时与 Homebrew 的 OpenSSL 3，
+# 落到 /usr/lib/libcrypto.dylib（LibreSSL 桩）→ SIGABRT（TLS 用例 7 例 ERROR，2026-11-16 实测定为根因）。
+# 子 shell 的 unset 不 exec 新程序，环境原样传给 cjpm。
 # --timeout-each：单个用例超时即判失败，死循环不再卡死门禁（E26）。
 # --no-progress：输出写进文件，交互式进度条没有意义；且仓颉 1.2.0 的 std.unittest 进度汇报线程偶发
 # NoneValueException（TestProgressCollector.updateBody），全部用例通过时也让 cjpm test 判失败（第 5 批实测：554/554 通过、门禁仍红）。
-if ! env -u CACTOR_LOG_LEVEL cjpm test --parallel 1 --no-progress --timeout-each="$TEST_TIMEOUT" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' | tee "$log" | grep -E '^Summary|PASSED:|FAILED:|ERROR:' | tail -4; then
+if ! ( unset CACTOR_LOG_LEVEL; cjpm test --parallel 1 --no-progress --timeout-each="$TEST_TIMEOUT" 2>&1 ) | sed 's/\x1b\[[0-9;]*m//g' | tee "$log" | grep -E '^Summary|PASSED:|FAILED:|ERROR:' | tail -4; then
     true
 fi
 if grep -qE '\[ (FAILED|ERROR) \] CASE' "$log" || ! grep -q 'cjpm test success' "$log"; then
@@ -113,7 +123,7 @@ guard tools/lease_contend_demo.sh | tail -1
 guard tools/mixed_version_soak.sh | tail -1
 # 类型化持久化：三个系统先后共用一个目录，64 个购物车并发写入后恢复一件不少、结账快照、删除不回退（E44）
 CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.typed_persistence_demo | tail -1
-guard bash tools/reminder_demo.sh | tail -3
+guard "${BASH:-bash}" tools/reminder_demo.sh | tail -3
 # E61：无需外部凭据的真实 TCP SSE，以及会话磁盘恢复 / 重试 / 取消 / 流式进度
 CACTOR_LOG_LEVEL=error guard ./target/release/bin/cactor_examples.llm_http_demo
 CACTOR_LOG_LEVEL=off guard ./target/release/bin/cactor_examples.agent_orchestration_demo
@@ -121,6 +131,34 @@ CACTOR_LOG_LEVEL=off guard ./target/release/bin/cactor_examples.agent_orchestrat
 guard tools/ddata_stress.sh 4 5 | tail -1
 # 20 秒稳定性自检：收发零丢失、故障全部重启、子 Actor 全部停止、静止存活堆不增长
 CACTOR_LOG_LEVEL=off guard ./target/release/bin/cactor_examples.soak_test 20 | tail -5
+
+# 纯进程示例自检（E54）：这批示例的 main 自带断言，通过打印「xx：通过」并以 0 退出，
+# 失败则非 0。门禁不再只跑十几个，避免"示例腐烂但 CI 仍绿"。
+# 只打印最后一行（各示例自检的结论行），失败时 guard 的退出码先让 set -e 终止。
+# 清单写成完整二进制名（cactor_examples.<示例名>），tools/check_examples.py 直接扫描本文件
+# 判定"哪些示例进了门禁"，避免再维护第二份会漂移的列表。
+EXAMPLES_SELF_CHECK="
+cactor_examples.best01_hello_typed cactor_examples.best02_ask_roundtrip
+cactor_examples.best03_supervision_tree cactor_examples.best04_state_machine
+cactor_examples.best05_backpressure cactor_examples.best06_receptionist_pool
+cactor_examples.best07_event_sourced_account cactor_examples.best08_remote_nodes
+cactor_examples.best09_cluster_sharding cactor_examples.best10_agent_workflow
+cactor_examples.dsl_showcase cactor_examples.dsl_state_machine cactor_examples.dsl_agent
+cactor_examples.streams_demo cactor_examples.typed_actor_demo cactor_examples.hello_world_demo
+cactor_examples.ask_demo cactor_examples.ask_pattern_demo cactor_examples.test_framework_demo
+cactor_examples.functional_actor_demo cactor_examples.cangjie_features_demo
+cactor_examples.cangjie_dsl_features cactor_examples.xstate_demo
+cactor_examples.advanced_mailbox_examples cactor_examples.advanced_dispatcher_examples
+cactor_examples.enhanced_typed_actor_demo cactor_examples.configuration_usage_test cactor_examples.objectpool_performance_comparison
+cactor_examples.simple_objectpool_test cactor_examples.stdlib_objectpool_test
+cactor_examples.llm_token_stream cactor_examples.monitoring_demo cactor_examples.persistence_demo
+"
+for ex in $EXAMPLES_SELF_CHECK; do
+    CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1
+done
+
+# 示例治理（E54）：每个目录必须在 ci.sh 运行或在白名单里写明理由，README 清单与目录一致
+python3 tools/check_examples.py
 
 step "库代码中不应新增 println（报告类 print*/display*/show* 函数除外）"
 python3 - <<'EOF'
@@ -155,7 +193,7 @@ if [ "$RUN_BENCH" = "1" ]; then
     step "基准门禁（bench_gate.sh 决定退出码）"
     # 2026-11-06 修复（E4）：--bench 接入 bench_gate.sh 门禁，由它决定 CI 退出码；
     # 此前只打印数字不判定，门禁形同虚设。
-    bash tools/bench_gate.sh
+    "${BASH:-bash}" tools/bench_gate.sh
 fi
 
 step "全部通过"

@@ -149,6 +149,8 @@ go_protoactor_benchmark/go.mod
 # 基准：下载的依赖和运行结果
 bench/akka/jars/
 bench/results/
+# 例外：性能基线必须入库（tools/bench_gate.sh 依赖，按机器指纹分文件，E53）
+!bench/results/baseline-*.json
 
 # pi agent 运行时状态（目标池快照 / 事件日志），不入库
 .pi/goals/

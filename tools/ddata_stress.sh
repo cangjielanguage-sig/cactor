@@ -10,10 +10,13 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-if ! command -v cjpm >/dev/null 2>&1; then
-    # shellcheck disable=SC1091
-    source "${CANGJIE_HOME:-$HOME/.cangjie/1.2.0/cangjie}/envsetup.sh" >/dev/null
-fi
+# 仓颉环境 + DYLD_*（macOS）/ LD_LIBRARY_PATH（Linux）统一由 tools/env.sh 给出。
+# 不要只依赖继承来的环境：经 `guard`（timeout + bash）或 CI 的 /bin/bash 调用时，
+# dyld 共享缓存里的平台二进制 bash 会把继承的 DYLD_* 全部剔除，脚本自己不再设一遍就会
+# 找不到 libcangjie-runtime.dylib（"no LC_RPATH's found"，Abort trap: 6）。
+# env.sh 幂等（重复 source 不会重复追加路径），且包含 CANGJIE_HOME 探测与 OpenSSL 3 兜底。
+# shellcheck disable=SC1091
+source tools/env.sh
 
 ROUNDS="${1:-10}"
 SECS="${2:-8}"

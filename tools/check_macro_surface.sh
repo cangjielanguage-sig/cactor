@@ -15,16 +15,20 @@ cd "$(dirname "$0")/.."
 
 ALLOWED="actor actorReceive Message StateMachine"
 
-mapfile -t found < <(grep -rhoE "^public macro [A-Za-z_][A-Za-z0-9_]*" modules/macros/src --include=*.cj | awk '{print $3}' | sort -u)
+# 不用 mapfile / readarray：它们是 bash 4+ 内建，而 macOS 自带的 /bin/bash 是 3.2。
+# tools/ci.sh 用 `bash tools/...` 调子脚本时拿到的是 PATH 里的 bash（本机 3.2），
+# 2026-11-16 实测会以 “mapfile: command not found” + “found: unbound variable”
+# 把门禁判红，而宏公开面本身没问题。用可移植的逐行读取，两个版本都成立。
+found=$(grep -rhoE "^public macro [A-Za-z_][A-Za-z0-9_]*" modules/macros/src --include=*.cj | awk '{print $3}' | sort -u)
 
-if [[ ${#found[@]} -eq 0 ]]; then
+if [ -z "$found" ]; then
     echo "宏公开面检查：未找到任何宏（异常）"
     exit 1
 fi
 
 bad=0
-for name in "${found[@]}"; do
-    if ! grep -qw "$name" <<<"$ALLOWED"; then
+for name in $found; do
+    if ! printf '%s\n' $ALLOWED | grep -qx "$name"; then
         echo "宏公开面检查：发现不在白名单里的宏 @${name}"
         bad=1
     fi
@@ -32,12 +36,12 @@ done
 
 missing=""
 for name in $ALLOWED; do
-    if ! printf '%s\n' "${found[@]}" | grep -qx "$name"; then
+    if ! printf '%s\n' "$found" | grep -qx "$name"; then
         missing="${missing} @${name}"
     fi
 done
 
-echo "宏公开面（modules/macros）：${found[*]}"
+echo "宏公开面（modules/macros）：$(printf '%s' "$found" | tr '\n' ' ')"
 if [[ -n "${missing}" ]]; then
     echo "宏公开面检查：缺少期望的宏${missing}"
     bad=1
