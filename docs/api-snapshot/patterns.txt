@@ -88,54 +88,6 @@ cactor_patterns.ask :: public enum Result<T>
 cactor_patterns.ask :: public enum TypedResult<T>
 cactor_patterns.ask :: public struct Ask
 cactor_patterns.ask :: public struct AskStats
-cactor_patterns.backpressure :: BackpressureConfig.public init(strategy: BackpressureStrategy, maxBufferSize: Int64, maxThroughput: Int64, windowSize: Duration, dropThreshold: Float64, blockTimeout: Duration)
-cactor_patterns.backpressure :: BackpressureConfig.public let blockTimeout: Duration
-cactor_patterns.backpressure :: BackpressureConfig.public let dropThreshold: Float64
-cactor_patterns.backpressure :: BackpressureConfig.public let maxBufferSize: Int64
-cactor_patterns.backpressure :: BackpressureConfig.public let maxThroughput: Int64
-cactor_patterns.backpressure :: BackpressureConfig.public let strategy: BackpressureStrategy
-cactor_patterns.backpressure :: BackpressureConfig.public let windowSize: Duration
-cactor_patterns.backpressure :: BackpressureControllerFactory.public static func createBlockController(maxBufferSize: Int64, maxThroughput: Int64): BasicBackpressureController
-cactor_patterns.backpressure :: BackpressureControllerFactory.public static func createDropController(maxBufferSize: Int64, maxThroughput: Int64): BasicBackpressureController
-cactor_patterns.backpressure :: BackpressureControllerFactory.public static func createThrottleController(maxBufferSize: Int64, maxThroughput: Int64): BasicBackpressureController
-cactor_patterns.backpressure :: BackpressureException.public func getReason(): String
-cactor_patterns.backpressure :: BackpressureException.public func getStrategy(): BackpressureStrategy
-cactor_patterns.backpressure :: BackpressureException.public init(strategy: BackpressureStrategy, reason: String)
-cactor_patterns.backpressure :: BackpressureStats.public func getDropRate(): Float64
-cactor_patterns.backpressure :: BackpressureStats.public func getSuccessRate(): Float64
-cactor_patterns.backpressure :: BackpressureStats.public init(totalMessages: Int64, droppedMessages: Int64, blockedMessages: Int64, bufferedMessages: Int64, rejectedMessages: Int64, throttledMessages: Int64, currentThroughput: Float64, bufferUtilization: Float64)
-cactor_patterns.backpressure :: BackpressureStats.public let blockedMessages: Int64
-cactor_patterns.backpressure :: BackpressureStats.public let bufferUtilization: Float64
-cactor_patterns.backpressure :: BackpressureStats.public let bufferedMessages: Int64
-cactor_patterns.backpressure :: BackpressureStats.public let currentThroughput: Float64
-cactor_patterns.backpressure :: BackpressureStats.public let droppedMessages: Int64
-cactor_patterns.backpressure :: BackpressureStats.public let rejectedMessages: Int64
-cactor_patterns.backpressure :: BackpressureStats.public let throttledMessages: Int64
-cactor_patterns.backpressure :: BackpressureStats.public let totalMessages: Int64
-cactor_patterns.backpressure :: BackpressureStrategy.public func toString(): String
-cactor_patterns.backpressure :: BackpressureStrategy.| Block
-cactor_patterns.backpressure :: BackpressureStrategy.| Buffer
-cactor_patterns.backpressure :: BackpressureStrategy.| Drop
-cactor_patterns.backpressure :: BackpressureStrategy.| Reject
-cactor_patterns.backpressure :: BackpressureStrategy.| Throttle
-cactor_patterns.backpressure :: BasicBackpressureController.public func getBufferedMessages(): CActorQueue<Message>
-cactor_patterns.backpressure :: BasicBackpressureController.public func getStats(): BackpressureStats
-cactor_patterns.backpressure :: BasicBackpressureController.public func isOverloaded(): Bool
-cactor_patterns.backpressure :: BasicBackpressureController.public func reset(): Unit
-cactor_patterns.backpressure :: BasicBackpressureController.public func stop(): Unit
-cactor_patterns.backpressure :: BasicBackpressureController.public func trySend(message: Message): Bool
-cactor_patterns.backpressure :: BasicBackpressureController.public init(config: BackpressureConfig)
-cactor_patterns.backpressure :: FlowController.func getStats(): BackpressureStats
-cactor_patterns.backpressure :: FlowController.func isOverloaded(): Bool
-cactor_patterns.backpressure :: FlowController.func reset(): Unit
-cactor_patterns.backpressure :: FlowController.func trySend(message: Message): Bool
-cactor_patterns.backpressure :: public class BackpressureException <: Exception
-cactor_patterns.backpressure :: public class BasicBackpressureController <: FlowController
-cactor_patterns.backpressure :: public enum BackpressureStrategy <: ToString
-cactor_patterns.backpressure :: public interface FlowController
-cactor_patterns.backpressure :: public struct BackpressureConfig
-cactor_patterns.backpressure :: public struct BackpressureControllerFactory
-cactor_patterns.backpressure :: public struct BackpressureStats
 cactor_patterns.routing :: AddRoutee.public func messageType(): String
 cactor_patterns.routing :: AddRoutee.public init(routee: ActorRef)
 cactor_patterns.routing :: AddRoutee.public let routee: ActorRef
@@ -289,56 +241,6 @@ cactor_patterns.routing.advanced :: public class FailoverRoutingStrategy <: Rout
 cactor_patterns.routing.advanced :: public class RouterHealthChecker
 cactor_patterns.routing.advanced :: public class RoutingMetrics
 cactor_patterns.routing.advanced :: public class WeightedRoundRobinRoutingStrategy <: RoutingStrategy
-cactor_patterns.routing.factory :: AdvancedRouterFactory.func createOptimizedRouter(config: RouterConfig, scenario: RoutingScenario): Router
-cactor_patterns.routing.factory :: AdvancedRouterFactory.func createRouter(config: RouterConfig): Router
-cactor_patterns.routing.factory :: AdvancedRouterFactory.func getCreationStats(): String
-cactor_patterns.routing.factory :: AdvancedRouterFactory.func getSupportedTypes(): Array<RouterType>
-cactor_patterns.routing.factory :: AdvancedRouterFactory.func validateConfig(config: RouterConfig): Bool
-cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func createOptimizedRouter(config: RouterConfig, scenario: RoutingScenario): Router
-cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func createRouter(config: RouterConfig): Router
-cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func getCreationStats(): String
-cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func getSupportedTypes(): Array<RouterType>
-cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public func validateConfig(config: RouterConfig): Bool
-cactor_patterns.routing.factory :: DefaultAdvancedRouterFactory.public init()
-cactor_patterns.routing.factory :: RouterConfig.public init(routerType: RouterType, name: String)
-cactor_patterns.routing.factory :: RouterConfig.public init(routerType: RouterType, name: String, description: String, weights: Array<Int32>, primaryIndex: Int32, contentSelector: Option<(Message)->String>, customStrategy: Option<RoutingStrategy>)
-cactor_patterns.routing.factory :: RouterConfig.public let contentSelector: Option<(Message)->String>
-cactor_patterns.routing.factory :: RouterConfig.public let customStrategy: Option<RoutingStrategy>
-cactor_patterns.routing.factory :: RouterConfig.public let description: String
-cactor_patterns.routing.factory :: RouterConfig.public let name: String
-cactor_patterns.routing.factory :: RouterConfig.public let primaryIndex: Int32
-cactor_patterns.routing.factory :: RouterConfig.public let routerType: RouterType
-cactor_patterns.routing.factory :: RouterConfig.public let weights: Array<Int32>
-cactor_patterns.routing.factory :: RouterFactoryRegistry.public func getDefaultFactory(): AdvancedRouterFactory
-cactor_patterns.routing.factory :: RouterFactoryRegistry.public func getFactory(name: String): AdvancedRouterFactory
-cactor_patterns.routing.factory :: RouterFactoryRegistry.public func getFactoryNames(): Array<String>
-cactor_patterns.routing.factory :: RouterFactoryRegistry.public func registerFactory(name: String, factory: AdvancedRouterFactory): Unit
-cactor_patterns.routing.factory :: RouterFactoryRegistry.public init()
-cactor_patterns.routing.factory :: RouterType.| Broadcast
-cactor_patterns.routing.factory :: RouterType.| ConsistentHash
-cactor_patterns.routing.factory :: RouterType.| ContentBased
-cactor_patterns.routing.factory :: RouterType.| Custom
-cactor_patterns.routing.factory :: RouterType.| Failover
-cactor_patterns.routing.factory :: RouterType.| Random
-cactor_patterns.routing.factory :: RouterType.| RoundRobin
-cactor_patterns.routing.factory :: RouterType.| SmallestMailbox
-cactor_patterns.routing.factory :: RouterType.| WeightedRoundRobin
-cactor_patterns.routing.factory :: RoutingScenario.| Broadcast
-cactor_patterns.routing.factory :: RoutingScenario.| ContentRouting
-cactor_patterns.routing.factory :: RoutingScenario.| FaultTolerance
-cactor_patterns.routing.factory :: RoutingScenario.| HighThroughput
-cactor_patterns.routing.factory :: RoutingScenario.| LoadBalancing
-cactor_patterns.routing.factory :: RoutingScenario.| LowLatency
-cactor_patterns.routing.factory :: StringBuilder.public func append(str: String): Unit
-cactor_patterns.routing.factory :: StringBuilder.public func toString(): String
-cactor_patterns.routing.factory :: StringBuilder.public init()
-cactor_patterns.routing.factory :: public class DefaultAdvancedRouterFactory <: AdvancedRouterFactory
-cactor_patterns.routing.factory :: public class RouterConfig
-cactor_patterns.routing.factory :: public class RouterFactoryRegistry
-cactor_patterns.routing.factory :: public class StringBuilder
-cactor_patterns.routing.factory :: public enum RouterType
-cactor_patterns.routing.factory :: public enum RoutingScenario
-cactor_patterns.routing.factory :: public interface AdvancedRouterFactory
 cactor_patterns.spawnprotocol :: Spawn.public func messageType(): String
 cactor_patterns.spawnprotocol :: Spawn.public init(props: Props<Actor>, name: Option<String>, replyTo: ActorRef)
 cactor_patterns.spawnprotocol :: Spawn.public init(props: Props<Actor>, replyTo: ActorRef)

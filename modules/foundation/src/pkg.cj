@@ -11,10 +11,8 @@ public import cactor_foundation.queue.*
 public import cactor_foundation.serialization.*
 public import cactor_foundation.network.*
 
-// 新增的架构优化组件（暂时禁用有问题的模块）
-// public import cactor_foundation.di.*
-// public import cactor_foundation.abstractions.*
-// public import cactor_foundation.contracts.*
-// public import cactor_foundation.config.*  // 暂时禁用复杂配置系统
-public import cactor_foundation.simple_config.*  // 简化配置系统
+// 配置只有一套入口：cactor_foundation.config（LayeredConfig）。
+// 早期并行的 di / abstractions / contracts / simple_config 已删除（见 docs/plan/20261106.md E46/E47）：
+// 它们没有任何生产消费者，能力由 core 的真实类型、tools/check_module_deps.py 与 LayeredConfig 覆盖。
+// public import cactor_foundation.config.*  // 暂不整体重导出，避免与 core/config 同名类型混淆
 public import cactor_foundation.monitoring.*     // 监控系统

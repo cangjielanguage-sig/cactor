@@ -1,108 +1,5 @@
 # CActor 公开 API 快照：modules/foundation（tools/api_snapshot.py 生成，勿手改）
 # 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
-cactor_foundation.abstractions :: IActor.func postRestart(reason: Exception): Unit
-cactor_foundation.abstractions :: IActor.func postStop(): Unit
-cactor_foundation.abstractions :: IActor.func preRestart(reason: Exception): Unit
-cactor_foundation.abstractions :: IActor.func preStart(): Unit
-cactor_foundation.abstractions :: IActor.func receive(message: IMessage, context: IActorContext): IMessageResult
-cactor_foundation.abstractions :: IActor.prop description: String
-cactor_foundation.abstractions :: IActor.prop name: String
-cactor_foundation.abstractions :: IActorContext.func actorOf(props: IProps, name: String): IActorRef
-cactor_foundation.abstractions :: IActorContext.func sender(): Option<String>
-cactor_foundation.abstractions :: IActorContext.func stop(child: IActorRef): Unit
-cactor_foundation.abstractions :: IActorContext.func stopSelf(): Unit
-cactor_foundation.abstractions :: IActorContext.prop self: IActorRef
-cactor_foundation.abstractions :: IActorPath.func getName(): String
-cactor_foundation.abstractions :: IActorPath.func getParent(): Option<IActorPath>
-cactor_foundation.abstractions :: IActorPath.func toString(): String
-cactor_foundation.abstractions :: IActorRef.func equals(other: IActorRef): Bool
-cactor_foundation.abstractions :: IActorRef.func hashCode(): Int32
-cactor_foundation.abstractions :: IActorRef.func tell(message: IMessage): Unit
-cactor_foundation.abstractions :: IActorRef.func tell(message: IMessage, sender: Option<String>): Unit
-cactor_foundation.abstractions :: IActorRef.prop path: IActorPath
-cactor_foundation.abstractions :: IActorSystem.func actorOf(props: IProps, name: String): IActorRef
-cactor_foundation.abstractions :: IActorSystem.func actorSelection(path: String): Option<IActorRef>
-cactor_foundation.abstractions :: IActorSystem.func awaitTermination(timeout: Duration): Bool
-cactor_foundation.abstractions :: IActorSystem.func isTerminated(): Bool
-cactor_foundation.abstractions :: IActorSystem.func terminate(): Unit
-cactor_foundation.abstractions :: IActorSystem.prop name: String
-cactor_foundation.abstractions :: IConfiguration.func getBool(key: String): Option<Bool>
-cactor_foundation.abstractions :: IConfiguration.func getBool(key: String, defaultValue: Bool): Bool
-cactor_foundation.abstractions :: IConfiguration.func getDuration(key: String): Option<Duration>
-cactor_foundation.abstractions :: IConfiguration.func getDuration(key: String, defaultValue: Duration): Duration
-cactor_foundation.abstractions :: IConfiguration.func getInt(key: String): Option<Int32>
-cactor_foundation.abstractions :: IConfiguration.func getInt(key: String, defaultValue: Int32): Int32
-cactor_foundation.abstractions :: IConfiguration.func getString(key: String): Option<String>
-cactor_foundation.abstractions :: IConfiguration.func getString(key: String, defaultValue: String): String
-cactor_foundation.abstractions :: IDispatcher.func dispatch(actorRef: IActorRef, message: IMessage): Unit
-cactor_foundation.abstractions :: IDispatcher.func isRunning(): Bool
-cactor_foundation.abstractions :: IDispatcher.func start(): Unit
-cactor_foundation.abstractions :: IDispatcher.func stop(): Unit
-cactor_foundation.abstractions :: IDispatcher.prop name: String
-cactor_foundation.abstractions :: IEventBus.func publish(event: IMessage): Unit
-cactor_foundation.abstractions :: IEventBus.func subscribe(subscriber: IActorRef, eventType: String): Unit
-cactor_foundation.abstractions :: IEventBus.func unsubscribe(subscriber: IActorRef, eventType: String): Unit
-cactor_foundation.abstractions :: IEventBus.func unsubscribeAll(subscriber: IActorRef): Unit
-cactor_foundation.abstractions :: ILogger.func debug(message: String): Unit
-cactor_foundation.abstractions :: ILogger.func error(message: String): Unit
-cactor_foundation.abstractions :: ILogger.func error(message: String, exception: Exception): Unit
-cactor_foundation.abstractions :: ILogger.func info(message: String): Unit
-cactor_foundation.abstractions :: ILogger.func warn(message: String): Unit
-cactor_foundation.abstractions :: IMailbox.func dequeue(): Option<IMessage>
-cactor_foundation.abstractions :: IMailbox.func enqueue(message: IMessage): Bool
-cactor_foundation.abstractions :: IMailbox.func isEmpty(): Bool
-cactor_foundation.abstractions :: IMailbox.func isFull(): Bool
-cactor_foundation.abstractions :: IMailbox.func size(): Int32
-cactor_foundation.abstractions :: IMessage.func messageType(): String
-cactor_foundation.abstractions :: IMessageResult.| Failed
-cactor_foundation.abstractions :: IMessageResult.| Handled
-cactor_foundation.abstractions :: IMessageResult.| Unhandled
-cactor_foundation.abstractions :: IProps.func create(): IActor
-cactor_foundation.abstractions :: IProps.func getDispatcher(): String
-cactor_foundation.abstractions :: IProps.func getMailbox(): String
-cactor_foundation.abstractions :: IProps.func getSupervisionStrategy(): String
-cactor_foundation.abstractions :: ISerializer.func deserialize(data: Array<UInt8>): Any
-cactor_foundation.abstractions :: ISerializer.func getIdentifier(): String
-cactor_foundation.abstractions :: ISerializer.func serialize(obj: Any): Array<UInt8>
-cactor_foundation.abstractions :: ISupervisionDirective.| Escalate
-cactor_foundation.abstractions :: ISupervisionDirective.| Restart
-cactor_foundation.abstractions :: ISupervisionDirective.| Resume
-cactor_foundation.abstractions :: ISupervisionDirective.| Stop
-cactor_foundation.abstractions :: ISupervisionStrategy.func handleChildFailure(child: IActorRef, cause: Exception): ISupervisionDirective
-cactor_foundation.abstractions :: ITransport.func getLocalAddress(): String
-cactor_foundation.abstractions :: ITransport.func send(address: String, data: Array<UInt8>): Unit
-cactor_foundation.abstractions :: ITransport.func start(): Unit
-cactor_foundation.abstractions :: ITransport.func stop(): Unit
-cactor_foundation.abstractions :: public enum IMessageResult
-cactor_foundation.abstractions :: public enum ISupervisionDirective
-cactor_foundation.abstractions :: public interface IActor
-cactor_foundation.abstractions :: public interface IActorContext
-cactor_foundation.abstractions :: public interface IActorPath
-cactor_foundation.abstractions :: public interface IActorRef
-cactor_foundation.abstractions :: public interface IActorSystem
-cactor_foundation.abstractions :: public interface IConfiguration
-cactor_foundation.abstractions :: public interface IDispatcher
-cactor_foundation.abstractions :: public interface IEventBus
-cactor_foundation.abstractions :: public interface ILogger
-cactor_foundation.abstractions :: public interface IMailbox
-cactor_foundation.abstractions :: public interface IMessage
-cactor_foundation.abstractions :: public interface IProps
-cactor_foundation.abstractions :: public interface ISerializer
-cactor_foundation.abstractions :: public interface ISupervisionStrategy
-cactor_foundation.abstractions :: public interface ITransport
-cactor_foundation.attributes :: AttributeKey.public func toString(): String
-cactor_foundation.attributes :: AttributeKey.public init(name: String)
-cactor_foundation.attributes :: AttributeKey.public let id: Int64
-cactor_foundation.attributes :: AttributeKey.public let name: String
-cactor_foundation.attributes :: Attributes.public func computeIfAbsent<T>(key: AttributeKey<T>, create: ()->T): T
-cactor_foundation.attributes :: Attributes.public func contains<T>(key: AttributeKey<T>): Bool
-cactor_foundation.attributes :: Attributes.public func get<T>(key: AttributeKey<T>): Option<T>
-cactor_foundation.attributes :: Attributes.public func getOrElse<T>(key: AttributeKey<T>, fallback: T): T
-cactor_foundation.attributes :: Attributes.public func put<T>(key: AttributeKey<T>, value: T): Unit
-cactor_foundation.attributes :: Attributes.public func remove<T>(key: AttributeKey<T>): Unit
-cactor_foundation.attributes :: Attributes.public init()
-cactor_foundation.attributes :: public class AttributeKey<T>
-cactor_foundation.attributes :: public class Attributes
 cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func execute(operation: ()->T): T
 cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func fail(): Unit
 cactor_foundation.circuit_breaker :: BasicCircuitBreaker.public func getState(): CircuitBreakerState
@@ -354,59 +251,6 @@ cactor_foundation.config :: public struct ConfigChangeEvent
 cactor_foundation.config :: public struct ConfigStatistics
 cactor_foundation.config :: public struct ConfigValue
 cactor_foundation.config :: public struct GlobalConfigManager
-cactor_foundation.contracts :: APIContract.func getConfigurationAPI(): Any
-cactor_foundation.contracts :: APIContract.func getExtensionAPI(): Any
-cactor_foundation.contracts :: APIContract.func getUnifiedAPI(): Any
-cactor_foundation.contracts :: CoreContract.func getActorFactory(): Any
-cactor_foundation.contracts :: CoreContract.func getMessageSystem(): Any
-cactor_foundation.contracts :: CoreContract.func getSupervisionStrategy(): Any
-cactor_foundation.contracts :: CoreContract.func getSystemManager(): Any
-cactor_foundation.contracts :: FoundationContract.func getDIContainer(): Any
-cactor_foundation.contracts :: FoundationContract.func getMemoryManager(): Any
-cactor_foundation.contracts :: FoundationContract.func getNetworkTransport(): Any
-cactor_foundation.contracts :: FoundationContract.func getQueueFactory(): Any
-cactor_foundation.contracts :: FoundationContract.func getSerializer(): Any
-cactor_foundation.contracts :: GlobalModuleRegistry.public static func getInstance(): ModuleRegistry
-cactor_foundation.contracts :: GlobalModuleRegistry.public static func reset(): Unit
-cactor_foundation.contracts :: ModuleContract.func dispose(): Unit
-cactor_foundation.contracts :: ModuleContract.func getDependencies(): Array<String>
-cactor_foundation.contracts :: ModuleContract.func getProvidedServices(): Array<String>
-cactor_foundation.contracts :: ModuleContract.func getRequiredServices(): Array<String>
-cactor_foundation.contracts :: ModuleContract.func initialize(): Unit
-cactor_foundation.contracts :: ModuleContract.func validate(): Bool
-cactor_foundation.contracts :: ModuleContract.prop description: String
-cactor_foundation.contracts :: ModuleContract.prop layer: ModuleLayer
-cactor_foundation.contracts :: ModuleContract.prop moduleName: String
-cactor_foundation.contracts :: ModuleContract.prop version: String
-cactor_foundation.contracts :: ModuleLayer.public func hashCode(): Int64
-cactor_foundation.contracts :: ModuleLayer.public func toString(): String
-cactor_foundation.contracts :: ModuleLayer.| API
-cactor_foundation.contracts :: ModuleLayer.| Core
-cactor_foundation.contracts :: ModuleLayer.| Distribution
-cactor_foundation.contracts :: ModuleLayer.| Foundation
-cactor_foundation.contracts :: ModuleLayer.| Integration
-cactor_foundation.contracts :: ModuleLayer.| Patterns
-cactor_foundation.contracts :: ModuleLayer.| Runtime
-cactor_foundation.contracts :: ModuleRegistry.public func disposeAll(): Unit
-cactor_foundation.contracts :: ModuleRegistry.public func generateDependencyReport(): String
-cactor_foundation.contracts :: ModuleRegistry.public func getModule(moduleName: String): Option<ModuleContract>
-cactor_foundation.contracts :: ModuleRegistry.public func getModulesInLayer(layer: ModuleLayer): Array<ModuleContract>
-cactor_foundation.contracts :: ModuleRegistry.public func initializeAll(): Unit
-cactor_foundation.contracts :: ModuleRegistry.public func registerModule(module: ModuleContract): Unit
-cactor_foundation.contracts :: ModuleRegistry.public func validateDependencies(): Array<String>
-cactor_foundation.contracts :: ModuleRegistry.public init()
-cactor_foundation.contracts :: RuntimeContract.func getDispatcherFactory(): Any
-cactor_foundation.contracts :: RuntimeContract.func getLifecycleManager(): Any
-cactor_foundation.contracts :: RuntimeContract.func getMailboxFactory(): Any
-cactor_foundation.contracts :: RuntimeContract.func getMonitoringSystem(): Any
-cactor_foundation.contracts :: public class ModuleRegistry
-cactor_foundation.contracts :: public enum ModuleLayer
-cactor_foundation.contracts :: public interface APIContract <: ModuleContract
-cactor_foundation.contracts :: public interface CoreContract <: ModuleContract
-cactor_foundation.contracts :: public interface FoundationContract <: ModuleContract
-cactor_foundation.contracts :: public interface ModuleContract
-cactor_foundation.contracts :: public interface RuntimeContract <: ModuleContract
-cactor_foundation.contracts :: public struct GlobalModuleRegistry
 cactor_foundation.coordination :: AbstractLease.public func acquire(onLost: (Option<Exception>)->Unit): Bool
 cactor_foundation.coordination :: AbstractLease.public func checkLease(): Bool
 cactor_foundation.coordination :: AbstractLease.public func fencingToken(): Option<Int64>
@@ -473,51 +317,6 @@ cactor_foundation.detector :: public class FailureDetectorRegistry
 cactor_foundation.detector :: public class HeartbeatHistory
 cactor_foundation.detector :: public class PhiAccrualFailureDetector
 cactor_foundation.detector :: public func monotonicMillis(): Int64
-cactor_foundation.di :: DIContainer.func dispose(): Unit
-cactor_foundation.di :: DIContainer.func getRegisteredServices(): Array<String>
-cactor_foundation.di :: DIContainer.func isRegistered(serviceType: String): Bool
-cactor_foundation.di :: DIContainer.func registerScoped<T>(serviceType: String, factory: ()->T): Unit
-cactor_foundation.di :: DIContainer.func registerSingleton<T>(serviceType: String, implementation: T): Unit
-cactor_foundation.di :: DIContainer.func registerTransient<T>(serviceType: String, factory: ()->T): Unit
-cactor_foundation.di :: DIContainer.func resolve<T>(serviceType: String): Option<T>
-cactor_foundation.di :: DIContainer.func resolveRequired<T>(serviceType: String): T
-cactor_foundation.di :: DIContainerProvider.public static func getContainer(): DIContainer
-cactor_foundation.di :: DIContainerProvider.public static func reset(): Unit
-cactor_foundation.di :: DIContainerProvider.public static func setContainer(container: DIContainer): Unit
-cactor_foundation.di :: DefaultDIContainer.public func clearScope(): Unit
-cactor_foundation.di :: DefaultDIContainer.public func dispose(): Unit
-cactor_foundation.di :: DefaultDIContainer.public func getRegisteredServices(): Array<String>
-cactor_foundation.di :: DefaultDIContainer.public func isRegistered(serviceType: String): Bool
-cactor_foundation.di :: DefaultDIContainer.public func registerScoped<T>(serviceType: String, factory: ()->T): Unit
-cactor_foundation.di :: DefaultDIContainer.public func registerSingleton<T>(serviceType: String, implementation: T): Unit
-cactor_foundation.di :: DefaultDIContainer.public func registerTransient<T>(serviceType: String, factory: ()->T): Unit
-cactor_foundation.di :: DefaultDIContainer.public func resolve<T>(serviceType: String): Option<T>
-cactor_foundation.di :: DefaultDIContainer.public func resolveRequired<T>(serviceType: String): T
-cactor_foundation.di :: DefaultDIContainer.public init()
-cactor_foundation.di :: ServiceDescriptor.public init(serviceType: String, factory: ()->Any, lifetime: ServiceLifetime)
-cactor_foundation.di :: ServiceDescriptor.public init(serviceType: String, implementationType: String, lifetime: ServiceLifetime)
-cactor_foundation.di :: ServiceDescriptor.public let factory: Option<()->Any>
-cactor_foundation.di :: ServiceDescriptor.public let implementationType: String
-cactor_foundation.di :: ServiceDescriptor.public let lifetime: ServiceLifetime
-cactor_foundation.di :: ServiceDescriptor.public let serviceType: String
-cactor_foundation.di :: ServiceInstance.public init(instance: Any, lifetime: ServiceLifetime)
-cactor_foundation.di :: ServiceInstance.public let createdAt: Int64
-cactor_foundation.di :: ServiceInstance.public let instance: Any
-cactor_foundation.di :: ServiceInstance.public let lifetime: ServiceLifetime
-cactor_foundation.di :: ServiceLifetime.| Scoped
-cactor_foundation.di :: ServiceLifetime.| Singleton
-cactor_foundation.di :: ServiceLifetime.| Transient
-cactor_foundation.di :: ServiceLocator.public static func getRequiredService<T>(serviceType: String): T
-cactor_foundation.di :: ServiceLocator.public static func getService<T>(serviceType: String): Option<T>
-cactor_foundation.di :: ServiceLocator.public static func registerSingleton<T>(serviceType: String, implementation: T): Unit
-cactor_foundation.di :: ServiceLocator.public static func registerTransient<T>(serviceType: String, factory: ()->T): Unit
-cactor_foundation.di :: public class DefaultDIContainer <: DIContainer
-cactor_foundation.di :: public enum ServiceLifetime
-cactor_foundation.di :: public interface DIContainer
-cactor_foundation.di :: public struct DIContainerProvider
-cactor_foundation.di :: public struct ServiceDescriptor
-cactor_foundation.di :: public struct ServiceInstance
-cactor_foundation.di :: public struct ServiceLocator
 cactor_foundation.hashing :: public func boundedIndex(h: UInt64, n: Int64): Int64
 cactor_foundation.hashing :: public func constantTimeEquals(a: Array<UInt8>, b: Array<UInt8>): Bool
 cactor_foundation.hashing :: public func crc32(data: Array<UInt8>): UInt32
@@ -531,42 +330,6 @@ cactor_foundation.hashing :: public func sha256(data: Array<UInt8>): Array<UInt8
 cactor_foundation.hashing :: public func stableHash64(s: String): UInt64
 cactor_foundation.hashing :: public func toHex(bytes: Array<UInt8>): String
 cactor_foundation.hashing :: public let SHA256_BLOCK_SIZE: Int64
-cactor_foundation.log :: LogBackend.func write(level: LogLevel, loggerName: String, message: String): Unit
-cactor_foundation.log :: LogLevel.public func severity(): Int64
-cactor_foundation.log :: LogLevel.public func toString(): String
-cactor_foundation.log :: LogLevel.public static func fromSeverity(v: Int64): LogLevel
-cactor_foundation.log :: LogLevel.| Debug
-cactor_foundation.log :: LogLevel.| Error
-cactor_foundation.log :: LogLevel.| Info
-cactor_foundation.log :: LogLevel.| Off
-cactor_foundation.log :: LogLevel.| Trace
-cactor_foundation.log :: LogLevel.| Warn
-cactor_foundation.log :: Logger.public func debug(message: ()->String): Unit
-cactor_foundation.log :: Logger.public func debug(message: String): Unit
-cactor_foundation.log :: Logger.public func error(message: String): Unit
-cactor_foundation.log :: Logger.public func info(message: ()->String): Unit
-cactor_foundation.log :: Logger.public func info(message: String): Unit
-cactor_foundation.log :: Logger.public func isEnabled(level: LogLevel): Bool
-cactor_foundation.log :: Logger.public func log(level: LogLevel, message: ()->String): Unit
-cactor_foundation.log :: Logger.public func log(level: LogLevel, message: String): Unit
-cactor_foundation.log :: Logger.public func trace(message: String): Unit
-cactor_foundation.log :: Logger.public func warn(message: String): Unit
-cactor_foundation.log :: Logger.public let name: String
-cactor_foundation.log :: LoggerFactory.public static func getLevel(): LogLevel
-cactor_foundation.log :: LoggerFactory.public static func getLogger(name: String): Logger
-cactor_foundation.log :: LoggerFactory.public static func setBackend(b: LogBackend): Unit
-cactor_foundation.log :: LoggerFactory.public static func setLevel(l: LogLevel): Unit
-cactor_foundation.log :: MemoryLogBackend.public func entries(): Array<String>
-cactor_foundation.log :: MemoryLogBackend.public func write(level: LogLevel, loggerName: String, message: String): Unit
-cactor_foundation.log :: MemoryLogBackend.public init()
-cactor_foundation.log :: StderrLogBackend.public func write(level: LogLevel, loggerName: String, message: String): Unit
-cactor_foundation.log :: StderrLogBackend.public init()
-cactor_foundation.log :: public class Logger
-cactor_foundation.log :: public class LoggerFactory
-cactor_foundation.log :: public class MemoryLogBackend <: LogBackend
-cactor_foundation.log :: public class StderrLogBackend <: LogBackend
-cactor_foundation.log :: public enum LogLevel <: ToString
-cactor_foundation.log :: public interface LogBackend
 cactor_foundation.logging :: JsonLinesSink.public func write(record: LogRecord): Unit
 cactor_foundation.logging :: JsonLinesSink.public init()
 cactor_foundation.logging :: JsonLinesSink.public init(out: (String)->Unit)
@@ -1136,28 +899,6 @@ cactor_foundation.network :: public let MAX_PENDING_BYTES: Int64
 cactor_foundation.network :: public struct NetworkAddress
 cactor_foundation.network :: public struct NetworkPacket
 cactor_foundation.network :: public struct TcpTransportLimits
-cactor_foundation.plugin :: DuplicatePluginException.public init(name: String)
-cactor_foundation.plugin :: HookList.public func add(hook: (C)->Unit): Unit
-cactor_foundation.plugin :: HookList.public func freeze(): Unit
-cactor_foundation.plugin :: HookList.public func isEmpty(): Bool
-cactor_foundation.plugin :: HookList.public func run(c: C): Unit
-cactor_foundation.plugin :: HookList.public init()
-cactor_foundation.plugin :: InterceptorChain.public func add(interceptor: (C, ()->Unit)->Unit): Unit
-cactor_foundation.plugin :: InterceptorChain.public func build(terminal: (C)->Unit): (C)->Unit
-cactor_foundation.plugin :: InterceptorChain.public func size(): Int64
-cactor_foundation.plugin :: InterceptorChain.public init()
-cactor_foundation.plugin :: PluginFrozenException.public init(name: String)
-cactor_foundation.plugin :: PluginRegistry.public func contains(name: String): Bool
-cactor_foundation.plugin :: PluginRegistry.public func freeze(): Unit
-cactor_foundation.plugin :: PluginRegistry.public func installed(): Array<String>
-cactor_foundation.plugin :: PluginRegistry.public func isFrozen(): Bool
-cactor_foundation.plugin :: PluginRegistry.public func register(name: String): Unit
-cactor_foundation.plugin :: PluginRegistry.public init()
-cactor_foundation.plugin :: public class DuplicatePluginException <: Exception
-cactor_foundation.plugin :: public class HookList<C>
-cactor_foundation.plugin :: public class InterceptorChain<C>
-cactor_foundation.plugin :: public class PluginFrozenException <: Exception
-cactor_foundation.plugin :: public class PluginRegistry
 cactor_foundation.queue :: AtomicSlot.public func cancelRead(): Unit
 cactor_foundation.queue :: AtomicSlot.public func cancelWrite(): Unit
 cactor_foundation.queue :: AtomicSlot.public func finishRead(): Option<T>
@@ -1409,39 +1150,3 @@ cactor_foundation.serialization :: public open class SerializationManager
 cactor_foundation.serialization :: public struct SerializationConfig
 cactor_foundation.serialization :: public struct SerializationMetadata
 cactor_foundation.serialization :: public struct SerializationVersion
-cactor_foundation.simple_config :: GlobalSimpleConfig.public static func getBool(key: String, defaultValue: Bool): Bool
-cactor_foundation.simple_config :: GlobalSimpleConfig.public static func getInstance(): SimpleConfigManager
-cactor_foundation.simple_config :: GlobalSimpleConfig.public static func getInt(key: String, defaultValue: Int32): Int32
-cactor_foundation.simple_config :: GlobalSimpleConfig.public static func getString(key: String, defaultValue: String): String
-cactor_foundation.simple_config :: GlobalSimpleConfig.public static func reset(): Unit
-cactor_foundation.simple_config :: GlobalSimpleConfig.public static func setBool(key: String, value: Bool): Unit
-cactor_foundation.simple_config :: GlobalSimpleConfig.public static func setInt(key: String, value: Int32): Unit
-cactor_foundation.simple_config :: GlobalSimpleConfig.public static func setString(key: String, value: String): Unit
-cactor_foundation.simple_config :: SimpleConfigManager.public func clear(): Unit
-cactor_foundation.simple_config :: SimpleConfigManager.public func getBool(key: String): Option<Bool>
-cactor_foundation.simple_config :: SimpleConfigManager.public func getBool(key: String, defaultValue: Bool): Bool
-cactor_foundation.simple_config :: SimpleConfigManager.public func getConfigCount(): Int32
-cactor_foundation.simple_config :: SimpleConfigManager.public func getInt(key: String): Option<Int32>
-cactor_foundation.simple_config :: SimpleConfigManager.public func getInt(key: String, defaultValue: Int32): Int32
-cactor_foundation.simple_config :: SimpleConfigManager.public func getString(key: String): Option<String>
-cactor_foundation.simple_config :: SimpleConfigManager.public func getString(key: String, defaultValue: String): String
-cactor_foundation.simple_config :: SimpleConfigManager.public func hasKey(key: String): Bool
-cactor_foundation.simple_config :: SimpleConfigManager.public func printAllConfigs(): Unit
-cactor_foundation.simple_config :: SimpleConfigManager.public func reload(): Unit
-cactor_foundation.simple_config :: SimpleConfigManager.public func setBool(key: String, value: Bool): Unit
-cactor_foundation.simple_config :: SimpleConfigManager.public func setInt(key: String, value: Int32): Unit
-cactor_foundation.simple_config :: SimpleConfigManager.public func setString(key: String, value: String): Unit
-cactor_foundation.simple_config :: SimpleConfigManager.public init()
-cactor_foundation.simple_config :: SimpleConfigValue.public func asBool(): Bool
-cactor_foundation.simple_config :: SimpleConfigValue.public func asInt(): Int32
-cactor_foundation.simple_config :: SimpleConfigValue.public func asString(): String
-cactor_foundation.simple_config :: SimpleConfigValue.public init(stringValue: String, intValue: Int32, boolValue: Bool)
-cactor_foundation.simple_config :: SimpleConfigValue.public let boolValue: Bool
-cactor_foundation.simple_config :: SimpleConfigValue.public let intValue: Int32
-cactor_foundation.simple_config :: SimpleConfigValue.public let stringValue: String
-cactor_foundation.simple_config :: SimpleConfigValue.public static func fromBool(value: Bool): SimpleConfigValue
-cactor_foundation.simple_config :: SimpleConfigValue.public static func fromInt(value: Int32): SimpleConfigValue
-cactor_foundation.simple_config :: SimpleConfigValue.public static func fromString(value: String): SimpleConfigValue
-cactor_foundation.simple_config :: public class SimpleConfigManager
-cactor_foundation.simple_config :: public struct GlobalSimpleConfig
-cactor_foundation.simple_config :: public struct SimpleConfigValue

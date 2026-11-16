@@ -91,17 +91,6 @@
 ? :: AtomicSlot.public static let FILLED: Int64
 ? :: AtomicSlot.public static let READING: Int64
 ? :: AtomicSlot.public static let WRITING: Int64
-? :: BackpressureRingBufferMailbox.public func clear(): Unit
-? :: BackpressureRingBufferMailbox.public func close(): Unit
-? :: BackpressureRingBufferMailbox.public func dequeue(): Option<Envelope>
-? :: BackpressureRingBufferMailbox.public func enqueue(envelope: Envelope): Bool
-? :: BackpressureRingBufferMailbox.public func getBackpressureThreshold(): Float64
-? :: BackpressureRingBufferMailbox.public func getLoadRatio(): Float64
-? :: BackpressureRingBufferMailbox.public func getRejectedCount(): Int64
-? :: BackpressureRingBufferMailbox.public func isClosed(): Bool
-? :: BackpressureRingBufferMailbox.public func isEmpty(): Bool
-? :: BackpressureRingBufferMailbox.public func size(): Int64
-? :: BackpressureRingBufferMailbox.public init(capacity: Int64, backpressureThreshold: Float64)
 ? :: BaseGuardianActor.public func createChild(props: Props<Actor>, name: String): ActorRef
 ? :: BaseGuardianActor.public func findChild(name: String): Option<ActorRef>
 ? :: BaseGuardianActor.public func getChildren(): Array<ActorRef>
@@ -117,46 +106,6 @@
 ? :: BaseGuardianActor.public open prop name: String
 ? :: BaseGuardianActor.public prop guardianType: GuardianType
 ? :: BaseGuardianActor.public prop parent: Option<ActorRef>
-? :: BatchConfig.public init(maxBatchSize: UInt32, timeoutMs: UInt64, enableBackpressure: Bool, maxQueueSize: UInt32)
-? :: BatchConfig.public let enableBackpressure: Bool
-? :: BatchConfig.public let maxBatchSize: UInt32
-? :: BatchConfig.public let maxQueueSize: UInt32
-? :: BatchConfig.public let timeoutMs: UInt64
-? :: BatchConfig.public static func createDefault(): BatchConfig
-? :: BatchMessageProcessor.public func adaptiveBatchProcess(): Array<Envelope>
-? :: BatchMessageProcessor.public func addMessage(envelope: Envelope): Bool
-? :: BatchMessageProcessor.public func clear(): Unit
-? :: BatchMessageProcessor.public func getStats(): BatchProcessorStats
-? :: BatchMessageProcessor.public func processBatch(): Array<Envelope>
-? :: BatchMessageProcessor.public func processBatchWithSize(size: Int32): Array<Envelope>
-? :: BatchMessageProcessor.public func stop(): Unit
-? :: BatchMessageProcessor.public func waitAndProcessBatch(): Array<Envelope>
-? :: BatchMessageProcessor.public init(batchSize: Int32, maxWaitTime: Int64)
-? :: BatchProcessor.public func addMessage(message: T): Bool
-? :: BatchProcessor.public func flush(): Unit
-? :: BatchProcessor.public func getStats(): BatchStats
-? :: BatchProcessor.public func start(): Unit
-? :: BatchProcessor.public func stop(): Unit
-? :: BatchProcessor.public init(config: BatchConfig, processorFunc: (Array<T>)->Unit)
-? :: BatchProcessorFactory.public static func createDefault<T>(processor: (Array<T>)->Unit): BatchProcessor<T>
-? :: BatchProcessorFactory.public static func createMessageProcessor(config: BatchConfig, processor: (Array<Message>)->Unit): BatchProcessor<Message>
-? :: BatchProcessorStats.public func getThroughput(): Float64
-? :: BatchProcessorStats.public init(totalMessages: Int64, totalBatches: Int64, avgBatchSize: Int64, maxLatency: Int64, minLatency: Int64, currentBufferSize: Int32)
-? :: BatchProcessorStats.public let avgBatchSize: Int64
-? :: BatchProcessorStats.public let currentBufferSize: Int32
-? :: BatchProcessorStats.public let maxLatency: Int64
-? :: BatchProcessorStats.public let minLatency: Int64
-? :: BatchProcessorStats.public let totalBatches: Int64
-? :: BatchProcessorStats.public let totalMessages: Int64
-? :: BatchStats.public func getAverageBatchSize(): Int64
-? :: BatchStats.public func getBackpressureEvents(): Int64
-? :: BatchStats.public func getTimeoutBatches(): Int64
-? :: BatchStats.public func getTimeoutRate(): Float64
-? :: BatchStats.public func getTotalBatches(): Int64
-? :: BatchStats.public func getTotalMessages(): Int64
-? :: BatchStats.public func recordBackpressure(): Unit
-? :: BatchStats.public func recordBatch(batchSize: Int64, isTimeout: Bool): Unit
-? :: BatchStats.public init()
 ? :: CellContext.public func actorOf(creator: ()->Actor): ActorRef
 ? :: CellContext.public func actorOf(props: Props<Actor>, name: String): ActorRef
 ? :: CellContext.public func become(behavior: Receive, discardOld: Bool): Unit
@@ -258,9 +207,6 @@
 ? :: LockFreeRingBufferMailbox.public func isEmpty(): Bool
 ? :: LockFreeRingBufferMailbox.public func size(): Int64
 ? :: LockFreeRingBufferMailbox.public init(requestedCapacity: Int64)
-? :: MailboxBatchDetector.public static func getRecommendedBatchSize(mailbox: Mailbox, currentLoad: Int32): Int32
-? :: MailboxBatchDetector.public static func pullMessages(mailbox: Mailbox, maxBatchSize: Int32): Array<Envelope>
-? :: MailboxBatchDetector.public static func supportsBatchDequeue(mailbox: Mailbox): Bool
 ? :: MailboxStats.public func getSuccessRate(): Float64
 ? :: MailboxStats.public func getUtilization(): Float64
 ? :: MailboxStats.public init(enqueueCount: Int64, dequeueCount: Int64, failedEnqueues: Int64, failedDequeues: Int64, currentSize: Int64, capacity: Int64)
@@ -357,16 +303,6 @@
 ? :: RestartMessage.public func messageType(): String
 ? :: RestartMessage.public func priority(): Int32
 ? :: RestartMessage.public init(reason: Exception)
-? :: RingBufferMailbox.public func clear(): Unit
-? :: RingBufferMailbox.public func close(): Unit
-? :: RingBufferMailbox.public func dequeue(): Option<Envelope>
-? :: RingBufferMailbox.public func enqueue(envelope: Envelope): Bool
-? :: RingBufferMailbox.public func getCapacity(): Int64
-? :: RingBufferMailbox.public func getLoadRatio(): Float64
-? :: RingBufferMailbox.public func isClosed(): Bool
-? :: RingBufferMailbox.public func isEmpty(): Bool
-? :: RingBufferMailbox.public func size(): Int64
-? :: RingBufferMailbox.public init(capacity: Int64)
 ? :: RuntimeSystemGuardian.public func createSystemActor(props: Props<Actor>, name: String): ActorRef
 ? :: RuntimeSystemGuardian.public func createUserGuardian(): ActorRef
 ? :: RuntimeSystemGuardian.public func getSystemActor(name: String): Option<ActorRef>
@@ -528,11 +464,6 @@
 ? :: public class ActorSystemMetrics
 ? :: public class ActorTask
 ? :: public class AtomicSlot
-? :: public class BackpressureRingBufferMailbox <: Mailbox
-? :: public class BatchMessageProcessor
-? :: public class BatchProcessor<T>
-? :: public class BatchProcessorFactory
-? :: public class BatchStats
 ? :: public class CellContext <: ActorContext
 ? :: public class CreateSystemActorMessage <: Message
 ? :: public class CreateUserActorMessage <: Message
@@ -540,14 +471,12 @@
 ? :: public class HighPerformanceActor <: Actor
 ? :: public class LoadBalancer
 ? :: public class LockFreeRingBufferMailbox <: Mailbox
-? :: public class MailboxBatchDetector
 ? :: public class OptimizedWorkStealingDispatcher
 ? :: public class OptimizedWorkerThread
 ? :: public class PerformanceMonitor
 ? :: public class PooledActorContext <: ActorContext
 ? :: public class PooledActorContextPool <: ObjectPool<PooledActorContext>
 ? :: public class RestartMessage <: AutoReceivedMessage
-? :: public class RingBufferMailbox <: Mailbox
 ? :: public class RuntimeSystemGuardian <: BaseGuardianActor
 ? :: public class RuntimeUserGuardian <: BaseGuardianActor
 ? :: public class SimpleActorRegistry
@@ -570,8 +499,6 @@
 ? :: public open class BaseGuardianActor <: GuardianActor
 ? :: public struct ActorRegistryEntry
 ? :: public struct ActorStats
-? :: public struct BatchConfig
-? :: public struct BatchProcessorStats
 ? :: public struct CompactActorState
 ? :: public struct MailboxStats
 ? :: public struct PerformanceMetrics
@@ -1464,39 +1391,6 @@ cactor_runtime.mailbox.factory :: public class MailboxFactoryRegistry
 cactor_runtime.mailbox.factory :: public class StringBuilder
 cactor_runtime.mailbox.factory :: public enum UsagePattern
 cactor_runtime.mailbox.factory :: public interface AdvancedMailboxFactory
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func clear(): Unit
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func close(): Unit
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func getLoadRatio(): Float64
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func getMaxCapacity(): Int64
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func getRejectedCount(): Int64
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func isClosed(): Bool
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public func size(): Int64
-cactor_runtime.mailbox.queue :: BoundedQueueMailbox.public init(maxCapacity: Int64)
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func clear(): Unit
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func close(): Unit
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func getHighPrioritySize(): Int64
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func getLowPrioritySize(): Int64
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func getNormalPrioritySize(): Int64
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func isClosed(): Bool
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public func size(): Int64
-cactor_runtime.mailbox.queue :: PriorityQueueMailbox.public init()
-cactor_runtime.mailbox.queue :: QueueMailbox.public func clear(): Unit
-cactor_runtime.mailbox.queue :: QueueMailbox.public func close(): Unit
-cactor_runtime.mailbox.queue :: QueueMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.queue :: QueueMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.queue :: QueueMailbox.public func isClosed(): Bool
-cactor_runtime.mailbox.queue :: QueueMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.queue :: QueueMailbox.public func size(): Int64
-cactor_runtime.mailbox.queue :: QueueMailbox.public init()
-cactor_runtime.mailbox.queue :: public class BoundedQueueMailbox <: Mailbox
-cactor_runtime.mailbox.queue :: public class PriorityQueueMailbox <: Mailbox
-cactor_runtime.mailbox.queue :: public class QueueMailbox <: Mailbox
 cactor_runtime.supervision :: ActorSupervisionInfo.public init(actorRef: ActorRef, strategy: SupervisionStrategy, state: SupervisionState, failureCount: Int32, lastFailureTime: Int64, restartCount: Int32, escalationCount: Int32, circuitBreakerOpenTime: Int64)
 cactor_runtime.supervision :: ActorSupervisionInfo.public let actorRef: ActorRef
 cactor_runtime.supervision :: ActorSupervisionInfo.public let circuitBreakerOpenTime: Int64

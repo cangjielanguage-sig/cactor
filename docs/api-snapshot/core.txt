@@ -402,88 +402,6 @@ cactor_core.dsl :: public func retry(attempts: Int64, body: ()->MessageResult): 
 cactor_core.dsl :: public func within(limit: Duration, name: String, body: ()->MessageResult): MessageResult
 cactor_core.dsl :: public interface DurationLiterals
 cactor_core.dsl :: public struct Behaviors
-cactor_core.error :: ActorErrorHandlingStrategy.public func canHandle(errorCode: CActorErrorCode): Bool
-cactor_core.error :: ActorErrorHandlingStrategy.public func getName(): String
-cactor_core.error :: ActorErrorHandlingStrategy.public func handleError(error: CActorException): ErrorHandlingResult
-cactor_core.error :: CActorErrorCode.| ActorCreationError
-cactor_core.error :: CActorErrorCode.| ActorMailboxFullError
-cactor_core.error :: CActorErrorCode.| ActorNotFoundError
-cactor_core.error :: CActorErrorCode.| ActorSupervisionError
-cactor_core.error :: CActorErrorCode.| ActorTerminatedError
-cactor_core.error :: CActorErrorCode.| ClusterJoinError
-cactor_core.error :: CActorErrorCode.| ClusterLeaveError
-cactor_core.error :: CActorErrorCode.| ClusterNodeUnreachableError
-cactor_core.error :: CActorErrorCode.| ClusterSplitBrainError
-cactor_core.error :: CActorErrorCode.| ConfigurationError
-cactor_core.error :: CActorErrorCode.| MessageDeserializationError
-cactor_core.error :: CActorErrorCode.| MessageFormatError
-cactor_core.error :: CActorErrorCode.| MessageRoutingError
-cactor_core.error :: CActorErrorCode.| MessageSerializationError
-cactor_core.error :: CActorErrorCode.| MessageTimeoutError
-cactor_core.error :: CActorErrorCode.| NetworkConnectionError
-cactor_core.error :: CActorErrorCode.| NetworkProtocolError
-cactor_core.error :: CActorErrorCode.| NetworkSecurityError
-cactor_core.error :: CActorErrorCode.| NetworkTimeoutError
-cactor_core.error :: CActorErrorCode.| PersistenceCorruptionError
-cactor_core.error :: CActorErrorCode.| PersistenceReadError
-cactor_core.error :: CActorErrorCode.| PersistenceStorageFullError
-cactor_core.error :: CActorErrorCode.| PersistenceWriteError
-cactor_core.error :: CActorErrorCode.| ResourceExhaustionError
-cactor_core.error :: CActorErrorCode.| SystemConfigurationError
-cactor_core.error :: CActorErrorCode.| SystemInitializationError
-cactor_core.error :: CActorErrorCode.| SystemOverloadError
-cactor_core.error :: CActorErrorCode.| SystemShutdownError
-cactor_core.error :: CActorErrorCode.| UnknownError
-cactor_core.error :: CActorErrorCode.| ValidationError
-cactor_core.error :: CActorException.public func addContext(key: String, value: String): Unit
-cactor_core.error :: CActorException.public func getContext(): HashMap<String, String>
-cactor_core.error :: CActorException.public func getContextValue(key: String): Option<String>
-cactor_core.error :: CActorException.public func getErrorCode(): CActorErrorCode
-cactor_core.error :: CActorException.public func getSeverity(): ErrorSeverity
-cactor_core.error :: CActorException.public func getTimestamp(): Int64
-cactor_core.error :: CActorException.public func toString(): String
-cactor_core.error :: CActorException.public init(code: CActorErrorCode, message: String)
-cactor_core.error :: CActorException.public init(code: CActorErrorCode, message: String, severity: ErrorSeverity)
-cactor_core.error :: DefaultErrorHandlingStrategy.public func canHandle(errorCode: CActorErrorCode): Bool
-cactor_core.error :: DefaultErrorHandlingStrategy.public func getName(): String
-cactor_core.error :: DefaultErrorHandlingStrategy.public func handleError(error: CActorException): ErrorHandlingResult
-cactor_core.error :: ErrorHandlingManager.public func getStatistics(): ErrorStatistics
-cactor_core.error :: ErrorHandlingManager.public func handleError(error: CActorException): ErrorHandlingResult
-cactor_core.error :: ErrorHandlingManager.public func printStatistics(): Unit
-cactor_core.error :: ErrorHandlingManager.public func registerStrategy(strategy: ErrorHandlingStrategy): Unit
-cactor_core.error :: ErrorHandlingManager.public func reset(): Unit
-cactor_core.error :: ErrorHandlingManager.public static func getInstance(): ErrorHandlingManager
-cactor_core.error :: ErrorHandlingResult.| Escalate
-cactor_core.error :: ErrorHandlingResult.| Ignore
-cactor_core.error :: ErrorHandlingResult.| Restart
-cactor_core.error :: ErrorHandlingResult.| Retry
-cactor_core.error :: ErrorHandlingResult.| Shutdown
-cactor_core.error :: ErrorHandlingStrategy.func canHandle(errorCode: CActorErrorCode): Bool
-cactor_core.error :: ErrorHandlingStrategy.func getName(): String
-cactor_core.error :: ErrorHandlingStrategy.func handleError(error: CActorException): ErrorHandlingResult
-cactor_core.error :: ErrorSeverity.| Critical
-cactor_core.error :: ErrorSeverity.| High
-cactor_core.error :: ErrorSeverity.| Info
-cactor_core.error :: ErrorSeverity.| Low
-cactor_core.error :: ErrorSeverity.| Medium
-cactor_core.error :: ErrorStatistics.public func toString(): String
-cactor_core.error :: ErrorStatistics.public init()
-cactor_core.error :: ErrorStatistics.public init(total: Int64, critical: Int64, high: Int64, medium: Int64, low: Int64, lastTime: Int64)
-cactor_core.error :: ErrorStatistics.public let criticalErrors: Int64
-cactor_core.error :: ErrorStatistics.public let highErrors: Int64
-cactor_core.error :: ErrorStatistics.public let lastErrorTime: Int64
-cactor_core.error :: ErrorStatistics.public let lowErrors: Int64
-cactor_core.error :: ErrorStatistics.public let mediumErrors: Int64
-cactor_core.error :: ErrorStatistics.public let totalErrors: Int64
-cactor_core.error :: public class ActorErrorHandlingStrategy <: ErrorHandlingStrategy
-cactor_core.error :: public class CActorException <: Exception
-cactor_core.error :: public class DefaultErrorHandlingStrategy <: ErrorHandlingStrategy
-cactor_core.error :: public class ErrorHandlingManager
-cactor_core.error :: public enum CActorErrorCode
-cactor_core.error :: public enum ErrorHandlingResult
-cactor_core.error :: public enum ErrorSeverity
-cactor_core.error :: public interface ErrorHandlingStrategy
-cactor_core.error :: public struct ErrorStatistics
 cactor_core.guardian :: CreateChildMessage.public func getChildName(): String
 cactor_core.guardian :: CreateChildMessage.public func getPayload(): String
 cactor_core.guardian :: CreateChildMessage.public func getProps(): Props<Actor>
@@ -569,46 +487,11 @@ cactor_core.message :: DeadLetter.public func getSender(): String
 cactor_core.message :: DeadLetter.public func messageType(): String
 cactor_core.message :: DeadLetter.public init(message: Message, sender: String, recipient: String)
 cactor_core.message :: DeserializationException.public init(message: String)
-cactor_core.message :: EnhancedMessageFactory.public func createEmptyMessage(messageType: UInt16, sourceActor: UInt64, targetActor: UInt64, size: UInt64): EnhancedZeroCopyMessage
-cactor_core.message :: EnhancedMessageFactory.public func createMessageWithData(messageType: UInt16, data: Array<UInt8>, sourceActor: UInt64, targetActor: UInt64): EnhancedZeroCopyMessage
-cactor_core.message :: EnhancedMessageFactory.public init(memoryPool: MemoryPool)
-cactor_core.message :: EnhancedZeroCopyMessage.public func getData(): Array<UInt8>
-cactor_core.message :: EnhancedZeroCopyMessage.public func getHopCount(): Int64
-cactor_core.message :: EnhancedZeroCopyMessage.public func getMessageType(): UInt16
-cactor_core.message :: EnhancedZeroCopyMessage.public func getPayloadSize(): UInt64
-cactor_core.message :: EnhancedZeroCopyMessage.public func getReferenceCount(): Int64
-cactor_core.message :: EnhancedZeroCopyMessage.public func getSendTimestamp(): Int64
-cactor_core.message :: EnhancedZeroCopyMessage.public func getSharedBuffer(): SharedMemoryBuffer
-cactor_core.message :: EnhancedZeroCopyMessage.public func getSourceActor(): UInt64
-cactor_core.message :: EnhancedZeroCopyMessage.public func getTargetActor(): UInt64
-cactor_core.message :: EnhancedZeroCopyMessage.public func incrementHopCount(): Unit
-cactor_core.message :: EnhancedZeroCopyMessage.public func release(): Unit
-cactor_core.message :: EnhancedZeroCopyMessage.public func retain(): Unit
-cactor_core.message :: EnhancedZeroCopyMessage.public func setSendTimestamp(timestamp: Int64): Unit
-cactor_core.message :: EnhancedZeroCopyMessage.public init(messageType: UInt16, sourceActor: UInt64, targetActor: UInt64, sharedBuffer: SharedMemoryBuffer, payloadSize: UInt64)
 cactor_core.message :: Envelope.public func getMessage(): Message
 cactor_core.message :: Envelope.public func getSender(): Option<String>
 cactor_core.message :: Envelope.public func getTimestamp(): Int64
 cactor_core.message :: Envelope.public init(message: Message, sender: Option<String>)
 cactor_core.message :: GlobalMessageSerializationManager.public static func getInstance(): MessageSerializationManager
-cactor_core.message :: HighPerformanceMessagePassing.public func getLatencyStats(): LatencyStats
-cactor_core.message :: HighPerformanceMessagePassing.public func getMemoryUsage(): MemoryUsageStats
-cactor_core.message :: HighPerformanceMessagePassing.public func getQueueSize(): Int64
-cactor_core.message :: HighPerformanceMessagePassing.public func getZeroCopyRatio(): Float64
-cactor_core.message :: HighPerformanceMessagePassing.public func receiveMessage(): Option<EnhancedZeroCopyMessage>
-cactor_core.message :: HighPerformanceMessagePassing.public func sendMessage(message: EnhancedZeroCopyMessage, targetActor: UInt64): Bool
-cactor_core.message :: HighPerformanceMessagePassing.public init(capacity: Int64, memoryPool: MemoryPool)
-cactor_core.message :: LatencyStats.public init(avgLatency: Float64, maxLatency: Int64, minLatency: Int64, p95Latency: Int64, p99Latency: Int64)
-cactor_core.message :: LatencyStats.public let avgLatency: Float64
-cactor_core.message :: LatencyStats.public let maxLatency: Int64
-cactor_core.message :: LatencyStats.public let minLatency: Int64
-cactor_core.message :: LatencyStats.public let p95Latency: Int64
-cactor_core.message :: LatencyStats.public let p99Latency: Int64
-cactor_core.message :: MemoryUsageStats.public init(totalAllocated: UInt64, currentUsage: UInt64, peakUsage: UInt64, poolEfficiency: Float64)
-cactor_core.message :: MemoryUsageStats.public let currentUsage: UInt64
-cactor_core.message :: MemoryUsageStats.public let peakUsage: UInt64
-cactor_core.message :: MemoryUsageStats.public let poolEfficiency: Float64
-cactor_core.message :: MemoryUsageStats.public let totalAllocated: UInt64
 cactor_core.message :: Message.func messageId(): String
 cactor_core.message :: Message.func messageType(): String
 cactor_core.message :: Message.func priority(): Int32
@@ -788,10 +671,7 @@ cactor_core.message :: ZeroCopyMessageImpl.public func release(): Unit
 cactor_core.message :: ZeroCopyMessageImpl.public func retain(): Unit
 cactor_core.message :: ZeroCopyMessageImpl.public init(messageType: UInt16, payloadSize: UInt64, sourceActor: UInt64, targetActor: UInt64, payload: Option<Array<UInt8>>)
 cactor_core.message :: public class CRC32
-cactor_core.message :: public class EnhancedMessageFactory
-cactor_core.message :: public class EnhancedZeroCopyMessage
 cactor_core.message :: public class GlobalMessageSerializationManager
-cactor_core.message :: public class HighPerformanceMessagePassing
 cactor_core.message :: public class MessageCodecRegistry
 cactor_core.message :: public class MessageFieldReader
 cactor_core.message :: public class MessageFieldWriter
@@ -819,8 +699,6 @@ cactor_core.message :: public open class DeserializationException <: Exception
 cactor_core.message :: public open class SerializationException <: Exception
 cactor_core.message :: public struct DeadLetter <: SystemMessage
 cactor_core.message :: public struct Envelope
-cactor_core.message :: public struct LatencyStats
-cactor_core.message :: public struct MemoryUsageStats
 cactor_core.message :: public struct MessagePoolStats
 cactor_core.message :: public struct NetworkMessage
 cactor_core.message :: public struct PingMessage <: UserMessage

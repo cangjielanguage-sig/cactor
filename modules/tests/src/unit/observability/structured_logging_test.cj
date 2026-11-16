@@ -39,6 +39,36 @@ class Faulty <: Actor {
 
 @Test
 public class StructuredLoggingTest {
+    // 由已删除的 foundation/log 的用例迁移而来：级别过滤必须在拼接/求值之前发生。
+    // 这条断言是"日志不拖慢业务"的唯一证据，不要只测输出条数。
+    @TestCase
+    public func testDisabledLevelSkipsLazyMessageAndOutput(): Unit {
+        let sink = MemorySink()
+        let previousLevel = Logging.level()
+        Logging.setSink(sink)
+        Logging.setLevel(LogLevel.Info)
+        let log = Logging.logger("lazy")
+        // lambda 不能捕获可变变量，用 AtomicBool 记录是否被求值
+        let evaluated = AtomicBool(false)
+        log.debug({ =>
+            evaluated.store(true)
+            "hidden"
+        })
+        @Expect(evaluated.load(), false)
+        log.info("shown")
+        log.warn("warned")
+        @Expect(sink.snapshot().size, 2)
+        Logging.setLevel(LogLevel.Off)
+        log.log(LogLevel.Error, { =>
+            evaluated.store(true)
+            "off"
+        })
+        @Expect(evaluated.load(), false)
+        @Expect(sink.snapshot().size, 2)
+        Logging.setLevel(previousLevel)
+        Logging.setSink(StderrSink())
+    }
+
     @TestCase
     public func testActorFailuresAreLoggedAsErrors(): Unit {
         let sink = MemorySink()

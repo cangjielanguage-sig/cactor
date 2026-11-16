@@ -1,2 +1,0 @@
-package cactor_examples.simple_config_demo
-

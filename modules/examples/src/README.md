@@ -245,3 +245,72 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 - [CActor API参考](../../../docs/zh/api-reference.md)
 - [快速开始指南](../../../docs/zh/QUICK_START.md)
 - [架构设计文档](../../../docs/zh/architecture.md)
+
+<!-- BEGIN:example-index（由 tools/check_examples.py --update-readme 生成，勿手改） -->
+
+## 示例清单（自动生成）
+
+| 示例 | 是否在门禁运行 | 说明 |
+|---|---|---|
+| `advanced_dispatcher_examples` | ✅ 运行 | 自检退出码 0 |
+| `advanced_mailbox_examples` | ✅ 运行 | 自检退出码 0 |
+| `agent_orchestration_demo` | ✅ 运行 | 自检退出码 0 |
+| `api_demo` | — | not-built：cjpm.toml 未声明 executable（API 用法演示，代码在 main.cj） |
+| `ask_demo` | ✅ 运行 | 自检退出码 0 |
+| `ask_pattern_demo` | ✅ 运行 | 自检退出码 0 |
+| `benchmark_demo` | — | not-built：cjpm.toml 未声明 executable |
+| `best01_hello_typed` | ✅ 运行 | 自检退出码 0 |
+| `best02_ask_roundtrip` | ✅ 运行 | 自检退出码 0 |
+| `best03_supervision_tree` | ✅ 运行 | 自检退出码 0 |
+| `best04_state_machine` | ✅ 运行 | 自检退出码 0 |
+| `best05_backpressure` | ✅ 运行 | 自检退出码 0 |
+| `best06_receptionist_pool` | ✅ 运行 | 自检退出码 0 |
+| `best07_event_sourced_account` | ✅ 运行 | 自检退出码 0 |
+| `best08_remote_nodes` | ✅ 运行 | 自检退出码 0 |
+| `best09_cluster_sharding` | ✅ 运行 | 自检退出码 0 |
+| `best10_agent_workflow` | ✅ 运行 | 自检退出码 0 |
+| `cangjie_dsl_features` | ✅ 运行 | 自检退出码 0 |
+| `cangjie_features_demo` | ✅ 运行 | 自检退出码 0 |
+| `chat_room` | ✅ 运行 | 自检退出码 0 |
+| `cluster_crash_node` | ✅ 运行 | 自检退出码 0 |
+| `cluster_node` | ✅ 运行 | 自检退出码 0 |
+| `config_system_demo` | — | not-built：cjpm.toml 未声明 executable |
+| `configuration_usage_test` | ✅ 运行 | 自检退出码 0 |
+| `ddata_stress` | ✅ 运行 | 自检退出码 0 |
+| `dsl_agent` | ✅ 运行 | 自检退出码 0 |
+| `dsl_bench` | — | measurement：DSL 零开销对比，需重复采样才能判读，不进每次门禁 |
+| `dsl_showcase` | ✅ 运行 | 自检退出码 0 |
+| `dsl_state_machine` | ✅ 运行 | 自检退出码 0 |
+| `durable_reminder_demo` | ✅ 运行 | 自检退出码 0 |
+| `enhanced_serialization_demo` | — | not-built：cjpm.toml 未声明 executable（enhanced 序列化未收敛） |
+| `enhanced_typed_actor_demo` | ✅ 运行 | 自检退出码 0 |
+| `error_handling_demo` | — | not-built：目录内只有 pkg.cj，没有 main |
+| `functional_actor_demo` | ✅ 运行 | 自检退出码 0 |
+| `hello_world_demo` | ✅ 运行 | 自检退出码 0 |
+| `idle_probe` | — | measurement：空闲调度探测（3 秒采样），用于调参而非门禁 |
+| `journal_crash` | ✅ 运行 | 自检退出码 0 |
+| `lease_contend` | ✅ 运行 | 自检退出码 0 |
+| `llm_http_demo` | ✅ 运行 | 自检退出码 0 |
+| `llm_token_stream` | ✅ 运行 | 自检退出码 0 |
+| `mailbox_refactor_demo` | — | not-built：cjpm.toml 未声明 executable |
+| `mem_profile` | — | measurement：内存剖析，输出为参考值 |
+| `micro_benchmark` | — | measurement：仓颉原语微基准，供 bench/compare.sh 使用 |
+| `monitoring_demo` | ✅ 运行 | 自检退出码 0 |
+| `objectpool_performance_comparison` | ✅ 运行 | 自检退出码 0 |
+| `persistence_demo` | ✅ 运行 | 自检退出码 0 |
+| `real_benchmark` | ✅ 运行 | 自检退出码 0 |
+| `scale_latency` | ✅ 运行 | 自检退出码 0 |
+| `scale_test` | ✅ 运行 | 自检退出码 0 |
+| `simple_objectpool_test` | ✅ 运行 | 自检退出码 0 |
+| `simple_serialization_demo` | — | known-failing：性能段除零（总耗时 0ms 时 totalTime 作除数），待修后接入 |
+| `soak_test` | ✅ 运行 | 自检退出码 0 |
+| `stdlib_objectpool_test` | ✅ 运行 | 自检退出码 0 |
+| `streams_demo` | ✅ 运行 | 自检退出码 0 |
+| `test_framework_demo` | ✅ 运行 | 自检退出码 0 |
+| `test_framework_validation` | — | known-failing：TestActorRefFactory 用毫秒时间戳命名，同毫秒内两次 create 撞名（testkit 缺陷） |
+| `typed_actor_demo` | ✅ 运行 | 自检退出码 0 |
+| `typed_persistence_demo` | ✅ 运行 | 自检退出码 0 |
+| `typed_spawn_bench` | — | measurement：类型化 spawn 微基准，数字随负载抖动，单跑不判定 |
+| `xstate_demo` | ✅ 运行 | 自检退出码 0 |
+
+<!-- END:example-index -->

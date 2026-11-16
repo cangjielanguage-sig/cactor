@@ -73,9 +73,6 @@ output-type = "executable"
 [package.package-configuration."cactor_examples.cangjie_dsl_features"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.simple_config_demo"]
-output-type = "executable"
-
 [package.package-configuration."cactor_examples.monitoring_demo"]
 output-type = "executable"
 

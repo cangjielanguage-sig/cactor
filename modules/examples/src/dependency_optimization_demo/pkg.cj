@@ -1,2 +1,0 @@
-package cactor_examples.dependency_optimization_demo
-
