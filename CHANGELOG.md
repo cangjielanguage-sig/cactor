@@ -7,6 +7,39 @@
 
 ## [未发布]
 
+### 💥 破坏性变更（`docs/plan/20261116.md` B4a+B4b：runtime 死代码，生产代码 −6,522 行）
+
+runtime 是 12 个库里最大的一个（19,703 → **11,921** 行）。本批删掉两类已经失效的实现；删前逐个用“删掉再 `cjpm build`”确认。
+
+**B4a 死链 A+B（2,102 行）**
+
+| 删除项 | 行数 | 依据 |
+|---|---|---|
+| `dispatcher/factory/enhanced_dispatcher_factory.cj` | 333 | `EnhancedDispatcherFactory` 全仓只出现 1 次（自己的声明） |
+| `dispatcher/monitoring/*` | 731 | 唯一消费者是上面那个零引用类 |
+| `dispatcher/adaptive/*` | 437 | 同上 |
+| `dispatcher/dynamic/*` | 302 | 同上 |
+| `dispatcher/dispatcher_pool.cj` | 380 | `cactor_runtime.cj` 原注释已说明构造点被摘除（旧 4 调度器池空转、约占 10% CPU） |
+| `dispatcher/high_performance_actor_system_config.cj` | 221 | 同类名的 `system/high_performance_actor_system.cj` 才是活的那个 |
+
+**B4b 高级调度器/邮箱工厂链（4,420 行）**
+
+`dispatcher/{factory,advanced,optimized,work_stealing}` 与 `mailbox/{factory,advanced,lockfree,batching}` 整条依赖链，共 8 个包。依据：它们唯一的入口是 `CActorRuntime` 的两个字段 + `getMailboxFactory()` / `getDispatcherFactory()`，而这两个公开方法在全仓**零调用**；`CActorRuntime.actorOf` 从头到尾没碰过这两个工厂（邮箱与调度实际由 core 的 `ActorCellDispatcher` 与 `runtime.mailbox` 根包承担）。
+
+- 公开 API 删除：`cactor_runtime.CActorRuntime.getMailboxFactory()` / `getDispatcherFactory()`，以及 8 个包的公开类型（`AdvancedMailboxFactory`、`AdvancedDispatcherFactory`、`Foundation*Mailbox`、`SPSCMailbox`/`MPSCMailbox`、`WorkStealingDispatcher`、`OptimizedWorkStealingDispatcher` 等）。快照 `docs/api-snapshot/runtime.txt` 的 diff **只含删除、无新增**。
+- 保留 `system/high_performance_actor_system.cj`（及其 `runtime/actor`、`runtime/context` 链）：它虽只被 `CActorRuntime.start()` 调一次（`contextPool.warmup()` + 4 行 debug 日志，从不用来创建 Actor），但 `HighPerformanceActorSystemConfig` 是 `CActorRuntimeConfig` 五个预设的一部分，属 E49 门面收敛范围，本批不动。
+- 连带删除：`tests/unit/runtime/mailbox/batching_mailbox_test.cj`（2 例，测的就是被删的 `BatchingMailbox`）、示例 `mailbox_refactor_demo`（213 行，not-built）；`priority_mailbox_test.cj` 去掉对已删包的 `import`（用例只测仍在的 `PriorityMailbox`，**3/3 继续通过**）。
+- 度量：库模块生产代码 84,699 → **78,177**；占位关键词 144 → **130**；runtime 占位词 50 → **36**。
+
+### ⚙️ 工程记录（删包时必须清理的两个 cjpm 缓存）
+
+删除包/文件后，`cjpm build` 可能报 `can not find the following dependencies: <已删包>`，而源码里已无任何 import。实测两个缓存都会造成这种“幽灵依赖”：
+
+1. `target/.cjpm-history`——cjpm 的 resolve 缓存，按包名记录了上次解析出的依赖图；
+2. `target/release/incremental-cache.json` 与 `target/release/<模块>/*.cjo`——增量构建产物；尤其**已删除模块**（`cactor_integration`、`cactor_distribution`）遗留的 `.cjo` 仍会被当成依赖来源。
+
+复现：删掉 8 个包后仅 `rm -rf target/release/cactor_runtime` 仍报依赖缺失；`rm -f target/.cjpm-history target/release/incremental-cache.json` + `cjpm clean` 后才 `cjpm build success`。结论写进 `docs/plan/20261116.md` §10.3：删除类批次必须在干净构建目录上验证，否则“删掉再构建”这个权威判据会被缓存污染成假绿/假红。
+
 ### 💥 破坏性变更（`docs/plan/20261106.md` E46/E47：删除无消费者的平行实现，生产代码 -5,642 行）
 
 原则是“能复用就不留第二套”：下列包在库代码中**零消费者**，能力均由仍然健在的实现覆盖，因此整体删除而不是写适配层。回退点：`git revert` 本提交即可全部恢复。
