@@ -66,31 +66,6 @@
 ? :: ActorSystemMetrics.public func shutdown(): Unit
 ? :: ActorSystemMetrics.public func start(): Unit
 ? :: ActorSystemMetrics.public init()
-? :: ActorTask.public func execute(): Unit
-? :: ActorTask.public func getActorRef(): ActorRef
-? :: ActorTask.public func getAge(): Int64
-? :: ActorTask.public func getCreationTime(): Int64
-? :: ActorTask.public func getEnvelope(): Envelope
-? :: ActorTask.public func getExecutionTime(): Int64
-? :: ActorTask.public func getPriority(): Priority
-? :: ActorTask.public func getTaskId(): UInt64
-? :: ActorTask.public func getWaitTime(): Int64
-? :: ActorTask.public func isZeroCopyMessage(): Bool
-? :: ActorTask.public init(envelope: Envelope, actorRef: ActorRef, priority: Priority)
-? :: AtomicSlot.public func cancelRead(): Unit
-? :: AtomicSlot.public func cancelWrite(): Unit
-? :: AtomicSlot.public func finishRead(): Envelope
-? :: AtomicSlot.public func finishWrite(envelope: Envelope): Unit
-? :: AtomicSlot.public func getState(): Int64
-? :: AtomicSlot.public func isEmpty(): Bool
-? :: AtomicSlot.public func isFilled(): Bool
-? :: AtomicSlot.public func tryStartRead(): Bool
-? :: AtomicSlot.public func tryStartWrite(): Bool
-? :: AtomicSlot.public init()
-? :: AtomicSlot.public static let EMPTY: Int64
-? :: AtomicSlot.public static let FILLED: Int64
-? :: AtomicSlot.public static let READING: Int64
-? :: AtomicSlot.public static let WRITING: Int64
 ? :: BaseGuardianActor.public func createChild(props: Props<Actor>, name: String): ActorRef
 ? :: BaseGuardianActor.public func findChild(name: String): Option<ActorRef>
 ? :: BaseGuardianActor.public func getChildren(): Array<ActorRef>
@@ -186,59 +161,6 @@
 ? :: HighPerformanceActorBehavior.func preProcess(message: Message): Bool
 ? :: HighPerformanceActorBehavior.func receive(message: Message, context: PooledActorContext): MessageResult
 ? :: HighPerformanceActorBehavior.func receiveBatch(messages: Array<Message>, context: PooledActorContext): Array<MessageResult>
-? :: LoadBalancer.public func getAllWorkerStats(): Array<WorkerLoadStats>
-? :: LoadBalancer.public func getWorkerStats(workerId: Int32): WorkerLoadStats
-? :: LoadBalancer.public func selectWorker(): Int32
-? :: LoadBalancer.public func updateWorkerStats(workerId: Int32, stats: WorkerLoadStats): Unit
-? :: LoadBalancer.public init(config: SchedulerConfig)
-? :: LoadBalancingStrategy.public func getValue(): Int32
-? :: LoadBalancingStrategy.public func toString(): String
-? :: LoadBalancingStrategy.| LeastLoaded
-? :: LoadBalancingStrategy.| NumaAware
-? :: LoadBalancingStrategy.| Random
-? :: LoadBalancingStrategy.| RoundRobin
-? :: LockFreeRingBufferMailbox.public func clear(): Unit
-? :: LockFreeRingBufferMailbox.public func close(): Unit
-? :: LockFreeRingBufferMailbox.public func dequeue(): Option<Envelope>
-? :: LockFreeRingBufferMailbox.public func enqueue(envelope: Envelope): Bool
-? :: LockFreeRingBufferMailbox.public func getCapacity(): Int64
-? :: LockFreeRingBufferMailbox.public func getStats(): MailboxStats
-? :: LockFreeRingBufferMailbox.public func isClosed(): Bool
-? :: LockFreeRingBufferMailbox.public func isEmpty(): Bool
-? :: LockFreeRingBufferMailbox.public func size(): Int64
-? :: LockFreeRingBufferMailbox.public init(requestedCapacity: Int64)
-? :: MailboxStats.public func getSuccessRate(): Float64
-? :: MailboxStats.public func getUtilization(): Float64
-? :: MailboxStats.public init(enqueueCount: Int64, dequeueCount: Int64, failedEnqueues: Int64, failedDequeues: Int64, currentSize: Int64, capacity: Int64)
-? :: MailboxStats.public let capacity: Int64
-? :: MailboxStats.public let currentSize: Int64
-? :: MailboxStats.public let dequeueCount: Int64
-? :: MailboxStats.public let enqueueCount: Int64
-? :: MailboxStats.public let failedDequeues: Int64
-? :: MailboxStats.public let failedEnqueues: Int64
-? :: OptimizedWorkStealingDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-? :: OptimizedWorkStealingDispatcher.public func dispatchSimple(envelope: Envelope): Unit
-? :: OptimizedWorkStealingDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-? :: OptimizedWorkStealingDispatcher.public func getConfig(): SchedulerConfig
-? :: OptimizedWorkStealingDispatcher.public func getGlobalQueueSize(): Int64
-? :: OptimizedWorkStealingDispatcher.public func getPerformanceReport(): PerformanceReport
-? :: OptimizedWorkStealingDispatcher.public func getTotalTasksProcessed(): Int64
-? :: OptimizedWorkStealingDispatcher.public func getTotalTasksSubmitted(): Int64
-? :: OptimizedWorkStealingDispatcher.public func getWorkerCount(): Int32
-? :: OptimizedWorkStealingDispatcher.public func getWorkerStats(): Array<WorkerLoadStats>
-? :: OptimizedWorkStealingDispatcher.public func start(): Unit
-? :: OptimizedWorkStealingDispatcher.public func stop(): Unit
-? :: OptimizedWorkStealingDispatcher.public init(config: SchedulerConfig)
-? :: OptimizedWorkStealingDispatcher.public static func createDefault(): OptimizedWorkStealingDispatcher
-? :: OptimizedWorkStealingDispatcher.public static func createHighThroughput(): OptimizedWorkStealingDispatcher
-? :: OptimizedWorkerThread.public func getLocalQueueSize(): Int64
-? :: OptimizedWorkerThread.public func getTasksProcessed(): Int64
-? :: OptimizedWorkerThread.public func getWorkerId(): Int32
-? :: OptimizedWorkerThread.public func setOtherWorkers(workers: Array<OptimizedWorkerThread>): Unit
-? :: OptimizedWorkerThread.public func start(): Unit
-? :: OptimizedWorkerThread.public func stop(): Unit
-? :: OptimizedWorkerThread.public func submitTask(envelope: Envelope): Bool
-? :: OptimizedWorkerThread.public init(workerId: Int32, config: SchedulerConfig, globalQueue: LockFreeRingBufferMailbox, loadBalancer: LoadBalancer)
 ? :: PerformanceMetrics.public init(messagesThroughput: Float64, averageLatency: Float64, p95Latency: Float64, p99Latency: Float64, errorRate: Float64, memoryUsage: Int64, cpuUsage: Float64)
 ? :: PerformanceMetrics.public let averageLatency: Float64
 ? :: PerformanceMetrics.public let cpuUsage: Float64
@@ -247,17 +169,6 @@
 ? :: PerformanceMetrics.public let messagesThroughput: Float64
 ? :: PerformanceMetrics.public let p95Latency: Float64
 ? :: PerformanceMetrics.public let p99Latency: Float64
-? :: PerformanceMonitor.public func generateReport(): PerformanceReport
-? :: PerformanceMonitor.public func recordTaskSubmission(): Unit
-? :: PerformanceMonitor.public func start(): Unit
-? :: PerformanceMonitor.public func stop(): Unit
-? :: PerformanceMonitor.public init()
-? :: PerformanceReport.public init(throughput: Float64, avgLatency: Float64, p99Latency: Float64, totalTasks: Int64, runTimeSeconds: Float64)
-? :: PerformanceReport.public let avgLatency: Float64
-? :: PerformanceReport.public let p99Latency: Float64
-? :: PerformanceReport.public let runTimeSeconds: Float64
-? :: PerformanceReport.public let throughput: Float64
-? :: PerformanceReport.public let totalTasks: Int64
 ? :: PoolStats.public func getHitRate(): Float64
 ? :: PoolStats.public func getLeakRate(): Float64
 ? :: PoolStats.public func getUtilization(): Float64
@@ -291,12 +202,6 @@
 ? :: PooledContextStats.public let isPooled: Bool
 ? :: PooledContextStats.public let resetCount: Int64
 ? :: PooledContextStats.public let watchedActorsCount: Int64
-? :: Priority.public func getValue(): Int32
-? :: Priority.public func toString(): String
-? :: Priority.| Critical
-? :: Priority.| High
-? :: Priority.| Low
-? :: Priority.| Normal
 ? :: RestartMessage.public func getPayload(): String
 ? :: RestartMessage.public func getReason(): Exception
 ? :: RestartMessage.public func getType(): String
@@ -335,17 +240,6 @@
 ? :: RuntimeUserGuardian.public init(system: ActorSystem, scheduler: ActorScheduler)
 ? :: RuntimeUserGuardian.public prop description: String
 ? :: RuntimeUserGuardian.public prop name: String
-? :: SchedulerConfig.public init(workerCount: Int32, loadBalancingStrategy: LoadBalancingStrategy, stealingStrategy: StealingStrategy, enableNumaAware: Bool, stealBatchSize: Int32, maxLocalQueueSize: Int64, globalQueueCapacity: Int64, enableAdaptiveThrottling: Bool)
-? :: SchedulerConfig.public let enableAdaptiveThrottling: Bool
-? :: SchedulerConfig.public let enableNumaAware: Bool
-? :: SchedulerConfig.public let globalQueueCapacity: Int64
-? :: SchedulerConfig.public let loadBalancingStrategy: LoadBalancingStrategy
-? :: SchedulerConfig.public let maxLocalQueueSize: Int64
-? :: SchedulerConfig.public let stealBatchSize: Int32
-? :: SchedulerConfig.public let stealingStrategy: StealingStrategy
-? :: SchedulerConfig.public let workerCount: Int32
-? :: SchedulerConfig.public static func createDefault(): SchedulerConfig
-? :: SchedulerConfig.public static func createHighThroughput(): SchedulerConfig
 ? :: SimpleActorRegistry.public func clear(): Unit
 ? :: SimpleActorRegistry.public func findByName(name: String): Option<ActorRef>
 ? :: SimpleActorRegistry.public func findByPath(path: String): Option<ActorRef>
@@ -390,11 +284,6 @@
 ? :: SimpleUserActorRef.public prop pathString: String
 ? :: StartMessage.public func messageType(): String
 ? :: StartMessage.public init()
-? :: StealingStrategy.public func getValue(): Int32
-? :: StealingStrategy.public func toString(): String
-? :: StealingStrategy.| AdaptiveStealing
-? :: StealingStrategy.| BatchStealing
-? :: StealingStrategy.| RandomStealing
 ? :: StopMessage.public func getPayload(): String
 ? :: StopMessage.public func getType(): String
 ? :: StopMessage.public func messageType(): String
@@ -414,66 +303,16 @@
 ? :: SystemHealthStatus.| Down
 ? :: SystemHealthStatus.| Healthy
 ? :: SystemHealthStatus.| Warning
-? :: WorkStealingDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-? :: WorkStealingDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-? :: WorkStealingDispatcher.public func getGlobalQueueSize(): Int64
-? :: WorkStealingDispatcher.public func getTotalTasksProcessed(): Int64
-? :: WorkStealingDispatcher.public func getTotalTasksSubmitted(): Int64
-? :: WorkStealingDispatcher.public func getWorkerCount(): Int32
-? :: WorkStealingDispatcher.public func getWorkerStats(): Array<WorkerStats>
-? :: WorkStealingDispatcher.public func start(): Unit
-? :: WorkStealingDispatcher.public func stop(): Unit
-? :: WorkStealingDispatcher.public init(workerCount: Int32)
-? :: WorkStealingQueue.public func getSize(): Int64
-? :: WorkStealingQueue.public func isEmpty(): Bool
-? :: WorkStealingQueue.public func pop(): Option<T>
-? :: WorkStealingQueue.public func push(item: T): Bool
-? :: WorkStealingQueue.public func steal(): Option<T>
-? :: WorkStealingQueue.public init(maxSize: Int64)
-? :: WorkerLoadStats.public func getLoadScore(): Float64
-? :: WorkerLoadStats.public func getStealSuccessRate(): Float64
-? :: WorkerLoadStats.public init(workerId: Int32, localQueueSize: Int64, tasksProcessed: Int64, stealAttempts: Int64, successfulSteals: Int64, cpuUsage: Float64)
-? :: WorkerLoadStats.public let cpuUsage: Float64
-? :: WorkerLoadStats.public let lastUpdateTime: Int64
-? :: WorkerLoadStats.public let localQueueSize: Int64
-? :: WorkerLoadStats.public let stealAttempts: Int64
-? :: WorkerLoadStats.public let successfulSteals: Int64
-? :: WorkerLoadStats.public let tasksProcessed: Int64
-? :: WorkerLoadStats.public let workerId: Int32
-? :: WorkerStats.public func getStealSuccessRate(): Float64
-? :: WorkerStats.public init(workerId: Int32, tasksProcessed: Int64, localQueueSize: Int64, stealAttempts: Int64, successfulSteals: Int64)
-? :: WorkerStats.public let localQueueSize: Int64
-? :: WorkerStats.public let stealAttempts: Int64
-? :: WorkerStats.public let successfulSteals: Int64
-? :: WorkerStats.public let tasksProcessed: Int64
-? :: WorkerStats.public let workerId: Int32
-? :: WorkerThread.public func getLocalQueueSize(): Int64
-? :: WorkerThread.public func getStealAttempts(): Int64
-? :: WorkerThread.public func getSuccessfulSteals(): Int64
-? :: WorkerThread.public func getTasksProcessed(): Int64
-? :: WorkerThread.public func getWorkerId(): Int32
-? :: WorkerThread.public func setOtherWorkers(workers: Array<WorkerThread>): Unit
-? :: WorkerThread.public func start(): Unit
-? :: WorkerThread.public func stop(): Unit
-? :: WorkerThread.public func submitTask(task: ActorTask): Bool
-? :: WorkerThread.public init(workerId: Int32, globalQueue: ConcurrentLinkedQueue<ActorTask>)
 ? :: public abstract class RunLink
 ? :: public class ActorCellDispatcher <: CellExecutor
 ? :: public class ActorFailureMessage <: Message
 ? :: public class ActorRegistry
 ? :: public class ActorSystemMetrics
-? :: public class ActorTask
-? :: public class AtomicSlot
 ? :: public class CellContext <: ActorContext
 ? :: public class CreateSystemActorMessage <: Message
 ? :: public class CreateUserActorMessage <: Message
 ? :: public class DeadLetterContextActorRef <: ContextActorRef
 ? :: public class HighPerformanceActor <: Actor
-? :: public class LoadBalancer
-? :: public class LockFreeRingBufferMailbox <: Mailbox
-? :: public class OptimizedWorkStealingDispatcher
-? :: public class OptimizedWorkerThread
-? :: public class PerformanceMonitor
 ? :: public class PooledActorContext <: ActorContext
 ? :: public class PooledActorContextPool <: ObjectPool<PooledActorContext>
 ? :: public class RestartMessage <: AutoReceivedMessage
@@ -485,12 +324,6 @@
 ? :: public class SimpleUserActorRef <: RunLink & ActorRef
 ? :: public class StopMessage <: AutoReceivedMessage
 ? :: public class SystemContextActorRef <: ContextActorRef
-? :: public class WorkStealingDispatcher
-? :: public class WorkStealingQueue<T>
-? :: public class WorkerThread
-? :: public enum LoadBalancingStrategy
-? :: public enum Priority
-? :: public enum StealingStrategy
 ? :: public enum SystemHealthStatus
 ? :: public func isActorThread(): Bool
 ? :: public interface ContextActorPath
@@ -500,18 +333,13 @@
 ? :: public struct ActorRegistryEntry
 ? :: public struct ActorStats
 ? :: public struct CompactActorState
-? :: public struct MailboxStats
 ? :: public struct PerformanceMetrics
-? :: public struct PerformanceReport
 ? :: public struct PoolStats
 ? :: public struct PooledContextStats
-? :: public struct SchedulerConfig
 ? :: public struct SimpleContextActorPath <: ContextActorPath
 ? :: public struct StartMessage <: SystemMessage
 ? :: public struct StopMessage <: SystemMessage
 ? :: public struct SystemHealthInfo
-? :: public struct WorkerLoadStats
-? :: public struct WorkerStats
 cactor_runtime :: CActorRuntime.public func actorOf(props: Props<Actor>): ActorRef
 cactor_runtime :: CActorRuntime.public func actorOf(props: Props<Actor>, name: String): ActorRef
 cactor_runtime :: CActorRuntime.public func deadLetterCount(): Int64
@@ -519,11 +347,9 @@ cactor_runtime :: CActorRuntime.public func getActorRegistry(): SimpleActorRegis
 cactor_runtime :: CActorRuntime.public func getActorSystem(): ActorSystem
 cactor_runtime :: CActorRuntime.public func getConfig(): CActorRuntimeConfig
 cactor_runtime :: CActorRuntime.public func getCoordinatedShutdown(): CoordinatedShutdown
-cactor_runtime :: CActorRuntime.public func getDispatcherFactory(): AdvancedDispatcherFactory
 cactor_runtime :: CActorRuntime.public func getEventBus(): SimpleActorEventBus
 cactor_runtime :: CActorRuntime.public func getHighPerformanceSystem(): HighPerformanceActorSystem
 cactor_runtime :: CActorRuntime.public func getLifecycleManager(): ActorLifecycleManager
-cactor_runtime :: CActorRuntime.public func getMailboxFactory(): AdvancedMailboxFactory
 cactor_runtime :: CActorRuntime.public func getRuntimeStats(): CActorRuntimeStats
 cactor_runtime :: CActorRuntime.public func getSupervisionManager(): SupervisionManager
 cactor_runtime :: CActorRuntime.public func getSystemGuardian(): RuntimeSystemGuardian
@@ -589,330 +415,6 @@ cactor_runtime :: public let DEFAULT_MAX_ACTOR_SERIES: Int64
 cactor_runtime :: public struct CActorRuntimeConfig
 cactor_runtime :: public struct CActorRuntimeStats
 cactor_runtime :: public struct DispatcherDiagnostics
-cactor_runtime.dispatcher :: DispatcherPool.public func addDispatcher(name: String, dispatcher: AdvancedMessageDispatcher): Unit
-cactor_runtime.dispatcher :: DispatcherPool.public func getDispatcher(name: String): Option<AdvancedMessageDispatcher>
-cactor_runtime.dispatcher :: DispatcherPool.public func getStats(): DispatcherPoolStats
-cactor_runtime.dispatcher :: DispatcherPool.public func removeDispatcher(name: String): Unit
-cactor_runtime.dispatcher :: DispatcherPool.public func selectDispatcher(actor: Actor, props: Props<Actor>): AdvancedMessageDispatcher
-cactor_runtime.dispatcher :: DispatcherPool.public func shutdown(): Unit
-cactor_runtime.dispatcher :: DispatcherPool.public func start(): Unit
-cactor_runtime.dispatcher :: DispatcherPool.public init(config: DispatcherPoolConfig)
-cactor_runtime.dispatcher :: DispatcherPoolConfig.public init(defaultDispatcherType: DispatcherType, selectionStrategy: DispatcherSelectionStrategy, maxDispatchers: Int32, enableLoadBalancing: Bool, enableMetrics: Bool)
-cactor_runtime.dispatcher :: DispatcherPoolConfig.public let defaultDispatcherType: DispatcherType
-cactor_runtime.dispatcher :: DispatcherPoolConfig.public let enableLoadBalancing: Bool
-cactor_runtime.dispatcher :: DispatcherPoolConfig.public let enableMetrics: Bool
-cactor_runtime.dispatcher :: DispatcherPoolConfig.public let maxDispatchers: Int32
-cactor_runtime.dispatcher :: DispatcherPoolConfig.public let selectionStrategy: DispatcherSelectionStrategy
-cactor_runtime.dispatcher :: DispatcherPoolConfig.public static func createDefault(): DispatcherPoolConfig
-cactor_runtime.dispatcher :: DispatcherPoolStats.public init(totalDispatchers: Int32, activeDispatchers: Int32, totalSelections: Int64, averageLoadPerDispatcher: Float64)
-cactor_runtime.dispatcher :: DispatcherPoolStats.public let activeDispatchers: Int32
-cactor_runtime.dispatcher :: DispatcherPoolStats.public let averageLoadPerDispatcher: Float64
-cactor_runtime.dispatcher :: DispatcherPoolStats.public let totalDispatchers: Int32
-cactor_runtime.dispatcher :: DispatcherPoolStats.public let totalSelections: Int64
-cactor_runtime.dispatcher :: DispatcherSelectionStrategy.| ActorType
-cactor_runtime.dispatcher :: DispatcherSelectionStrategy.| Consistent
-cactor_runtime.dispatcher :: DispatcherSelectionStrategy.| LoadBased
-cactor_runtime.dispatcher :: DispatcherSelectionStrategy.| Random
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public func getDescription(): String
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public func getPerformanceLevel(): String
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public func validate(): Array<String>
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public init(messageBatching: Bool, zeroCopyMessaging: Bool, objectPooling: Bool, gcOptimization: Bool, memoryCompaction: Bool, lazyLoading: Bool, directMemoryAccess: Bool, jitOptimization: Bool, bulkProcessing: Bool, pipelineOptimization: Bool)
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let bulkProcessing: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let directMemoryAccess: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let gcOptimization: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let jitOptimization: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let lazyLoading: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let memoryCompaction: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let messageBatching: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let objectPooling: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let pipelineOptimization: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public let zeroCopyMessaging: Bool
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public static func createDefault(): HighPerformanceActorSystemConfig
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public static func createExtreme(): HighPerformanceActorSystemConfig
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public static func createHighThroughput(): HighPerformanceActorSystemConfig
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public static func createLowLatency(): HighPerformanceActorSystemConfig
-cactor_runtime.dispatcher :: HighPerformanceActorSystemConfig.public static func createMemoryOptimized(): HighPerformanceActorSystemConfig
-cactor_runtime.dispatcher :: public class DispatcherPool
-cactor_runtime.dispatcher :: public enum DispatcherSelectionStrategy
-cactor_runtime.dispatcher :: public struct DispatcherPoolConfig
-cactor_runtime.dispatcher :: public struct DispatcherPoolStats
-cactor_runtime.dispatcher :: public struct HighPerformanceActorSystemConfig
-cactor_runtime.dispatcher.adaptive :: AdaptationEngine.public func adapt(dispatcherName: String): Unit
-cactor_runtime.dispatcher.adaptive :: AdaptationEngine.public func start(): Unit
-cactor_runtime.dispatcher.adaptive :: AdaptationEngine.public func stop(): Unit
-cactor_runtime.dispatcher.adaptive :: AdaptationEngine.public init(configManager: DynamicDispatcherConfigManager, performanceMonitor: PerformanceMonitor)
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func dispatchBatch(envelopes: Array<Envelope>, actorRefs: Array<ActorRef>): Unit
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func getAdaptationEngine(): AdaptationEngine
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func getConfig(): DispatcherConfig
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func getPerformanceMonitor(): PerformanceMonitor
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func getPerformanceStats(): String
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func isRunning(): Bool
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func start(): Unit
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public func stop(): Unit
-cactor_runtime.dispatcher.adaptive :: AdaptiveDispatcher.public init(name: String, baseDispatcher: AdvancedMessageDispatcher, configManager: DynamicDispatcherConfigManager)
-cactor_runtime.dispatcher.adaptive :: BatchStats.public func getAverageBatchSize(): Float64
-cactor_runtime.dispatcher.adaptive :: BatchStats.public func record(latencyMs: Int64, batchSize: Int64, success: Bool): Unit
-cactor_runtime.dispatcher.adaptive :: BatchStats.public func reset(): Unit
-cactor_runtime.dispatcher.adaptive :: BatchStats.public init()
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func getAverageLatency(): Float64
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func getStats(): String
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func getSuccessRate(): Float64
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func getThroughput(): Float64
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func recordBatchDispatch(latencyMs: Int64, batchSize: Int64, success: Bool): Unit
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func recordDispatch(latencyMs: Int64, success: Bool): Unit
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func recordPriorityDispatch(latencyMs: Int64, priority: Priority, success: Bool): Unit
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func reset(): Unit
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func start(): Unit
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public func stop(): Unit
-cactor_runtime.dispatcher.adaptive :: PerformanceMonitor.public init()
-cactor_runtime.dispatcher.adaptive :: PriorityStats.public func getAverageLatency(): Float64
-cactor_runtime.dispatcher.adaptive :: PriorityStats.public func getSuccessRate(): Float64
-cactor_runtime.dispatcher.adaptive :: PriorityStats.public func record(latencyMs: Int64, success: Bool): Unit
-cactor_runtime.dispatcher.adaptive :: PriorityStats.public func reset(): Unit
-cactor_runtime.dispatcher.adaptive :: PriorityStats.public init()
-cactor_runtime.dispatcher.adaptive :: public class AdaptationEngine
-cactor_runtime.dispatcher.adaptive :: public class AdaptiveDispatcher <: AdvancedMessageDispatcher
-cactor_runtime.dispatcher.adaptive :: public class BatchStats
-cactor_runtime.dispatcher.adaptive :: public class PerformanceMonitor
-cactor_runtime.dispatcher.adaptive :: public class PriorityStats
-cactor_runtime.dispatcher.advanced :: AdvancedMessageDispatcher.func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedMessageDispatcher.func dispatchBatch(envelopes: Array<Envelope>, actorRefs: Array<ActorRef>): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedMessageDispatcher.func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedMessageDispatcher.func getConfig(): DispatcherConfig
-cactor_runtime.dispatcher.advanced :: AdvancedMessageDispatcher.func getPerformanceStats(): String
-cactor_runtime.dispatcher.advanced :: AdvancedMessageDispatcher.func isRunning(): Bool
-cactor_runtime.dispatcher.advanced :: AdvancedMessageDispatcher.func start(): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedMessageDispatcher.func stop(): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public func dispatchBatch(envelopes: Array<Envelope>, actorRefs: Array<ActorRef>): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public func getConfig(): DispatcherConfig
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public func getPerformanceStats(): String
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public func isRunning(): Bool
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public func start(): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public func stop(): Unit
-cactor_runtime.dispatcher.advanced :: AdvancedWorkStealingDispatcher.public init(config: DispatcherConfig)
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public func dispatchBatch(envelopes: Array<Envelope>, actorRefs: Array<ActorRef>): Unit
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public func getConfig(): DispatcherConfig
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public func getPerformanceStats(): String
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public func isRunning(): Bool
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public func start(): Unit
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public func stop(): Unit
-cactor_runtime.dispatcher.advanced :: CallingThreadDispatcher.public init(config: DispatcherConfig)
-cactor_runtime.dispatcher.advanced :: DispatcherTask.public init(envelope: Envelope, actorRef: ActorRef, priority: Priority)
-cactor_runtime.dispatcher.advanced :: DispatcherTask.public let actorRef: ActorRef
-cactor_runtime.dispatcher.advanced :: DispatcherTask.public let envelope: Envelope
-cactor_runtime.dispatcher.advanced :: DispatcherTask.public let priority: Priority
-cactor_runtime.dispatcher.advanced :: DispatcherTask.public let timestamp: Int64
-cactor_runtime.dispatcher.advanced :: DispatcherWorkerThread.public func getTasksProcessed(): Int64
-cactor_runtime.dispatcher.advanced :: DispatcherWorkerThread.public func start(): Unit
-cactor_runtime.dispatcher.advanced :: DispatcherWorkerThread.public func stop(): Unit
-cactor_runtime.dispatcher.advanced :: DispatcherWorkerThread.public init(workerId: Int32, taskQueue: LockFreeQueue<DispatcherTask>, isRunning: AtomicBool)
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public func dispatchBatch(envelopes: Array<Envelope>, actorRefs: Array<ActorRef>): Unit
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public func getConfig(): DispatcherConfig
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public func getPerformanceStats(): String
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public func isRunning(): Bool
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public func start(): Unit
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public func stop(): Unit
-cactor_runtime.dispatcher.advanced :: PinnedDispatcher.public init(config: DispatcherConfig)
-cactor_runtime.dispatcher.advanced :: PinnedWorkerThread.public func getTasksProcessed(): Int64
-cactor_runtime.dispatcher.advanced :: PinnedWorkerThread.public func start(): Unit
-cactor_runtime.dispatcher.advanced :: PinnedWorkerThread.public func stop(): Unit
-cactor_runtime.dispatcher.advanced :: PinnedWorkerThread.public init(taskQueue: LockFreeQueue<DispatcherTask>, isRunning: AtomicBool)
-cactor_runtime.dispatcher.advanced :: Priority.| Critical
-cactor_runtime.dispatcher.advanced :: Priority.| High
-cactor_runtime.dispatcher.advanced :: Priority.| Low
-cactor_runtime.dispatcher.advanced :: Priority.| Normal
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public func dispatchBatch(envelopes: Array<Envelope>, actorRefs: Array<ActorRef>): Unit
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public func getConfig(): DispatcherConfig
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public func getPerformanceStats(): String
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public func isRunning(): Bool
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public func start(): Unit
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public func stop(): Unit
-cactor_runtime.dispatcher.advanced :: ThreadPoolDispatcher.public init(config: DispatcherConfig)
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public func dispatchBatch(envelopes: Array<Envelope>, actorRefs: Array<ActorRef>): Unit
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public func getConfig(): DispatcherConfig
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public func getPerformanceStats(): String
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public func isRunning(): Bool
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public func start(): Unit
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public func stop(): Unit
-cactor_runtime.dispatcher.advanced :: UltraHighPerformanceDispatcher.public init(config: DispatcherConfig)
-cactor_runtime.dispatcher.advanced :: public class AdvancedWorkStealingDispatcher <: AdvancedMessageDispatcher
-cactor_runtime.dispatcher.advanced :: public class CallingThreadDispatcher <: AdvancedMessageDispatcher
-cactor_runtime.dispatcher.advanced :: public class DispatcherTask
-cactor_runtime.dispatcher.advanced :: public class DispatcherWorkerThread
-cactor_runtime.dispatcher.advanced :: public class PinnedDispatcher <: AdvancedMessageDispatcher
-cactor_runtime.dispatcher.advanced :: public class PinnedWorkerThread
-cactor_runtime.dispatcher.advanced :: public class ThreadPoolDispatcher <: AdvancedMessageDispatcher
-cactor_runtime.dispatcher.advanced :: public class UltraHighPerformanceDispatcher <: AdvancedMessageDispatcher
-cactor_runtime.dispatcher.advanced :: public enum Priority
-cactor_runtime.dispatcher.advanced :: public interface AdvancedMessageDispatcher
-cactor_runtime.dispatcher.dynamic :: ConfigChangeListener.func onConfigChanged(name: String, oldConfig: DispatcherConfig, newConfig: DispatcherConfig): Unit
-cactor_runtime.dispatcher.dynamic :: ConfigUpdate.public init(throughput: Option<Int32>, deadlineMs: Option<Int64>, corePoolSize: Option<Int32>, maxPoolSize: Option<Int32>)
-cactor_runtime.dispatcher.dynamic :: ConfigUpdate.public let corePoolSize: Option<Int32>
-cactor_runtime.dispatcher.dynamic :: ConfigUpdate.public let deadlineMs: Option<Int64>
-cactor_runtime.dispatcher.dynamic :: ConfigUpdate.public let maxPoolSize: Option<Int32>
-cactor_runtime.dispatcher.dynamic :: ConfigUpdate.public let throughput: Option<Int32>
-cactor_runtime.dispatcher.dynamic :: ConfigUpdate.public static func deadlineUpdate(deadlineMs: Int64): ConfigUpdate
-cactor_runtime.dispatcher.dynamic :: ConfigUpdate.public static func poolSizeUpdate(coreSize: Int32, maxSize: Int32): ConfigUpdate
-cactor_runtime.dispatcher.dynamic :: ConfigUpdate.public static func throughputUpdate(value: Int32): ConfigUpdate
-cactor_runtime.dispatcher.dynamic :: DefaultConfigChangeListener.public func onConfigChanged(name: String, oldConfig: DispatcherConfig, newConfig: DispatcherConfig): Unit
-cactor_runtime.dispatcher.dynamic :: DefaultConfigChangeListener.public init(name: String)
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfig.public func applyUpdate(update: ConfigUpdate): Unit
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfig.public func getCurrentConfig(): DispatcherConfig
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfig.public func resetToBase(): Unit
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfig.public init(baseConfig: DispatcherConfig)
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public func addConfigChangeListener(name: String, listener: ConfigChangeListener): Unit
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public func getAllConfigNames(): Array<String>
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public func getConfig(name: String): Option<DispatcherConfig>
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public func getConfigVersion(): Int64
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public func registerConfig(name: String, config: DynamicDispatcherConfig): Unit
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public func start(): Unit
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public func stop(): Unit
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public func updateConfig(name: String, updates: ConfigUpdate): Bool
-cactor_runtime.dispatcher.dynamic :: DynamicDispatcherConfigManager.public init()
-cactor_runtime.dispatcher.dynamic :: public class DefaultConfigChangeListener <: ConfigChangeListener
-cactor_runtime.dispatcher.dynamic :: public class DynamicDispatcherConfig
-cactor_runtime.dispatcher.dynamic :: public class DynamicDispatcherConfigManager
-cactor_runtime.dispatcher.dynamic :: public interface ConfigChangeListener
-cactor_runtime.dispatcher.dynamic :: public struct ConfigUpdate
-cactor_runtime.dispatcher.factory :: AdvancedDispatcherFactory.func createDispatcher(config: DispatcherConfig): AdvancedMessageDispatcher
-cactor_runtime.dispatcher.factory :: AdvancedDispatcherFactory.func createOptimizedDispatcher(config: DispatcherConfig, performanceProfile: PerformanceProfile): AdvancedMessageDispatcher
-cactor_runtime.dispatcher.factory :: AdvancedDispatcherFactory.func getCreationStats(): String
-cactor_runtime.dispatcher.factory :: AdvancedDispatcherFactory.func getSupportedTypes(): Array<DispatcherType>
-cactor_runtime.dispatcher.factory :: AdvancedDispatcherFactory.func validateConfig(config: DispatcherConfig): Bool
-cactor_runtime.dispatcher.factory :: DefaultAdvancedDispatcherFactory.public func createDispatcher(config: DispatcherConfig): AdvancedMessageDispatcher
-cactor_runtime.dispatcher.factory :: DefaultAdvancedDispatcherFactory.public func createOptimizedDispatcher(config: DispatcherConfig, performanceProfile: PerformanceProfile): AdvancedMessageDispatcher
-cactor_runtime.dispatcher.factory :: DefaultAdvancedDispatcherFactory.public func getCreationStats(): String
-cactor_runtime.dispatcher.factory :: DefaultAdvancedDispatcherFactory.public func getSupportedTypes(): Array<DispatcherType>
-cactor_runtime.dispatcher.factory :: DefaultAdvancedDispatcherFactory.public func validateConfig(config: DispatcherConfig): Bool
-cactor_runtime.dispatcher.factory :: DefaultAdvancedDispatcherFactory.public init()
-cactor_runtime.dispatcher.factory :: DispatcherFactoryRegistry.public func getDefaultFactory(): AdvancedDispatcherFactory
-cactor_runtime.dispatcher.factory :: DispatcherFactoryRegistry.public func getFactory(name: String): AdvancedDispatcherFactory
-cactor_runtime.dispatcher.factory :: DispatcherFactoryRegistry.public func getFactoryNames(): Array<String>
-cactor_runtime.dispatcher.factory :: DispatcherFactoryRegistry.public func registerFactory(name: String, factory: AdvancedDispatcherFactory): Unit
-cactor_runtime.dispatcher.factory :: DispatcherFactoryRegistry.public init()
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func createAdaptiveDispatcher(config: DispatcherConfig): AdaptiveDispatcher
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func createDispatcher(config: DispatcherConfig): AdvancedMessageDispatcher
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func createDynamicDispatcher(config: DispatcherConfig): AdvancedMessageDispatcher
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func createFullyEnhancedDispatcher(config: DispatcherConfig): AdaptiveDispatcher
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func createMonitoredDispatcher(config: DispatcherConfig): MonitoredDispatcher
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func generateStatusReport(): String
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func getAllDispatcherNames(): Array<String>
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func getConfigManager(): DynamicDispatcherConfigManager
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func getDispatcher(name: String): Option<AdvancedMessageDispatcher>
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func getMetricsCollector(): DispatcherMetricsCollector
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func removeDispatcher(name: String): Bool
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func start(): Unit
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public func stop(): Unit
-cactor_runtime.dispatcher.factory :: EnhancedDispatcherFactory.public init()
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public func dispatch(envelope: Envelope, actorRef: ActorRef): Unit
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public func dispatchBatch(envelopes: Array<Envelope>, actorRefs: Array<ActorRef>): Unit
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public func dispatchWithPriority(envelope: Envelope, actorRef: ActorRef, priority: Priority): Unit
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public func getConfig(): DispatcherConfig
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public func getPerformanceStats(): String
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public func isRunning(): Bool
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public func start(): Unit
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public func stop(): Unit
-cactor_runtime.dispatcher.factory :: MonitoredDispatcher.public init(name: String, baseDispatcher: AdvancedMessageDispatcher, metricsCollector: DispatcherMetricsCollector)
-cactor_runtime.dispatcher.factory :: PerformanceProfile.| Balanced
-cactor_runtime.dispatcher.factory :: PerformanceProfile.| CpuOptimized
-cactor_runtime.dispatcher.factory :: PerformanceProfile.| CriticalMission
-cactor_runtime.dispatcher.factory :: PerformanceProfile.| MemoryOptimized
-cactor_runtime.dispatcher.factory :: PerformanceProfile.| UltraHighThroughput
-cactor_runtime.dispatcher.factory :: PerformanceProfile.| UltraLowLatency
-cactor_runtime.dispatcher.factory :: StringBuilder.public func append(str: String): Unit
-cactor_runtime.dispatcher.factory :: StringBuilder.public func toString(): String
-cactor_runtime.dispatcher.factory :: StringBuilder.public init()
-cactor_runtime.dispatcher.factory :: public class DefaultAdvancedDispatcherFactory <: AdvancedDispatcherFactory
-cactor_runtime.dispatcher.factory :: public class DispatcherFactoryRegistry
-cactor_runtime.dispatcher.factory :: public class EnhancedDispatcherFactory
-cactor_runtime.dispatcher.factory :: public class MonitoredDispatcher <: AdvancedMessageDispatcher
-cactor_runtime.dispatcher.factory :: public class StringBuilder
-cactor_runtime.dispatcher.factory :: public enum PerformanceProfile
-cactor_runtime.dispatcher.factory :: public interface AdvancedDispatcherFactory
-cactor_runtime.dispatcher.monitoring :: DispatcherMetrics.public func getName(): String
-cactor_runtime.dispatcher.monitoring :: DispatcherMetrics.public func getSummary(): DispatcherSummary
-cactor_runtime.dispatcher.monitoring :: DispatcherMetrics.public func recordBatchDispatch(latencyMs: Int64, batchSize: Int64, success: Bool): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetrics.public func recordDispatch(latencyMs: Int64, priority: Priority, success: Bool): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetrics.public func reset(): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetrics.public init(name: String, dispatcher: AdvancedMessageDispatcher)
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func generateReport(): String
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func getDispatcherMetrics(name: String): Option<DispatcherMetrics>
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func getGlobalMetrics(): GlobalMetrics
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func getMetricsSummary(): MetricsSummary
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func recordBatchDispatch(dispatcherName: String, latencyMs: Int64, batchSize: Int64, success: Bool): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func recordDispatch(dispatcherName: String, latencyMs: Int64, priority: Priority, success: Bool): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func registerDispatcher(name: String, dispatcher: AdvancedMessageDispatcher): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func resetAllMetrics(): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func start(): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func stop(): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public func unregisterDispatcher(name: String): Unit
-cactor_runtime.dispatcher.monitoring :: DispatcherMetricsCollector.public init()
-cactor_runtime.dispatcher.monitoring :: DispatcherSummary.public init(name: String, totalDispatches: Int64, successRate: Float64, averageLatency: Float64, throughput: Float64)
-cactor_runtime.dispatcher.monitoring :: DispatcherSummary.public let averageLatency: Float64
-cactor_runtime.dispatcher.monitoring :: DispatcherSummary.public let name: String
-cactor_runtime.dispatcher.monitoring :: DispatcherSummary.public let successRate: Float64
-cactor_runtime.dispatcher.monitoring :: DispatcherSummary.public let throughput: Float64
-cactor_runtime.dispatcher.monitoring :: DispatcherSummary.public let totalDispatches: Int64
-cactor_runtime.dispatcher.monitoring :: GlobalMetrics.public func getSummary(): GlobalSummary
-cactor_runtime.dispatcher.monitoring :: GlobalMetrics.public func recordBatchDispatch(latencyMs: Int64, batchSize: Int64, success: Bool): Unit
-cactor_runtime.dispatcher.monitoring :: GlobalMetrics.public func recordDispatch(latencyMs: Int64, priority: Priority, success: Bool): Unit
-cactor_runtime.dispatcher.monitoring :: GlobalMetrics.public func reset(): Unit
-cactor_runtime.dispatcher.monitoring :: GlobalMetrics.public init()
-cactor_runtime.dispatcher.monitoring :: GlobalSummary.public init(totalDispatches: Int64, successRate: Float64, averageLatency: Float64, throughput: Float64)
-cactor_runtime.dispatcher.monitoring :: GlobalSummary.public let averageLatency: Float64
-cactor_runtime.dispatcher.monitoring :: GlobalSummary.public let successRate: Float64
-cactor_runtime.dispatcher.monitoring :: GlobalSummary.public let throughput: Float64
-cactor_runtime.dispatcher.monitoring :: GlobalSummary.public let totalDispatches: Int64
-cactor_runtime.dispatcher.monitoring :: LatencyHistogram.public func getAverageLatency(): Int64
-cactor_runtime.dispatcher.monitoring :: LatencyHistogram.public func getPercentileLatency(percentile: Float64): Int64
-cactor_runtime.dispatcher.monitoring :: LatencyHistogram.public func recordLatency(latencyNs: Int64): Unit
-cactor_runtime.dispatcher.monitoring :: LatencyHistogram.public func reset(): Unit
-cactor_runtime.dispatcher.monitoring :: LatencyHistogram.public init()
-cactor_runtime.dispatcher.monitoring :: MetricsSummary.public init(dispatcherSummaries: Array<DispatcherSummary>, globalSummary: GlobalSummary)
-cactor_runtime.dispatcher.monitoring :: MetricsSummary.public let dispatcherSummaries: Array<DispatcherSummary>
-cactor_runtime.dispatcher.monitoring :: MetricsSummary.public let globalSummary: GlobalSummary
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public init(totalScheduled: Int64, totalCompleted: Int64, avgLatency: Int64, p99Latency: Int64, throughput: Float64, utilization: Float64, queueDepth: Int64, stealRate: Float64)
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public let averageLatencyNs: Int64
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public let p99LatencyNs: Int64
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public let queueDepth: Int64
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public let stealSuccessRate: Float64
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public let throughputPerSecond: Float64
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public let totalTasksCompleted: Int64
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public let totalTasksScheduled: Int64
-cactor_runtime.dispatcher.monitoring :: SchedulerMetrics.public let workerUtilization: Float64
-cactor_runtime.dispatcher.monitoring :: SchedulerMonitor.public func getCurrentMetrics(): SchedulerMetrics
-cactor_runtime.dispatcher.monitoring :: SchedulerMonitor.public func printReport(): Unit
-cactor_runtime.dispatcher.monitoring :: SchedulerMonitor.public func recordStealAttempt(successful: Bool): Unit
-cactor_runtime.dispatcher.monitoring :: SchedulerMonitor.public func recordTaskCompleted(latencyNs: Int64): Unit
-cactor_runtime.dispatcher.monitoring :: SchedulerMonitor.public func recordTaskScheduled(): Unit
-cactor_runtime.dispatcher.monitoring :: SchedulerMonitor.public func recordWorkerTime(workTimeNs: Int64, idleTimeNs: Int64): Unit
-cactor_runtime.dispatcher.monitoring :: SchedulerMonitor.public func reset(): Unit
-cactor_runtime.dispatcher.monitoring :: SchedulerMonitor.public init()
-cactor_runtime.dispatcher.monitoring :: ThroughputCalculator.public func getCurrentThroughput(): Float64
-cactor_runtime.dispatcher.monitoring :: ThroughputCalculator.public func recordEvent(count: Int64): Unit
-cactor_runtime.dispatcher.monitoring :: ThroughputCalculator.public init(windowSizeMs: Int64)
-cactor_runtime.dispatcher.monitoring :: public class DispatcherMetrics
-cactor_runtime.dispatcher.monitoring :: public class DispatcherMetricsCollector
-cactor_runtime.dispatcher.monitoring :: public class GlobalMetrics
-cactor_runtime.dispatcher.monitoring :: public class LatencyHistogram
-cactor_runtime.dispatcher.monitoring :: public class SchedulerMonitor
-cactor_runtime.dispatcher.monitoring :: public class ThroughputCalculator
-cactor_runtime.dispatcher.monitoring :: public struct DispatcherSummary
-cactor_runtime.dispatcher.monitoring :: public struct GlobalSummary
-cactor_runtime.dispatcher.monitoring :: public struct MetricsSummary
-cactor_runtime.dispatcher.monitoring :: public struct SchedulerMetrics
 cactor_runtime.events :: ActorCreatedEvent.public func getActorRef(): ActorRef
 cactor_runtime.events :: ActorCreatedEvent.public func getEventType(): String
 cactor_runtime.events :: ActorCreatedEvent.public func getTimestamp(): Int64
@@ -1232,165 +734,6 @@ cactor_runtime.mailbox :: public struct MailboxConfig
 cactor_runtime.mailbox :: public struct MailboxFactoryStats
 cactor_runtime.mailbox :: public struct MailboxMetrics
 cactor_runtime.mailbox :: public struct MailboxPerformanceMetrics
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func clear(): Unit
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func enqueueWithTimeout(envelope: Envelope, timeout: Duration): Bool
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func getConfig(): MailboxConfig
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func getName(): String
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func getUtilization(): Float64
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func hasMessages(): Bool
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func isFull(): Bool
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func remainingCapacity(): Int64
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public func size(): Int64
-cactor_runtime.mailbox.advanced :: FoundationBoundedMailbox.public init(config: MailboxConfig)
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func clear(): Unit
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func dequeueBatch(maxBatchSize: Int32): Array<Envelope>
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func getConfig(): MailboxConfig
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func getName(): String
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func hasMessages(): Bool
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public func size(): Int64
-cactor_runtime.mailbox.advanced :: FoundationPriorityMailbox.public init(config: MailboxConfig, comparator: (Message, Message)->Int32)
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func clear(): Unit
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func clearStash(): Unit
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func getConfig(): MailboxConfig
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func getName(): String
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func hasMessages(): Bool
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func isStashEmpty(): Bool
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func size(): Int64
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func stash(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func stashSize(): Int64
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func unstash(count: Int32): Int32
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public func unstashAll(): Int32
-cactor_runtime.mailbox.advanced :: FoundationStashingMailbox.public init(config: MailboxConfig)
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func clear(): Unit
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func dequeueBatch(maxBatchSize: Int32): Array<Envelope>
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func fastEnqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func getConfig(): MailboxConfig
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func getName(): String
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func getStats(): String
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func hasMessages(): Bool
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public func size(): Int64
-cactor_runtime.mailbox.advanced :: FoundationUnboundedMailbox.public init(config: MailboxConfig)
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func clear(): Unit
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func dequeueBatch(maxBatchSize: Int32): Array<Envelope>
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func fastEnqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func getConfig(): MailboxConfig
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func getContentionStats(): String
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func getName(): String
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func hasMessages(): Bool
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public func size(): Int64
-cactor_runtime.mailbox.advanced :: MPSCMailbox.public init(config: MailboxConfig)
-cactor_runtime.mailbox.advanced :: PriorityEnvelope.public init(envelope: Envelope, priority: Int32)
-cactor_runtime.mailbox.advanced :: PriorityEnvelope.public let envelope: Envelope
-cactor_runtime.mailbox.advanced :: PriorityEnvelope.public let priority: Int32
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func clear(): Unit
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func dequeueBatch(maxBatchSize: Int32): Array<Envelope>
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func enqueueBatch(envelopes: Array<Envelope>): Int32
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func getConfig(): MailboxConfig
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func getName(): String
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func getPerformanceStats(): String
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func hasMessages(): Bool
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public func size(): Int64
-cactor_runtime.mailbox.advanced :: SPSCMailbox.public init(config: MailboxConfig)
-cactor_runtime.mailbox.advanced :: public class FoundationBoundedMailbox <: Mailbox
-cactor_runtime.mailbox.advanced :: public class FoundationPriorityMailbox <: Mailbox
-cactor_runtime.mailbox.advanced :: public class FoundationStashingMailbox <: Mailbox
-cactor_runtime.mailbox.advanced :: public class FoundationUnboundedMailbox <: Mailbox
-cactor_runtime.mailbox.advanced :: public class MPSCMailbox <: Mailbox
-cactor_runtime.mailbox.advanced :: public class PriorityEnvelope
-cactor_runtime.mailbox.advanced :: public class SPSCMailbox <: Mailbox
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func clear(): Unit
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func close(): Unit
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func dequeueBatch(max: Int32): Array<Envelope>
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func getAverageProcessingTime(): Int64
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func getCurrentBatchSize(): Int64
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func getTargetLatency(): Duration
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func isClosed(): Bool
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func processBatch(): Array<Envelope>
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public func size(): Int64
-cactor_runtime.mailbox.batching :: AdaptiveBatchingMailbox.public init(minBatchSize: Int64, maxBatchSize: Int64, batchTimeout: Duration, targetLatency: Duration)
-cactor_runtime.mailbox.batching :: BatchProcessingMetrics.public func getProcessingTimeMs(): Float64
-cactor_runtime.mailbox.batching :: BatchProcessingMetrics.public func hasErrors(): Bool
-cactor_runtime.mailbox.batching :: BatchProcessingMetrics.public init(batchSize: Int64, processingTime: Int64, errorCount: Int64, throughput: Float64)
-cactor_runtime.mailbox.batching :: BatchProcessingMetrics.public let batchSize: Int64
-cactor_runtime.mailbox.batching :: BatchProcessingMetrics.public let errorCount: Int64
-cactor_runtime.mailbox.batching :: BatchProcessingMetrics.public let processingTime: Int64
-cactor_runtime.mailbox.batching :: BatchProcessingMetrics.public let throughput: Float64
-cactor_runtime.mailbox.batching :: BatchProcessor.public func processBatch(batch: Array<Envelope>): Unit
-cactor_runtime.mailbox.batching :: BatchProcessor.public func processWithMetrics(batch: Array<Envelope>): BatchProcessingMetrics
-cactor_runtime.mailbox.batching :: BatchProcessor.public init(processingFunction: (Array<Envelope>)->Unit, errorHandler: (Exception)->Unit)
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func clear(): Unit
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func close(): Unit
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func dequeue(): Option<Envelope>
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func dequeueBatch(max: Int32): Array<Envelope>
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func enqueue(envelope: Envelope): Bool
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func getAverageBatchSize(): Float64
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func getBatchSize(): Int64
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func getBatchTimeout(): Duration
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func getMetrics(): MailboxMetrics
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func getTotalBatches(): Int64
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func getTotalEnqueued(): Int64
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func isClosed(): Bool
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func isEmpty(): Bool
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func isMetricsEnabled(): Bool
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func processBatch(): Array<Envelope>
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func resetMetrics(): Unit
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func setMetricsEnabled(enabled: Bool): Unit
-cactor_runtime.mailbox.batching :: BatchingMailbox.public func size(): Int64
-cactor_runtime.mailbox.batching :: BatchingMailbox.public init(batchSize: Int64, batchTimeout: Duration)
-cactor_runtime.mailbox.batching :: public class AdaptiveBatchingMailbox <: Mailbox & BatchDequeueSemantics
-cactor_runtime.mailbox.batching :: public class BatchProcessor
-cactor_runtime.mailbox.batching :: public class BatchingMailbox <: Mailbox & BatchDequeueSemantics & MetricsSemantics
-cactor_runtime.mailbox.batching :: public struct BatchProcessingMetrics
-cactor_runtime.mailbox.factory :: AdvancedMailboxFactory.func createMailbox(config: MailboxConfig): Mailbox
-cactor_runtime.mailbox.factory :: AdvancedMailboxFactory.func createOptimizedMailbox(config: MailboxConfig, usagePattern: UsagePattern): Mailbox
-cactor_runtime.mailbox.factory :: AdvancedMailboxFactory.func getSupportedTypes(): Array<MailboxType>
-cactor_runtime.mailbox.factory :: AdvancedMailboxFactory.func validateConfig(config: MailboxConfig): Bool
-cactor_runtime.mailbox.factory :: DefaultAdvancedMailboxFactory.public func createMailbox(config: MailboxConfig): Mailbox
-cactor_runtime.mailbox.factory :: DefaultAdvancedMailboxFactory.public func createOptimizedMailbox(config: MailboxConfig, usagePattern: UsagePattern): Mailbox
-cactor_runtime.mailbox.factory :: DefaultAdvancedMailboxFactory.public func getCreationStats(): String
-cactor_runtime.mailbox.factory :: DefaultAdvancedMailboxFactory.public func getSupportedTypes(): Array<MailboxType>
-cactor_runtime.mailbox.factory :: DefaultAdvancedMailboxFactory.public func validateConfig(config: MailboxConfig): Bool
-cactor_runtime.mailbox.factory :: DefaultAdvancedMailboxFactory.public init()
-cactor_runtime.mailbox.factory :: MailboxFactoryRegistry.public func getDefaultFactory(): AdvancedMailboxFactory
-cactor_runtime.mailbox.factory :: MailboxFactoryRegistry.public func getFactory(name: String): AdvancedMailboxFactory
-cactor_runtime.mailbox.factory :: MailboxFactoryRegistry.public func registerFactory(name: String, factory: AdvancedMailboxFactory): Unit
-cactor_runtime.mailbox.factory :: MailboxFactoryRegistry.public init()
-cactor_runtime.mailbox.factory :: StringBuilder.public func append(str: String): Unit
-cactor_runtime.mailbox.factory :: StringBuilder.public func toString(): String
-cactor_runtime.mailbox.factory :: StringBuilder.public init()
-cactor_runtime.mailbox.factory :: UsagePattern.| Balanced
-cactor_runtime.mailbox.factory :: UsagePattern.| HighThroughput
-cactor_runtime.mailbox.factory :: UsagePattern.| LowLatency
-cactor_runtime.mailbox.factory :: UsagePattern.| MultiProducerMultiConsumer
-cactor_runtime.mailbox.factory :: UsagePattern.| MultiProducerSingleConsumer
-cactor_runtime.mailbox.factory :: UsagePattern.| SingleProducerMultiConsumer
-cactor_runtime.mailbox.factory :: UsagePattern.| SingleProducerSingleConsumer
-cactor_runtime.mailbox.factory :: public class DefaultAdvancedMailboxFactory <: AdvancedMailboxFactory
-cactor_runtime.mailbox.factory :: public class MailboxFactoryRegistry
-cactor_runtime.mailbox.factory :: public class StringBuilder
-cactor_runtime.mailbox.factory :: public enum UsagePattern
-cactor_runtime.mailbox.factory :: public interface AdvancedMailboxFactory
 cactor_runtime.supervision :: ActorSupervisionInfo.public init(actorRef: ActorRef, strategy: SupervisionStrategy, state: SupervisionState, failureCount: Int32, lastFailureTime: Int64, restartCount: Int32, escalationCount: Int32, circuitBreakerOpenTime: Int64)
 cactor_runtime.supervision :: ActorSupervisionInfo.public let actorRef: ActorRef
 cactor_runtime.supervision :: ActorSupervisionInfo.public let circuitBreakerOpenTime: Int64

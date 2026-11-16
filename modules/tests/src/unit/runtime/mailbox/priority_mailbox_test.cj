@@ -3,7 +3,6 @@ package cactor_tests.unit.runtime.mailbox
 import std.unittest.*
 import std.unittest.testmacro.*
 import cactor_runtime.mailbox.*
-import cactor_runtime.mailbox.advanced.*
 import cactor_core.message.*
 
 class LowMessage <: UserMessage {

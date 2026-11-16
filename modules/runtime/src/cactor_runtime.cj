@@ -13,9 +13,10 @@ import cactor_core.message.{Message}
 import cactor_core.system.{ActorSystem}
 import cactor_runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian, SimpleUserActorRef, isActorThread}
 import cactor_runtime.system.{HighPerformanceActorSystem, HighPerformanceActorSystemConfig, SystemStats}
-import cactor_runtime.mailbox.factory.{AdvancedMailboxFactory, DefaultAdvancedMailboxFactory}
+// 高级邮箱/调度器工厂链（dispatcher.factory / mailbox.factory 及其下游）已删除：
+// 它们只被 CActorRuntime 存成字段 + 两个零调用方的 getter，从未参与调度。
+// 真实的邮箱与调度由 core 的 ActorCellDispatcher + runtime 的 mailbox_factory 承担。
 import cactor_runtime.mailbox.{MailboxFactory as RuntimeMailboxFactory}
-import cactor_runtime.dispatcher.factory.{AdvancedDispatcherFactory, DefaultAdvancedDispatcherFactory}
 import cactor_runtime.system.{SimpleActorSystem}
 import cactor_runtime.mailbox.{MailboxFactory, MailboxConfig as RuntimeMailboxConfig}
 import cactor_core.guardian.{GuardianStats}
@@ -48,9 +49,7 @@ public class CActorRuntime {
     private let userGuardian: RuntimeUserGuardian
 
     // 运行时组件
-    private let mailboxFactory: AdvancedMailboxFactory
     private let runtimeMailboxFactory: RuntimeMailboxFactory
-    private let dispatcherFactory: AdvancedDispatcherFactory
     private let highPerformanceSystem: HighPerformanceActorSystem
 
     // plan10.md新增的企业级组件
@@ -92,9 +91,7 @@ public class CActorRuntime {
         this.userGuardian = RuntimeUserGuardian(actorSystem, config.scheduler)
 
         // 创建运行时组件
-        this.mailboxFactory = DefaultAdvancedMailboxFactory()
         this.runtimeMailboxFactory = RuntimeMailboxFactory(RuntimeMailboxConfig.createUnbounded())
-        this.dispatcherFactory = DefaultAdvancedDispatcherFactory()
         this.highPerformanceSystem = HighPerformanceActorSystem(config.highPerformanceConfig)
 
         // 初始化状态
@@ -378,20 +375,6 @@ public class CActorRuntime {
         // 创建基础ActorSystem实现
         // 这里应该使用Core层的基础实现
         SimpleActorSystem(name)
-    }
-
-    /**
-     * 获取邮箱工厂
-     */
-    public func getMailboxFactory(): AdvancedMailboxFactory {
-        mailboxFactory
-    }
-
-    /**
-     * 获取调度器工厂
-     */
-    public func getDispatcherFactory(): AdvancedDispatcherFactory {
-        dispatcherFactory
     }
 
     /**

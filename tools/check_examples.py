@@ -49,7 +49,6 @@ NOT_RUN = {
     "benchmark_demo": "not-built：cjpm.toml 未声明 executable",
     "config_system_demo": "not-built：cjpm.toml 未声明 executable",
     "enhanced_serialization_demo": "not-built：cjpm.toml 未声明 executable（enhanced 序列化未收敛）",
-    "mailbox_refactor_demo": "not-built：cjpm.toml 未声明 executable",
     "error_handling_demo": "not-built：目录内只有 pkg.cj，没有 main",
     # ---- 已知缺陷 ----
     "simple_serialization_demo": "known-failing：性能段除零（总耗时 0ms 时 totalTime 作除数），待修后接入",

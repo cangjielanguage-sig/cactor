@@ -292,7 +292,6 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `lease_contend` | ✅ 运行 | 自检退出码 0 |
 | `llm_http_demo` | ✅ 运行 | 自检退出码 0 |
 | `llm_token_stream` | ✅ 运行 | 自检退出码 0 |
-| `mailbox_refactor_demo` | — | not-built：cjpm.toml 未声明 executable |
 | `mem_profile` | — | measurement：内存剖析，输出为参考值 |
 | `micro_benchmark` | — | measurement：仓颉原语微基准，供 bench/compare.sh 使用 |
 | `monitoring_demo` | ✅ 运行 | 自检退出码 0 |
