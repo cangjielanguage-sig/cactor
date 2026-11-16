@@ -7,6 +7,42 @@
 
 ## [未发布]
 
+### 💥 破坏性变更（`docs/plan/20261106.md` E46/E47：删除无消费者的平行实现，生产代码 -5,642 行）
+
+原则是“能复用就不留第二套”：下列包在库代码中**零消费者**，能力均由仍然健在的实现覆盖，因此整体删除而不是写适配层。回退点：`git revert` 本提交即可全部恢复。
+
+| 删除项 | 行数 | 替代实现（沿用，不新建） |
+|---|---|---|
+| `cactor_foundation.log` | 178 | `cactor_foundation.logging`（`Logging` / `Logger` / `LogLevel` / `MemorySink` / `Mdc` / `LogRateLimiter`） |
+| `cactor_foundation.abstractions` | 395 | `cactor_core` 的真实 `Actor` / `ActorRef` / `ActorContext`（旧包是一组从未被绑定的平行接口） |
+| `cactor_foundation.contracts` | 474 | `tools/check_module_deps.py`（真实的分层门禁）+ `docs/zh/package-structure.md` |
+| `cactor_foundation.di` | 358 | 构造函数 / `Props` 注入（仓库里没有服务定位器的消费者） |
+| `cactor_foundation.simple_config` | 344 | `cactor_foundation.config.LayeredConfig`（唯一被生产代码使用的配置系统） |
+| `cactor_foundation.plugin` | 186 | `cactor_core.typed.typed_interceptor`（`BehaviorInterceptor`）+ `cactor_persistence.plugin_registry` |
+| `cactor_foundation.attributes` | 122 | 暂无宿主：等 `ActorSystem` 扩展点定案后按需求重建（不留在树里当摆设） |
+| `cactor_core.error` | 331 | `cactor_core.actor.signals`（`ActorErrorException` / `DeathPactException`）+ 监督策略 |
+| `cactor_patterns.backpressure` | 399 | `cactor_streams`（Reactive Streams 背压） |
+| `cactor_patterns.routing.factory` | 435 | `cactor_patterns.routing` 的真实四种路由（Random / RoundRobin / ConsistentHash / SmallestMailbox） |
+| `cactor.config.file` | 821 | `cactor_foundation.config.LayeredConfig` + `cactor_core.config` |
+| `cactor_core.message.enhanced_message` | 310 | `cactor_core.message.zerocopy_message`（真实实现） |
+| `cactor_runtime.mailbox.queue` | 236 | `cactor_runtime.mailbox` 在用的邮箱实现（`priority_mailbox` / `foundation_mailbox`） |
+| `cactor_runtime.message` | 334 | 无替代需求：批处理消息路径未接入任何调度器 |
+| `cactor_runtime.mailbox.ringbuffer` | 254 | 同上（未接入邮箱工厂） |
+| `cactor_runtime.dispatcher.batch_processing` | 434 | 同上（仅被已删文件引用） |
+| `cactor_runtime.scheduler` / `.execution` | 10 | 只有 `package` 声明的空包 |
+
+- 同时删除 `foundation/pkg.cj` 里对 `simple_config` 的 `public import`，以及 `patterns/pkg.cj` 里对 `backpressure` 的 `public import`。
+- 删除只演示上述被删能力的两个示例目录：`dependency_optimization_demo`（`di` + `contracts`）与 `simple_config_demo`（`simple_config`）；`modules/examples/src/README.md` 清单由 `tools/check_examples.py --update-readme` 重新生成。
+- 被删测试的覆盖面没有丢：`foundation/log` 的语义用例（级别过滤必须在拼接之前发生）迁到 `modules/tests/src/unit/observability/structured_logging_test.cj` 的 `testDisabledLevelSkipsLazyMessageAndOutput`，断言对象换成仍然存在的 `logging.MemorySink`。
+- 公开 API 快照同步更新（`foundation` / `core` / `runtime` / `patterns` / `cactor` 五个文件），diff **只含删除、无新增**。
+- 度量（`tools/quality_metrics.py`）：库模块生产代码 90,341 → **84,699** 行，占位关键词 165 → **144**，零引用包 23 → **9**。
+
+### ⚙️ 工程体系（门禁：修掉两个“按文档用 `/bin/bash` 就必红”的缺陷）
+
+- **`tools/ci.sh` 不再用 `env -u` 包装 `cjpm test`**。macOS 在执行平台二进制（`/usr/bin/env`、`/bin/bash`、`/usr/bin/timeout`，均在 dyld 共享缓存中）时会把环境里的 `DYLD_*` 全部剔除，于是 `env -u CACTOR_LOG_LEVEL cjpm test` 不仅删了日志变量，连 `tools/env.sh` 刚准备的 `DYLD_LIBRARY_PATH` / `DYLD_FALLBACK_LIBRARY_PATH` 也一起丢掉，`cjpm` 起的测试进程只能找到 `/usr/lib/libcrypto.dylib`（LibreSSL 桩）而 SIGABRT。表现为 7 个 TLS 用例 `Crashed with exit code 134`。改为子 shell 内 `unset`（不 exec 新程序）。已在 HEAD 干净 worktree 上复现同一失败，确认与本次删除无关。
+- **6 个 `tools/*.sh` 改为无条件 `source tools/env.sh`**（`cluster_demo` / `cluster_crash_demo` / `ddata_stress` / `journal_crash_demo` / `lease_contend_demo` / `bench_gate`）。它们原来只在 `cjpm` 不在 PATH 时 source 一个写死路径 `~/.cangjie/1.2.0/cangjie/envsetup.sh`（本机实际在 `~/cangjie`，且门禁里 `cjpm` 在 PATH，于是整段跳过），完全依赖继承的 `DYLD_*`；经 `guard`（`timeout --foreground /bin/bash script.sh`）调用时会被剔除，节点进程报 `no LC_RPATH's found` / `Abort trap: 6`。修复后 `caffeinate -i /bin/bash tools/ci.sh` 首次在系统自带 bash 3.2 下走完整链路并退出码 0。
+- 教训（已写入 `docs/plan/20261116.md` §9.5）：任何新增的 `tools/*.sh` 只要启动仓颉二进制，开头必须 `source tools/env.sh`；不要用 `env` 包装。
+
 ### ✨ 新增（DA7：StreamRef 可靠模式与 streams 跨节点 ask）
 
 - `StreamRefSettings` 新增 `reliable`（默认 `false`）与 `reconnectWindow`（默认 10 s），配套 `withReliable` / `withReconnectWindow`。可靠模式开启后，生产方保留未确认元素（保留量受 `bufferSize` 约束），消费方按累计序号 ACK；短暂断连不立即失败，而是在 `reconnectWindow` 内用同一 streamId + 恢复令牌重新挂接并从 `lastAck + 1` 重发，消费方按序号去重。恢复重试间隔为 `min(1s, max(100ms, reconnectWindow/4))`，重连窗口耗尽抛新增的 `StreamRefReconnectTimeoutException`。本进程内的流（SourceRef 带本地引用）没有传输可断，仍走单次挂接。
