@@ -542,6 +542,7 @@ cactor_cluster.streamref :: StreamProducer.public func isAttached(): Bool
 cactor_cluster.streamref :: StreamProducer.public func isClosed(): Bool
 cactor_cluster.streamref :: StreamProducer.public func maxOverGrant(): Int64
 cactor_cluster.streamref :: StreamProducer.public func offer(element: T): OfferResult
+cactor_cluster.streamref :: StreamProducer.public func retainedCount(): Int64
 cactor_cluster.streamref :: StreamProducer.public func sentCount(): Int64
 cactor_cluster.streamref :: StreamProducer.public func stageRef(): TypedActorRef<StreamRefMsg>
 cactor_cluster.streamref :: StreamProducer.public func termination(): TypedPromise<StreamTermination>
@@ -553,8 +554,11 @@ cactor_cluster.streamref :: StreamRefEvent.| OnSubscribe(StreamRefSubscription)
 cactor_cluster.streamref :: StreamRefException.public init(message: String)
 cactor_cluster.streamref :: StreamRefIdleTimeoutException.public init(message: String)
 cactor_cluster.streamref :: StreamRefMsg.public func streamIdOrEmpty(): String
+cactor_cluster.streamref :: StreamRefMsg.| Ack(String, Int64)
+cactor_cluster.streamref :: StreamRefMsg.| AckCompleted(String)
 cactor_cluster.streamref :: StreamRefMsg.| Cancel(String, String)
 cactor_cluster.streamref :: StreamRefMsg.| Completed(String, Int64)
+cactor_cluster.streamref :: StreamRefMsg.| CompletionAckTimeout
 cactor_cluster.streamref :: StreamRefMsg.| ConsumerPull
 cactor_cluster.streamref :: StreamRefMsg.| Demand(String, Int64)
 cactor_cluster.streamref :: StreamRefMsg.| Element(String, Int64, Any)
@@ -564,27 +568,37 @@ cactor_cluster.streamref :: StreamRefMsg.| Offer(Any)
 cactor_cluster.streamref :: StreamRefMsg.| OnSubscribe(String)
 cactor_cluster.streamref :: StreamRefMsg.| ProducerComplete
 cactor_cluster.streamref :: StreamRefMsg.| ProducerFail(String)
+cactor_cluster.streamref :: StreamRefMsg.| ProgressTick
+cactor_cluster.streamref :: StreamRefMsg.| ReconnectTick
 cactor_cluster.streamref :: StreamRefMsg.| Rejected(String, String)
+cactor_cluster.streamref :: StreamRefMsg.| ReliableProbeOk(String)
 cactor_cluster.streamref :: StreamRefMsg.| Subscribe(String, String, Int64)
 cactor_cluster.streamref :: StreamRefMsg.| SubscribeLocal(String, TypedActorRef<StreamRefMsg>, Int64)
+cactor_cluster.streamref :: StreamRefMsg.| SubscribeReliable(String, String, Int64, String, Int64)
 cactor_cluster.streamref :: StreamRefMsg.| SubscriberCancel(String)
 cactor_cluster.streamref :: StreamRefMsg.| SubscriberRequest(Int64)
 cactor_cluster.streamref :: StreamRefMsg.| SubscriptionTimeout
 cactor_cluster.streamref :: StreamRefMsg.| TerminationDeadline
 cactor_cluster.streamref :: StreamRefPeerTerminatedException.public init(message: String)
 cactor_cluster.streamref :: StreamRefProtocolException.public init(message: String)
+cactor_cluster.streamref :: StreamRefReconnectTimeoutException.public init(message: String)
 cactor_cluster.streamref :: StreamRefRejectedException.public init(message: String)
 cactor_cluster.streamref :: StreamRefRemoteFailureException.public init(reason: String)
 cactor_cluster.streamref :: StreamRefRemoteFailureException.public let reason: String
 cactor_cluster.streamref :: StreamRefSettings.public func withBufferSize(n: Int64): StreamRefSettings
 cactor_cluster.streamref :: StreamRefSettings.public func withFinalTerminationSignalDeadline(d: Duration): StreamRefSettings
 cactor_cluster.streamref :: StreamRefSettings.public func withIdleTimeout(d: Duration): StreamRefSettings
+cactor_cluster.streamref :: StreamRefSettings.public func withReconnectWindow(d: Duration): StreamRefSettings
+cactor_cluster.streamref :: StreamRefSettings.public func withReliable(enabled: Bool): StreamRefSettings
 cactor_cluster.streamref :: StreamRefSettings.public func withSubscriptionTimeout(d: Duration): StreamRefSettings
 cactor_cluster.streamref :: StreamRefSettings.public init()
 cactor_cluster.streamref :: StreamRefSettings.public init(bufferSize: Int64, subscriptionTimeout: Duration, idleTimeout: Option<Duration>, finalTerminationSignalDeadline: Duration)
+cactor_cluster.streamref :: StreamRefSettings.public init(bufferSize: Int64, subscriptionTimeout: Duration, idleTimeout: Option<Duration>, finalTerminationSignalDeadline: Duration, reliable: Bool, reconnectWindow: Duration)
 cactor_cluster.streamref :: StreamRefSettings.public let bufferSize: Int64
 cactor_cluster.streamref :: StreamRefSettings.public let finalTerminationSignalDeadline: Duration
 cactor_cluster.streamref :: StreamRefSettings.public let idleTimeout: Option<Duration>
+cactor_cluster.streamref :: StreamRefSettings.public let reconnectWindow: Duration
+cactor_cluster.streamref :: StreamRefSettings.public let reliable: Bool
 cactor_cluster.streamref :: StreamRefSettings.public let subscriptionTimeout: Duration
 cactor_cluster.streamref :: StreamRefSubscriber.func onComplete(): Unit
 cactor_cluster.streamref :: StreamRefSubscriber.func onError(error: StreamRefException): Unit
@@ -636,6 +650,7 @@ cactor_cluster.streamref :: public class StreamProducer<T> <: StreamWriter<T>
 cactor_cluster.streamref :: public class StreamRefIdleTimeoutException <: StreamRefException
 cactor_cluster.streamref :: public class StreamRefPeerTerminatedException <: StreamRefException
 cactor_cluster.streamref :: public class StreamRefProtocolException <: StreamRefException
+cactor_cluster.streamref :: public class StreamRefReconnectTimeoutException <: StreamRefException
 cactor_cluster.streamref :: public class StreamRefRejectedException <: StreamRefException
 cactor_cluster.streamref :: public class StreamRefRemoteFailureException <: StreamRefException
 cactor_cluster.streamref :: public class StreamRefSubscriberException <: StreamRefException
@@ -651,6 +666,7 @@ cactor_cluster.streamref :: public func ensureStreamRefCodecRegistered(): Bool
 cactor_cluster.streamref :: public interface StreamRefSubscriber<T>
 cactor_cluster.streamref :: public interface StreamWriter<T>
 cactor_cluster.streamref :: public let STREAM_REF_PROTOCOL_VERSION: Int64
+cactor_cluster.streamref :: public let STREAM_REF_PROTOCOL_VERSION_RELIABLE: Int64
 cactor_cluster.streamref :: public let STREAM_REF_WIRE_TYPE: String
 cactor_cluster.streamref :: public open class StreamRefException <: Exception
 cactor_cluster.streamref :: public struct StreamRefSettings

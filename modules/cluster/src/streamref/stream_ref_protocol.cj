@@ -34,6 +34,17 @@ import cactor_core.typed.*
 /** 协议版本：Subscribe 携带，生产方拒绝不一致的版本（而不是猜测对方的帧格式） */
 public let STREAM_REF_PROTOCOL_VERSION: Int64 = 1
 
+/**
+ * 可靠模式（reliable = true）的协议版本。
+ *
+ * 版本协商复用既有的 Subscribe/Rejected 帧，不引入新的握手格式：
+ * - 可靠消费方跨节点挂接时发送 SubscribeReliable(version = 2)；旧生产方只认版本 1，
+ *   会回 Rejected("协议版本不符")——旧节点对新模式是**明确拒绝**，不是静默半挂接；
+ * - 可靠生产方收到旧消费方的 Subscribe(version = 1) 同样回 Rejected("可靠模式需要协议版本 2")；
+ * - 两端都关闭可靠模式时版本恒为 1，现有帧与线格式一个字节都不变（DA7 兼容性要求）。
+ */
+public let STREAM_REF_PROTOCOL_VERSION_RELIABLE: Int64 = 2
+
 /** 线上类型名（TypedPayloadCodecs 命名空间，两端须一致） */
 public let STREAM_REF_WIRE_TYPE: String = "cactor.streamref.StreamRefMsg.v1"
 
@@ -59,6 +70,24 @@ public enum StreamRefMsg {
     | Failed(String, String)
     /** 消费方 -> 生产方：取消 */
     | Cancel(String, String)
+    // ---------- 可靠模式（版本 2）线上协议，旧对端不会走到这里 ----------
+    /**
+     * 消费方 -> 生产方：可靠挂接 / 恢复挂接。
+     * 首次挂接 lastAck = 0；恢复时带同一个 token 与已连续收到的序号，生产方从 lastAck+1 重发。
+     */
+    | SubscribeReliable(String, String, Int64, String, Int64)
+    /** 消费方 -> 生产方：累计确认（已连续收到的最大序号，生产方可丢弃 ≤ seq 的保留元素） */
+    | Ack(String, Int64)
+    /** 消费方 -> 生产方：已收到 Completed；生产方据此真正终止（完成后不再无限保留元素） */
+    | AckCompleted(String)
+    /**
+     * 生产方 -> 消费方：版本 2 探测被接受，请用 SubscribeReliable 带恢复令牌正式挂接。
+     *
+     * 可靠消费方的首次挂接先发**既有** Subscribe 帧并带版本 2：旧生产方认得这个帧、会以
+     * Rejected("协议版本不符") 明确拒绝；新可靠生产方回本帧，消费方再发 SubscribeReliable。
+     * 于是"与旧节点互通"不依赖旧节点理解新帧，而是复用旧节点的版本检查。
+     */
+    | ReliableProbeOk(String)
     // ---------- 本节点内（不过线） ----------
     /** 同进程挂接：直接带消费方引用，免去暴露与网络回环 */
     | SubscribeLocal(String, TypedActorRef<StreamRefMsg>, Int64)
@@ -79,6 +108,12 @@ public enum StreamRefMsg {
     | SubscriptionTimeout
     | IdleTimeout
     | TerminationDeadline
+    /** 可靠模式：恢复挂接的重试（消费方）或重连窗口检查（生产方） */
+    | ReconnectTick
+    /** 可靠模式：完成确认的截止时间（生产方） */
+    | CompletionAckTimeout
+    /** 可靠模式：有未满足需求却长时间没有任何进展（消费方），与空闲超时分开，触发恢复而不是失败 */
+    | ProgressTick
 
     public func streamIdOrEmpty(): String {
         match (this) {
@@ -90,6 +125,10 @@ public enum StreamRefMsg {
             case StreamRefMsg.Completed(s, _) => s
             case StreamRefMsg.Failed(s, _) => s
             case StreamRefMsg.Cancel(s, _) => s
+            case StreamRefMsg.SubscribeReliable(s, _, _, _, _) => s
+            case StreamRefMsg.Ack(s, _) => s
+            case StreamRefMsg.AckCompleted(s) => s
+            case StreamRefMsg.ReliableProbeOk(s) => s
             case StreamRefMsg.SubscribeLocal(s, _, _) => s
             case _ => ""
         }
@@ -154,6 +193,13 @@ public class StreamRefRejectedException <: StreamRefException {
 
 /** 生产方阶段（或其节点）终止，且在宽限期内没有收到终止信号 */
 public class StreamRefPeerTerminatedException <: StreamRefException {
+    public init(message: String) {
+        super(message)
+    }
+}
+
+/** 可靠模式：断连后在重连窗口内没能重新挂接（生产方真的没了，或网络一直不可达） */
+public class StreamRefReconnectTimeoutException <: StreamRefException {
     public init(message: String) {
         super(message)
     }
@@ -265,19 +311,32 @@ public enum OfferResult <: ToString {
  *   默认关闭：LLM 生成本来就可能很慢，是否超时是业务决定。
  * - finalTerminationSignalDeadline：远程生产方被判定终止后，再等这么久终止信号（Completed 与 DEATH
  *   走不同通道，可能被后者超车），过期才失败。同进程引用之间有序，不等待。
+ * - reliable（默认 false）：跨节点流的可靠模式。开启后生产方保留未确认元素（受 bufferSize 约束），
+ *   消费方按累计序号 ACK；短暂断连不立即失败，在 reconnectWindow 内用同一 streamId + 恢复令牌
+ *   重新挂接并从 lastAck+1 重发，消费方按序号去重。默认关闭时行为与线格式与 v2.42 完全一致。
+ *   本进程内的流（SourceRef 带本地引用）仍走单次挂接，不启用可靠路径：没有传输可断。
+ * - reconnectWindow：可靠模式下判定短暂断连后等待恢复的最长时间；同时决定恢复重试间隔
+ *   （min(1s, max(100ms, reconnectWindow/4))）。只有 reliable = true 时才生效。
  */
 public struct StreamRefSettings {
     public let bufferSize: Int64
     public let subscriptionTimeout: Duration
     public let idleTimeout: Option<Duration>
     public let finalTerminationSignalDeadline: Duration
+    public let reliable: Bool
+    public let reconnectWindow: Duration
 
     public init() {
-        this(16, Duration.second * 10, None<Duration>, Duration.second)
+        this(16, Duration.second * 10, None<Duration>, Duration.second, false, Duration.second * 10)
     }
 
     public init(bufferSize: Int64, subscriptionTimeout: Duration, idleTimeout: Option<Duration>,
         finalTerminationSignalDeadline: Duration) {
+        this(bufferSize, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline, false, Duration.second * 10)
+    }
+
+    public init(bufferSize: Int64, subscriptionTimeout: Duration, idleTimeout: Option<Duration>,
+        finalTerminationSignalDeadline: Duration, reliable: Bool, reconnectWindow: Duration) {
         if (bufferSize <= 0) {
             throw IllegalArgumentException("StreamRef bufferSize 必须为正数")
         }
@@ -289,26 +348,54 @@ public struct StreamRefSettings {
                 throw IllegalArgumentException("StreamRef idleTimeout 必须为正数")
             }
         }
+        if (reliable && reconnectWindow <= Duration.Zero) {
+            throw IllegalArgumentException("StreamRef reliable 模式的 reconnectWindow 必须为正数")
+        }
         this.bufferSize = bufferSize
         this.subscriptionTimeout = subscriptionTimeout
         this.idleTimeout = idleTimeout
         this.finalTerminationSignalDeadline = finalTerminationSignalDeadline
+        this.reliable = reliable
+        this.reconnectWindow = reconnectWindow
     }
 
     public func withBufferSize(n: Int64): StreamRefSettings {
-        StreamRefSettings(n, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline)
+        StreamRefSettings(n, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline, reliable, reconnectWindow)
     }
 
     public func withSubscriptionTimeout(d: Duration): StreamRefSettings {
-        StreamRefSettings(bufferSize, d, idleTimeout, finalTerminationSignalDeadline)
+        StreamRefSettings(bufferSize, d, idleTimeout, finalTerminationSignalDeadline, reliable, reconnectWindow)
     }
 
     public func withIdleTimeout(d: Duration): StreamRefSettings {
-        StreamRefSettings(bufferSize, subscriptionTimeout, Some(d), finalTerminationSignalDeadline)
+        StreamRefSettings(bufferSize, subscriptionTimeout, Some(d), finalTerminationSignalDeadline, reliable, reconnectWindow)
     }
 
     public func withFinalTerminationSignalDeadline(d: Duration): StreamRefSettings {
-        StreamRefSettings(bufferSize, subscriptionTimeout, idleTimeout, d)
+        StreamRefSettings(bufferSize, subscriptionTimeout, idleTimeout, d, reliable, reconnectWindow)
+    }
+
+    /** 开启/关闭可靠模式（跨节点流） */
+    public func withReliable(enabled: Bool): StreamRefSettings {
+        StreamRefSettings(bufferSize, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline, enabled,
+            reconnectWindow)
+    }
+
+    /** 可靠模式的重连窗口 */
+    public func withReconnectWindow(d: Duration): StreamRefSettings {
+        StreamRefSettings(bufferSize, subscriptionTimeout, idleTimeout, finalTerminationSignalDeadline, reliable, d)
+    }
+
+    /** 恢复重试间隔：窗口的 1/4，夹在 [100ms, 1s] 之间（既不会把窗口切得太碎，也不会拖太久） */
+    func recoveryRetryInterval(): Duration {
+        let quarter = reconnectWindow / 4
+        if (quarter < Duration.millisecond * 100) {
+            Duration.millisecond * 100
+        } else if (quarter > Duration.second) {
+            Duration.second
+        } else {
+            quarter
+        }
     }
 }
 
@@ -545,6 +632,24 @@ func encodeStreamRefMsg(m: StreamRefMsg): Array<UInt8> {
             w.u8(8)
             w.str(s)
             w.str(reason)
+        // ---------- 可靠模式（版本 2）：旧生产方在版本协商阶段已拒绝，不会收到这些帧 ----------
+        case StreamRefMsg.SubscribeReliable(s, loc, ver, token, lastAck) =>
+            w.u8(9)
+            w.str(s)
+            w.str(loc)
+            w.i64(ver)
+            w.str(token)
+            w.i64(lastAck)
+        case StreamRefMsg.Ack(s, seq) =>
+            w.u8(10)
+            w.str(s)
+            w.i64(seq)
+        case StreamRefMsg.AckCompleted(s) =>
+            w.u8(11)
+            w.str(s)
+        case StreamRefMsg.ReliableProbeOk(s) =>
+            w.u8(12)
+            w.str(s)
         case _ => throw SerializationException("StreamRef 本地控制消息不能跨进程发送")
     }
     w.out.toArray()
@@ -577,6 +682,17 @@ func decodeStreamRefMsg(b: Array<UInt8>): StreamRefMsg {
         case 8u8 =>
             let s = r.str()
             StreamRefMsg.Cancel(s, r.str())
+        case 9u8 =>
+            let s = r.str()
+            let loc = r.str()
+            let ver = r.i64()
+            let token = r.str()
+            StreamRefMsg.SubscribeReliable(s, loc, ver, token, r.i64())
+        case 10u8 =>
+            let s = r.str()
+            StreamRefMsg.Ack(s, r.i64())
+        case 11u8 => StreamRefMsg.AckCompleted(r.str())
+        case 12u8 => StreamRefMsg.ReliableProbeOk(r.str())
         case other => throw DeserializationException("未知的 StreamRef 消息种类 ${other}")
     }
 }

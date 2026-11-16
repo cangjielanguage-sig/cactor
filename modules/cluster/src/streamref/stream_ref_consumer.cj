@@ -16,8 +16,12 @@ package cactor_cluster.streamref
 
 import std.collection.*
 import std.sync.*
+import std.time.*
 import cactor_core.typed.*
 import cactor_remote.{RemoteActorRef}
+
+const KEY_CONSUMER_RECONNECT: String = "streamref-consumer-reconnect"
+const KEY_PROGRESS: String = "streamref-consumer-progress"
 
 /** Reactive Streams 形状的订阅者 */
 public interface StreamRefSubscriber<T> {
@@ -175,6 +179,18 @@ class ConsumerStageState {
     var completedPending: Bool = false
     var terminal: Bool = false
     var cleaned: Bool = false
+    // ---------- 可靠模式（跨节点 + reliable=true 时才生效；只在阶段线程访问） ----------
+    /** 恢复令牌：初次挂接时带给生产方，重连时必须原样带回 */
+    var resumeToken: String = ""
+    /** 是否处于恢复挂接（短暂断连/进展停滞）状态 */
+    var recovering: Bool = false
+    var recoveryDeadline: Option<MonoTime> = None<MonoTime>
+    /** 生产方最近一次活动的时刻（任何元素/终止/确认都算）；用于发现单向黑洞 */
+    var lastActivity: MonoTime = MonoTime.now()
+    /** 收到过 Terminated：恢复时需要重新登记远程监视 */
+    var peerDeathSeen: Bool = false
+    /** 对端远程且 reliable：只有此时才走 ACK/去重/恢复路径 */
+    var reliableActive: Bool = false
 
     init(streamId: String, exposedName: String, settings: StreamRefSettings, env: StreamRefEnv,
         producer: StreamPeer, subscriber: AnySubscriber, subscription: StreamRefSubscription) {
@@ -185,6 +201,7 @@ class ConsumerStageState {
         this.producer = producer
         this.subscriber = subscriber
         this.subscription = subscription
+        this.reliableActive = settings.reliable && producer.isRemote()
     }
 }
 
@@ -198,7 +215,15 @@ func consumerStage(st: ConsumerStageState): TypedBehavior<StreamRefMsg> {
         ctx.timers.startSingleTimer(KEY_SUBSCRIPTION_TIMEOUT, StreamRefMsg.SubscriptionTimeout, st.settings.subscriptionTimeout)
         // 先监视再挂接：生产方已不存在时，远程监视对未知暴露名立即回 DEATH，不必等订阅超时
         st.env.watchPeer(ctx, st.producer)
-        let attach = if (st.producer.isRemote()) {
+        if (st.reliableActive) {
+            // 恢复令牌只在消费方阶段内有效：重连时带回来证明"我还是同一条流的同一个消费方"
+            st.resumeToken = st.env.nextStreamId()
+        }
+        let attach = if (st.reliableActive) {
+            // 首次挂接先用既有 Subscribe 帧带版本 2 探测：
+            // 旧生产方认得这个帧，会以 Rejected("协议版本不符") 明确拒绝，而不是把新帧静默丢掉后等超时。
+            StreamRefMsg.Subscribe(st.streamId, st.selfLocation, STREAM_REF_PROTOCOL_VERSION_RELIABLE)
+        } else if (st.producer.isRemote()) {
             StreamRefMsg.Subscribe(st.streamId, st.selfLocation, STREAM_REF_PROTOCOL_VERSION)
         } else {
             StreamRefMsg.SubscribeLocal(st.streamId, ctx.self, STREAM_REF_PROTOCOL_VERSION)
@@ -235,17 +260,48 @@ func consumerOnMessage(st: ConsumerStageState, ctx: TypedActorContext<StreamRefM
     }
     match (msg) {
         case StreamRefMsg.OnSubscribe(_) =>
+            st.lastActivity = MonoTime.now()
+            let wasRecovering = st.recovering
+            if (st.recovering) {
+                // 恢复挂接被确认：不重置已收序号/缓冲，只重新同步确认与需求
+                st.recovering = false
+                st.recoveryDeadline = None<MonoTime>
+                ctx.timers.cancel(KEY_CONSUMER_RECONNECT)
+                if (st.peerDeathSeen) {
+                    st.peerDeathSeen = false
+                    st.env.watchPeer(ctx, st.producer)
+                }
+            }
             if (!st.subscribed) {
                 st.subscribed = true
                 st.subscription.subscribed.store(true)
                 ctx.timers.cancel(KEY_SUBSCRIPTION_TIMEOUT)
-                sendDemand(st, ctx)
+            }
+            if (wasRecovering) {
+                st.producer.tellQuietly(StreamRefMsg.Ack(st.streamId, st.receivedSeq))
+                if (st.requestedUpTo > 0) {
+                    st.producer.tellQuietly(StreamRefMsg.Demand(st.streamId, st.requestedUpTo))
+                }
+            }
+            // 初次挂接由 sendDemand 建立预取窗口；恢复时若窗口还是 0（首次探测阶段）同样在这里建立
+            sendDemand(st, ctx)
+            armProgress(st, ctx)
+            TypedBehaviors.same<StreamRefMsg>()
+        case StreamRefMsg.ReliableProbeOk(_) =>
+            // 版本探测通过：带恢复令牌正式挂接（用恢复路径，带重试与窗口上限）
+            if (st.reliableActive && !st.subscribed && !st.recovering) {
+                return triggerRecovery(st, ctx, "版本探测通过，开始可靠挂接")
             }
             TypedBehaviors.same<StreamRefMsg>()
         case StreamRefMsg.Rejected(_, reason) =>
             fail(st, ctx, StreamRefRejectedException("挂接被拒绝：${reason}"), false)
         case StreamRefMsg.Element(_, seq, value) => onElement(st, ctx, seq, value)
         case StreamRefMsg.Completed(_, lastSeq) =>
+            st.lastActivity = MonoTime.now()
+            if (st.reliableActive) {
+                // 让生产方知道终止信号已经到达，它才可以安全地释放保留元素并真正终止
+                st.producer.tellQuietly(StreamRefMsg.AckCompleted(st.streamId))
+            }
             if (!st.subscribed) {
                 return failAndCancel(st, ctx, StreamRefProtocolException("挂接确认之前收到 Completed"))
             }
@@ -278,9 +334,34 @@ func consumerOnMessage(st: ConsumerStageState, ctx: TypedActorContext<StreamRefM
             TypedBehaviors.same<StreamRefMsg>()
         case StreamRefMsg.IdleTimeout =>
             if (st.requestedUpTo > st.receivedSeq) {
+                if (st.reliableActive) {
+                    // 可靠模式：空闲不是终点，先尝试恢复挂接（可能只是单方向的帧丢了）
+                    return triggerRecovery(st, ctx, "有未满足需求但生产方在空闲超时内没有消息")
+                }
                 return failAndCancel(st, ctx, StreamRefIdleTimeoutException(
                     "idle timeout：已授予需求至 #${st.requestedUpTo}，但生产方在 ${st.settings.idleTimeout ?? Duration.Zero} 内没有发来任何消息"))
             }
+            TypedBehaviors.same<StreamRefMsg>()
+        case StreamRefMsg.ReconnectTick =>
+            if (st.reliableActive && !st.terminal) {
+                match (st.recoveryDeadline) {
+                    case Some(deadline) where MonoTime.now() >= deadline =>
+                        return failAndCancel(st, ctx, StreamRefReconnectTimeoutException(
+                            "重连窗口 ${st.settings.reconnectWindow} 内没能重新挂接生产方 ${st.producer.key}"))
+                    case _ =>
+                        sendResume(st, ctx)
+                        ctx.timers.startSingleTimer(KEY_CONSUMER_RECONNECT, StreamRefMsg.ReconnectTick,
+                            st.settings.recoveryRetryInterval())
+                }
+            }
+            TypedBehaviors.same<StreamRefMsg>()
+        case StreamRefMsg.ProgressTick =>
+            if (st.reliableActive && st.subscribed && !st.recovering && !st.terminal &&
+                st.requestedUpTo > st.receivedSeq &&
+                MonoTime.now() - st.lastActivity >= st.settings.recoveryRetryInterval()) {
+                return triggerRecovery(st, ctx, "有未满足需求但长时间没有收到生产方任何消息")
+            }
+            armProgress(st, ctx)
             TypedBehaviors.same<StreamRefMsg>()
         case StreamRefMsg.TerminationDeadline =>
             fail(st, ctx, StreamRefPeerTerminatedException(
@@ -292,8 +373,15 @@ func consumerOnMessage(st: ConsumerStageState, ctx: TypedActorContext<StreamRefM
 }
 
 func onElement(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMsg>, seq: Int64, value: Any): TypedBehavior<StreamRefMsg> {
+    st.lastActivity = MonoTime.now()
     if (!st.subscribed) {
         return failAndCancel(st, ctx, StreamRefProtocolException("挂接确认之前收到元素 #${seq}"))
+    }
+    if (st.reliableActive && seq <= st.receivedSeq) {
+        // 恢复时生产方可能从比本端 lastAck 更早的位置重发：重复元素不报错，按累计序号再确认一次
+        st.producer.tellQuietly(StreamRefMsg.Ack(st.streamId, st.receivedSeq))
+        armProgress(st, ctx)
+        return TypedBehaviors.same<StreamRefMsg>()
     }
     let expected = st.receivedSeq + 1
     if (seq < expected) {
@@ -310,13 +398,67 @@ func onElement(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMsg>, seq
     }
     st.receivedSeq = seq
     st.subscription.received.store(seq)
+    if (st.reliableActive) {
+        // 累计确认：生产方据此丢弃 ≤ seq 的保留元素（ACK 丢了也无妨，恢复时用 lastAck 再同步）
+        st.producer.tellQuietly(StreamRefMsg.Ack(st.streamId, seq))
+    }
     st.buffer.add(value)
     let unconsumed = st.receivedSeq - st.deliveredCount
     if (unconsumed > st.subscription.maxUnconsumedValue.load()) {
         st.subscription.maxUnconsumedValue.store(unconsumed)
     }
     restartIdleTimer(st, ctx)
-    deliver(st, ctx)
+    let next = deliver(st, ctx)
+    armProgress(st, ctx)
+    next
+}
+
+/** 恢复重试间隔：窗口的 1/4，夹在 [100ms, 1s] 之间 */
+func reliableRetryInterval(st: ConsumerStageState): Duration {
+    st.settings.recoveryRetryInterval()
+}
+
+/** 有未满足需求时按重试间隔检查进展；没有未满足需求或正在恢复时停表 */
+func armProgress(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMsg>): Unit {
+    if (!st.reliableActive || st.terminal || !st.subscribed || st.recovering) {
+        ctx.timers.cancel(KEY_PROGRESS)
+        return
+    }
+    if (st.requestedUpTo > st.receivedSeq) {
+        ctx.timers.startSingleTimer(KEY_PROGRESS, StreamRefMsg.ProgressTick, reliableRetryInterval(st))
+    } else {
+        ctx.timers.cancel(KEY_PROGRESS)
+    }
+}
+
+/** 发一次恢复挂接（同一 streamId + 恢复令牌 + lastAck），顺带补发确认与需求 */
+func sendResume(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMsg>): Unit {
+    if (!st.reliableActive) { return }
+    st.producer.tellQuietly(StreamRefMsg.SubscribeReliable(st.streamId, st.selfLocation,
+        STREAM_REF_PROTOCOL_VERSION_RELIABLE, st.resumeToken, st.receivedSeq))
+    st.producer.tellQuietly(StreamRefMsg.Ack(st.streamId, st.receivedSeq))
+    if (st.requestedUpTo > 0) {
+        st.producer.tellQuietly(StreamRefMsg.Demand(st.streamId, st.requestedUpTo))
+    }
+}
+
+/**
+ * 进入恢复状态并立刻尝试一次；之后每 retryInterval 重试，超过 reconnectWindow 才失败。
+ * 触发源：对端 Terminated（真实断连）、进展停滞（单向黑洞把帧吃掉）、空闲超时（可靠模式）。
+ */
+func triggerRecovery(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMsg>, reason: String): TypedBehavior<StreamRefMsg> {
+    if (!st.reliableActive || st.terminal) {
+        return TypedBehaviors.same<StreamRefMsg>()
+    }
+    if (!st.recovering) {
+        st.recovering = true
+        st.recoveryDeadline = Some(MonoTime.now() + st.settings.reconnectWindow)
+        streamRefLog.warn("StreamRef ${st.streamId} 进入可靠恢复（${reason}）：重连窗口 ${st.settings.reconnectWindow}")
+    }
+    ctx.timers.cancel(KEY_PROGRESS)
+    sendResume(st, ctx)
+    ctx.timers.startSingleTimer(KEY_CONSUMER_RECONNECT, StreamRefMsg.ReconnectTick, reliableRetryInterval(st))
+    TypedBehaviors.same<StreamRefMsg>()
 }
 
 /** 在订阅者需求内交付缓冲；排空且已收到 Completed 时发 onComplete */
@@ -371,6 +513,7 @@ func sendDemand(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMsg>): U
         st.producer.tellQuietly(StreamRefMsg.Demand(st.streamId, target))
         restartIdleTimer(st, ctx)
     }
+    armProgress(st, ctx)
 }
 
 func restartIdleTimer(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMsg>): Unit {
@@ -426,6 +569,11 @@ func consumerOnSignal(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMs
         case t: TypedTerminated =>
             if (st.terminal || !isPeerRef(Some(st.producer), t.ref)) {
                 return TypedBehaviors.same<StreamRefMsg>()
+            }
+            if (st.reliableActive) {
+                // 可靠模式：断连不等于终止，先带恢复令牌重试到重连窗口上限
+                st.peerDeathSeen = true
+                return triggerRecovery(st, ctx, "生产方 ${st.producer.key} 暂时不可达")
             }
             if (st.producer.isRemote() && st.settings.finalTerminationSignalDeadline > Duration.Zero) {
                 // Completed/Failed 走普通通道、DEATH 走系统通道，后者可能先到：给终止信号一个宽限期

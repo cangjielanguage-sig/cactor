@@ -4,7 +4,8 @@
 #   1. tools/ci.sh --soak 600          完整门禁 + 600 s 稳定性 soak
 #   2. tools/stress_matrix.sh quick    压测矩阵（线程扩展 / 规模扫描 / 短 soak / 背压）
 #   3. tools/cluster_parallel_soak.sh 10 8   集群套件 8 进程并行 10 轮（回归 N0：并行下零 SIGSEGV）
-#   4. tools/mixed_version_soak.sh     混合版本（旧线协议模拟 + kill -9 + 原端口重启）多进程验证（DA6 / DA4 / DA8）
+#   4. tools/mixed_version_soak.sh     混合版本（旧线协议模拟 + kill -9 + 原端口重启）多进程验证（DA6 / DA4 / DA8）；
+#      MIXED_VERSION_DURATION=N 时改为 N 秒长压（周期性 kill/重启，成员反复移除与加入）
 #
 # 接线建议（atomgit 平台本机无法验证，按平台文档配置）：
 #   - PR 流水线：触发 tools/ci.sh（不带 --soak / --bench），必须绿色才允许合并；
@@ -17,6 +18,7 @@
 #   tools/ci_nightly.sh --dry-run       # 只打印将执行的步骤，不真正运行（参数自检用）
 #   tools/ci_nightly.sh --skip-ci       # 跳过第 1 步（已单独跑过 ci.sh 时）
 #   SOAK_SECS=300 tools/ci_nightly.sh   # 调整 soak 时长（默认 600）
+#   MIXED_VERSION_DURATION=600 tools/ci_nightly.sh   # 混合版本长压时长（默认 0：约 1 分钟的单轮演练）
 #
 # 退出码：任何一步失败即非 0；每步都有 timeout 防挂死（挂死按失败处理，不无限等待）。
 set -uo pipefail
@@ -37,11 +39,13 @@ while [ $# -gt 0 ]; do
 done
 
 SOAK_SECS="${SOAK_SECS:-600}"
+# 混合版本压测：0 = 原来的单轮演练（约 1 min）；N > 0 = N 秒长压
+MIXED_DURATION="${MIXED_VERSION_DURATION:-0}"
 # 各步超时（秒）：soak 本身限时 + 余量；矩阵与并行套件按经验上限。挂死 = 失败（timeout 退出码 124）。
 CI_TIMEOUT=$((SOAK_SECS + 1800))       # ci.sh 全量测试约 3 min，留 soak 与基准余量
 MATRIX_TIMEOUT=2700                    # stress_matrix quick 实测 < 15 min，留一倍余量
 CLUSTER_TIMEOUT=2400                   # 集群套件 10 轮 × 8 进程，每轮约 15–45 s，留足余量
-MIXED_TIMEOUT=600                      # mixed_version_soak 单次约 1 min，串行 3 次 + 余量
+MIXED_TIMEOUT=$((MIXED_DURATION + 600))  # 长压时长 + 编排/形成/收尾余量（短模式约 1 min）
 
 # macOS：/usr/bin/env shebang 会清掉 DYLD_*，子进程找不到仓颉运行时库（见 tools/ci.sh 的 guard）。
 # 显式用当前 PATH 里的 bash 执行 shell 步骤，保留 env.sh 已准备的环境变量。
@@ -69,7 +73,7 @@ run_step "$MATRIX_TIMEOUT" "source tools/env.sh && tools/stress_matrix.sh quick"
 run_step "$CLUSTER_TIMEOUT" "source tools/env.sh && tools/cluster_parallel_soak.sh 10 8" \
     || { echo "nightly：并行集群套件 10 轮失败"; fail=1; }
 
-run_step "$MIXED_TIMEOUT" "source tools/env.sh && tools/mixed_version_soak.sh" \
+run_step "$MIXED_TIMEOUT" "source tools/env.sh && MIXED_VERSION_DURATION=${MIXED_DURATION} tools/mixed_version_soak.sh" \
     || { echo "nightly：混合版本多进程验证失败"; fail=1; }
 
 secs=$(( $(date +%s) - start ))

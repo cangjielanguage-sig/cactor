@@ -1217,6 +1217,7 @@ cactor_core.typed :: TypedActorRef.func tell(message: T): Unit
 cactor_core.typed :: TypedActorRef.func toClassic(): Option<ActorRef>
 cactor_core.typed :: TypedActorRef.operator func<<(message: T): TypedActorRef<T>
 cactor_core.typed :: TypedActorRefs.public static func equals<T>(a: TypedActorRef<T>, b: TypedActorRef<T>): Bool
+cactor_core.typed :: TypedActorRefs.public static func isRemote<T>(ref: TypedActorRef<T>): Bool
 cactor_core.typed :: TypedActorSelection.func pathString(): String
 cactor_core.typed :: TypedActorSelection.func resolveOne(timeout: Duration): Option<TypedActorRef<T>>
 cactor_core.typed :: TypedActorSelection.func tell(message: T): Unit

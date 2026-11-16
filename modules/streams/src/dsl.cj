@@ -124,12 +124,45 @@ func opAsk<A, Req, Res>(parallelism: Int64, target: TypedActorRef<Req>, createRe
     { b, c =>
         // 每次物化一个取消令牌：阶段结束（完成、失败、取消）时撤掉尚未回复的 ask
         let token = AskCancellationToken()
-        let f = { e: A =>
-            TypedAsk.ask<Req, Res>(target, { r => createRequest(e, r) }, timeout, cancellation: Some(token))
+        // 远端 TypedActorRef 的回复引用过不了线：走 askRemote（回复引用走信封 sender）。
+        // createRequest 在远端路径上必须返回自包含的可过线请求，第二个参数是占位引用——
+        // 把它塞进请求体会在编码时大声失败，而不是悄悄丢包。
+        let remote = TypedActorRefs.isRemote(target)
+        let f: (A) -> TypedPromise<Res> = if (remote) {
+            { e: A =>
+                TypedAsk.askRemote<Req, Res>(target, createRequest(e, RemoteAskPlaceholder<Res>()), timeout,
+                    cancellation: Some(token))
+            }
+        } else {
+            { e: A =>
+                TypedAsk.ask<Req, Res>(target, { r => createRequest(e, r) }, timeout, cancellation: Some(token))
+            }
         }
         let l = MapAsyncLogic<A, Res>(b.current, c, parallelism, f, b.decider(), true, Some(token))
         b.add(l)
         l.outlet
+    }
+}
+
+/**
+ * 跨节点 ask 的占位回复引用。
+ *
+ * askRemote 的回复引用走网络信封的 sender，不在请求消息体里；本地 ask 把 PromiseRef 塞进请求。
+ * 两个入口共用同一个公开 API 形状，所以远端路径仍然把"第二个参数"传给 createRequest，
+ * 但它不可能是有效的回复目标：使用它（tell 或写进消息被编码）都会明确失败。
+ */
+class RemoteAskPlaceholder<Res> <: TypedActorRef<Res> {
+    public func tell(message: Res): Unit {
+        throw IllegalArgumentException(
+            "跨节点 ask 的 createRequest 不能使用回复引用：远端回复经信封 sender 返回，请忽略第二个参数并返回自包含的请求消息")
+    }
+
+    public func pathString(): String {
+        "/temp/streams-remote-ask-placeholder"
+    }
+
+    public func equals(other: TypedActorRef<Res>): Bool {
+        other.pathString() == pathString()
     }
 }
 

@@ -7,6 +7,25 @@
 
 ## [未发布]
 
+### ✨ 新增（DA7：StreamRef 可靠模式与 streams 跨节点 ask）
+
+- `StreamRefSettings` 新增 `reliable`（默认 `false`）与 `reconnectWindow`（默认 10 s），配套 `withReliable` / `withReconnectWindow`。可靠模式开启后，生产方保留未确认元素（保留量受 `bufferSize` 约束），消费方按累计序号 ACK；短暂断连不立即失败，而是在 `reconnectWindow` 内用同一 streamId + 恢复令牌重新挂接并从 `lastAck + 1` 重发，消费方按序号去重。恢复重试间隔为 `min(1s, max(100ms, reconnectWindow/4))`，重连窗口耗尽抛新增的 `StreamRefReconnectTimeoutException`。本进程内的流（SourceRef 带本地引用）没有传输可断，仍走单次挂接。
+- 线上新增版本 2 帧 `SubscribeReliable(9)` / `Ack(10)` / `AckCompleted(11)` / `ReliableProbeOk(12)`；`Completed` 由生产方等 `AckCompleted` 后才真正终止，避免完成标记后继续无限保留元素。版本协商复用既有 `Subscribe` / `Rejected`：可靠消费方首次挂接先发带 version=2 的既有 `Subscribe`，旧生产方按其既有版本检查明确回 `Rejected("协议版本不符")`；可靠生产方收到旧消费方的 version=1 同样用既有 `Rejected` 明确拒绝，两端都不会静默半挂接。`reliable = false`（默认）时线格式逐字节不变，`STREAM_REF_PROTOCOL_VERSION` 保持 1，只有可靠模式使用新增常量 `STREAM_REF_PROTOCOL_VERSION_RELIABLE = 2`。
+- `cactor_core.typed.TypedActorRefs.isRemote(ref)`：按 `RemoteActorRef` 固定的 `remote@host:port` system 段判断引用是否由远程层承载（core 不依赖 remote 模块）。
+- `cactor_streams` 的 `ask` 算子对远端 `TypedActorRef` 改走 `TypedAsk.askRemote`（回复经信封 sender 返回），本地引用仍走 `TypedAsk.ask`；并行度、顺序与取消令牌语义不变。远端路径的第二个参数是占位回复引用，使用它会明确抛 `IllegalArgumentException`，要求 `createRequest` 返回自包含、可过线的请求消息。
+- 新增 6 例 `stream_ref_reliable_test.cj`（真实 TCP 双向黑洞恢复不丢不重、重连窗口超时、协议级重复序号去重、双向版本不匹配明确拒绝）与 3 例 `ask_remote_stream_test.cj`；StreamRef 合计 43/43，streams 42/42。公开 API 快照已更新（仅新增，无删除）。
+
+### 🐛 修复（DA8：Q6 单调性误报与持久化原子替换竞态）
+
+- 修正 `ddata_consistency_matrix_test` Q6 的误报：读到尚未经推送/反熵到达的键时 `counterOf(None)` 返回 `-1`，与初值 `last = 0` 比较被当成"读回退"；扩容刚开始、`ReadMajority` 合法返回 `None` 即可触发。改为只在读到实际值后比较单调，并新增 observed > 0、maxSeen ≤ acked、typeMismatch == 0 断言（收紧了断言，不是放宽）。未改动的基线裸跑 550 次失败 23 次（≈4.2%）；诊断 450 次中 28 个回退事件 100% 为 `v=-1 last=0 kind=none`，无真实下降；修复后 300/300 + 20/20 通过。
+- **修复（真实缺陷）**：`cactor_persistence` 的 `writeFileAtomically` 固定使用 `<path>.tmp`，同一目标文件的并发写者会共享临时文件；`std.fs.rename(overwrite: true)` 先删目标再改名，留下"路径暂时不存在"的窗口。混合版本长压中 driver 实测 durable 修订号 30 → 0。改为每次写使用唯一临时名（进程启动随机 nonce + 原子递增序号）并直接调用 POSIX `rename(2)` 原子替换。新增 `durable_state_atomic_test.cj` 2 例（旧实现 5/5 稳定失败，修复后 20/20）。
+
+### ⚙️ 工程体系（E51 版本决策与 tag 证据 / E50 PR 门禁 / DA8 混合版本长压）
+
+- E51：`docs/RELEASE.md` 记录本地 annotated tag `v1.2.0`（`a26d048`，2026-10-28）与 `v1.2.1`（`66b6b14`，2026-11-11）的证据——12 个库模块 manifest 版本与 CHANGELOG 标题一致，tag 未推送。新增 `docs/RELEASE.md` §1「版本决策」：下一发行版必须为 **2.0.0**（不允许 1.3.0 / 1.2.2），依据是 E60 streams 按 Reactive Streams 重写并移除旧公开 API / 子包 / 8 个示例、包与二进制类型身份变化；列出 5 项 2.0.0 前置条件。未创建 v2.0.0 tag、未修改任何 `cjpm.toml`，E51 仍 🟡。
+- E50：新增 `tools/ci_pr.sh`（`source tools/env.sh` → `timeout 2700s bash tools/ci.sh`，退出码原样透传；`--dry-run` 与 `CI_PR_TIMEOUT` 可调；无平台专用语法）。平台侧流水线与 main 分支保护仍未配置，未伪造 `.github` / `.atomgit` YAML，E50 仍 🟡。
+- DA8：`tools/mixed_version_soak.sh` 增加 `MIXED_VERSION_DURATION` 长压模式——driver 循环 kill → 校验 → 重启 → 校验，每轮断言已确认过半写不丢、旧 fencing token 被 `StaleFencingTokenException` 拒、durable 修订号不回退、remember-entities = 30；`tools/ci_nightly.sh` 透传时长并以"时长 + 600 s"设置步超时。`MIXED_VERSION_DURATION=600` 实跑 46 轮全部通过（exit 0，fencing 拒旧 token 552 次，租约文件 64/64）。
+
 ### ✨ 新增（DA7：SinkRef 反向流与 StreamConsumer）
 
 - `cactor_cluster.streamref` 新增 `SinkRef<T>`（`toWireString` / `fromWireString`，前缀 `sinkref:v1|`）、`StreamConsumer<T>`（逐次 `pull`、单次未完成 pull、终止恰好一次）、`SinkRefProducer<T>`（`offer` / `whenReady` / `complete` / `fail` / `termination`，同时是 Reactive Streams `Subscriber`）与 `StreamWriter<T>`；`StreamRefs.sinkRef<T>(settings!, owner!)` 返回 `(SinkRef<T>, StreamConsumer<T>)`，`StreamRefs.asSink<T>(ref, settings!, owner!)` 返回生产句柄。

@@ -12,12 +12,17 @@ package cactor_persistence
 
 import std.fs.*
 import std.sync.*
+import std.random.*
 
 foreign func fsync(fd: Int32): Int32
 
 foreign func open(path: CString, flags: Int32, ...): Int32
 
 foreign func close(fd: Int32): Int32
+
+// POSIX rename(2)：目标存在时原子替换。std.fs.rename(overwrite: true) 会先删目标再改名，
+// 留下"路径不存在"的窗口：并发读者 exists 后 open 会 ENOENT，进程在窗口内崩溃还会丢文件。
+foreign func rename(oldpath: CString, newpath: CString): Int32
 
 // Linux：O_RDONLY = 0，O_DIRECTORY = 0o200000
 let O_DIRECTORY_READ: Int32 = 0o200000
@@ -71,9 +76,21 @@ func parentDirectory(path: String): String {
 
 /**
  * 原子替换写：tmp → fsync → rename → fsync 目录。sync = false 时只保证原子替换、不保证落盘（测试或可丢数据的场景）
+ *
+ * 临时文件名必须每次唯一：固定 "<path>.tmp" 时，同一目标文件的并发写者会打开同一个临时文件
+ * （后者 truncate 前者正在写的内容；前者 rename 后，后者的文件描述符直接指向目标 inode），
+ * 读者可能读到半个记录。DA8 混合版本长压里两个实例共享持久状态目录时实测到 durable 修订号
+ * 偶发被读成 0（记录被截断）。跨进程唯一性由"进程启动时取的随机数 + 进程内递增序号"保证。
  */
+let tempWriteNonce: String = "${Random().nextUInt64()}-${Random().nextUInt64()}"
+let tempWriteSeq = AtomicInt64(0)
+
+func tempPathFor(path: String): String {
+    "${path}.${tempWriteNonce}.${tempWriteSeq.fetchAdd(1)}.tmp"
+}
+
 func writeFileAtomically(path: String, content: Array<UInt8>, sync: Bool): Unit {
-    let tmp = path + ".tmp"
+    let tmp = tempPathFor(path)
     let f = File(tmp, OpenMode.Write)
     try {
         f.write(content)
@@ -85,8 +102,25 @@ func writeFileAtomically(path: String, content: Array<UInt8>, sync: Bool): Unit 
     } finally {
         f.close()
     }
-    rename(tmp, to: path, overwrite: true)
+    atomicReplace(tmp, path)
     if (sync) {
         syncDirectory(parentDirectory(path))
+    }
+}
+
+/** 用 POSIX rename(2) 原子替换目标（不留"目标暂时不存在"的窗口） */
+func atomicReplace(from: String, to: String): Unit {
+    let a = unsafe { LibC.mallocCString(from) }
+    let b = unsafe { LibC.mallocCString(to) }
+    try {
+        let rc = unsafe { rename(a, b) }
+        if (rc != 0) {
+            throw PersistenceException("原子替换失败：${from} -> ${to}")
+        }
+    } finally {
+        unsafe {
+            LibC.free(a)
+            LibC.free(b)
+        }
     }
 }

@@ -7,7 +7,7 @@
  *   Q3 进行中的过半写在视图变化时按开始时冻结的副本数判定，新加入的对等节点不会被算作确认
  *   Q4 旧 Replicator 实例迟到的确认不能让新实例的过半写虚假成功（DA5 发现的缺陷，见 replicator.cj nextOpId）
  *   Q5 边界：两个节点的成员视图不同（一个仍是 3 节点、一个已是 5 节点）时，过半写与过半读可以不相交
- *   Q6 集群 3→5 扩容期间持续过半写：全部确认、单节点过半读单调、扩容后的过半分母为 5
+ *   Q6 集群 3→5 扩容期间持续过半写：全部确认、单节点过半读在读到值后单调、扩容后的过半分母为 5
  *   Q7 同址重启（新 uid）：不复活已删除的元素、计数器不重复不丢失，旧实例被 pruning 后值不变
  *   Q8 已确认的 ORSet 添加不会因写入节点宕机、被移除并 pruning 而丢失
  *   Q9 删除不会被分区期间的陈旧副本带回（叠加被移除节点的 pruning）；少数派分区期间的并发添加不丢
@@ -351,8 +351,14 @@ public class DDataQuorumMatrixTest {
 public class DDataMembershipMatrixTest {
     /**
      * Q6：集群从 3 个节点扩到 5 个的过程中 a 持续过半写计数器（ClusterReplicatorBinding 跟随成员变化）。
-     * 保证：每次过半写都在时限内确认（视图变化不让操作失败）；c 上并发的过半读结果单调不减（读写回本地）；
-     * 扩容收敛后每个节点读到的值都等于已确认次数；过半分母随视图变为 5（a 隔离时报告 1/5、需要 3）
+     * 保证：每次过半写都在时限内确认（视图变化不让操作失败）；c 上并发的过半读结果在**已经读到过值之后**
+     * 单调不减（过半读把合并结果写回读方本地，本地副本是只增的 PNCounter）；扩容收敛后每个节点读到的值
+     * 都等于已确认次数；过半分母随视图变为 5（a 隔离时报告 1/5、需要 3）
+     *
+     * 读到 None（键还没有通过推送/反熵到达 c）不是"值回退"：DA8 定位到此前用 `counterOf` 把 None 折成 -1
+     * 与初值 0 比较，扩容刚开始、c 还没有该键时的第一次读会被误记为回退（高负载下 4–7% 偶发失败，
+     * A/B 回退 replicator.cj 同样复现）。这里只在观察到实际值后比较单调性，并额外断言确实读到过值、
+     * 且读到过的最大值不超过已确认次数。
      */
     @TestCase
     public func majorityWritesStayAcknowledgedWhileClusterGrows(): Unit {
@@ -371,6 +377,9 @@ public class DDataMembershipMatrixTest {
         let acked = AtomicInt64(0)
         let failed = AtomicInt64(0)
         let regressions = AtomicInt64(0)
+        let observed = AtomicInt64(0)
+        let maxSeen = AtomicInt64(0)
+        let typeMismatch = AtomicInt64(0)
         let writer = spawn {
             var k = 0
             while ((!grown.load() || k < 50) && k < 3000) {
@@ -384,14 +393,32 @@ public class DDataMembershipMatrixTest {
             }
         }
         let reader = spawn {
-            var last: Int64 = 0
+            // 只在读到实际值后比较：读到 None 只说明键还没到 c，不是回退
+            var last: Option<Int64> = None<Int64>
             while (!grown.load()) {
                 try {
-                    let v = counterOf(reps[2].getWith("g", ReadConsistency.ReadMajority(CLUSTER_WAIT)).get(CLUSTER_WAIT))
-                    if (v < last) {
-                        regressions.fetchAdd(1)
+                    let v = reps[2].getWith("g", ReadConsistency.ReadMajority(CLUSTER_WAIT)).get(CLUSTER_WAIT)
+                    match (v) {
+                        case Some(value) =>
+                            match (value) {
+                                case PNCounterValue(c) =>
+                                    let n = c.value()
+                                    match (last) {
+                                        case Some(prev) where n < prev => regressions.fetchAdd(1)
+                                        case _ => ()
+                                    }
+                                    last = Some(match (last) {
+                                        case Some(prev) => max(prev, n)
+                                        case None => n
+                                    })
+                                    if (n > maxSeen.load()) {
+                                        maxSeen.store(n)
+                                    }
+                                    observed.fetchAdd(1)
+                                case _ => typeMismatch.fetchAdd(1)
+                            }
+                        case None => ()
                     }
-                    last = max(last, v)
                 } catch (_: ReplicatorConsistencyException) {}
             }
         }
@@ -405,8 +432,13 @@ public class DDataMembershipMatrixTest {
         reader.get()
         @Expect(failed.load(), 0)
         @Expect(regressions.load(), 0)
+        // 读者线程确实观察到过值（否则单调性断言会因为一次比较都没发生而虚假通过）
+        @Expect(observed.load() > 0, true)
+        @Expect(typeMismatch.load(), 0)
         let total = acked.load()
         @Expect(total >= 50, true)
+        // 读到过的值不能超过已确认的写次数（没有失败写，见上一条断言）
+        @Expect(maxSeen.load() <= total, true)
         for (r in reps) {
             @Expect(awaitCondition(CONVERGE, { => r.counterValue("g") == total }), true)
             @Expect(counterOf(r.getWith("g", ReadConsistency.ReadMajority(CONVERGE)).get(CONVERGE)), total)

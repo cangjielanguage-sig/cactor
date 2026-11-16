@@ -18,6 +18,7 @@ package cactor_cluster.streamref
 
 import std.collection.*
 import std.sync.*
+import std.time.*
 import cactor_core.actor.{ActorRef}
 import cactor_core.typed.*
 import cactor_remote.{RemoteActorRef}
@@ -25,6 +26,8 @@ import cactor_remote.{RemoteActorRef}
 const KEY_SUBSCRIPTION_TIMEOUT: String = "streamref-subscription-timeout"
 const KEY_IDLE_TIMEOUT: String = "streamref-idle-timeout"
 const KEY_TERMINATION_DEADLINE: String = "streamref-termination-deadline"
+const KEY_PRODUCER_RECONNECT: String = "streamref-producer-reconnect"
+const KEY_COMPLETION_ACK: String = "streamref-completion-ack"
 
 /** 句柄与阶段共享的状态 */
 class ProducerShared {
@@ -38,6 +41,8 @@ class ProducerShared {
     let granted = AtomicInt64(0)
     let maxOutstanding = AtomicInt64(0)
     let attached = AtomicBool(false)
+    /** 可靠模式：已发上线但未确认的元素数（诊断/测试用；恒 ≤ capacity） */
+    let retainedCount = AtomicInt64(0)
 
     init(capacity: Int64) {
         this.capacity = capacity
@@ -222,6 +227,11 @@ public class StreamProducer<T> <: StreamWriter<T> {
         shared.maxOutstanding.load()
     }
 
+    /** 可靠模式：已发上线但消费方尚未确认的元素数（受 bufferSize 约束；非可靠模式恒为 0） */
+    public func retainedCount(): Int64 {
+        shared.retainedCount.load()
+    }
+
     /** 阶段 Actor 的引用（诊断、手工停止用） */
     public func stageRef(): TypedActorRef<StreamRefMsg> {
         stage
@@ -245,6 +255,22 @@ class ProducerStageState {
     var pendingFailure: Option<String> = None<String>
     var terminal: Bool = false
     var cleaned: Bool = false
+    // ---------- 可靠模式（跨节点 + reliable=true 时才生效；只在阶段线程访问） ----------
+    /** 已发上线但消费方尚未确认的元素（序号单调），受 capacity 约束，禁止无界增长 */
+    let retained = ArrayList<(Int64, Any)>()
+    /** 消费方确认到的最大连续序号 */
+    var lastAck: Int64 = 0
+    /** 消费方在首次可靠挂接时带来的恢复令牌；恢复挂接必须携带同一个值 */
+    var resumeToken: String = ""
+    /** 是否已发出 Completed（发出后等 AckCompleted 再真正终止，避免终止信号在断连时丢失） */
+    var completedSent: Bool = false
+    /** 本阶段是否因消费方终止而进入重连等待 */
+    var reconnecting: Bool = false
+    var reconnectDeadline: Option<MonoTime> = None<MonoTime>
+    /** 收到过对端的 Terminated（恢复挂接时才需要重新 watch，避免重复登记） */
+    var peerDeathSeen: Bool = false
+    /** 对端是远程且设置了 reliable：只有此时才走保留/确认/重发路径 */
+    var reliableActive: Bool = false
 
     init(streamId: String, exposedName: String, settings: StreamRefSettings, shared: ProducerShared, env: StreamRefEnv,
         owner: Option<ActorRef>) {
@@ -284,6 +310,21 @@ func producerOnMessage(st: ProducerStageState, ctx: TypedActorContext<StreamRefM
                     streamRefLog.warn("StreamRef ${st.streamId} 收到无法解析的订阅方位置 ${location}，忽略")
                     TypedBehaviors.same<StreamRefMsg>()
             }
+        case StreamRefMsg.SubscribeReliable(sid, location, ver, token, lastAck) =>
+            if (!st.settings.reliable) {
+                // 明确拒绝而不是半挂接：旧生产方即使解码了新帧，也不会静默按不可靠方式运行
+                match (st.env.resolveRemote(location)) {
+                    case Some(peer) => peer.tellQuietly(StreamRefMsg.Rejected(sid, "生产方未启用可靠模式（reliable=false）"))
+                    case None => ()
+                }
+                return TypedBehaviors.same<StreamRefMsg>()
+            }
+            match (st.env.resolveRemote(location)) {
+                case Some(peer) => onSubscribeReliable(st, ctx, sid, peer, ver, token, lastAck)
+                case None =>
+                    streamRefLog.warn("StreamRef ${st.streamId} 收到无法解析的可靠订阅方位置 ${location}，忽略")
+                    TypedBehaviors.same<StreamRefMsg>()
+            }
         case StreamRefMsg.SubscribeLocal(sid, ref, ver) =>
             onSubscribe(st, ctx, sid, StreamPeer(ref, None<RemoteActorRef>, ref.pathString()), ver)
         case StreamRefMsg.Demand(sid, upTo) =>
@@ -291,6 +332,21 @@ func producerOnMessage(st: ProducerStageState, ctx: TypedActorContext<StreamRefM
                 st.grantedUpTo = upTo
                 st.shared.granted.store(upTo)
                 return flush(st, ctx)
+            }
+            TypedBehaviors.same<StreamRefMsg>()
+        case StreamRefMsg.Ack(sid, seq) =>
+            if (st.reliableActive && sid == st.streamId && st.consumer.isSome()) {
+                if (seq > st.lastAck) {
+                    st.lastAck = seq
+                    dropAcked(st)
+                }
+                // 确认释放了保留名额：被信用窗口挡住的新元素可以继续发
+                return flush(st, ctx)
+            }
+            TypedBehaviors.same<StreamRefMsg>()
+        case StreamRefMsg.AckCompleted(sid) =>
+            if (st.reliableActive && sid == st.streamId && st.completedSent) {
+                return terminate(st, ctx, StreamTermination.Completed)
             }
             TypedBehaviors.same<StreamRefMsg>()
         case StreamRefMsg.Offer(value) =>
@@ -328,6 +384,26 @@ func producerOnMessage(st: ProducerStageState, ctx: TypedActorContext<StreamRefM
                 return terminate(st, ctx, StreamTermination.Failed(reason))
             }
             TypedBehaviors.same<StreamRefMsg>()
+        case StreamRefMsg.ReconnectTick =>
+            if (st.reliableActive && st.reconnecting) {
+                match (st.reconnectDeadline) {
+                    case Some(deadline) where MonoTime.now() >= deadline =>
+                        return terminate(st, ctx, StreamTermination.Failed(
+                            "重连窗口 ${st.settings.reconnectWindow} 内消费方没有重新挂接"))
+                    case _ =>
+                        // 继续等：消费方会带着恢复令牌重试，期间保留元素不释放
+                        ctx.timers.startSingleTimer(KEY_PRODUCER_RECONNECT, StreamRefMsg.ReconnectTick,
+                            st.settings.recoveryRetryInterval())
+                }
+            }
+            TypedBehaviors.same<StreamRefMsg>()
+        case StreamRefMsg.CompletionAckTimeout =>
+            // Completed 已发出但 AckCompleted 没回来（对端可能已收到；再等就会永久占住阶段）：
+            // 按完成结束，消费方若真没收到会在自己的重连窗口内失败。
+            if (st.reliableActive && st.completedSent) {
+                return terminate(st, ctx, StreamTermination.Completed)
+            }
+            TypedBehaviors.same<StreamRefMsg>()
         case _ =>
             streamRefLog.debug("StreamRef 生产方 ${st.streamId} 忽略消息 ${msg.streamIdOrEmpty()}")
             TypedBehaviors.same<StreamRefMsg>()
@@ -339,10 +415,31 @@ func onSubscribe(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>, s
         peer.tellQuietly(StreamRefMsg.Rejected(sid, "流标识不符：本阶段是 ${st.streamId}"))
         return TypedBehaviors.same<StreamRefMsg>()
     }
+    if (ver == STREAM_REF_PROTOCOL_VERSION_RELIABLE) {
+        // 版本 2 的首次探测：可靠生产方回 ReliableProbeOk，消费方再发带令牌的 SubscribeReliable。
+        // 非可靠生产方（包括旧节点）走下面同一分支：明确 Rejected，而不是让新消费方干等超时。
+        if (st.settings.reliable && peer.isRemote()) {
+            peer.tellQuietly(StreamRefMsg.ReliableProbeOk(sid))
+        } else {
+            peer.tellQuietly(StreamRefMsg.Rejected(sid,
+                "协议版本不符：生产方 ${STREAM_REF_PROTOCOL_VERSION}，消费方 ${ver}（可靠模式需要生产方 reliable=true）"))
+        }
+        return TypedBehaviors.same<StreamRefMsg>()
+    }
+    if (st.settings.reliable && peer.isRemote()) {
+        // 可靠生产方不接受版本 1 的挂接：没有 ACK/恢复令牌就无法做重发，明确拒绝好过半可靠
+        peer.tellQuietly(StreamRefMsg.Rejected(sid, "可靠模式需要协议版本 ${STREAM_REF_PROTOCOL_VERSION_RELIABLE}（SubscribeReliable）"))
+        return TypedBehaviors.same<StreamRefMsg>()
+    }
     if (ver != STREAM_REF_PROTOCOL_VERSION) {
         peer.tellQuietly(StreamRefMsg.Rejected(sid, "协议版本不符：生产方 ${STREAM_REF_PROTOCOL_VERSION}，消费方 ${ver}"))
         return TypedBehaviors.same<StreamRefMsg>()
     }
+    attachFirst(st, ctx, sid, peer)
+}
+
+/** 首次挂接的公共部分（本地与不可靠远程共用）：单次挂接 + 幂等确认 + 立即 flush */
+func attachFirst(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>, sid: String, peer: StreamPeer): TypedBehavior<StreamRefMsg> {
     match (st.consumer) {
         case Some(existing) =>
             if (existing.key == peer.key) {
@@ -368,14 +465,130 @@ func onSubscribe(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>, s
     }
 }
 
+/**
+ * 可靠挂接 / 恢复挂接（版本 2）。
+ *
+ * 首次挂接：记住消费方的恢复令牌，按普通挂接开始。
+ * 恢复挂接（同一 streamId + 同一 token）：接受新的对端引用（对端可能换了暴露名/连接），
+ * 用消费方报告的 lastAck 与生产方自己的 lastAck 取较大值丢弃保留元素，再从 lastAck+1 重发。
+ * 重发不受信用窗口限制：这些元素本来就已经发过，只是消费方没确认；保留量不因此增长。
+ */
+func onSubscribeReliable(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>, sid: String, peer: StreamPeer,
+    ver: Int64, token: String, claimedAck: Int64): TypedBehavior<StreamRefMsg> {
+    if (sid != st.streamId) {
+        peer.tellQuietly(StreamRefMsg.Rejected(sid, "流标识不符：本阶段是 ${st.streamId}"))
+        return TypedBehaviors.same<StreamRefMsg>()
+    }
+    if (ver != STREAM_REF_PROTOCOL_VERSION_RELIABLE) {
+        peer.tellQuietly(StreamRefMsg.Rejected(sid, "协议版本不符：可靠生产方 ${STREAM_REF_PROTOCOL_VERSION_RELIABLE}，消费方 ${ver}"))
+        return TypedBehaviors.same<StreamRefMsg>()
+    }
+    if (token.isEmpty()) {
+        peer.tellQuietly(StreamRefMsg.Rejected(sid, "可靠挂接缺少恢复令牌"))
+        return TypedBehaviors.same<StreamRefMsg>()
+    }
+    match (st.consumer) {
+        case None =>
+            st.consumer = Some(peer)
+            st.reliableActive = true
+            st.resumeToken = token
+            st.lastAck = 0
+            st.shared.attached.store(true)
+            ctx.timers.cancel(KEY_SUBSCRIPTION_TIMEOUT)
+            st.env.watchPeer(ctx, peer)
+            peer.tellQuietly(StreamRefMsg.OnSubscribe(sid))
+            if (let Some(reason) <- st.pendingFailure) {
+                peer.tellQuietly(StreamRefMsg.Failed(sid, reason))
+                return terminate(st, ctx, StreamTermination.Failed(reason))
+            }
+            flush(st, ctx)
+        case Some(existing) =>
+            if (token != st.resumeToken) {
+                peer.tellQuietly(StreamRefMsg.Rejected(sid, "恢复令牌不符：不是同一条流"))
+                return TypedBehaviors.same<StreamRefMsg>()
+            }
+            // 恢复：接受新引用，取消重连等待，按确认序号重发
+            st.consumer = Some(peer)
+            st.reconnecting = false
+            st.reconnectDeadline = None<MonoTime>
+            ctx.timers.cancel(KEY_PRODUCER_RECONNECT)
+            if (st.peerDeathSeen) {
+                // 之前收到过 DEATH，远程监视登记已被移除；恢复后重新登记
+                st.peerDeathSeen = false
+                st.env.watchPeer(ctx, peer)
+            }
+            if (claimedAck > st.lastAck) {
+                st.lastAck = claimedAck
+                dropAcked(st)
+            }
+            peer.tellQuietly(StreamRefMsg.OnSubscribe(sid))
+            if (let Some(reason) <- st.pendingFailure) {
+                peer.tellQuietly(StreamRefMsg.Failed(sid, reason))
+                return terminate(st, ctx, StreamTermination.Failed(reason))
+            }
+            resendRetained(st, ctx)
+    }
+}
+
+/** 丢弃 ≤ lastAck 的保留元素 */
+func dropAcked(st: ProducerStageState): Unit {
+    var dropped: Int64 = 0
+    while (!st.retained.isEmpty()) {
+        let (seq, _) = st.retained[0]
+        if (seq <= st.lastAck) {
+            st.retained.remove(at: 0)
+            dropped++
+        } else {
+            break
+        }
+    }
+    if (dropped > 0) {
+        st.shared.retainedCount.store(Int64(st.retained.size))
+    }
+}
+
+/** 把消费方尚未确认的元素按原序号重发；编码失败即大声失败 */
+func resendRetained(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>): TypedBehavior<StreamRefMsg> {
+    let peer = match (st.consumer) {
+        case Some(p) => p
+        case None => return TypedBehaviors.same<StreamRefMsg>()
+    }
+    for ((seq, value) in st.retained) {
+        if (seq <= st.lastAck) {
+            continue
+        }
+        try {
+            peer.ref.tell(StreamRefMsg.Element(st.streamId, seq, value))
+        } catch (e: Exception) {
+            let reason = "恢复时重发元素 #${seq} 失败：${e.message}"
+            peer.tellQuietly(StreamRefMsg.Failed(st.streamId, reason))
+            return terminate(st, ctx, StreamTermination.Failed(reason))
+        }
+    }
+    if (st.completing && st.pending.isEmpty() && st.completedSent) {
+        // Completed 也可能丢在断连期间：重发（消费方按序号与幂等处理）
+        peer.tellQuietly(StreamRefMsg.Completed(st.streamId, st.sentSeq))
+    }
+    TypedBehaviors.same<StreamRefMsg>()
+}
+
 /** 在需求内把排队元素发上线；完成请求且队列清空时发 Completed */
 func flush(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>): TypedBehavior<StreamRefMsg> {
+    if (st.reconnecting) {
+        // 对端暂时不可达：不要往旧连接里灌元素，等恢复挂接后用 resendRetained 重发
+        return TypedBehaviors.same<StreamRefMsg>()
+    }
     let peer = match (st.consumer) {
         case Some(p) => p
         case None => return TypedBehaviors.same<StreamRefMsg>()
     }
     var released: Int64 = 0
     while (!st.pending.isEmpty() && st.sentSeq < st.grantedUpTo) {
+        // 可靠模式：未确认元素也算在窗口里（sentSeq - lastAck = 保留量），
+        // 这样即使 ACK 因单向断连全部丢失，保留量也不会超过 bufferSize。
+        if (st.reliableActive && st.sentSeq - st.lastAck >= st.shared.capacity) {
+            break
+        }
         let value = st.pending.remove(at: 0)
         released++
         let seq = st.sentSeq + 1
@@ -389,6 +602,11 @@ func flush(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>): TypedB
             return terminate(st, ctx, StreamTermination.Failed(reason))
         }
         st.sentSeq = seq
+        if (st.reliableActive) {
+            // 保留到消费方累计确认（含已完成但未确认的尾部元素）
+            st.retained.add((seq, value))
+            st.shared.retainedCount.store(Int64(st.retained.size))
+        }
         st.shared.sent.store(seq)
         // 记录发送时的最大超发量（构造上恒为 ≤ 0；测试据此断言从不超出需求）
         let over = seq - st.grantedUpTo
@@ -400,6 +618,16 @@ func flush(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>): TypedB
         st.shared.release(released)
     }
     if (st.completing && st.pending.isEmpty()) {
+        if (st.reliableActive) {
+            if (!st.completedSent) {
+                peer.tellQuietly(StreamRefMsg.Completed(st.streamId, st.sentSeq))
+                st.completedSent = true
+                // 等消费方确认收到 Completed；期间保持阶段存活以便断连后重发
+                ctx.timers.startSingleTimer(KEY_COMPLETION_ACK, StreamRefMsg.CompletionAckTimeout,
+                    st.settings.reconnectWindow)
+            }
+            return TypedBehaviors.same<StreamRefMsg>()
+        }
         peer.tellQuietly(StreamRefMsg.Completed(st.streamId, st.sentSeq))
         return terminate(st, ctx, StreamTermination.Completed)
     }
@@ -412,6 +640,10 @@ func terminate(st: ProducerStageState, ctx: TypedActorContext<StreamRefMsg>, t: 
     st.pending.clear()
     if (dropped > 0) {
         st.shared.release(dropped)
+    }
+    if (st.reliableActive) {
+        st.retained.clear()
+        st.shared.retainedCount.store(0)
     }
     st.shared.close(t)
     producerCleanup(st, ctx)
@@ -437,6 +669,18 @@ func producerOnSignal(st: ProducerStageState, ctx: TypedActorContext<StreamRefMs
                 return TypedBehaviors.same<StreamRefMsg>()
             }
             if (isPeerRef(st.consumer, t.ref)) {
+                if (st.reliableActive) {
+                    // 可靠模式：消费方阶段/节点暂时不可达不等于取消。保留元素，等它带恢复令牌回来；
+                    // 超过重连窗口才结束（ReconnectTick 负责）。
+                    st.peerDeathSeen = true
+                    if (!st.reconnecting) {
+                        st.reconnecting = true
+                        st.reconnectDeadline = Some(MonoTime.now() + st.settings.reconnectWindow)
+                        ctx.timers.startSingleTimer(KEY_PRODUCER_RECONNECT, StreamRefMsg.ReconnectTick,
+                            st.settings.recoveryRetryInterval())
+                    }
+                    return TypedBehaviors.same<StreamRefMsg>()
+                }
                 // 消费方阶段或其节点没了：等同取消，让上游（LLM 调用）停下
                 return terminate(st, ctx, StreamTermination.Cancelled("消费方终止：${t.ref.path.toString()}"))
             }

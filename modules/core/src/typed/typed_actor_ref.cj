@@ -11,6 +11,20 @@ import std.collection.*
 public struct TypedActorRefs {
     /** 判断相等（基于路径） */
     public static func equals<T>(a: TypedActorRef<T>, b: TypedActorRef<T>): Bool { a.pathString() == b.pathString() }
+
+    /**
+     * 引用是否由远程层承载（内部判定，供 Streams 的 ask 等算子在"本地 ask"与"跨节点 ask"之间选择）。
+     *
+     * cactor_remote 的 RemoteActorRef 把 ActorPath 的 system 段固定为 "remote@host:port"
+     * （见 RemoteActorRef.init），本地引用的 system 段是 Actor 系统名。没有经典后端的纯接口引用
+     * （测试替身等）按本地处理。core 不认识 remote 模块，所以只能按这个稳定的路径约定判断。
+     */
+    public static func isRemote<T>(ref: TypedActorRef<T>): Bool {
+        match (ref.toClassic()) {
+            case Some(classic) => classic.path.getSystem().startsWith("remote@")
+            case None => false
+        }
+    }
 }
 
 /**
