@@ -211,3 +211,18 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.real05_durable_workflow"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.real06_http_actor_api"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real07_cluster_pubsub_chat"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real08_cluster_singleton_job"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real09_grains_cart"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real10_fsm_order"]
+output-type = "executable"
