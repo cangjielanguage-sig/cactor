@@ -10,7 +10,6 @@ import std.collection.*
 import std.time.*
 import cactor_core.actor.{ActorRef}
 import cactor_core.message.{SystemMessage}
-import cactor_runtime.events.{ActorEventBus, ActorStartedEvent, ActorStoppedEvent, ActorRestartedEvent, ActorRegisteredEvent, ActorUnregisteredEvent, ActorStartFailedEvent, ActorStopFailedEvent, ActorRestartFailedEvent}
 
 /**
  * Actor生命周期状态
@@ -60,14 +59,15 @@ public struct ActorLifecycleInfo {
  * 1. 管理Actor的完整生命周期
  * 2. 处理Actor启动、停止、重启流程
  * 3. 维护Actor状态信息
- * 4. 发布生命周期事件
+ *
+ * 说明：原先还有"发布生命周期事件"一项，事件总线（runtime.events）已随 E20′ B4c 删除——
+ * 那两套总线全仓没有任何订阅者，事件发出去无人接收。
  */
 public class ActorLifecycleManager {
     // 键用"名字"而不是完整路径：本管理器只登记顶层 Actor（运行时 actorOf），名字在顶层唯一。
     // 旧实现每次 start/register/stop 都调 actorRef.path.toString() 现造一条完整路径字符串，
     // 并把它作为 map 键长期驻留——百万级顶层 Actor 时每个 Actor 白占约 143 B。
     private let lifecycleInfos: HashMap<String, ActorLifecycleInfo>
-    private let eventBus: ActorEventBus
     private let isRunning: AtomicBool
     // 保护 lifecycleInfos（可重入）
     private let lock: Mutex
@@ -75,7 +75,6 @@ public class ActorLifecycleManager {
     public init() {
         this.lock = Mutex()
         this.lifecycleInfos = HashMap<String, ActorLifecycleInfo>()
-        this.eventBus = ActorEventBus()
         this.isRunning = AtomicBool(true)
     }
     
@@ -98,7 +97,6 @@ public class ActorLifecycleManager {
             }
             lifecycleInfos.add(path, ActorLifecycleInfo(
                 actorRef, ActorLifecycleState.Running, created, currentTime, 0, None<Exception>))
-            eventBus.publish(ActorStartedEvent(actorRef, currentTime))
         }
     }
     
@@ -133,8 +131,6 @@ public class ActorLifecycleManager {
                 // 更新状态为已停止
                 updateActorState(actorRef, ActorLifecycleState.Stopped, None<Exception>)
             
-                // 发布停止事件
-                eventBus.publish(ActorStoppedEvent(actorRef, currentTime))
             
                 // 清理生命周期信息
                 lifecycleInfos.remove(path)
@@ -142,7 +138,6 @@ public class ActorLifecycleManager {
             } catch (e: Exception) {
                 // 停止失败，更新状态
                 updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
-                eventBus.publish(ActorStopFailedEvent(actorRef, e, currentTime))
                 throw e
             }
         }
@@ -173,13 +168,10 @@ public class ActorLifecycleManager {
                 incrementRestartCount(actorRef)
                 updateActorState(actorRef, ActorLifecycleState.Running, None<Exception>)
             
-                // 发布重启事件
-                eventBus.publish(ActorRestartedEvent(actorRef, reason, currentTime))
             
             } catch (e: Exception) {
                 // 重启失败，更新状态
                 updateActorState(actorRef, ActorLifecycleState.Failed, Some(e))
-                eventBus.publish(ActorRestartFailedEvent(actorRef, e, currentTime))
                 throw e
             }
         }
@@ -203,7 +195,6 @@ public class ActorLifecycleManager {
             )
         
             lifecycleInfos.add(path, info)
-            eventBus.publish(ActorRegisteredEvent(actorRef, currentTime))
         }
     }
     
@@ -214,7 +205,6 @@ public class ActorLifecycleManager {
         synchronized(lock) {
             let path = actorName(actorRef)
             lifecycleInfos.remove(path)
-            eventBus.publish(ActorUnregisteredEvent(actorRef, getCurrentTimeNanos()))
         }
     }
     
@@ -257,13 +247,6 @@ public class ActorLifecycleManager {
             }
             count
         }
-    }
-    
-    /**
-     * 获取事件总线
-     */
-    public func getEventBus(): ActorEventBus {
-        eventBus
     }
     
     /**

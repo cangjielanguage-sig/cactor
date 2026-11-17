@@ -23,10 +23,13 @@ import cactor_core.guardian.{GuardianStats}
 import cactor_core.config.{MailboxConfig, DispatcherConfig}
 import cactor_runtime.lifecycle.{ActorLifecycleManager, CoordinatedShutdown}
 import cactor_runtime.registry.{SimpleActorRegistry}
-import cactor_runtime.supervision.{SupervisionManager, SupervisionConfig}
-import cactor_runtime.monitoring.{ActorSystemMetrics}
-import cactor_runtime.events.{SimpleActorEventBus}
 import cactor_core.supervision.{SupervisionStrategy}
+// runtime 侧的 supervision / events / monitoring 三套已删除（E20′ B4c）：
+//   supervision.SupervisionManager —— 零消费者，core 的 Supervisor + SupervisionStrategy 是唯一监督实现；
+//   events —— 两套平行事件总线（ActorEventBus / SimpleActorEventBus），全仓无任何订阅者，
+//             core 另有第三套 EventBus 接口；lifecycle 的事件发布已一并摘除；
+//   monitoring.ActorSystemMetrics —— 算出来的吞吐/时延/CPU/内存无人读取，真正的指标来自
+//             prometheus_metrics.cj（直接取 guardian 的真实计数）。
 
 
 
@@ -55,9 +58,6 @@ public class CActorRuntime {
     // plan10.md新增的企业级组件
     private let lifecycleManager: ActorLifecycleManager
     private let actorRegistry: SimpleActorRegistry
-    private let supervisionManager: SupervisionManager
-    private let systemMetrics: ActorSystemMetrics
-    private let eventBus: SimpleActorEventBus
 
     // 运行时状态
     private let isRunning: AtomicBool
@@ -80,10 +80,7 @@ public class CActorRuntime {
         this.actorSystem = SimpleActorSystem(systemName)
 
         // 创建企业级组件 (plan10.md)
-        this.eventBus = SimpleActorEventBus()
-        this.systemMetrics = ActorSystemMetrics()
         this.actorRegistry = SimpleActorRegistry()
-        this.supervisionManager = SupervisionManager(SupervisionConfig.createDefault())
         this.lifecycleManager = ActorLifecycleManager()
 
         // 创建Guardian Actors
@@ -188,7 +185,6 @@ public class CActorRuntime {
         lifecycleManager.startActor(actorRef)
 
         // 7. 更新统计
-        systemMetrics.incrementActorCount()
         actorCount.fetchAdd(1)
 
         return actorRef
@@ -210,7 +206,6 @@ public class CActorRuntime {
             actorRegistry.unregister(actorRef)
         }
         lifecycleManager.unregisterActor(actorRef)
-        systemMetrics.decrementActorCount()
         actorCount.fetchAdd(-1)
     }
 
@@ -443,27 +438,6 @@ public class CActorRuntime {
      */
     public func getActorRegistry(): SimpleActorRegistry {
         actorRegistry
-    }
-
-    /**
-     * 获取监督管理器
-     */
-    public func getSupervisionManager(): SupervisionManager {
-        supervisionManager
-    }
-
-    /**
-     * 获取系统指标
-     */
-    public func getSystemMetrics(): ActorSystemMetrics {
-        systemMetrics
-    }
-
-    /**
-     * 获取事件总线
-     */
-    public func getEventBus(): SimpleActorEventBus {
-        eventBus
     }
 }
 

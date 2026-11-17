@@ -15,27 +15,6 @@
 ? :: ActorFailureMessage.public func getType(): String
 ? :: ActorFailureMessage.public func messageType(): String
 ? :: ActorFailureMessage.public init(failure: ActorFailure)
-? :: ActorRegistry.public func clear(): Unit
-? :: ActorRegistry.public func findAllByName(name: String): Array<ActorRef>
-? :: ActorRegistry.public func findByName(name: String): Option<ActorRef>
-? :: ActorRegistry.public func findByPath(path: String): Option<ActorRef>
-? :: ActorRegistry.public func getAllActors(): Array<ActorRef>
-? :: ActorRegistry.public func getChildren(actorRef: ActorRef): Array<ActorRef>
-? :: ActorRegistry.public func getParent(actorRef: ActorRef): Option<ActorRef>
-? :: ActorRegistry.public func getRegistrationCount(): Int64
-? :: ActorRegistry.public func getTotalActorCount(): Int64
-? :: ActorRegistry.public func isNameTaken(name: String): Bool
-? :: ActorRegistry.public func isRegistered(actorRef: ActorRef): Bool
-? :: ActorRegistry.public func printStats(): Unit
-? :: ActorRegistry.public func register(actorRef: ActorRef, parentPath: Option<String>): Unit
-? :: ActorRegistry.public func unregister(actorRef: ActorRef): Unit
-? :: ActorRegistry.public func unregisterByPath(path: String): Unit
-? :: ActorRegistry.public init()
-? :: ActorRegistryEntry.public init(actorRef: ActorRef, registeredAt: Int64, parentPath: Option<String>)
-? :: ActorRegistryEntry.public let actorRef: ActorRef
-? :: ActorRegistryEntry.public let children: HashSet<String>
-? :: ActorRegistryEntry.public let parentPath: Option<String>
-? :: ActorRegistryEntry.public let registeredAt: Int64
 ? :: ActorStats.public func getAgeInSeconds(): Float64
 ? :: ActorStats.public func getIdleTimeInSeconds(): Float64
 ? :: ActorStats.public func getSuccessRate(): Float64
@@ -45,27 +24,6 @@
 ? :: ActorStats.public let lastActiveTime: Int64
 ? :: ActorStats.public let mailboxSize: Int64
 ? :: ActorStats.public let processedMessages: UInt32
-? :: ActorSystemMetrics.public func decrementActorCount(): Unit
-? :: ActorSystemMetrics.public func getBasicStats(): HashMap<String, Int64>
-? :: ActorSystemMetrics.public func getCustomGauges(): HashMap<String, Float64>
-? :: ActorSystemMetrics.public func getCustomMetrics(): HashMap<String, Int64>
-? :: ActorSystemMetrics.public func getPerformanceMetrics(): PerformanceMetrics
-? :: ActorSystemMetrics.public func getSystemHealth(): SystemHealthInfo
-? :: ActorSystemMetrics.public func incrementActorCount(): Unit
-? :: ActorSystemMetrics.public func incrementActorCreated(): Unit
-? :: ActorSystemMetrics.public func incrementActorRestarted(): Unit
-? :: ActorSystemMetrics.public func incrementActorStopped(): Unit
-? :: ActorSystemMetrics.public func incrementCustomCounter(name: String, delta: Int64): Unit
-? :: ActorSystemMetrics.public func incrementRestartCount(): Unit
-? :: ActorSystemMetrics.public func printReport(): Unit
-? :: ActorSystemMetrics.public func recordMessageFailed(): Unit
-? :: ActorSystemMetrics.public func recordMessageProcessed(latencyNanos: Int64): Unit
-? :: ActorSystemMetrics.public func reset(): Unit
-? :: ActorSystemMetrics.public func setCustomCounter(name: String, value: Int64): Unit
-? :: ActorSystemMetrics.public func setCustomGauge(name: String, value: Float64): Unit
-? :: ActorSystemMetrics.public func shutdown(): Unit
-? :: ActorSystemMetrics.public func start(): Unit
-? :: ActorSystemMetrics.public init()
 ? :: BaseGuardianActor.public func createChild(props: Props<Actor>, name: String): ActorRef
 ? :: BaseGuardianActor.public func findChild(name: String): Option<ActorRef>
 ? :: BaseGuardianActor.public func getChildren(): Array<ActorRef>
@@ -161,14 +119,6 @@
 ? :: HighPerformanceActorBehavior.func preProcess(message: Message): Bool
 ? :: HighPerformanceActorBehavior.func receive(message: Message, context: PooledActorContext): MessageResult
 ? :: HighPerformanceActorBehavior.func receiveBatch(messages: Array<Message>, context: PooledActorContext): Array<MessageResult>
-? :: PerformanceMetrics.public init(messagesThroughput: Float64, averageLatency: Float64, p95Latency: Float64, p99Latency: Float64, errorRate: Float64, memoryUsage: Int64, cpuUsage: Float64)
-? :: PerformanceMetrics.public let averageLatency: Float64
-? :: PerformanceMetrics.public let cpuUsage: Float64
-? :: PerformanceMetrics.public let errorRate: Float64
-? :: PerformanceMetrics.public let memoryUsage: Int64
-? :: PerformanceMetrics.public let messagesThroughput: Float64
-? :: PerformanceMetrics.public let p95Latency: Float64
-? :: PerformanceMetrics.public let p99Latency: Float64
 ? :: PoolStats.public func getHitRate(): Float64
 ? :: PoolStats.public func getLeakRate(): Float64
 ? :: PoolStats.public func getUtilization(): Float64
@@ -294,20 +244,9 @@
 ? :: SystemContextActorRef.public func tell(message: Message): Unit
 ? :: SystemContextActorRef.public func tell(message: Message, sender: Option<String>): Unit
 ? :: SystemContextActorRef.public prop path: ContextActorPath
-? :: SystemHealthInfo.public init(status: SystemHealthStatus, message: String, details: HashMap<String, String>)
-? :: SystemHealthInfo.public let checkTime: Int64
-? :: SystemHealthInfo.public let details: HashMap<String, String>
-? :: SystemHealthInfo.public let message: String
-? :: SystemHealthInfo.public let status: SystemHealthStatus
-? :: SystemHealthStatus.| Critical
-? :: SystemHealthStatus.| Down
-? :: SystemHealthStatus.| Healthy
-? :: SystemHealthStatus.| Warning
 ? :: public abstract class RunLink
 ? :: public class ActorCellDispatcher <: CellExecutor
 ? :: public class ActorFailureMessage <: Message
-? :: public class ActorRegistry
-? :: public class ActorSystemMetrics
 ? :: public class CellContext <: ActorContext
 ? :: public class CreateSystemActorMessage <: Message
 ? :: public class CreateUserActorMessage <: Message
@@ -324,22 +263,18 @@
 ? :: public class SimpleUserActorRef <: RunLink & ActorRef
 ? :: public class StopMessage <: AutoReceivedMessage
 ? :: public class SystemContextActorRef <: ContextActorRef
-? :: public enum SystemHealthStatus
 ? :: public func isActorThread(): Bool
 ? :: public interface ContextActorPath
 ? :: public interface ContextActorRef
 ? :: public interface HighPerformanceActorBehavior
 ? :: public open class BaseGuardianActor <: GuardianActor
-? :: public struct ActorRegistryEntry
 ? :: public struct ActorStats
 ? :: public struct CompactActorState
-? :: public struct PerformanceMetrics
 ? :: public struct PoolStats
 ? :: public struct PooledContextStats
 ? :: public struct SimpleContextActorPath <: ContextActorPath
 ? :: public struct StartMessage <: SystemMessage
 ? :: public struct StopMessage <: SystemMessage
-? :: public struct SystemHealthInfo
 cactor_runtime :: CActorRuntime.public func actorOf(props: Props<Actor>): ActorRef
 cactor_runtime :: CActorRuntime.public func actorOf(props: Props<Actor>, name: String): ActorRef
 cactor_runtime :: CActorRuntime.public func deadLetterCount(): Int64
@@ -347,13 +282,10 @@ cactor_runtime :: CActorRuntime.public func getActorRegistry(): SimpleActorRegis
 cactor_runtime :: CActorRuntime.public func getActorSystem(): ActorSystem
 cactor_runtime :: CActorRuntime.public func getConfig(): CActorRuntimeConfig
 cactor_runtime :: CActorRuntime.public func getCoordinatedShutdown(): CoordinatedShutdown
-cactor_runtime :: CActorRuntime.public func getEventBus(): SimpleActorEventBus
 cactor_runtime :: CActorRuntime.public func getHighPerformanceSystem(): HighPerformanceActorSystem
 cactor_runtime :: CActorRuntime.public func getLifecycleManager(): ActorLifecycleManager
 cactor_runtime :: CActorRuntime.public func getRuntimeStats(): CActorRuntimeStats
-cactor_runtime :: CActorRuntime.public func getSupervisionManager(): SupervisionManager
 cactor_runtime :: CActorRuntime.public func getSystemGuardian(): RuntimeSystemGuardian
-cactor_runtime :: CActorRuntime.public func getSystemMetrics(): ActorSystemMetrics
 cactor_runtime :: CActorRuntime.public func getSystemName(): String
 cactor_runtime :: CActorRuntime.public func getUserGuardian(): RuntimeUserGuardian
 cactor_runtime :: CActorRuntime.public func gracefulStop(actorRef: ActorRef, timeout: Duration): Bool
@@ -415,136 +347,6 @@ cactor_runtime :: public let DEFAULT_MAX_ACTOR_SERIES: Int64
 cactor_runtime :: public struct CActorRuntimeConfig
 cactor_runtime :: public struct CActorRuntimeStats
 cactor_runtime :: public struct DispatcherDiagnostics
-cactor_runtime.events :: ActorCreatedEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorCreatedEvent.public func getEventType(): String
-cactor_runtime.events :: ActorCreatedEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorCreatedEvent.public init(actorRef: ActorRef, timestamp: Int64)
-cactor_runtime.events :: ActorCreatedEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorCreatedEvent.public let timestamp: Int64
-cactor_runtime.events :: ActorEventBus.public func clearSubscribers(): Unit
-cactor_runtime.events :: ActorEventBus.public func getEventCount(): Int64
-cactor_runtime.events :: ActorEventBus.public func getSubscriberCount(): Int32
-cactor_runtime.events :: ActorEventBus.public func hasSubscribers(): Bool
-cactor_runtime.events :: ActorEventBus.public func printStats(): Unit
-cactor_runtime.events :: ActorEventBus.public func publish(event: ActorLifecycleEvent): Unit
-cactor_runtime.events :: ActorEventBus.public func shutdown(): Unit
-cactor_runtime.events :: ActorEventBus.public func subscribe(listener: ActorEventListener): Unit
-cactor_runtime.events :: ActorEventBus.public func subscribe(listener: ActorEventListener, eventTypes: HashSet<String>): Unit
-cactor_runtime.events :: ActorEventBus.public func unsubscribe(listener: ActorEventListener): Unit
-cactor_runtime.events :: ActorEventBus.public init()
-cactor_runtime.events :: ActorEventListener.func onEvent(event: ActorLifecycleEvent): Unit
-cactor_runtime.events :: ActorLifecycleEvent.func getActorRef(): ActorRef
-cactor_runtime.events :: ActorLifecycleEvent.func getEventType(): String
-cactor_runtime.events :: ActorLifecycleEvent.func getTimestamp(): Int64
-cactor_runtime.events :: ActorRegisteredEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorRegisteredEvent.public func getEventType(): String
-cactor_runtime.events :: ActorRegisteredEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorRegisteredEvent.public init(actorRef: ActorRef, timestamp: Int64)
-cactor_runtime.events :: ActorRegisteredEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorRegisteredEvent.public let timestamp: Int64
-cactor_runtime.events :: ActorRestartFailedEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorRestartFailedEvent.public func getEventType(): String
-cactor_runtime.events :: ActorRestartFailedEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorRestartFailedEvent.public init(actorRef: ActorRef, error: Exception, timestamp: Int64)
-cactor_runtime.events :: ActorRestartFailedEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorRestartFailedEvent.public let error: Exception
-cactor_runtime.events :: ActorRestartFailedEvent.public let timestamp: Int64
-cactor_runtime.events :: ActorRestartedEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorRestartedEvent.public func getEventType(): String
-cactor_runtime.events :: ActorRestartedEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorRestartedEvent.public init(actorRef: ActorRef, reason: Exception, timestamp: Int64)
-cactor_runtime.events :: ActorRestartedEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorRestartedEvent.public let reason: Exception
-cactor_runtime.events :: ActorRestartedEvent.public let timestamp: Int64
-cactor_runtime.events :: ActorStartFailedEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorStartFailedEvent.public func getEventType(): String
-cactor_runtime.events :: ActorStartFailedEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorStartFailedEvent.public init(actorRef: ActorRef, error: Exception, timestamp: Int64)
-cactor_runtime.events :: ActorStartFailedEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorStartFailedEvent.public let error: Exception
-cactor_runtime.events :: ActorStartFailedEvent.public let timestamp: Int64
-cactor_runtime.events :: ActorStartedEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorStartedEvent.public func getEventType(): String
-cactor_runtime.events :: ActorStartedEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorStartedEvent.public init(actorRef: ActorRef, timestamp: Int64)
-cactor_runtime.events :: ActorStartedEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorStartedEvent.public let timestamp: Int64
-cactor_runtime.events :: ActorStopFailedEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorStopFailedEvent.public func getEventType(): String
-cactor_runtime.events :: ActorStopFailedEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorStopFailedEvent.public init(actorRef: ActorRef, error: Exception, timestamp: Int64)
-cactor_runtime.events :: ActorStopFailedEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorStopFailedEvent.public let error: Exception
-cactor_runtime.events :: ActorStopFailedEvent.public let timestamp: Int64
-cactor_runtime.events :: ActorStoppedEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorStoppedEvent.public func getEventType(): String
-cactor_runtime.events :: ActorStoppedEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorStoppedEvent.public init(actorRef: ActorRef, timestamp: Int64)
-cactor_runtime.events :: ActorStoppedEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorStoppedEvent.public let timestamp: Int64
-cactor_runtime.events :: ActorUnregisteredEvent.public func getActorRef(): ActorRef
-cactor_runtime.events :: ActorUnregisteredEvent.public func getEventType(): String
-cactor_runtime.events :: ActorUnregisteredEvent.public func getTimestamp(): Int64
-cactor_runtime.events :: ActorUnregisteredEvent.public init(actorRef: ActorRef, timestamp: Int64)
-cactor_runtime.events :: ActorUnregisteredEvent.public let actorRef: ActorRef
-cactor_runtime.events :: ActorUnregisteredEvent.public let timestamp: Int64
-cactor_runtime.events :: ConsoleEventListener.public func onEvent(event: SimpleActorLifecycleEvent): Unit
-cactor_runtime.events :: ConsoleEventListener.public init(prefix: String)
-cactor_runtime.events :: EventSubscription.public func matches(eventType: String): Bool
-cactor_runtime.events :: EventSubscription.public init(listener: ActorEventListener, eventTypes: HashSet<String>)
-cactor_runtime.events :: EventSubscription.public let eventTypes: HashSet<String>
-cactor_runtime.events :: EventSubscription.public let listener: ActorEventListener
-cactor_runtime.events :: EventSubscription.public let subscribedAt: Int64
-cactor_runtime.events :: SimpleActorEventBus.public func clear(): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func getEventCount(): Int64
-cactor_runtime.events :: SimpleActorEventBus.public func getSubscriberCount(): Int32
-cactor_runtime.events :: SimpleActorEventBus.public func hasSubscribers(): Bool
-cactor_runtime.events :: SimpleActorEventBus.public func isActive(): Bool
-cactor_runtime.events :: SimpleActorEventBus.public func printStats(): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func publish(event: SimpleActorLifecycleEvent): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func publishActorCreated(actorRef: ActorRef): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func publishActorRestarted(actorRef: ActorRef, reason: Exception): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func publishActorStopped(actorRef: ActorRef): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func shutdown(): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func start(): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func stop(): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func subscribe(listener: SimpleEventListener): Unit
-cactor_runtime.events :: SimpleActorEventBus.public func unsubscribe(listener: SimpleEventListener): Unit
-cactor_runtime.events :: SimpleActorEventBus.public init()
-cactor_runtime.events :: SimpleActorLifecycleEvent.public init(actorRef: ActorRef, eventType: String, message: String)
-cactor_runtime.events :: SimpleActorLifecycleEvent.public let actorRef: ActorRef
-cactor_runtime.events :: SimpleActorLifecycleEvent.public let eventType: String
-cactor_runtime.events :: SimpleActorLifecycleEvent.public let message: String
-cactor_runtime.events :: SimpleActorLifecycleEvent.public let timestamp: Int64
-cactor_runtime.events :: SimpleEventListener.func onEvent(event: SimpleActorLifecycleEvent): Unit
-cactor_runtime.events :: StatsEventListener.public func getEventCount(eventType: String): Int32
-cactor_runtime.events :: StatsEventListener.public func onEvent(event: SimpleActorLifecycleEvent): Unit
-cactor_runtime.events :: StatsEventListener.public func printStats(): Unit
-cactor_runtime.events :: StatsEventListener.public init()
-cactor_runtime.events :: public class ActorEventBus
-cactor_runtime.events :: public class ConsoleEventListener <: SimpleEventListener
-cactor_runtime.events :: public class SimpleActorEventBus
-cactor_runtime.events :: public class StatsEventListener <: SimpleEventListener
-cactor_runtime.events :: public func createActorFailedEvent(actorRef: ActorRef, error: String): SimpleActorLifecycleEvent
-cactor_runtime.events :: public func createActorRegisteredEvent(actorRef: ActorRef): SimpleActorLifecycleEvent
-cactor_runtime.events :: public func createActorRestartedEvent(actorRef: ActorRef): SimpleActorLifecycleEvent
-cactor_runtime.events :: public func createActorStartedEvent(actorRef: ActorRef): SimpleActorLifecycleEvent
-cactor_runtime.events :: public func createActorStoppedEvent(actorRef: ActorRef): SimpleActorLifecycleEvent
-cactor_runtime.events :: public func createActorUnregisteredEvent(actorRef: ActorRef): SimpleActorLifecycleEvent
-cactor_runtime.events :: public interface ActorEventListener
-cactor_runtime.events :: public interface ActorLifecycleEvent
-cactor_runtime.events :: public interface SimpleEventListener
-cactor_runtime.events :: public struct ActorCreatedEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct ActorRegisteredEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct ActorRestartFailedEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct ActorRestartedEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct ActorStartFailedEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct ActorStartedEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct ActorStopFailedEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct ActorStoppedEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct ActorUnregisteredEvent <: ActorLifecycleEvent
-cactor_runtime.events :: public struct EventSubscription
-cactor_runtime.events :: public struct SimpleActorLifecycleEvent
 cactor_runtime.lifecycle :: ActorLifecycleInfo.public init(actorRef: ActorRef, state: ActorLifecycleState, createdAt: Int64, lastStateChange: Int64, restartCount: Int32, failureReason: Option<Exception>)
 cactor_runtime.lifecycle :: ActorLifecycleInfo.public let actorRef: ActorRef
 cactor_runtime.lifecycle :: ActorLifecycleInfo.public let createdAt: Int64
@@ -554,7 +356,6 @@ cactor_runtime.lifecycle :: ActorLifecycleInfo.public let restartCount: Int32
 cactor_runtime.lifecycle :: ActorLifecycleInfo.public let state: ActorLifecycleState
 cactor_runtime.lifecycle :: ActorLifecycleManager.public func getActorState(actorRef: ActorRef): Option<ActorLifecycleInfo>
 cactor_runtime.lifecycle :: ActorLifecycleManager.public func getAllActorStates(): ArrayList<ActorLifecycleInfo>
-cactor_runtime.lifecycle :: ActorLifecycleManager.public func getEventBus(): ActorEventBus
 cactor_runtime.lifecycle :: ActorLifecycleManager.public func getRunningActorCount(): Int32
 cactor_runtime.lifecycle :: ActorLifecycleManager.public func registerActor(actorRef: ActorRef): Unit
 cactor_runtime.lifecycle :: ActorLifecycleManager.public func restartActor(actorRef: ActorRef, reason: Exception): Unit
@@ -734,57 +535,6 @@ cactor_runtime.mailbox :: public struct MailboxConfig
 cactor_runtime.mailbox :: public struct MailboxFactoryStats
 cactor_runtime.mailbox :: public struct MailboxMetrics
 cactor_runtime.mailbox :: public struct MailboxPerformanceMetrics
-cactor_runtime.supervision :: ActorSupervisionInfo.public init(actorRef: ActorRef, strategy: SupervisionStrategy, state: SupervisionState, failureCount: Int32, lastFailureTime: Int64, restartCount: Int32, escalationCount: Int32, circuitBreakerOpenTime: Int64)
-cactor_runtime.supervision :: ActorSupervisionInfo.public let actorRef: ActorRef
-cactor_runtime.supervision :: ActorSupervisionInfo.public let circuitBreakerOpenTime: Int64
-cactor_runtime.supervision :: ActorSupervisionInfo.public let escalationCount: Int32
-cactor_runtime.supervision :: ActorSupervisionInfo.public let failureCount: Int32
-cactor_runtime.supervision :: ActorSupervisionInfo.public let lastFailureTime: Int64
-cactor_runtime.supervision :: ActorSupervisionInfo.public let restartCount: Int32
-cactor_runtime.supervision :: ActorSupervisionInfo.public let state: SupervisionState
-cactor_runtime.supervision :: ActorSupervisionInfo.public let strategy: SupervisionStrategy
-cactor_runtime.supervision :: SimpleSupervisionStrategy.public func decide(failure: ActorFailure): SupervisionDirective
-cactor_runtime.supervision :: SimpleSupervisionStrategy.public func getDescription(): String
-cactor_runtime.supervision :: SimpleSupervisionStrategy.public func getMaxRetries(): Int32
-cactor_runtime.supervision :: SimpleSupervisionStrategy.public func getTimeWindow(): Int64
-cactor_runtime.supervision :: SimpleSupervisionStrategy.public func shouldRestart(failure: ActorFailure): Bool
-cactor_runtime.supervision :: SimpleSupervisionStrategy.public init(maxRetries: Int32, timeWindowSeconds: Int32)
-cactor_runtime.supervision :: SupervisionConfig.public init(maxRetries: Int32, retryTimeWindow: Duration, escalationThreshold: Int32, enableCircuitBreaker: Bool, circuitBreakerTimeout: Duration)
-cactor_runtime.supervision :: SupervisionConfig.public let circuitBreakerTimeout: Duration
-cactor_runtime.supervision :: SupervisionConfig.public let enableCircuitBreaker: Bool
-cactor_runtime.supervision :: SupervisionConfig.public let escalationThreshold: Int32
-cactor_runtime.supervision :: SupervisionConfig.public let maxRetries: Int32
-cactor_runtime.supervision :: SupervisionConfig.public let retryTimeWindow: Duration
-cactor_runtime.supervision :: SupervisionConfig.public static func createDefault(): SupervisionConfig
-cactor_runtime.supervision :: SupervisionConfig.public static func createStrict(): SupervisionConfig
-cactor_runtime.supervision :: SupervisionManager.public func getAllSupervisionInfos(): ArrayList<ActorSupervisionInfo>
-cactor_runtime.supervision :: SupervisionManager.public func getSupervisionInfo(actorRef: ActorRef): Option<ActorSupervisionInfo>
-cactor_runtime.supervision :: SupervisionManager.public func getSupervisionStats(): SupervisionStats
-cactor_runtime.supervision :: SupervisionManager.public func handleFailure(actorRef: ActorRef, failure: ActorFailure): SupervisionDirective
-cactor_runtime.supervision :: SupervisionManager.public func printReport(): Unit
-cactor_runtime.supervision :: SupervisionManager.public func resetStats(): Unit
-cactor_runtime.supervision :: SupervisionManager.public func shutdown(): Unit
-cactor_runtime.supervision :: SupervisionManager.public func supervise(actorRef: ActorRef, strategy: SupervisionStrategy): Unit
-cactor_runtime.supervision :: SupervisionManager.public func unsupervise(actorRef: ActorRef): Unit
-cactor_runtime.supervision :: SupervisionManager.public init(config: SupervisionConfig)
-cactor_runtime.supervision :: SupervisionState.| CircuitOpen
-cactor_runtime.supervision :: SupervisionState.| Critical
-cactor_runtime.supervision :: SupervisionState.| Escalated
-cactor_runtime.supervision :: SupervisionState.| Normal
-cactor_runtime.supervision :: SupervisionState.| Warning
-cactor_runtime.supervision :: SupervisionStats.public init(totalSupervised: Int64, totalFailures: Int64, totalRestarts: Int64, totalEscalations: Int64, circuitBreakerTrips: Int64, averageRecoveryTime: Float64)
-cactor_runtime.supervision :: SupervisionStats.public let averageRecoveryTime: Float64
-cactor_runtime.supervision :: SupervisionStats.public let circuitBreakerTrips: Int64
-cactor_runtime.supervision :: SupervisionStats.public let totalEscalations: Int64
-cactor_runtime.supervision :: SupervisionStats.public let totalFailures: Int64
-cactor_runtime.supervision :: SupervisionStats.public let totalRestarts: Int64
-cactor_runtime.supervision :: SupervisionStats.public let totalSupervised: Int64
-cactor_runtime.supervision :: public class SimpleSupervisionStrategy <: SupervisionStrategy
-cactor_runtime.supervision :: public class SupervisionManager
-cactor_runtime.supervision :: public enum SupervisionState
-cactor_runtime.supervision :: public struct ActorSupervisionInfo
-cactor_runtime.supervision :: public struct SupervisionConfig
-cactor_runtime.supervision :: public struct SupervisionStats
 cactor_runtime.system :: DispatcherStats.public func getThroughput(): Float64
 cactor_runtime.system :: DispatcherStats.public init(processedMessages: Int64, averageLatency: Float64)
 cactor_runtime.system :: DispatcherStats.public let averageLatency: Float64
