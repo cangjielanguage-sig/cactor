@@ -28,6 +28,10 @@ let ACQ_FAST = ClusterSettings(Duration.millisecond * 50, Duration.millisecond *
     None<Duration>)
 let ACQ_WAIT = Duration.second * 15
 let ACQ_WARN_AFTER = Duration.millisecond * 300
+// 分片数取 64 而不是 8：该用例的前提是"a 确实托管了至少一个分片"。
+// 两个节点做 rendezvous 哈希时，8 个分片全落到 b 的概率是 1/256，偶发时 a 没有可获取的分片，
+// 用例会在"acquiring > 0"上失败（与产品行为无关）。64 个分片把这一概率降到可忽略。
+let ACQ_SHARDS = 64
 
 class AcqEntity <: Actor {
     let id: String
@@ -51,7 +55,7 @@ public class ShardingAcquisitionHealthTest {
 
         // 只有 a 跑区域：b 是 Up 成员但不会确认，获取会一直等下去
         let settings = ShardingSettings.defaults().withAcquireWarnAfter(ACQ_WARN_AFTER)
-        let region = ClusterSharding(a.cluster, a.kit.system, a.remote, "acq-cart", 8,
+        let region = ClusterSharding(a.cluster, a.kit.system, a.remote, "acq-cart", ACQ_SHARDS,
             { id => AcqEntity(id) }, settings)
         region.tell("warm", StringMessage("hi"))
 
@@ -77,13 +81,13 @@ public class ShardingAcquisitionHealthTest {
         }), true)
 
         // 4) b 起同类型区域后自动收敛：不再有慢获取，分片全部托管
-        let regionB = ClusterSharding(b.cluster, b.kit.system, b.remote, "acq-cart", 8,
+        let regionB = ClusterSharding(b.cluster, b.kit.system, b.remote, "acq-cart", ACQ_SHARDS,
             { id => AcqEntity(id) }, settings)
         @Expect(awaitCondition(ACQ_WAIT, { =>
             let h = region.acquisitionHealth()
             h.acquiring == 0 && h.slow == 0 && h.pendingMembers.size == 0
         }), true)
-        @Expect(awaitAllAcquired([region, regionB], 8, ACQ_WAIT), true)
-        @Expect(region.acquisitionHealth().hosted + regionB.acquisitionHealth().hosted, 8)
+        @Expect(awaitAllAcquired([region, regionB], ACQ_SHARDS, ACQ_WAIT), true)
+        @Expect(region.acquisitionHealth().hosted + regionB.acquisitionHealth().hosted, ACQ_SHARDS)
     }
 }
