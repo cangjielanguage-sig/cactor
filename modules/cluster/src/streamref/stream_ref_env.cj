@@ -9,6 +9,7 @@
 package cactor_cluster.streamref
 
 import std.sync.*
+import std.collection.*
 import std.random.*
 import cactor.api.{CActorSystem}
 import cactor_core.actor.{ActorRef}
@@ -69,6 +70,10 @@ class StreamRefEnv {
     let remote: Option<SimpleRemoteManager>
     let seq = AtomicInt64(0)
     let nodeTag: String
+    // SinkRef 同进程挂接的临时登记：asSink 无法通过位置文本解析本地生产阶段，
+    // SinkStage 收到 SinkAttach（location 为空）时按流标识取回对端
+    let localSinkLock = Mutex()
+    var localSinkPeers = HashMap<String, StreamPeer>()
 
     init(system: CActorSystem, remote: Option<SimpleRemoteManager>) {
         this.system = system
@@ -114,6 +119,21 @@ class StreamRefEnv {
                 let rr = r.remoteActorOf(addr, name)
                 Some(StreamPeer(ClassicTypedRef<StreamRefMsg>(rr), Some(rr), location, reliable))
             case _ => None<StreamPeer>
+        }
+    }
+
+    /** SinkRef 同进程挂接：登记生产阶段引用（attachId -> peer） */
+    func registerLocalSinkPeer(attachId: String, peer: StreamPeer): Unit {
+        synchronized(localSinkLock) {
+            localSinkPeers[attachId] = peer
+        }
+    }
+
+    /** SinkRef 同进程挂接：取回并移除登记（每条流只挂接一次） */
+    func takeLocalSinkPeer(attachId: String): Option<StreamPeer> {
+        synchronized(localSinkLock) {
+            let p = localSinkPeers.remove(attachId)
+            p
         }
     }
 

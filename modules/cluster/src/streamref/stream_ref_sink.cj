@@ -33,16 +33,24 @@ class SinkStageState {
     let env: StreamRefEnv
     let subscriber: AnySubscriber
     let subscription: StreamRefSubscription
+    /** 同进程 SinkRef 的本地引用路径（asSink 用它作 attachId）；跨进程时为空 */
+    let localPath: String
     var attached: Bool = false
 
     init(streamId: String, exposedName: String, settings: StreamRefSettings, env: StreamRefEnv,
-        subscriber: AnySubscriber, subscription: StreamRefSubscription) {
+        subscriber: AnySubscriber, subscription: StreamRefSubscription, localPath!: String = "") {
         this.streamId = streamId
         this.exposedName = exposedName
         this.settings = settings
         this.env = env
         this.subscriber = subscriber
         this.subscription = subscription
+        this.localPath = localPath
+    }
+
+    /** SinkAttach 流标识的合法候选（除 streamId 外） */
+    func envRefPath(): String {
+        localPath
     }
 }
 
@@ -64,7 +72,8 @@ func sinkStage(st: SinkStageState): TypedBehavior<StreamRefMsg> {
         TypedBehaviors.receive<StreamRefMsg>({ c, msg =>
             match (msg) {
                 case StreamRefMsg.SinkAttach(sid, location, ver) =>
-                    if (sid != st.streamId) {
+                    // 同进程 asSink 用本地引用路径作为标识，跨进程用 streamId：两个候选都接受
+                    if (sid != st.streamId && sid != st.envRefPath()) {
                         // 流标识不符：忽略（可能别的流的迟到帧），本阶段继续等真正的 SinkAttach
                         streamRefLog.warn("SinkRef ${st.streamId} 收到其他流 ${sid} 的 SinkAttach，忽略")
                         return TypedBehaviors.same<StreamRefMsg>()
@@ -76,10 +85,16 @@ func sinkStage(st: SinkStageState): TypedBehavior<StreamRefMsg> {
                     if (!st.attached) {
                         st.attached = true
                         ctx.timers.cancel(KEY_SUBSCRIPTION_TIMEOUT)
-                        let peer = match (st.env.resolveRemote(location, reliable: st.settings.reliable)) {
+                        // 同进程时生产方阶段不暴露自己（location 为空）：asSink 在本地场景把
+                        // 生产阶段引用登记在 env 的临时表里，这里按流标识取回（见 asSink）
+                        let peer = match (st.env.takeLocalSinkPeer(sid)) {
                             case Some(p) => p
-                            case None => return failSinkStage(st, c, StreamRefRejectedException(
-                                "SinkRef ${st.streamId} 无法解析生产方位置 ${location}"))
+                            case None =>
+                                match (st.env.resolveRemote(location, reliable: st.settings.reliable)) {
+                                    case Some(p) => p
+                                    case None => return failSinkStage(st, c, StreamRefRejectedException(
+                                        "SinkRef ${st.streamId} 无法解析生产方位置 ${location}"))
+                                }
                         }
                         // 切换成既有消费行为：收到 OnSubscribe 确认前先按已订阅处理（本消息就是确认的开始）
                         let cst = ConsumerStageState(st.streamId, "", st.settings, st.env, peer,
@@ -90,7 +105,7 @@ func sinkStage(st: SinkStageState): TypedBehavior<StreamRefMsg> {
                             consumerOnMessage(cst, cc, m)
                         }).receiveSignal({ cc, sig => consumerOnSignal(cst, cc, sig) })
                         st.env.watchPeer(ctx, cst.producer)
-                        peer.tellQuietly(StreamRefMsg.OnSubscribe(st.streamId))
+                        peer.tellQuietly(StreamRefMsg.OnSubscribe(sid))
                         try {
                             st.subscriber.onSubscribeF(st.subscription)
                         } catch (e: Exception) {
@@ -169,7 +184,7 @@ func sinkProducerStage(st: SinkProducerStageState): TypedBehavior<StreamRefMsg> 
         TypedBehaviors.receive<StreamRefMsg>({ c, msg =>
             match (msg) {
                 case StreamRefMsg.OnSubscribe(sid) =>
-                    if (sid == st.streamId) {
+                                        if (sid == st.streamId) {
                         ctx.timers.cancel(KEY_SUBSCRIPTION_TIMEOUT)
                         // 切换成既有生产行为：pst 从 0 计数，pendingFailure 保留挂接前的失败
                         let pst = ProducerStageState(st.streamId, st.exposedName, st.settings, st.shared,

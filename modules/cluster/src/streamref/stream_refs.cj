@@ -166,11 +166,15 @@ public class StreamRefs {
         let name = "streamref-sk-${streamId}"
         let subscription = StreamRefSubscription(streamId)
         let exposedName = if (env.remote.isSome()) { name } else { "" }
-        let st = SinkStageState(streamId, exposedName, settings, env, subscriber, subscription)
+        let st = SinkStageState(streamId, exposedName, settings, env, subscriber, subscription,
+            localPath: "/user/${name}")
         let stage = env.spawnStage(sinkStage(st), name)
+        // attachId：SinkStage 校验 SinkAttach 流标识用的值，必须与 asSink 发出的完全一致。
+        // 跨进程给 streamId；同进程给本地引用路径（SinkStage 的 localPath 候选）
+        let attachId = if (env.remote.isSome()) { streamId } else { "/user/${name}" }
         subscription.bind(stage)
         let location = env.expose(name, stage)
-        (SinkRef<T>(streamId, location, Some(stage)), subscription)
+        (SinkRef<T>(streamId, location, Some(stage), attachId: attachId), subscription)
     }
 
     /**
@@ -182,8 +186,8 @@ public class StreamRefs {
     public func asSink<T>(ref: SinkRef<T>, subscriber: StreamRefSubscriber<T>,
         settings!: StreamRefSettings = StreamRefSettings()): StreamProducer<T> {
         ensureStreamRefCodecRegistered()
-        let streamId = "sink-${env.nextStreamId()}"
-        let name = "streamref-ps-${streamId}"
+        // SinkAttach 的流标识 = SinkRef 携带的 attachId（sinkRefWithSubscriber 生成，两端一定一致）
+        let name = "streamref-ps-${env.nextStreamId()}"
         // 生产阶段挂接的对端不是"消费方位置"而是 SinkRef 的暴露名：构造一个指向对端阶段的 peer
         let peer = if (ref.localRef.isSome()) {
             StreamPeer(ref.localRef.getOrThrow(), None<RemoteActorRef>, ref.localRef.getOrThrow().pathString(), false)
@@ -194,18 +198,22 @@ public class StreamRefs {
                     "无法解析 SinkRef 位置 ${ref.location}：本节点的 StreamRefs 没有远程层，或位置文本不合法")
             }
         }
+        // 同进程挂接：生产阶段不暴露自己（location 为空），把引用登记到 env 供 SinkStage 取回
+        if (ref.localRef.isSome()) {
+            env.registerLocalSinkPeer(ref.attachId, peer)
+        }
         let shared = ProducerShared(settings.bufferSize)
-        let st = SinkProducerStageState(streamId, name, settings, shared, env, peer)
+        let st = SinkProducerStageState(ref.attachId, name, settings, shared, env, peer)
         // 生产阶段先把 SinkAttach 交给对端，等 OnSubscribe 确认后照常按 Demand 发元素
         let stage = env.spawnStage(sinkProducerStage(st), name)
-        // 用既有消费入口把元素递给 subscriber：消费阶段在本进程内挂接生产阶段（SubscribeLocal）。
-        // 注意用独立的 streamId 前缀 "sink-c-"：与 SinkAttach 的流标识互不干扰
+        // 用既有消费入口把元素递给 subscriber：消费阶段在本进程内挂接生产阶段（SubscribeLocal），
+        // 流标识独立生成，与 SinkAttach 的 attachId 互不干扰
         let any = AnySubscriber({ s => subscriber.onSubscribe(s) }, { a => subscriber.onNext(castElement<T>(a)) },
             { => subscriber.onComplete() }, { e => subscriber.onError(e) })
         let cName = "streamref-sc-${env.nextStreamId()}"
-        let cSt = ConsumerStageState(streamId, "", settings, env,
+        let cSt = ConsumerStageState(env.nextStreamId(), "", settings, env,
             StreamPeer(stage, None<RemoteActorRef>, name, false),
-            any, StreamRefSubscription(streamId))
+            any, StreamRefSubscription(env.nextStreamId()))
         env.spawnStage(consumerStage(cSt), cName)
         StreamProducer<T>(shared, stage)
     }
@@ -250,9 +258,12 @@ public class SinkRef<T> {
     public let streamId: String
     public let location: String
     public let localRef: Option<TypedActorRef<StreamRefMsg>>
+    /** SinkAttach 应使用的流标识：消费方 SinkStage 用它校验（同进程为本地引用路径，跨进程为 streamId） */
+    public let attachId: String
 
     /** 一般由 StreamRefs.sinkRef 创建；直接构造用于自定义消费端（测试中的手写协议端点） */
-    public init(streamId: String, location: String, localRef: Option<TypedActorRef<StreamRefMsg>>) {
+    public init(streamId: String, location: String, localRef: Option<TypedActorRef<StreamRefMsg>>,
+        attachId!: String = "") {
         if (streamId.isEmpty() || streamId.contains("|")) {
             throw IllegalArgumentException("流标识不能为空且不能包含 '|'")
         }
@@ -262,6 +273,8 @@ public class SinkRef<T> {
         this.streamId = streamId
         this.location = location
         this.localRef = localRef
+        // fromWireString 还原（无本地引用）时 attachId 缺省为 streamId：跨进程流标识就是 streamId
+        this.attachId = if (attachId.isEmpty()) { streamId } else { attachId }
     }
 
     /** 能否跨进程传递（消费方节点有远程层） */
