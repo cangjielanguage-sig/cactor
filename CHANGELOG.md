@@ -7,6 +7,35 @@
 
 ## [未发布]
 
+### 💥 破坏性变更（`docs/plan/20261116.md` B4c：runtime 的第二套实现，生产代码 −2,333 行）
+
+B4c 继续"删假"，但这批与 B4a/B4b 性质不同：**上一批删的是零引用代码，这一批删的是"有实现、但从来没人用的第二套"**。
+判定依据都是"仓库里已有活的等价实现 + 零消费者"，删的都是平行实现，不动唯一在用的那套。
+
+| 删除项 | 行数 | 为什么是死的（证据） |
+|---|---|---|
+| `runtime/supervision/`（`SupervisionManager` / `SupervisionConfig` / `ActorSupervisionInfo` / `SupervisionStats` / `simple_supervision_strategy.cj`） | 611 | `CActorRuntime` 只把它存成字段 + `getSupervisionManager()`，该 getter **全仓零调用**；真正的监督在 `core/supervision/`（`Supervisor` + `SupervisionStrategy` + 8 种策略），`cactor_runtime.cj` 自己也注明"监督由 Actor Cell 与用户 Guardian 完成" |
+| `runtime/events/`（`ActorEventBus` + `SimpleActorEventBus` + 9 种生命周期事件类型 + 两套监听器接口） | 729 | **两套平行的事件总线**，且 `subscribe()` 在生产代码里**没有任何调用点**——事件发出去无人接收；`core` 里还有第三套 `EventBus` 接口（主题式）同样无实现 |
+| `runtime/monitoring/actor_system_metrics.cj`（`ActorSystemMetrics` + `PerformanceMetrics` + `SystemHealthInfo`） | 485 | 20 个公开方法里只有 `incrementActorCount`/`decrementActorCount` 被调用；算出来的吞吐/时延分位/错误率/CPU/内存**无人读取**。真实指标来自 `runtime/prometheus_metrics.cj`（直接取 guardian 的真实计数，如 `cactor_actors_live`） |
+| `runtime/registry/actor_registry.cj`（`ActorRegistry` + `ActorRegistryEntry`） | 465 | 与同目录的 `SimpleActorRegistry` **API 几乎完全重复**（`register`/`unregister`/`findByName`/`getTotalActorCount`…），而 `ActorRegistry` 零消费者；`SimpleActorRegistry` **真被用**（`cactor_runtime.cj` 的登记/注销/按名查找 + 两个测试），已保留 |
+
+连带改动：
+- `CActorRuntime`：去掉 `supervisionManager` / `systemMetrics` / `eventBus` 三个字段与三个公开 getter
+  （**公开 API 破坏**），以及两处 `systemMetrics.incrementActorCount/decrementActorCount` 调用
+  （actor 计数由 `actorCount` 字段与 Prometheus 的 guardian 计数承担，无能力损失）；
+- `ActorLifecycleManager`：摘掉 `eventBus` 字段与 7 处 `eventBus.publish(...)`（注册/启动/停止/重启及其失败分支），
+  以及 `getEventBus()` getter；生命周期状态机本身（`registerActor`/`startActor`/`unregisterActor`）**全部保留**——
+  它是被 `CActorRuntime` 真实调用的；
+- 公开 API 快照 `docs/api-snapshot/runtime.txt` 的 diff **只含删除、无新增**；
+- 度量：库模块生产代码 78,177 → **75,844**；runtime 11,921 → **9,588**（自 B4a 起 19,703 → 9,588，−51.3%）；
+  占位关键词 130 → **122**（runtime 36 → 28）。
+
+**保留（并写明理由）**：`runtime/system/`（`HighPerformanceActorSystem` 被 `start`/`shutdown`/`getSystemStats` 真实调用，
+且 `HighPerformanceActorSystemConfig` 是 `CActorRuntimeConfig` 五个预设的组成部分）、`runtime/registry/simple_actor_registry.cj`
+（真被用）、`runtime/lifecycle/`（真被用）、`runtime/monitoring`（计数真被用）、`runtime/wrappers/`（门面反解包用）、
+`runtime/actor` + `runtime/context`（被 `system/high_performance_actor_system.cj` 使用）——
+这些与 `ActorSystem` 门面收敛（E49）同批处理，见 `docs/plan/20261116.md` §10.6。
+
 ### 💥 破坏性变更（`docs/plan/20261116.md` B4a+B4b：runtime 死代码，生产代码 −6,522 行）
 
 runtime 是 12 个库里最大的一个（19,703 → **11,921** 行）。本批删掉两类已经失效的实现；删前逐个用“删掉再 `cjpm build`”确认。
