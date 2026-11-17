@@ -575,8 +575,9 @@ func consumerOnSignal(st: ConsumerStageState, ctx: TypedActorContext<StreamRefMs
                 st.peerDeathSeen = true
                 return triggerRecovery(st, ctx, "生产方 ${st.producer.key} 暂时不可达")
             }
-            if (st.producer.isRemote() && st.settings.finalTerminationSignalDeadline > Duration.Zero) {
-                // Completed/Failed 走普通通道、DEATH 走系统通道，后者可能先到：给终止信号一个宽限期
+            if (st.settings.finalTerminationSignalDeadline > Duration.Zero) {
+                // Completed/Failed 走普通消息通道、DEATH 走系统通道，后者可能先到——同一进程也会。
+                // 给终止信号一个宽限期，避免把正常完成误判成"对端消失"（与 sink 侧的处理保持一致）。
                 ctx.timers.startSingleTimer(KEY_TERMINATION_DEADLINE, StreamRefMsg.TerminationDeadline,
                     st.settings.finalTerminationSignalDeadline)
                 return TypedBehaviors.same<StreamRefMsg>()
