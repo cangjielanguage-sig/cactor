@@ -440,6 +440,19 @@ cactor → streams / xstate / testkit
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
+### 真实应用示例（`real01`–`real05`）
+
+这五个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)。HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载。
+
+| 示例 | 内容 | 压到的能力 |
+|------|------|------|
+| [real01_agent_runtime](modules/examples/src/real01_agent_runtime/main.cj) | LLM Agent 运行时：Lou 提供 HTTP/SSE，会话串行 + 工具并发 + 取消 + 崩溃恢复 | `DurableStateBehavior`、`ctx.ask`、流式取消、`PersistenceIo` |
+| [real02_tenant_orders](modules/examples/src/real02_tenant_orders/main.cj) | 多租户订单：库存不超卖、单写者租约交接、旧 token 被 fencing 拒绝、opId 幂等 | `ClusterSharding`、`FileLease`、`FencedDurableStateStore` |
+| [real03_event_backbone](modules/examples/src/real03_event_backbone/main.cj) | 跨节点可靠事件骨干：按序恰好一次、断连重发、背压预算、消费端幂等 | `tellReliable`、`RemotingSettings.withLimits`、`reliableDeliveryStats` |
+| [real04_edge_config](modules/examples/src/real04_edge_config/main.cj) | 边缘–云一致性配置面：离线后反熵收敛、ORSet add-wins、SBR 决策、读一致性 | `Replicator`、CRDT、`sbrDecide`、`ReadMajority` |
+| [real05_durable_workflow](modules/examples/src/real05_durable_workflow/main.cj) | 可恢复长任务：崩溃后从断点续跑、每步副作用幂等、自动快照、提醒只触发一次 | `EventSourcedBehavior`、`RetentionCriteria`、`DurableReminders` |
+
 ---
 
 ## 测试

@@ -152,6 +152,9 @@ cactor_examples.advanced_mailbox_examples cactor_examples.advanced_dispatcher_ex
 cactor_examples.enhanced_typed_actor_demo cactor_examples.configuration_usage_test cactor_examples.objectpool_performance_comparison
 cactor_examples.simple_objectpool_test cactor_examples.stdlib_objectpool_test
 cactor_examples.llm_token_stream cactor_examples.monitoring_demo cactor_examples.persistence_demo
+cactor_examples.real01_agent_runtime cactor_examples.real02_tenant_orders
+cactor_examples.real03_event_backbone cactor_examples.real04_edge_config
+cactor_examples.real05_durable_workflow
 "
 for ex in $EXAMPLES_SELF_CHECK; do
     CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1

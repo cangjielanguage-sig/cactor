@@ -297,6 +297,11 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `monitoring_demo` | ✅ 运行 | 自检退出码 0 |
 | `objectpool_performance_comparison` | ✅ 运行 | 自检退出码 0 |
 | `persistence_demo` | ✅ 运行 | 自检退出码 0 |
+| `real01_agent_runtime` | ✅ 运行 | 自检退出码 0 |
+| `real02_tenant_orders` | ✅ 运行 | 自检退出码 0 |
+| `real03_event_backbone` | ✅ 运行 | 自检退出码 0 |
+| `real04_edge_config` | ✅ 运行 | 自检退出码 0 |
+| `real05_durable_workflow` | ✅ 运行 | 自检退出码 0 |
 | `real_benchmark` | ✅ 运行 | 自检退出码 0 |
 | `scale_latency` | ✅ 运行 | 自检退出码 0 |
 | `scale_test` | ✅ 运行 | 自检退出码 0 |
