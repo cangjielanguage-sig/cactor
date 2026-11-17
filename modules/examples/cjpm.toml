@@ -226,3 +226,15 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.real10_fsm_order"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.real11_router_pool"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real12_streams_sse"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real13_projection_read_model"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.real14_circuit_breaker"]
+output-type = "executable"

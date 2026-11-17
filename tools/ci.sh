@@ -154,7 +154,11 @@ cactor_examples.simple_objectpool_test cactor_examples.stdlib_objectpool_test
 cactor_examples.llm_token_stream cactor_examples.monitoring_demo cactor_examples.persistence_demo
 cactor_examples.real01_agent_runtime cactor_examples.real02_tenant_orders
 cactor_examples.real03_event_backbone cactor_examples.real04_edge_config
-cactor_examples.real05_durable_workflow
+cactor_examples.real05_durable_workflow cactor_examples.real06_http_actor_api
+cactor_examples.real07_cluster_pubsub_chat cactor_examples.real08_cluster_singleton_job
+cactor_examples.real09_grains_cart cactor_examples.real10_fsm_order
+cactor_examples.real11_router_pool cactor_examples.real12_streams_sse
+cactor_examples.real13_projection_read_model cactor_examples.real14_circuit_breaker
 "
 for ex in $EXAMPLES_SELF_CHECK; do
     CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1

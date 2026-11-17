@@ -440,10 +440,13 @@ cactor → streams / xstate / testkit
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
-### 真实应用示例（`real01`–`real05`）
+### 真实应用示例（`real01`–`real14`）
 
-这五个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
-设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)。HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载。
+这十个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)，
+与 Akka / protoactor-go 官方示例的逐项对照见
+[docs/plan/20261117-porting-akka-protoactor.md](docs/plan/20261117-porting-akka-protoactor.md)。
+HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`real06`–`real09` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
 
 | 示例 | 内容 | 压到的能力 |
 |------|------|------|
@@ -452,6 +455,15 @@ cactor → streams / xstate / testkit
 | [real03_event_backbone](modules/examples/src/real03_event_backbone/main.cj) | 跨节点可靠事件骨干：按序恰好一次、断连重发、背压预算、消费端幂等 | `tellReliable`、`RemotingSettings.withLimits`、`reliableDeliveryStats` |
 | [real04_edge_config](modules/examples/src/real04_edge_config/main.cj) | 边缘–云一致性配置面：离线后反熵收敛、ORSet add-wins、SBR 决策、读一致性 | `Replicator`、CRDT、`sbrDecide`、`ReadMajority` |
 | [real05_durable_workflow](modules/examples/src/real05_durable_workflow/main.cj) | 可恢复长任务：崩溃后从断点续跑、每步副作用幂等、自动快照、提醒只触发一次 | `EventSourcedBehavior`、`RetentionCriteria`、`DurableReminders` |
+| [real06_http_actor_api](modules/examples/src/real06_http_actor_api/main.cj) | REST 服务（对标 protoactor `web`）：Lou CRUD + ask 存储 Actor + 监督重启 + 409/404 语义 | `TypedBehaviors`、`TypedAsk`、`supervise.restart`、Lou |
+| [real07_cluster_pubsub_chat](modules/examples/src/real07_cluster_pubsub_chat/main.cj) | 集群聊天（对标 protoactor `chat`、Akka distributed-pub-sub）：3 节点广播 + SSE + 退订 | `DistributedPubSub`、`Replicator`、Lou `ctx.sse` |
+| [real08_cluster_singleton_job](modules/examples/src/real08_cluster_singleton_job/main.cj) | 集群单例定时任务（对标 akka-sample-cluster-singleton）：唯一实例、tick、宕机接管 | `ClusterSingleton`、`onStarted` + `timers` |
+| [real09_grains_cart](modules/examples/src/real09_grains_cart/main.cj) | 虚拟 Actor 购物车（对标 protoactor `cluster-grain` / Orleans）：按需激活、单一激活、空闲停用、存储恢复 | `Grains`、`FileDurableStateStore` |
+| [real10_fsm_order](modules/examples/src/real10_fsm_order/main.cj) | 订单状态机（对标 akka-sample-fsm）：合法/非法迁移、支付超时自动取消、订单隔离 | `withTimers` + 状态即行为 |
+| [real11_router_pool](modules/examples/src/real11_router_pool/main.cj) | 路由器池（对标 Akka Routers / protoactor router）：轮询分发、广播、目标动态增删、终止自动摘除 | `Routers.pool/group`、`Broadcast`、`AddRoutee` |
+| [real12_streams_sse](modules/examples/src/real12_streams_sse/main.cj) | 流式管道 + SSE（对标 akka-sample-streams）：有序输出、async 边界、有界队列背压/明确丢弃 | `Sources/Flows/Sinks`、`async`、`Source.queue` |
+| [real13_projection_read_model](modules/examples/src/real13_projection_read_model/main.cj) | 事件投影读模型（对标 Akka Projection/CQRS）：全量重建、增量投影、按 (id,seq) 幂等 | `FileEventStore.replay`、`append(expectedSeq)` |
+| [real14_circuit_breaker](modules/examples/src/real14_circuit_breaker/main.cj) | 断路器 + 退避重启（对标 Akka CircuitBreaker / protoactor middleware）：快速失败、半开恢复、指数退避 | `BasicCircuitBreaker`、`restartWithBackoff` |
 
 ---
 

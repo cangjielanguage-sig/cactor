@@ -302,6 +302,15 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `real03_event_backbone` | ✅ 运行 | 自检退出码 0 |
 | `real04_edge_config` | ✅ 运行 | 自检退出码 0 |
 | `real05_durable_workflow` | ✅ 运行 | 自检退出码 0 |
+| `real06_http_actor_api` | ✅ 运行 | 自检退出码 0 |
+| `real07_cluster_pubsub_chat` | ✅ 运行 | 自检退出码 0 |
+| `real08_cluster_singleton_job` | ✅ 运行 | 自检退出码 0 |
+| `real09_grains_cart` | ✅ 运行 | 自检退出码 0 |
+| `real10_fsm_order` | ✅ 运行 | 自检退出码 0 |
+| `real11_router_pool` | ✅ 运行 | 自检退出码 0 |
+| `real12_streams_sse` | ✅ 运行 | 自检退出码 0 |
+| `real13_projection_read_model` | ✅ 运行 | 自检退出码 0 |
+| `real14_circuit_breaker` | ✅ 运行 | 自检退出码 0 |
 | `real_benchmark` | ✅ 运行 | 自检退出码 0 |
 | `scale_latency` | ✅ 运行 | 自检退出码 0 |
 | `scale_test` | ✅ 运行 | 自检退出码 0 |
