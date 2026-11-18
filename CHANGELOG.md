@@ -7,6 +7,16 @@
 
 ## [未发布]
 
+### ✨ 新增：`ReadConsistency.ReadMinCap` / `WriteConsistency.WriteMinCap`（`docs/plan/20261117.md` 差距 4.6）
+
+Distributed Data 的读写一致性新增 minCap：至少 n 个副本回应/确认即返回（对标 Akka 的 `minCap` / `WriteTo(n)`），
+用于"写方与读方成员视图不一致"时缓解过半读写不相交的问题。
+
+- 新增枚举分支 `cactor_cluster.ddata.ReadConsistency.ReadMinCap(Int64, Duration)`
+  与 `WriteConsistency.WriteMinCap(Int64, Duration)`；
+- `n <= 0` 抛 `IllegalArgumentException`；`n` 超过当前视图副本数时按实际副本数处理；
+- 示例 `real21_read_min_cap` 与测试 `ReadMinCapTest` 覆盖"总副本 4、可达 2：Majority 失败、minCap(2) 成功"。
+
 ### 💥 破坏性变更（`docs/plan/20261116.md` B4c：runtime 的第二套实现，生产代码 −2,333 行）
 
 B4c 继续"删假"，但这批与 B4a/B4b 性质不同：**上一批删的是零引用代码，这一批删的是"有实现、但从来没人用的第二套"**。

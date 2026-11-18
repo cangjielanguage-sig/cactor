@@ -624,6 +624,11 @@ public enum WriteConsistency {
     | WriteLocal
     | WriteMajority(Duration)
     | WriteAll(Duration)
+    /**
+     * 至少 n 个副本确认即返回（对标 Akka Distributed Data 的 `WriteTo(n)` / `minCap`）。
+     * `n` 超过当前视图副本数时按实际副本数处理；`n` 必须为正。
+     */
+    | WriteMinCap(Int64, Duration)
 }
 
 /**
@@ -636,6 +641,12 @@ public enum ReadConsistency {
     | ReadLocal
     | ReadMajority(Duration)
     | ReadAll(Duration)
+    /**
+     * 至少 n 个副本回应即返回（对标 Akka Distributed Data 的 `minCap`）。
+     * 用于"写方 3 节点视图、读方 5 节点视图"这类视图不一致场景：过半读必须 3 个回应，
+     * 而读方只想等 2 个；n 超过当前视图副本数时按实际副本数处理。n 必须为正。
+     */
+    | ReadMinCap(Int64, Duration)
 }
 
 /**
@@ -669,6 +680,11 @@ public class ReplicatorConsistencyException <: Exception {
 
 /** 需要的副本数（含本节点）："majority" = ⌊n/2⌋ + 1，"all" = n，"local" = 1 */
 func requiredReplicas(total: Int64, mode: String): Int64 {
+    if (mode.startsWith("mincap:")) {
+        let n = Int64.parse(mode[7..])
+        // 视图里的副本不够时按实际数量处理；至少 1（本节点）
+        return if (n > total) { total } else if (n < 1) { 1 } else { n }
+    }
     match (mode) {
         case "majority" => total / 2 + 1
         case "all" => total
@@ -2075,6 +2091,11 @@ public class Replicator {
             case WriteLocal => ("local", Duration.second)
             case WriteMajority(t) => ("majority", t)
             case WriteAll(t) => ("all", t)
+            case WriteMinCap(n, t) =>
+                if (n <= 0) {
+                    throw IllegalArgumentException("WriteMinCap 的副本数必须为正：${n}")
+                }
+                ("mincap:${n}", t)
         }
         actor.tell(ConsistentUpdate(key, initial, modify, mode, timeout, p))
         p
@@ -2090,6 +2111,11 @@ public class Replicator {
             case ReadLocal => ("local", Duration.second)
             case ReadMajority(t) => ("majority", t)
             case ReadAll(t) => ("all", t)
+            case ReadMinCap(n, t) =>
+                if (n <= 0) {
+                    throw IllegalArgumentException("ReadMinCap 的副本数必须为正：${n}")
+                }
+                ("mincap:${n}", t)
         }
         actor.tell(ConsistentRead(key, mode, timeout, p))
         p

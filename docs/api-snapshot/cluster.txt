@@ -73,6 +73,7 @@ cactor_cluster.ddata :: PNCounter.public operator func !=(other: PNCounter): Boo
 cactor_cluster.ddata :: ReadConsistency.| ReadAll(Duration)
 cactor_cluster.ddata :: ReadConsistency.| ReadLocal
 cactor_cluster.ddata :: ReadConsistency.| ReadMajority(Duration)
+cactor_cluster.ddata :: ReadConsistency.| ReadMinCap(Int64, Duration)
 cactor_cluster.ddata :: ReplicatedData.func merge(other: T): T
 cactor_cluster.ddata :: ReplicatedValue.public func digest(): String
 cactor_cluster.ddata :: ReplicatedValue.public func encode(): String
@@ -134,6 +135,7 @@ cactor_cluster.ddata :: ReplicatorDeltaStats.public let gaps: Int64
 cactor_cluster.ddata :: WriteConsistency.| WriteAll(Duration)
 cactor_cluster.ddata :: WriteConsistency.| WriteLocal
 cactor_cluster.ddata :: WriteConsistency.| WriteMajority(Duration)
+cactor_cluster.ddata :: WriteConsistency.| WriteMinCap(Int64, Duration)
 cactor_cluster.ddata :: public class FieldReader
 cactor_cluster.ddata :: public class FieldWriter
 cactor_cluster.ddata :: public class GCounter <: ReplicatedData<GCounter>& Equatable<GCounter>

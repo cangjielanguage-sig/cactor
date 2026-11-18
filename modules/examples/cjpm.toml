@@ -18,7 +18,7 @@ cactor_remote = { path = "../remote" }
 cactor_cluster = { path = "../cluster" }
 cactor_xstate = { path = "../xstate" }
 cactor_testkit = { path = "../testkit" }
-# 真实示例（real01–real05）需要对外 HTTP/SSE 能力：直接复用已实现的 Lou Web 框架，
+# 真实示例（ex01–ex05）需要对外 HTTP/SSE 能力：直接复用已实现的 Lou Web 框架，
 # 不再自建 HTTP 门面（docs/plan/2026117-lz.md §2.1 的 G-1 由此解决）。
 lou = { git = "https://gitcode.com/catorai/lou.git", tag = "v2.0.0" }
 
@@ -197,44 +197,77 @@ output-type = "executable"
 [package.package-configuration."cactor_examples.agent_orchestration_demo"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real01_agent_runtime"]
+[package.package-configuration."cactor_examples.ex01_agent_runtime"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real02_tenant_orders"]
+[package.package-configuration."cactor_examples.ex02_tenant_orders"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real03_event_backbone"]
+[package.package-configuration."cactor_examples.ex03_event_backbone"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real04_edge_config"]
+[package.package-configuration."cactor_examples.ex04_edge_config"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real05_durable_workflow"]
+[package.package-configuration."cactor_examples.ex05_durable_workflow"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real06_http_actor_api"]
+[package.package-configuration."cactor_examples.ex06_http_actor_api"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real07_cluster_pubsub_chat"]
+[package.package-configuration."cactor_examples.ex07_cluster_pubsub_chat"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real08_cluster_singleton_job"]
+[package.package-configuration."cactor_examples.ex08_cluster_singleton_job"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real09_grains_cart"]
+[package.package-configuration."cactor_examples.ex09_grains_cart"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real10_fsm_order"]
+[package.package-configuration."cactor_examples.ex10_fsm_order"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real11_router_pool"]
+[package.package-configuration."cactor_examples.ex11_router_pool"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real12_streams_sse"]
+[package.package-configuration."cactor_examples.ex12_streams_sse"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real13_projection_read_model"]
+[package.package-configuration."cactor_examples.ex13_projection_read_model"]
 output-type = "executable"
 
-[package.package-configuration."cactor_examples.real14_circuit_breaker"]
+[package.package-configuration."cactor_examples.ex14_circuit_breaker"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex15_work_queue"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex16_persistence_upcast"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex17_remote_watch"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex18_durable_pubsub"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex19_cluster_router"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex20_singleton_lease"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex21_read_min_cap"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex22_grains_async"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex23_sharding_passivation"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex24_at_least_once"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex25_broadcast_hub"]
 output-type = "executable"

@@ -645,3 +645,62 @@ public class DDataPruningBoundaryTest {
         @Expect(removedAfter.merge(pruned).contains("x"), false)
     }
 }
+
+@Test
+public class ReadMinCapTest {
+    /**
+     * Q11（minCap）：总副本 4、当前分区只有 2 个可达。
+     * ReadMajority 需要 3 个回应 → 明确失败；ReadMinCap(2) 只要 2 个 → 成功返回合并值。
+     * 这是"写方 3 节点视图、读方 5 节点视图"类视图不一致的缓解手段。
+     */
+    @TestCase
+    public func minCapReadsWithFewerReplicasThanMajority(): Unit {
+        let partition = Partition()
+        let ns = Array<DNode>(4, { i =>
+            DNode("mincap-${i}", NO_ANTI_ENTROPY, Some<NetworkTransport>(PartitionTransport(partition)), None<String>)
+        })
+        connect(ns)
+        ns[0].rep.addToSetWith("m", "v1", WriteConsistency.WriteMajority(CONVERGE)).get(CONVERGE)
+        let ad = Array<String>(4, { i => ns[i].addr().toString() })
+        partition.split([[ad[0], ad[1]], [ad[2], ad[3]]])
+        let ex = consistencyFailure({ =>
+            ns[0].rep.getWith("m", ReadConsistency.ReadMajority(DA5_SHORT)).get(CONVERGE)
+        })
+        @Expect(ex.isSome(), true)
+        if (let Some(e) <- ex) {
+            @Expect(e.total, 4)
+            @Expect(e.needed, 3)
+            @Expect(e.replied, 2)
+        }
+        @Expect(setOf(ns[0].rep.getWith("m", ReadConsistency.ReadMinCap(2, CONVERGE)).get(CONVERGE)).contains("v1"), true)
+        // 参数校验：n 必须为正
+        var rejected = false
+        try {
+            ns[0].rep.getWith("m", ReadConsistency.ReadMinCap(0, CONVERGE)).get(CONVERGE)
+        } catch (_: IllegalArgumentException) {
+            rejected = true
+        }
+        @Expect(rejected, true)
+        // 写侧对称：同样视图下 WriteMajority 失败、WriteMinCap(2) 成功（少数派本地也生效）
+        let wex = consistencyFailure({ =>
+            ns[0].rep.addToSetWith("m2", "w-majority", WriteConsistency.WriteMajority(DA5_SHORT)).get(CONVERGE)
+        })
+        @Expect(wex.isSome(), true)
+        if (let Some(e) <- wex) {
+            @Expect(e.total, 4)
+            @Expect(e.needed, 3)
+        }
+        ns[0].rep.addToSetWith("m2", "w-mincap", WriteConsistency.WriteMinCap(2, CONVERGE)).get(CONVERGE)
+        @Expect(ns[1].rep.setElements("m2").contains("w-mincap"), true)
+        var wRejected = false
+        try {
+            ns[0].rep.addToSetWith("m2", "bad", WriteConsistency.WriteMinCap(0, CONVERGE)).get(CONVERGE)
+        } catch (_: IllegalArgumentException) {
+            wRejected = true
+        }
+        @Expect(wRejected, true)
+        for (n in ns) {
+            n.shutdown()
+        }
+    }
+}

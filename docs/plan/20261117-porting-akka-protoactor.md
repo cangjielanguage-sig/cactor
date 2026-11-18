@@ -5,7 +5,7 @@
 >
 > 关联：
 > - 能力差距与验收：`docs/plan/20261117.md`（46 条对标项）、`docs/plan/2026117-lz.md`（10 个真实示例）
-> - 实例：`modules/examples/src/best01`–`best10`（API 教程）、`real01`–`real10`（真实应用）
+> - 实例：`modules/examples/src/best01`–`best10`（API 教程）、`ex01`–`ex10`（真实应用）
 > - 本文不修改任何计分表；缺口编号沿用 `20261117.md` §4。
 
 ---
@@ -29,19 +29,32 @@
 | Akka 示例 | 它教什么 | CActor 等价物 | 可运行实例 | 判定 |
 |---|---|---|---|---|
 | `akka-sample-main` | ActorSystem + 顶层 Actor + 配置 | `CActorSystemFactory.create` / `system.actorOf` / `actorSystem {}` DSL | `best01`、`hello_world_demo` | ✅ |
-| `akka-sample-remote` | 远程 tell/ask/watch、序列化 | `SimpleRemoteManager`、`remoteActorOf`、`tellReliable`、`MessageSerializer` | `best08`、`real03` | ✅ |
-| `akka-sample-cluster`（stats worker + listener） | gossip 成员、集群感知路由 | `Cluster`、`ClusterEvent`、`Receptionist`；**无 cluster-aware router** | `best09`、`real02` | 🟡 差距 4.5 |
-| `akka-sample-cluster-sharding` | 实体路由、remember-entities、passivation | `ClusterSharding`、`rememberedEntitiesKey`、`withPassivation` | `best09`、`real02` | ✅ |
-| `akka-sample-cluster-singleton` | 唯一实例、故障接管 | `ClusterSingleton`、`isRunningHere`、`location` | **`real08`** | ✅ |
-| `akka-sample-distributed-pub-sub` | 跨节点主题广播、退订 | `DistributedPubSub.subscribe/publish` | **`real07`** | ✅ |
-| `akka-sample-distributed-data` | CRDT + Replicator + 一致性级别 | `GCounter/PNCounter/GSet/ORSet/LWWRegister`、`Replicator` | `real04`、`ddata_stress` | ✅（Map 系 CRDT 缺，差距 4.6） |
-| `akka-sample-persistence` | PersistentActor、快照、恢复 | `EventSourcedBehavior`、`journal_v2`、`snapshot_store`、`RetentionCriteria` | `real05`、`best07` | ✅（upcast 缺，差距 4.7） |
-| `akka-sample-fsm`（Buncher） | 状态机、状态超时、stash | `TypedBehaviors.receive` 返回新行为 + `withTimers` + `withStash` | **`real10`**、`best04` | ✅ |
-| `akka-sample-streams` | Source/Flow/Sink、GraphDSL、背压 | `cactor_streams`（线性算子、async、buffer、kill switch） | `streams_demo`、`best05` | 🟡 缺 GraphDSL（差距 4.8） |
-| `akka-sample-cluster-metrics` | 自适应负载均衡 | 无自适应路由；有 `RebalancePolicy` + 负载报告 | `real02`（再平衡） | 🟡 差距 4.5 |
+| `akka-sample-remote` | 远程 tell/ask/watch、序列化 | `SimpleRemoteManager`、`remoteActorOf`、`tellReliable`、`MessageSerializer` | `best08`、`ex03` | ✅ |
+| `akka-sample-cluster`（stats worker + listener） | gossip 成员、集群感知路由 | `Cluster`、`ClusterEvent`、`Receptionist`；**无 cluster-aware router** | `best09`、`ex02` | 🟡 差距 4.5 |
+| `akka-sample-cluster-sharding` | 实体路由、remember-entities、passivation | `ClusterSharding`、`rememberedEntitiesKey`、`withPassivation` | `best09`、`ex02` | ✅ |
+| `akka-sample-cluster-singleton` | 唯一实例、故障接管 | `ClusterSingleton`、`isRunningHere`、`location` | **`ex08`** | ✅ |
+| `akka-sample-distributed-pub-sub` | 跨节点主题广播、退订 | `DistributedPubSub.subscribe/publish` | **`ex07`** | ✅ |
+| `akka-sample-distributed-data` | CRDT + Replicator + 一致性级别 | `GCounter/PNCounter/GSet/ORSet/LWWRegister`、`Replicator` | `ex04`、`ddata_stress` | ✅（Map 系 CRDT 缺，差距 4.6） |
+| `akka-sample-persistence` | PersistentActor、快照、恢复 | `EventSourcedBehavior`、`journal_v2`、`snapshot_store`、`RetentionCriteria` | `ex05`、`best07` | ✅（upcast 缺，差距 4.7） |
+| `akka-sample-fsm`（Buncher） | 状态机、状态超时、stash | `TypedBehaviors.receive` 返回新行为 + `withTimers` + `withStash` | **`ex10`**、`best04` | ✅ |
+| `akka-sample-streams` | Source/Flow/Sink、GraphDSL、背压 | `cactor_streams`（线性算子、async、buffer、kill switch） | **`ex12`**、`streams_demo`、`best05` | ✅ 线性算子；缺 GraphDSL（差距 4.8） |
+| Akka Routers | pool/group、轮询、广播、动态目标 | `Routers.pool/group` + 控制消息 | **`ex11`** | ✅（集群感知路由仍缺，差距 4.5） |
+| Akka CircuitBreaker | 快速失败、半开恢复 | `BasicCircuitBreaker` + `restartWithBackoff` | **`ex14`** | ✅ |
+| akka-sample-cluster-metrics | 自适应负载均衡 | 无自适应路由；有 `RebalancePolicy` + 负载报告 | `ex02`（再平衡） | 🟡 差距 4.5 |
 | Akka Multi-DC | roles、data-center、ClusterClient | 无 | — | ❌ 差距 4.1/4.3 |
-| Akka HTTP 示例 | HTTP 路由 + ask | 由 **Lou** 承载（非 CActor 模块） | `real06`/`07`/`08`/`09` | ✅ 组合方案 |
-| Akka Projection / CQRS | 事件流投影读模型 | 无 `Projection`；`CQRSBus` 已弃用 | — | ❌ 差距 4.12 |
+| Akka HTTP 示例 | HTTP 路由 + ask | 由 **Lou** 承载（非 CActor 模块） | `ex06`/`07`/`08`/`09` | ✅ 组合方案 |
+| Akka Projection / CQRS | 事件流投影读模型 | 无内建 `Projection`；用 `replay` 手写（`projection` 泛指） | **`ex13`** | 🟡 可移植，需自己补（差距 4.12） |
+| akka-sample-cluster（work pull） | Receptionist 发现、任务分发、重试/死信 | `ClusterReceptionist` + 超时重排 | **`ex15`** | ✅（重排语义需应用自建） |
+| Akka Persistence schema evolution | 事件版本升级（upcast） | `EventAdapter.fromJournal(manifest, data)` 按 manifest 分派 | **`ex16`** | ✅ 应用层可实现；无框架级 upcast 链 |
+| protoactor remote / Akka DeathWatch | 远程 watch、Terminated、quarantine | `watchRemote`（被监视端需 `enableRemoteWatch`）、`quarantine` | **`ex17`** | ✅ |
+| Akka DistributedPubSub durable subscriber | 离线重放、持久订阅 | 无内建；journal + 游标手写 | **`ex18`** | 🟡 应用层补法（差距 4.8） |
+| Akka cluster-aware router | 按成员负载选目标 | 本地 `Routers` + `ClusterReceptionist` 手写 | **`ex19`** | 🟡 应用层补法（差距 4.5） |
+| Akka cluster-singleton + lease | 租约保护、故障接管 | `ClusterSingletonSettings.withLease` + `FileLease` | **`ex20`** | ✅ |
+| Akka DData `minCap` | 视图不一致时按固定副本数读 | `ReadConsistency.ReadMinCap(n, t)`（本次新增） | **`ex21`** | ✅ 框架能力 |
+| Orleans grain 异步/重入 | `callAsync`、可重入回合制 | `Grains.callAsync`、`Grain.reentrant()` | **`ex22`** | ✅ |
+| Akka sharding passivation | 空闲停用、状态恢复 | `ShardingSettings.passivating` + `DurableStateStore` | **`ex23`** | ✅ |
+| Akka at-least-once delivery | deliveryId + 幂等消费 | 应用层去重表（`DurableStateStore`） | **`ex24`** | 🟡 应用层补法（差距 4.13） |
+| Akka BroadcastHub | 多订阅者广播、慢订阅者隔离 | 每订阅者 `Source.queue` + 明确丢弃 | **`ex25`** | 🟡 应用层补法（差距 4.8） |
 
 ### 2.1 Akka API 概念的逐条对应
 
@@ -75,16 +88,16 @@
 | protoactor-go 示例 | 它教什么 | CActor 等价物 | 可运行实例 | 判定 |
 |---|---|---|---|---|
 | `helloworld` | Spawn + Tell | `system.actorOf` / `typedActorOf` + `tell` | `best01`、`hello_world_demo` | ✅ |
-| `web` | 每请求一个 Actor / HTTP + 消息 | Lou + `TypedAsk`；存储 Actor 串行 | **`real06`** | ✅ |
-| `chat` | 房间广播、跨节点 | `DistributedPubSub` + Lou SSE | **`real07`** | ✅ |
-| `cluster-grain` | 虚拟 Actor（Identity/Kind） | `Grains` + `Grain.onCall` | **`real09`** | ✅ |
-| `cluster-sharding` | 分片实体 | `ClusterSharding` | `best09`、`real02` | ✅ |
-| `remote` | PID 跨进程 | `SimpleRemoteManager.remoteActorOf` | `best08`、`real03` | ✅ |
-| `remote/relay`、`cluster pubsub` | 中继/发布订阅 | PubSub 有；**无 ClusterClient/中继网关** | `real07` | 🟡 差距 4.3 |
-| `futures`（PipeTo / Recover / Timeout） | 异步编排 | `TypedPromise.map/flatMap`、`pipeToSelf`、`ctx.ask` + 超时 | `best02`、`real01` | ✅ |
+| `web` | 每请求一个 Actor / HTTP + 消息 | Lou + `TypedAsk`；存储 Actor 串行 | **`ex06`** | ✅ |
+| `chat` | 房间广播、跨节点 | `DistributedPubSub` + Lou SSE | **`ex07`** | ✅ |
+| `cluster-grain` | 虚拟 Actor（Identity/Kind） | `Grains` + `Grain.onCall` | **`ex09`** | ✅ |
+| `cluster-sharding` | 分片实体 | `ClusterSharding` | `best09`、`ex02` | ✅ |
+| `remote` | PID 跨进程 | `SimpleRemoteManager.remoteActorOf` | `best08`、`ex03` | ✅ |
+| `remote/relay`、`cluster pubsub` | 中继/发布订阅 | PubSub 有；**无 ClusterClient/中继网关** | `ex07` | 🟡 差距 4.3 |
+| `futures`（PipeTo / Recover / Timeout） | 异步编排 | `TypedPromise.map/flatMap`、`pipeToSelf`、`ctx.ask` + 超时 | `best02`、`ex01` | ✅ |
 | `middleware`（recovery / logging） | 横切关注点 | `TypedBehaviors.intercept`、监督策略、日志 `Mdc` | `best03` | ✅（trace 不跨节点，差距 4.10） |
 | `supervision` | 父子监督 | `supervise(...).onFailure(...)` | `best03` | ✅ |
-| `persistence` | 事件溯源 | `EventSourcedBehavior` | `real05`、`best07` | ✅ |
+| `persistence` | 事件溯源 | `EventSourcedBehavior` | `ex05`、`best07` | ✅ |
 | `streams`（如果启用） | Source/Sink | `cactor_streams` | `streams_demo` | 🟡 无 GraphDSL |
 | protoactor `Context.Request`（ask） | 请求-响应 | `TypedAsk.ask` / `ctx.ask` | `best02` | ✅ |
 | protoactor `Context.Respond` | 回复发送方 | 经典 `context.reply` / 类型化 `replyTo.tell` | `best02` | ✅ |
@@ -131,7 +144,7 @@ let v = TypedAsk.ask<Get, String>(ref, { r => Get(r) }, 3.seconds).get(3.seconds
 // Actor 内部（不阻塞邮箱，结果转成自己的消息）
 ctx.ask(ref, { r => Get(r) }, 3.seconds)
     .map<String>({ x => Got(x) })
-    .onComplete({ m => self.tell(m) })   // 实际写法见 best02 / real01
+    .onComplete({ m => self.tell(m) })   // 实际写法见 best02 / ex01
 ```
 
 ### 4.3 监督
@@ -196,22 +209,22 @@ spawn { app.listen() }
 | Multi-DC / roles / ClusterClient | 差距 4.1/4.3 | 跨机房、外部进程访问集群 | 先做 `20261117.md` C1–C2 |
 | 分片协调状态持久化 | 差距 4.4 | 全灭重启后分片重排 | 实体用 remember-entities + 事件溯源兜底 |
 | DData Map CRDT | 差距 4.6 | 分布式配置只能塞 `LWWRegister` | 用 `ORSet` 自拼或等 C4 |
-| Projection / Durable Subscriber | 差距 4.8/4.12 | 读模型、离线订阅重放 | 用 `journal_v2` 自行 replay |
-| GraphDSL / BroadcastHub | 差距 4.8 | 多入多出流编排 | 线性算子 + `async`/`buffer` 组合 |
+| Projection / Durable Subscriber | 差距 4.8/4.12 | 读模型、离线订阅重放 | 用 `journal_v2` 自行 replay（`ex13` 是完整手工示例） |
+| GraphDSL / BroadcastHub | 差距 4.8 | 多入多出流编排 | 线性算子 + `async`/`buffer` 组合（`ex12` 展示 SSE 管道与背压） |
 | trace 跨节点 / OTel | 差距 4.10 | 分布式排障只能看日志 | 先做指标统一（C6） |
-| 幂等 / at-least-once 高层 API | 差距 4.13 | 重复投递需自建去重表 | 用 `DurableStateStore` 做去重（`real02`/`real03` 已示范） |
+| 幂等 / at-least-once 高层 API | 差距 4.13 | 重复投递需自建去重表 | 用 `DurableStateStore` 做去重（`ex02`/`ex03` 已示范） |
 
 ---
 
 ## 6. HTTP/SSE 实测约束（用 Lou 承载时必须知道）
 
-这三个是 `real01`–`real09` 实跑时踩到并已绕开的，不是猜测：
+这三个是 `ex01`–`ex09` 实跑时踩到并已绕开的，不是猜测：
 
 | 现象 | 触发条件 | 现用规避 | 建议 |
 |---|---|---|---|
-| 普通响应 500 | 响应体含非 ASCII（如中文） | 在 JSON 层转成 `\uXXXX`（`real06` 的 `jsonEscape`） | 修 Lou 或升级版本 |
-| POST 路由 405 | 同时注册 `/x/:param` 与 `/x/:param/child`，POST 打在父子重叠的树上 | 改用静态叶子路径（`real07` 用 `POST /broadcast`） | 用路径前缀隔离（`/api/v1/...`） |
-| SSE 无断开回调 | 客户端半途断开，服务端无法感知 | 显式取消端点（`real01`）或 `?limit=`（`real07`） | 见 `2026117-lz.md` G-4 |
+| 普通响应 500 | 响应体含非 ASCII（如中文） | 在 JSON 层转成 `\uXXXX`（`ex06` 的 `jsonEscape`） | 修 Lou 或升级版本 |
+| POST 路由 405 | 同时注册 `/x/:param` 与 `/x/:param/child`，POST 打在父子重叠的树上 | 改用静态叶子路径（`ex07` 用 `POST /broadcast`） | 用路径前缀隔离（`/api/v1/...`） |
+| SSE 无断开回调 | 客户端半途断开，服务端无法感知 | 显式取消端点（`ex01`）或 `?limit=`（`ex07`） | 见 `2026117-lz.md` G-4 |
 
 ---
 
@@ -220,42 +233,51 @@ spawn { app.listen() }
 1. **消息协议**：把 Akka/protoactor 的 `case class`/`struct` 换成 `enum`；每个请求带 `replyTo`（类型化 `TypedActorRef<R>`）。
 2. **状态**：把 `var`/`become` 改成"处理完返回新行为"；需要暂存消息用 `withStash`。
 3. **并发**：Actor 内不要阻塞；长 IO 用 `spawn`/协程 + `ctx.ask`，或换 blocking 调度器（`best05`）。
-4. **失败**：先写默认监督（restart），再针对业务加 `withLimit`/退避（`real01` 工具调用、`real05` 步骤重试）。
+4. **失败**：先写默认监督（restart），再针对业务加 `withLimit`/退避（`ex01` 工具调用、`ex05` 步骤重试）。
 5. **位置透明**：本地先跑通，再换 `remoteActorOf`；跨节点消息要么实现 `Message` + 编解码器，要么用 `StringMessage` 起步。
-6. **持久化**：从 `EventSourcedBehavior` 起步；副作用放 `thenRun`，不要在事件回调里做不可重入动作（`real05`）。
+6. **持久化**：从 `EventSourcedBehavior` 起步；副作用放 `thenRun`，不要在事件回调里做不可重入动作（`ex05`）。
 7. **集群**：先 `Cluster` 收敛，再上 `Sharding`/`Singleton`/`PubSub`/`Grains`；
    每个用例都等 `state().converged` 或 `ownerCount() == N`，不要裸 sleep。
 8. **HTTP**：用 Lou；先把非 ASCII 输出转义、路由按前缀隔离，再谈 SSE。
 
 ---
 
-## 8. 与 `real01`–`real10` 的对应关系
+## 8. 与 `ex01`–`ex10` 的对应关系
 
 | 示例 | 对标示例 | 关键验收（可证伪） |
 |---|---|---|
-| real01 | protoactor `futures` + Akka streams 教程 | SSE 全量 token、取消无残留、工具失败不污染、重启恢复 |
-| real02 | akka-sample-cluster-sharding | 库存不为负、旧 token 被 fencing 拒、opId 幂等、热点不饿死 |
-| real03 | protoactor `remote` + reliable delivery | 2000 条按序到达、离线重发、超限计数、消费去重 |
-| real04 | akka-sample-distributed-data | 4 节点收敛、离线反熵、ORSet add-wins、SBR、ReadMajority 失败 |
-| real05 | akka-sample-persistence | 断点续跑、副作用各 1 次、快照、提醒只触发一次 |
-| real06 | protoactor `web` | CRUD 状态码、并发 50 创建、/crash 后可用 |
-| real07 | protoactor `chat` / akka distributed-pub-sub | 跨节点各 3 条、退订生效、SSE 3 条结束 |
-| real08 | akka-sample-cluster-singleton | 唯一实例、计数 1/2/3、tick、宕机接管 |
-| real09 | protoactor `cluster-grain` | 单一激活、跨节点共享、空闲停用后存储恢复 |
-| real10 | akka-sample-fsm | 合法/非法迁移、支付超时取消、订单隔离 |
+| ex01 | protoactor `futures` + Akka streams 教程 | SSE 全量 token、取消无残留、工具失败不污染、重启恢复 |
+| ex02 | akka-sample-cluster-sharding | 库存不为负、旧 token 被 fencing 拒、opId 幂等、热点不饿死 |
+| ex03 | protoactor `remote` + reliable delivery | 2000 条按序到达、离线重发、超限计数、消费去重 |
+| ex04 | akka-sample-distributed-data | 4 节点收敛、离线反熵、ORSet add-wins、SBR、ReadMajority 失败 |
+| ex05 | akka-sample-persistence | 断点续跑、副作用各 1 次、快照、提醒只触发一次 |
+| ex06 | protoactor `web` | CRUD 状态码、并发 50 创建、/crash 后可用 |
+| ex07 | protoactor `chat` / akka distributed-pub-sub | 跨节点各 3 条、退订生效、SSE 3 条结束 |
+| ex08 | akka-sample-cluster-singleton | 唯一实例、计数 1/2/3、tick、宕机接管 |
+| ex09 | protoactor `cluster-grain` | 单一激活、跨节点共享、空闲停用后存储恢复 |
+| ex10 | akka-sample-fsm | 合法/非法迁移、支付超时取消、订单隔离 |
+| ex11 | Akka Routers / protoactor router | 8 条轮询 2/2/2/2；广播全覆盖；目标停止后自动摘除；动态加目标 |
+| ex12 | akka-sample-streams | SSE 20 条有序；`Source.queue` 满时明确 Dropped；async 边界不乱序 |
+| ex13 | Akka Projection / CQRS | 全量重建两次一致；增量只消费新事件；按 (id,seq) 幂等 |
+| ex14 | Akka CircuitBreaker / protoactor middleware | 2 次失败后 Open；Open 不调用下游；半开恢复；退避重启后可用 |
 
 复现命令：
 
 ```bash
 source tools/env.sh && cjpm build
-for e in real01_agent_runtime real02_tenant_orders real03_event_backbone real04_edge_config \
-         real05_durable_workflow real06_http_actor_api real07_cluster_pubsub_chat \
-         real08_cluster_singleton_job real09_grains_cart real10_fsm_order; do
+for e in ex01_agent_runtime ex02_tenant_orders ex03_event_backbone ex04_edge_config \
+         ex05_durable_workflow ex06_http_actor_api ex07_cluster_pubsub_chat \
+         ex08_cluster_singleton_job ex09_grains_cart ex10_fsm_order \
+         ex11_router_pool ex12_streams_sse ex13_projection_read_model ex14_circuit_breaker \
+         ex15_work_queue ex16_persistence_upcast ex17_remote_watch \
+         ex18_durable_pubsub ex19_cluster_router ex20_singleton_lease \
+         ex21_read_min_cap ex22_grains_async ex23_sharding_passivation \
+         ex24_at_least_once ex25_broadcast_hub; do
   CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.$e || echo "FAIL: $e"
 done
 
 # HTTP 服务的外部验证（另开终端）
-./target/release/bin/cactor_examples.real06_http_actor_api serve 18086
+./target/release/bin/cactor_examples.ex06_http_actor_api serve 18086
 curl -i -X POST --data 'red-fuji' http://127.0.0.1:18086/items/apple
 curl -i http://127.0.0.1:18086/items/apple
 ```

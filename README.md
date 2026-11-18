@@ -440,30 +440,41 @@ cactor → streams / xstate / testkit
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
-### 真实应用示例（`real01`–`real14`）
+### 真实应用示例（`ex01`–`ex25`）
 
-这十个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+这二十五个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
 设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)，
 与 Akka / protoactor-go 官方示例的逐项对照见
 [docs/plan/20261117-porting-akka-protoactor.md](docs/plan/20261117-porting-akka-protoactor.md)。
-HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`real06`–`real09` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
+HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex25` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
 
 | 示例 | 内容 | 压到的能力 |
 |------|------|------|
-| [real01_agent_runtime](modules/examples/src/real01_agent_runtime/main.cj) | LLM Agent 运行时：Lou 提供 HTTP/SSE，会话串行 + 工具并发 + 取消 + 崩溃恢复 | `DurableStateBehavior`、`ctx.ask`、流式取消、`PersistenceIo` |
-| [real02_tenant_orders](modules/examples/src/real02_tenant_orders/main.cj) | 多租户订单：库存不超卖、单写者租约交接、旧 token 被 fencing 拒绝、opId 幂等 | `ClusterSharding`、`FileLease`、`FencedDurableStateStore` |
-| [real03_event_backbone](modules/examples/src/real03_event_backbone/main.cj) | 跨节点可靠事件骨干：按序恰好一次、断连重发、背压预算、消费端幂等 | `tellReliable`、`RemotingSettings.withLimits`、`reliableDeliveryStats` |
-| [real04_edge_config](modules/examples/src/real04_edge_config/main.cj) | 边缘–云一致性配置面：离线后反熵收敛、ORSet add-wins、SBR 决策、读一致性 | `Replicator`、CRDT、`sbrDecide`、`ReadMajority` |
-| [real05_durable_workflow](modules/examples/src/real05_durable_workflow/main.cj) | 可恢复长任务：崩溃后从断点续跑、每步副作用幂等、自动快照、提醒只触发一次 | `EventSourcedBehavior`、`RetentionCriteria`、`DurableReminders` |
-| [real06_http_actor_api](modules/examples/src/real06_http_actor_api/main.cj) | REST 服务（对标 protoactor `web`）：Lou CRUD + ask 存储 Actor + 监督重启 + 409/404 语义 | `TypedBehaviors`、`TypedAsk`、`supervise.restart`、Lou |
-| [real07_cluster_pubsub_chat](modules/examples/src/real07_cluster_pubsub_chat/main.cj) | 集群聊天（对标 protoactor `chat`、Akka distributed-pub-sub）：3 节点广播 + SSE + 退订 | `DistributedPubSub`、`Replicator`、Lou `ctx.sse` |
-| [real08_cluster_singleton_job](modules/examples/src/real08_cluster_singleton_job/main.cj) | 集群单例定时任务（对标 akka-sample-cluster-singleton）：唯一实例、tick、宕机接管 | `ClusterSingleton`、`onStarted` + `timers` |
-| [real09_grains_cart](modules/examples/src/real09_grains_cart/main.cj) | 虚拟 Actor 购物车（对标 protoactor `cluster-grain` / Orleans）：按需激活、单一激活、空闲停用、存储恢复 | `Grains`、`FileDurableStateStore` |
-| [real10_fsm_order](modules/examples/src/real10_fsm_order/main.cj) | 订单状态机（对标 akka-sample-fsm）：合法/非法迁移、支付超时自动取消、订单隔离 | `withTimers` + 状态即行为 |
-| [real11_router_pool](modules/examples/src/real11_router_pool/main.cj) | 路由器池（对标 Akka Routers / protoactor router）：轮询分发、广播、目标动态增删、终止自动摘除 | `Routers.pool/group`、`Broadcast`、`AddRoutee` |
-| [real12_streams_sse](modules/examples/src/real12_streams_sse/main.cj) | 流式管道 + SSE（对标 akka-sample-streams）：有序输出、async 边界、有界队列背压/明确丢弃 | `Sources/Flows/Sinks`、`async`、`Source.queue` |
-| [real13_projection_read_model](modules/examples/src/real13_projection_read_model/main.cj) | 事件投影读模型（对标 Akka Projection/CQRS）：全量重建、增量投影、按 (id,seq) 幂等 | `FileEventStore.replay`、`append(expectedSeq)` |
-| [real14_circuit_breaker](modules/examples/src/real14_circuit_breaker/main.cj) | 断路器 + 退避重启（对标 Akka CircuitBreaker / protoactor middleware）：快速失败、半开恢复、指数退避 | `BasicCircuitBreaker`、`restartWithBackoff` |
+| [ex01_agent_runtime](modules/examples/src/ex01_agent_runtime/main.cj) | LLM Agent 运行时：Lou 提供 HTTP/SSE，会话串行 + 工具并发 + 取消 + 崩溃恢复 | `DurableStateBehavior`、`ctx.ask`、流式取消、`PersistenceIo` |
+| [ex02_tenant_orders](modules/examples/src/ex02_tenant_orders/main.cj) | 多租户订单：库存不超卖、单写者租约交接、旧 token 被 fencing 拒绝、opId 幂等 | `ClusterSharding`、`FileLease`、`FencedDurableStateStore` |
+| [ex03_event_backbone](modules/examples/src/ex03_event_backbone/main.cj) | 跨节点可靠事件骨干：按序恰好一次、断连重发、背压预算、消费端幂等 | `tellReliable`、`RemotingSettings.withLimits`、`reliableDeliveryStats` |
+| [ex04_edge_config](modules/examples/src/ex04_edge_config/main.cj) | 边缘–云一致性配置面：离线后反熵收敛、ORSet add-wins、SBR 决策、读一致性 | `Replicator`、CRDT、`sbrDecide`、`ReadMajority` |
+| [ex05_durable_workflow](modules/examples/src/ex05_durable_workflow/main.cj) | 可恢复长任务：崩溃后从断点续跑、每步副作用幂等、自动快照、提醒只触发一次 | `EventSourcedBehavior`、`RetentionCriteria`、`DurableReminders` |
+| [ex06_http_actor_api](modules/examples/src/ex06_http_actor_api/main.cj) | REST 服务（对标 protoactor `web`）：Lou CRUD + ask 存储 Actor + 监督重启 + 409/404 语义 | `TypedBehaviors`、`TypedAsk`、`supervise.restart`、Lou |
+| [ex07_cluster_pubsub_chat](modules/examples/src/ex07_cluster_pubsub_chat/main.cj) | 集群聊天（对标 protoactor `chat`、Akka distributed-pub-sub）：3 节点广播 + SSE + 退订 | `DistributedPubSub`、`Replicator`、Lou `ctx.sse` |
+| [ex08_cluster_singleton_job](modules/examples/src/ex08_cluster_singleton_job/main.cj) | 集群单例定时任务（对标 akka-sample-cluster-singleton）：唯一实例、tick、宕机接管 | `ClusterSingleton`、`onStarted` + `timers` |
+| [ex09_grains_cart](modules/examples/src/ex09_grains_cart/main.cj) | 虚拟 Actor 购物车（对标 protoactor `cluster-grain` / Orleans）：按需激活、单一激活、空闲停用、存储恢复 | `Grains`、`FileDurableStateStore` |
+| [ex10_fsm_order](modules/examples/src/ex10_fsm_order/main.cj) | 订单状态机（对标 akka-sample-fsm）：合法/非法迁移、支付超时自动取消、订单隔离 | `withTimers` + 状态即行为 |
+| [ex11_router_pool](modules/examples/src/ex11_router_pool/main.cj) | 路由器池（对标 Akka Routers / protoactor router）：轮询分发、广播、目标动态增删、终止自动摘除 | `Routers.pool/group`、`Broadcast`、`AddRoutee` |
+| [ex12_streams_sse](modules/examples/src/ex12_streams_sse/main.cj) | 流式管道 + SSE（对标 akka-sample-streams）：有序输出、async 边界、有界队列背压/明确丢弃 | `Sources/Flows/Sinks`、`async`、`Source.queue` |
+| [ex13_projection_read_model](modules/examples/src/ex13_projection_read_model/main.cj) | 事件投影读模型（对标 Akka Projection/CQRS）：全量重建、增量投影、按 (id,seq) 幂等 | `FileEventStore.replay`、`append(expectedSeq)` |
+| [ex14_circuit_breaker](modules/examples/src/ex14_circuit_breaker/main.cj) | 断路器 + 退避重启（对标 Akka CircuitBreaker / protoactor middleware）：快速失败、半开恢复、指数退避 | `BasicCircuitBreaker`、`restartWithBackoff` |
+| [ex15_work_queue](modules/examples/src/ex15_work_queue/main.cj) | 分布式工作队列（对标 akka-sample-cluster / protoactor work pull）：Receptionist 发现、一次一任务、重试与死信、worker 掉线重排 | `ClusterReceptionist`、租约超时重排 |
+| [ex16_persistence_upcast](modules/examples/src/ex16_persistence_upcast/main.cj) | 事件 schema 演进（对标 Akka Persistence）：v1/v2 混存恢复、按 manifest upcast、未知版本明确失败 | `EventAdapter`、`journal_v2` |
+| [ex17_remote_watch](modules/examples/src/ex17_remote_watch/main.cj) | 远程监视与隔离（对标 protoactor remote / Akka DeathWatch）：Terminated、停止后明确失败、quarantine | `watchRemote`、`quarantine` |
+| [ex18_durable_pubsub](modules/examples/src/ex18_durable_pubsub/main.cj) | 持久化发布订阅（差距 4.8 的应用层补法）：离线消息重放、每订阅者游标、重启不回退 | `FileEventStore` + `FileDurableStateStore` |
+| [ex19_cluster_router](modules/examples/src/ex19_cluster_router/main.cj) | 集群感知路由（差距 4.5 的应用层补法）：按实时负载选目标、停用即剔除、无候选明确失败 | `ClusterReceptionist` + `AskInbox` |
+| [ex20_singleton_lease](modules/examples/src/ex20_singleton_lease/main.cj) | 租约保护单例（对标 Akka singleton + lease）：单一实例、宕机后租约到期接管、全程至多一个 | `ClusterSingletonSettings.withLease`、`FileLease` |
+| [ex21_read_min_cap](modules/examples/src/ex21_read_min_cap/main.cj) | 读一致性 minCap（差距 4.6 的框架修复）：2/4 副本可达时 ReadMinCap(2) 成功、ReadMajority 明确失败 | `ReadConsistency.ReadMinCap`（新增） |
+| [ex22_grains_async](modules/examples/src/ex22_grains_async/main.cj) | 虚拟 Actor 异步/可重入（对标 protoactor cluster-grain）：200 个 callAsync、可重入链、非重入明确失败 | `Grains.callAsync`、`Grain.reentrant()` |
+| [ex23_sharding_passivation](modules/examples/src/ex23_sharding_passivation/main.cj) | 分片实体空闲钝化（对标 Akka sharding passivation）：空闲 300ms 停用、再访问从持久化状态恢复 | `ShardingSettings.passivating`、`DurableStateStore` |
+| [ex24_at_least_once](modules/examples/src/ex24_at_least_once/main.cj) | 至少一次投递 + 幂等消费（差距 4.13 的应用层补法）：重发只生效一次、去重表跨重启、计数可观测 | `deliveryId` + `DurableStateStore` |
+| [ex25_broadcast_hub](modules/examples/src/ex25_broadcast_hub/main.cj) | 广播中心与每订阅者背压（差距 4.8 的应用层补法）：快慢订阅者隔离、有界队列明确丢弃、SSE | `Sources.queue` + `DropNew`、Lou SSE |
 
 ---
 
