@@ -168,6 +168,7 @@ cactor_cluster.membership :: AcquisitionHealth.public let slowWarnings: Int64
 cactor_cluster.membership :: Cluster.public func awaitUp(timeout: Duration): Bool
 cactor_cluster.membership :: Cluster.public func down(address: String): Unit
 cactor_cluster.membership :: Cluster.public func gossipCount(): Int64
+cactor_cluster.membership :: Cluster.public func installCoordinatedShutdown(waitForLeave!: Duration = Duration.second * 2): Unit
 cactor_cluster.membership :: Cluster.public func isDownedBySbr(): Bool
 cactor_cluster.membership :: Cluster.public func isTerminated(): Bool
 cactor_cluster.membership :: Cluster.public func isUp(): Bool

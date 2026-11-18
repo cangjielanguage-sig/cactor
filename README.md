@@ -440,13 +440,13 @@ cactor → streams / xstate / testkit
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
-### 真实应用示例（`ex01`–`ex25`）
+### 真实应用示例（`ex01`–`ex27`）
 
-这二十五个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+这二十七个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
 设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)，
 与 Akka / protoactor-go 官方示例的逐项对照见
 [docs/plan/20261117-porting-akka-protoactor.md](docs/plan/20261117-porting-akka-protoactor.md)。
-HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex25` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
+HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex27` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
 
 | 示例 | 内容 | 压到的能力 |
 |------|------|------|
@@ -475,6 +475,8 @@ HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–
 | [ex23_sharding_passivation](modules/examples/src/ex23_sharding_passivation/main.cj) | 分片实体空闲钝化（对标 Akka sharding passivation）：空闲 300ms 停用、再访问从持久化状态恢复 | `ShardingSettings.passivating`、`DurableStateStore` |
 | [ex24_at_least_once](modules/examples/src/ex24_at_least_once/main.cj) | 至少一次投递 + 幂等消费（差距 4.13 的应用层补法）：重发只生效一次、去重表跨重启、计数可观测 | `deliveryId` + `DurableStateStore` |
 | [ex25_broadcast_hub](modules/examples/src/ex25_broadcast_hub/main.cj) | 广播中心与每订阅者背压（差距 4.8 的应用层补法）：快慢订阅者隔离、有界队列明确丢弃、SSE | `Sources.queue` + `DropNew`、Lou SSE |
+| [ex26_graceful_shutdown](modules/examples/src/ex26_graceful_shutdown/main.cj) | 集群优雅离开（差距 4.1 的框架修复）：协调关闭先 leave、幸存者看到 MemberLeft/Exited、upCount 3→2 | `Cluster.installCoordinatedShutdown`（新增） |
+| [ex27_streamref_pipeline](modules/examples/src/ex27_streamref_pipeline/main.cj) | 跨节点 StreamRef（对标 Akka StreamRefs）：200 条按序传输、buffer=4 背压、取消传播、本地 SSE | `StreamRefs.sourceRef/subscribe`、`StreamRefSettings` |
 
 ---
 

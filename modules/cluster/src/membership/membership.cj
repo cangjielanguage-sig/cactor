@@ -33,6 +33,7 @@ import std.collection.*
 import std.sort.*
 import std.convert.*
 import cactor.api.{CActorSystem}
+import cactor_runtime.lifecycle.CoordinatedShutdown
 import cactor_core.actor.{Actor, ActorContext, ActorRef}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.network.{NetworkAddress}
@@ -1670,6 +1671,7 @@ public class Cluster {
     private let shared = ClusterShared()
     private let daemon: ActorRef
     private let system: CActorSystem
+    private let shutdownInstalled = AtomicBool(false)
 
     public init(system: CActorSystem, remote: SimpleRemoteManager, seeds: Array<NetworkAddress>, settings: ClusterSettings) {
         this.system = system
@@ -1842,5 +1844,28 @@ public class Cluster {
     /** 停止本节点的集群守护 Actor（不通知其他成员；模拟宕机请同时停止远程管理器） */
     public func shutdown(): Unit {
         system.stop(daemon)
+    }
+
+    /**
+     * 把优雅离开接入协调关闭（差距 4.1）：在 cluster-leave 阶段发送 leave 并等待本地状态离开 Up，
+     * 后续 actor-system-terminate 阶段才停止守护 Actor，其余节点因此看到 Leaving/Exiting 而不是直接不可达。
+     * 幂等；等待超过 waitForLeave 时只记日志，不阻塞关闭流程（与 Akka 的阶段超时语义一致）。
+     */
+    public func installCoordinatedShutdown(waitForLeave!: Duration = Duration.second * 2): Unit {
+        if (!shutdownInstalled.compareAndSwap(false, true)) {
+            return
+        }
+        let cs = system.getRuntime().getCoordinatedShutdown()
+        cs.registerTask(CoordinatedShutdown.PhaseClusterLeave, "cluster-leave-${selfAddress}", { =>
+            try {
+                leave()
+                let deadline = MonoTime.now() + waitForLeave
+                while (isUp() && MonoTime.now() < deadline) {
+                    sleep(Duration.millisecond * 10)
+                }
+            } catch (e: Exception) {
+                // 已经离开或守护 Actor 已停止：关闭流程继续
+            }
+        })
     }
 }

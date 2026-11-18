@@ -55,6 +55,8 @@
 | Akka sharding passivation | 空闲停用、状态恢复 | `ShardingSettings.passivating` + `DurableStateStore` | **`ex23`** | ✅ |
 | Akka at-least-once delivery | deliveryId + 幂等消费 | 应用层去重表（`DurableStateStore`） | **`ex24`** | 🟡 应用层补法（差距 4.13） |
 | Akka BroadcastHub | 多订阅者广播、慢订阅者隔离 | 每订阅者 `Source.queue` + 明确丢弃 | **`ex25`** | 🟡 应用层补法（差距 4.8） |
+| Akka CoordinatedShutdown + cluster leave | 优雅下线、成员看到 Leaving/Exited | `Cluster.installCoordinatedShutdown()`（本次新增） | **`ex26`** | ✅ 框架能力 |
+| Akka StreamRefs | 跨节点流、信用背压、取消传播 | `StreamRefs.sourceRef/sinkRef/subscribe`（CActor 实现更完整） | **`ex27`** | ✅ 超出 |
 
 ### 2.1 Akka API 概念的逐条对应
 
@@ -272,7 +274,8 @@ for e in ex01_agent_runtime ex02_tenant_orders ex03_event_backbone ex04_edge_con
          ex15_work_queue ex16_persistence_upcast ex17_remote_watch \
          ex18_durable_pubsub ex19_cluster_router ex20_singleton_lease \
          ex21_read_min_cap ex22_grains_async ex23_sharding_passivation \
-         ex24_at_least_once ex25_broadcast_hub; do
+         ex24_at_least_once ex25_broadcast_hub ex26_graceful_shutdown \
+         ex27_streamref_pipeline; do
   CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.$e || echo "FAIL: $e"
 done
 

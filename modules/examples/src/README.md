@@ -310,6 +310,8 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `ex23_sharding_passivation` | ✅ 运行 | 自检退出码 0 |
 | `ex24_at_least_once` | ✅ 运行 | 自检退出码 0 |
 | `ex25_broadcast_hub` | ✅ 运行 | 自检退出码 0 |
+| `ex26_graceful_shutdown` | ✅ 运行 | 自检退出码 0 |
+| `ex27_streamref_pipeline` | ✅ 运行 | 自检退出码 0 |
 | `functional_actor_demo` | ✅ 运行 | 自检退出码 0 |
 | `hello_world_demo` | ✅ 运行 | 自检退出码 0 |
 | `idle_probe` | — | measurement：空闲调度探测（3 秒采样），用于调参而非门禁 |

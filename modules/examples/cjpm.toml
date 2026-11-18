@@ -271,3 +271,9 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.ex25_broadcast_hub"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex26_graceful_shutdown"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex27_streamref_pipeline"]
+output-type = "executable"

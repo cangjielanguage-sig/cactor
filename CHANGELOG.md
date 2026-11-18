@@ -7,6 +7,13 @@
 
 ## [未发布]
 
+### ✨ 新增：`Cluster.installCoordinatedShutdown()`（`docs/plan/20261117.md` 差距 4.1）
+
+把集群优雅离开接入协调关闭：在 `CoordinatedShutdown.PhaseClusterLeave` 阶段发送 `leave()`
+并等待本地离开 Up，后续 `actor-system-terminate` 才停止守护 Actor；其余成员因此收到
+`MemberLeft`/`MemberExited`，而不是把正常下线判成不可达。幂等、带等待上限（默认 2s），
+不调用时行为完全不变。示例 `ex26_graceful_shutdown`、测试 `GracefulLeaveTest` 覆盖。
+
 ### ✨ 新增：`ReadConsistency.ReadMinCap` / `WriteConsistency.WriteMinCap`（`docs/plan/20261117.md` 差距 4.6）
 
 Distributed Data 的读写一致性新增 minCap：至少 n 个副本回应/确认即返回（对标 Akka 的 `minCap` / `WriteTo(n)`），
