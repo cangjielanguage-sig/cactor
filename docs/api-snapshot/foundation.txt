@@ -759,8 +759,13 @@ cactor_foundation.monitoring :: public enum AlertLevel
 cactor_foundation.monitoring :: public enum AlertStatus
 cactor_foundation.monitoring :: public enum MetricType
 cactor_foundation.monitoring :: public func calculatePercentile(values: Array<Float64>, percentile: Float64): Float64
+cactor_foundation.monitoring :: public func continueTrace(text: String): Option<TraceContext>
 cactor_foundation.monitoring :: public func generateSpanId(): String
 cactor_foundation.monitoring :: public func generateTraceId(): String
+cactor_foundation.monitoring :: public func parseTraceParent(text: String): Option<TraceContext>
+cactor_foundation.monitoring :: public func toTraceParent(ctx: TraceContext): String
+cactor_foundation.monitoring :: public func traceMdcFields(ctx: TraceContext): Array<(String, String)>
+cactor_foundation.monitoring :: public func withTraceMdc<T>(ctx: TraceContext, block: ()->T): T
 cactor_foundation.monitoring :: public interface Metric
 cactor_foundation.monitoring :: public interface NotificationChannel
 cactor_foundation.monitoring :: public let DEFAULT_MAX_ALERT_HISTORY: Int64

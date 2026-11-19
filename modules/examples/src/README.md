@@ -313,6 +313,12 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `ex26_graceful_shutdown` | ✅ 运行 | 自检退出码 0 |
 | `ex27_streamref_pipeline` | ✅ 运行 | 自检退出码 0 |
 | `ex28_actor_selection` | ✅ 运行 | 自检退出码 0 |
+| `ex29_custom_downing` | ✅ 运行 | 自检退出码 0 |
+| `ex30_distributed_config` | ✅ 运行 | 自检退出码 0 |
+| `ex31_cluster_router` | ✅ 运行 | 自检退出码 0 |
+| `ex32_distributed_trace` | ✅ 运行 | 自检退出码 0 |
+| `ex33_cluster_metrics` | ✅ 运行 | 自检退出码 0 |
+| `ex34_shard_allocation` | ✅ 运行 | 自检退出码 0 |
 | `functional_actor_demo` | ✅ 运行 | 自检退出码 0 |
 | `hello_world_demo` | ✅ 运行 | 自检退出码 0 |
 | `idle_probe` | — | measurement：空闲调度探测（3 秒采样），用于调参而非门禁 |

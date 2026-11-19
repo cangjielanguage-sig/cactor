@@ -30,17 +30,17 @@
 |---|---|---|---|---|
 | `akka-sample-main` | ActorSystem + 顶层 Actor + 配置 | `CActorSystemFactory.create` / `system.actorOf` / `actorSystem {}` DSL | `best01`、`hello_world_demo` | ✅ |
 | `akka-sample-remote` | 远程 tell/ask/watch、序列化 | `SimpleRemoteManager`、`remoteActorOf`、`tellReliable`、`MessageSerializer` | `best08`、`ex03` | ✅ |
-| `akka-sample-cluster`（stats worker + listener） | gossip 成员、集群感知路由 | `Cluster`、`ClusterEvent`、`Receptionist`；**无 cluster-aware router** | `best09`、`ex02` | 🟡 差距 4.5 |
+| `akka-sample-cluster`（stats worker + listener） | gossip 成员、集群感知路由 | `Cluster`、`ClusterEvent`、`Receptionist`、`ClusterRouter` | `best09`、`ex02`、`ex31` | ✅ 差距 4.5 已补 |
 | `akka-sample-cluster-sharding` | 实体路由、remember-entities、passivation | `ClusterSharding`、`rememberedEntitiesKey`、`withPassivation` | `best09`、`ex02` | ✅ |
 | `akka-sample-cluster-singleton` | 唯一实例、故障接管 | `ClusterSingleton`、`isRunningHere`、`location` | **`ex08`** | ✅ |
 | `akka-sample-distributed-pub-sub` | 跨节点主题广播、退订 | `DistributedPubSub.subscribe/publish` | **`ex07`** | ✅ |
-| `akka-sample-distributed-data` | CRDT + Replicator + 一致性级别 | `GCounter/PNCounter/GSet/ORSet/LWWRegister`、`Replicator` | `ex04`、`ddata_stress` | ✅（Map 系 CRDT 缺，差距 4.6） |
+| `akka-sample-distributed-data` | CRDT + Replicator + 一致性级别 | `GCounter/PNCounter/GSet/ORSet/LWWRegister/ORMap/LWWMap`、`Replicator` | `ex04`、`ex30`、`ddata_stress` | ✅（差距 4.6 已补 Map 系） |
 | `akka-sample-persistence` | PersistentActor、快照、恢复 | `EventSourcedBehavior`、`journal_v2`、`snapshot_store`、`RetentionCriteria` | `ex05`、`best07` | ✅（upcast 缺，差距 4.7） |
 | `akka-sample-fsm`（Buncher） | 状态机、状态超时、stash | `TypedBehaviors.receive` 返回新行为 + `withTimers` + `withStash` | **`ex10`**、`best04` | ✅ |
 | `akka-sample-streams` | Source/Flow/Sink、GraphDSL、背压 | `cactor_streams`（线性算子、async、buffer、kill switch） | **`ex12`**、`streams_demo`、`best05` | ✅ 线性算子；缺 GraphDSL（差距 4.8） |
-| Akka Routers | pool/group、轮询、广播、动态目标 | `Routers.pool/group` + 控制消息 | **`ex11`** | ✅（集群感知路由仍缺，差距 4.5） |
+| Akka Routers | pool/group、轮询、广播、动态目标 | 本地 `Routers.pool/group`；跨节点 `ClusterRouter` | **`ex11`**、`ex31` | ✅ |
 | Akka CircuitBreaker | 快速失败、半开恢复 | `BasicCircuitBreaker` + `restartWithBackoff` | **`ex14`** | ✅ |
-| akka-sample-cluster-metrics | 自适应负载均衡 | 无自适应路由；有 `RebalancePolicy` + 负载报告 | `ex02`（再平衡） | 🟡 差距 4.5 |
+| akka-sample-cluster-metrics | 自适应负载均衡 | `ClusterRouter` + 应用负载回调（`LeastLoaded`）；分片再平衡为 `RebalancePolicy` | `ex31`、`ex02` | ✅ 应用层可实现 |
 | Akka Multi-DC | roles、data-center、ClusterClient | 无 | — | ❌ 差距 4.1/4.3 |
 | Akka HTTP 示例 | HTTP 路由 + ask | 由 **Lou** 承载（非 CActor 模块） | `ex06`/`07`/`08`/`09` | ✅ 组合方案 |
 | Akka Projection / CQRS | 事件流投影读模型 | 无内建 `Projection`；用 `replay` 手写（`projection` 泛指） | **`ex13`** | 🟡 可移植，需自己补（差距 4.12） |
@@ -81,7 +81,7 @@
 | `FSM[S,D]` | "状态即行为" + `withTimers` | 无专用 FSM DSL，但语义等价 |
 | `GraphDSL` | 无组合子层 | 差距 4.8 |
 | `ActorSelection`（远程） | `SimpleRemoteManager.actorSelection` → `ActorSelection.tell/resolveNames/resolveOne` | 差距 4.1 已补（ex28）；通配 `*`/`?`，`$` 内部入口不可选中 |
-| `DowningProvider` | 5 种策略写死在枚举 | 差距 4.2 |
+| `DowningProvider` | `DowningProvider` 接口 + `DowningStrategy.Custom`（ex29）；配置仍只认内置名 | 差距 4.2 已补；`decide` 须为纯函数 |
 
 ---
 

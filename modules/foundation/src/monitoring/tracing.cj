@@ -9,7 +9,7 @@ package cactor_foundation.monitoring
 import std.collection.*
 import std.sync.*
 import std.random.*
-import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.logging.{Logger, Logging, Mdc}
 
 let log_tracing: Logger = Logging.logger("cactor_foundation.monitoring.tracing")
 
@@ -429,4 +429,76 @@ public func generateTraceId(): String {
  */
 public func generateSpanId(): String {
     hex64(nextNonZero64())
+}
+
+/**
+ * 生成 W3C `traceparent`：`00-<32 位十六进制 trace-id>-<16 位十六进制 parent-id>-<2 位标志>`。
+ *
+ * 这里的 spanId 作为**调用方的** parent-id 发出去，接收方用 [continueTrace] 解析并生成自己的子 span。
+ * 采样标志固定为 `01`：本框架不做采样决策，只保证关联。
+ */
+public func toTraceParent(ctx: TraceContext): String {
+    "00-${ctx.traceId}-${ctx.spanId}-01"
+}
+
+/**
+ * 解析 W3C `traceparent`；格式不合法返回 None（坏输入按"没有上下文"处理，不抛异常）。
+ * 返回的上下文 spanId 仍是发送方的 parent-id；接收方应调用 [continueTrace] 生成子 span。
+ */
+public func parseTraceParent(text: String): Option<TraceContext> {
+    let parts = text.trimAscii().split("-")
+    if (parts.size != 4) {
+        return None<TraceContext>
+    }
+    if (parts[0] != "00" || parts[1].size != 32 || parts[2].size != 16 || parts[3].size != 2) {
+        return None<TraceContext>
+    }
+    if (!isLowerHex(parts[1]) || !isLowerHex(parts[2])) {
+        return None<TraceContext>
+    }
+    Some(TraceContext(parts[1], parts[2], None<String>, HashMap<String, String>()))
+}
+
+/**
+ * 接续上游 `traceparent`：沿用 traceId，把上游 span 记为 parent，生成本地子 span。
+ * 解析失败返回 None。
+ */
+public func continueTrace(text: String): Option<TraceContext> {
+    match (parseTraceParent(text)) {
+        case Some(upstream) =>
+            Some(TraceContext(upstream.traceId, generateSpanId(), Some(upstream.spanId),
+                HashMap<String, String>()))
+        case None => None<TraceContext>
+    }
+}
+
+/** 追踪上下文对应的日志字段（traceId / spanId / parentSpanId） */
+public func traceMdcFields(ctx: TraceContext): Array<(String, String)> {
+    let fields = ArrayList<(String, String)>()
+    fields.add(("traceId", ctx.traceId))
+    fields.add(("spanId", ctx.spanId))
+    match (ctx.parentSpanId) {
+        case Some(p) => fields.add(("parentSpanId", p))
+        case None => ()
+    }
+    fields.toArray()
+}
+
+/**
+ * 在块内把追踪上下文注入当前线程（协程）的日志字段，块结束（含异常）自动恢复。
+ * Actor 在自己的处理方法里包住业务日志即可让每条日志带上 traceId。
+ */
+public func withTraceMdc<T>(ctx: TraceContext, block: () -> T): T {
+    Mdc.scoped(traceMdcFields(ctx), block)
+}
+
+func isLowerHex(s: String): Bool {
+    for (b in s.toArray()) {
+        let ok = (b >= UInt8(48) && b <= UInt8(57)) ||
+            (b >= UInt8(97) && b <= UInt8(102))
+        if (!ok) {
+            return false
+        }
+    }
+    true
 }

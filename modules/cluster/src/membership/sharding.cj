@@ -251,6 +251,44 @@ public class ShardLeases {
     }
 }
 
+/**
+ * 分片分配策略（对标 Akka ShardAllocationStrategy 的 SPI）。
+ *
+ * `allocate` 必须是**纯函数**：各节点在各自视图上计算，结果一致才能避免同一分片被多个节点托管。
+ * 成员集合由区域从集群视图给出（已排序去重不保证，实现需要自己处理）。
+ */
+public interface ShardAllocationStrategy {
+    /** 为分片选宿主；没有可用成员时返回 None */
+    func allocate(shard: Int64, members: Array<String>): Option<String>
+}
+
+/** 默认策略：rendezvous 哈希（现有行为，成员变化时只有约 1/n 的分片移动） */
+public class RendezvousAllocation <: ShardAllocationStrategy {
+    public init() {}
+
+    public func allocate(shard: Int64, members: Array<String>): Option<String> {
+        shardOwner(shard, members)
+    }
+}
+
+/** 便于测试/演示：总是选地址最小（排序后第一个）的成员 */
+public class FirstMemberAllocation <: ShardAllocationStrategy {
+    public init() {}
+
+    public func allocate(shard: Int64, members: Array<String>): Option<String> {
+        if (members.isEmpty()) {
+            return None<String>
+        }
+        var best = members[0]
+        for (i in 1..members.size) {
+            if (members[i] < best) {
+                best = members[i]
+            }
+        }
+        Some(best)
+    }
+}
+
 /** 分片的可选行为 */
 public class ShardingSettings {
     /** Region 中等待路由的消息上限，超出丢弃最旧的 */
@@ -273,13 +311,16 @@ public class ShardingSettings {
     public let lease: Option<ShardLeases>
     public let leaseRetryMin: Duration
     public let leaseRetryMax: Duration
+    /** 分片分配策略（默认 rendezvous；见 ShardAllocationStrategy） */
+    public let allocation: ShardAllocationStrategy
 
     public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
         rebalance!: RebalancePolicy = RebalancePolicy(),
         acquireWarnAfter!: Duration = Duration.second * 10,
         lease!: Option<ShardLeases> = None<ShardLeases>,
         leaseRetryMin!: Duration = Duration.millisecond * 200,
-        leaseRetryMax!: Duration = Duration.second * 5) {
+        leaseRetryMax!: Duration = Duration.second * 5,
+        allocation!: ShardAllocationStrategy = RendezvousAllocation()) {
         if (bufferSize <= 0) {
             throw IllegalArgumentException("缓冲区大小必须为正数: ${bufferSize}")
         }
@@ -300,6 +341,7 @@ public class ShardingSettings {
         this.lease = lease
         this.leaseRetryMin = leaseRetryMin
         this.leaseRetryMax = leaseRetryMax
+        this.allocation = allocation
     }
 
     public static func defaults(): ShardingSettings {
@@ -317,33 +359,34 @@ public class ShardingSettings {
     // 所有 withXxx 经这一处构造：新增字段时只需改这里与各自的参数
     private func make(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
         rebalance: RebalancePolicy, acquireWarnAfter: Duration, lease: Option<ShardLeases>, leaseRetryMin: Duration,
-        leaseRetryMax: Duration): ShardingSettings {
+        leaseRetryMax: Duration, allocation: ShardAllocationStrategy): ShardingSettings {
         ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: rebalance,
-            acquireWarnAfter: acquireWarnAfter, lease: lease, leaseRetryMin: leaseRetryMin, leaseRetryMax: leaseRetryMax)
+            acquireWarnAfter: acquireWarnAfter, lease: lease, leaseRetryMin: leaseRetryMin, leaseRetryMax: leaseRetryMax,
+            allocation: allocation)
     }
 
     /** 换再平衡策略（链式：ShardingSettings.passivating(1.minutes).withRebalance(...)） */
     public func withRebalance(policy: RebalancePolicy): ShardingSettings {
-        make(bufferSize, passivateAfter, rememberEntities, policy, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax)
+        make(bufferSize, passivateAfter, rememberEntities, policy, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation)
     }
 
     public func withBufferSize(size: Int64): ShardingSettings {
-        make(size, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax)
+        make(size, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation)
     }
 
     public func withPassivation(idle: Duration): ShardingSettings {
-        make(bufferSize, Some(idle), None<Replicator>, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax)
+        make(bufferSize, Some(idle), None<Replicator>, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation)
     }
 
     /** 换获取等待的告警阈值（只影响观测；链式与 withRebalance 一致） */
     public func withAcquireWarnAfter(after: Duration): ShardingSettings {
-        make(bufferSize, passivateAfter, rememberEntities, rebalance, after, lease, leaseRetryMin, leaseRetryMax)
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, after, lease, leaseRetryMin, leaseRetryMax, allocation)
     }
 
     /** 启用按分片租约（DA4）；leases 在本节点的区域与实体之间共享 */
     public func withLease(leases: ShardLeases): ShardingSettings {
         make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, Some(leases), leaseRetryMin,
-            leaseRetryMax)
+            leaseRetryMax, allocation)
     }
 
     /** 启用按分片租约：factory 收到租约名（shardLeaseName），返回本节点在该分片上的 Lease */
@@ -353,12 +396,18 @@ public class ShardingSettings {
 
     public func withoutLease(): ShardingSettings {
         make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, None<ShardLeases>,
-            leaseRetryMin, leaseRetryMax)
+            leaseRetryMin, leaseRetryMax, allocation)
     }
 
     /** 租约获取失败后的指数退避区间（默认 200 ms ~ 5 s，对标 Akka lease-retry-interval） */
     public func withLeaseRetry(min: Duration, max: Duration): ShardingSettings {
-        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, min, max)
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, min, max, allocation)
+    }
+
+    /** 换分片分配策略（差距 4.4 的 SPI；默认 rendezvous） */
+    public func withAllocationStrategy(strategy: ShardAllocationStrategy): ShardingSettings {
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin,
+            leaseRetryMax, strategy)
     }
 }
 
@@ -969,12 +1018,12 @@ class ShardRegionActor <: Actor {
                 match (view) {
                     case Some(v) =>
                         let set = HashSet<String>(v.ups)
-                        if (set.contains(addr)) { Some(addr) } else { shardOwner(sh, v.ups) }
+                        if (set.contains(addr)) { Some(addr) } else { settings.allocation.allocate(sh, v.ups) }
                     case None => Some(addr)
                 }
             case None =>
                 match (view) {
-                    case Some(v) => shardOwner(sh, v.ups)
+                    case Some(v) => settings.allocation.allocate(sh, v.ups)
                     case None => None<String>
                 }
         }
@@ -1937,7 +1986,7 @@ class ShardRegionActor <: Actor {
                 bufferRegion(e)
                 return
         }
-        let owner = shardOwner(sh, v.ups).getOrThrow()
+        let owner = settings.allocation.allocate(sh, v.ups).getOrThrow()
         if (owner == selfAddress) {
             if (hosting.contains(sh)) {
                 deliver(e, context)

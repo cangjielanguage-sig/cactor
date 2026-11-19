@@ -31,12 +31,41 @@ cactor_cluster.ddata :: GSet.public func toArray(): Array<String>
 cactor_cluster.ddata :: GSet.public init()
 cactor_cluster.ddata :: GSet.public operator func
 cactor_cluster.ddata :: GSet.public operator func !=(other: GSet): Bool
+cactor_cluster.ddata :: LWWMap.public func cleanup(removed: String): LWWMap
+cactor_cluster.ddata :: LWWMap.public func componentCount(): Int64
+cactor_cluster.ddata :: LWWMap.public func containsKey(key: String): Bool
+cactor_cluster.ddata :: LWWMap.public func get(key: String): Option<String>
+cactor_cluster.ddata :: LWWMap.public func keys(): Array<String>
+cactor_cluster.ddata :: LWWMap.public func merge(other: LWWMap): LWWMap
+cactor_cluster.ddata :: LWWMap.public func modifiedByNodes(): Array<String>
+cactor_cluster.ddata :: LWWMap.public func needsPruning(removed: String): Bool
+cactor_cluster.ddata :: LWWMap.public func prune(removed: String, collapseInto: String): LWWMap
+cactor_cluster.ddata :: LWWMap.public func put(key: String, value: String, timestamp: Int64, node: String): LWWMap
+cactor_cluster.ddata :: LWWMap.public func remove(key: String, timestamp: Int64, node: String): LWWMap
+cactor_cluster.ddata :: LWWMap.public func size(): Int64
+cactor_cluster.ddata :: LWWMap.public init()
+cactor_cluster.ddata :: LWWMap.public operator func
 cactor_cluster.ddata :: LWWRegister.public func merge(other: LWWRegister<T>): LWWRegister<T>
 cactor_cluster.ddata :: LWWRegister.public func set(value: T, timestamp: Int64, node: String): LWWRegister<T>
 cactor_cluster.ddata :: LWWRegister.public init(value: T, timestamp: Int64, node: String)
 cactor_cluster.ddata :: LWWRegister.public let node: String
 cactor_cluster.ddata :: LWWRegister.public let timestamp: Int64
 cactor_cluster.ddata :: LWWRegister.public let value: T
+cactor_cluster.ddata :: ORMap.public func cleanup(removed: String): ORMap
+cactor_cluster.ddata :: ORMap.public func componentCount(): Int64
+cactor_cluster.ddata :: ORMap.public func containsKey(key: String): Bool
+cactor_cluster.ddata :: ORMap.public func keys(): Array<String>
+cactor_cluster.ddata :: ORMap.public func merge(other: ORMap): ORMap
+cactor_cluster.ddata :: ORMap.public func modifiedByNodes(): Array<String>
+cactor_cluster.ddata :: ORMap.public func needsPruning(removed: String): Bool
+cactor_cluster.ddata :: ORMap.public func prune(removed: String, collapseInto: String): ORMap
+cactor_cluster.ddata :: ORMap.public func put(node: String, key: String, value: String): ORMap
+cactor_cluster.ddata :: ORMap.public func removeKey(key: String): ORMap
+cactor_cluster.ddata :: ORMap.public func removeValue(key: String, value: String): ORMap
+cactor_cluster.ddata :: ORMap.public func size(): Int64
+cactor_cluster.ddata :: ORMap.public func values(key: String): Array<String>
+cactor_cluster.ddata :: ORMap.public init()
+cactor_cluster.ddata :: ORMap.public operator func
 cactor_cluster.ddata :: ORSet.public func add(node: String, element: String): ORSet
 cactor_cluster.ddata :: ORSet.public func applyDelta(d: ORSetDelta): ORSet
 cactor_cluster.ddata :: ORSet.public func cleanup(removed: String): ORSet
@@ -86,6 +115,8 @@ cactor_cluster.ddata :: ReplicatedValue.public func sameValue(other: ReplicatedV
 cactor_cluster.ddata :: ReplicatedValue.public static func decode(text: String): ReplicatedValue
 cactor_cluster.ddata :: ReplicatedValue.| Counter(GCounter)
 cactor_cluster.ddata :: ReplicatedValue.| GSetValue(GSet)
+cactor_cluster.ddata :: ReplicatedValue.| LWWMapValue(LWWMap)
+cactor_cluster.ddata :: ReplicatedValue.| ORMapValue(ORMap)
 cactor_cluster.ddata :: ReplicatedValue.| ORSetValue(ORSet)
 cactor_cluster.ddata :: ReplicatedValue.| PNCounterValue(PNCounter)
 cactor_cluster.ddata :: ReplicatedValue.| Register(LWWRegister<String>)
@@ -104,11 +135,18 @@ cactor_cluster.ddata :: Replicator.public func incrementCounterWith(key: String,
 cactor_cluster.ddata :: Replicator.public func join(peer: NetworkAddress): Unit
 cactor_cluster.ddata :: Replicator.public func keys(): Array<String>
 cactor_cluster.ddata :: Replicator.public func leave(peer: NetworkAddress): Unit
+cactor_cluster.ddata :: Replicator.public func lwwMapGet(key: String, mapKey: String): Option<String>
+cactor_cluster.ddata :: Replicator.public func mapValues(key: String, mapKey: String): Array<String>
 cactor_cluster.ddata :: Replicator.public func nodeRemoved(node: String): Unit
 cactor_cluster.ddata :: Replicator.public func pruningStats(): (Int64, Int64, Int64)
+cactor_cluster.ddata :: Replicator.public func putInLWWMap(key: String, mapKey: String, value: String, timestamp: Int64): Unit
+cactor_cluster.ddata :: Replicator.public func putInMap(key: String, mapKey: String, value: String): Unit
 cactor_cluster.ddata :: Replicator.public func registerValue(key: String): Option<String>
+cactor_cluster.ddata :: Replicator.public func removeFromLWWMap(key: String, mapKey: String, timestamp: Int64): Unit
+cactor_cluster.ddata :: Replicator.public func removeFromMap(key: String, mapKey: String, value: String): Unit
 cactor_cluster.ddata :: Replicator.public func removeFromSet(key: String, element: String): Unit
 cactor_cluster.ddata :: Replicator.public func removeFromSetAsync(key: String, element: String): Unit
+cactor_cluster.ddata :: Replicator.public func removeMapKey(key: String, mapKey: String): Unit
 cactor_cluster.ddata :: Replicator.public func setDeltaPropagation(enabled: Bool): Unit
 cactor_cluster.ddata :: Replicator.public func setElements(key: String): Array<String>
 cactor_cluster.ddata :: Replicator.public func setMembership(isLeader: ()->Bool, memberNodes: ()->Array<String>): Unit
@@ -140,7 +178,9 @@ cactor_cluster.ddata :: public class FieldReader
 cactor_cluster.ddata :: public class FieldWriter
 cactor_cluster.ddata :: public class GCounter <: ReplicatedData<GCounter>& Equatable<GCounter>
 cactor_cluster.ddata :: public class GSet <: ReplicatedData<GSet>& Equatable<GSet>
+cactor_cluster.ddata :: public class LWWMap <: ReplicatedData<LWWMap>& Equatable<LWWMap>
 cactor_cluster.ddata :: public class LWWRegister<T> <: ReplicatedData<LWWRegister<T>>
+cactor_cluster.ddata :: public class ORMap <: ReplicatedData<ORMap>& Equatable<ORMap>
 cactor_cluster.ddata :: public class ORSet <: ReplicatedData<ORSet>& Equatable<ORSet>
 cactor_cluster.ddata :: public class ORSetDelta
 cactor_cluster.ddata :: public class PNCounter <: ReplicatedData<PNCounter>& Equatable<PNCounter>
@@ -197,6 +237,11 @@ cactor_cluster.membership :: ClusterEvent.| MemberRemoved(Member)
 cactor_cluster.membership :: ClusterEvent.| MemberUp(Member)
 cactor_cluster.membership :: ClusterEvent.| ReachableMember(Member)
 cactor_cluster.membership :: ClusterEvent.| UnreachableMember(Member)
+cactor_cluster.membership :: ClusterMetrics.public func attachReplicator(r: Replicator): ClusterMetrics
+cactor_cluster.membership :: ClusterMetrics.public func attachSharding(s: ClusterSharding): ClusterMetrics
+cactor_cluster.membership :: ClusterMetrics.public func registryValue(): MetricRegistry
+cactor_cluster.membership :: ClusterMetrics.public func renderPrometheus(): String
+cactor_cluster.membership :: ClusterMetrics.public init(cluster: Cluster, remote: SimpleRemoteManager)
 cactor_cluster.membership :: ClusterReceptionist.public func deregister(service: String, ref: ActorRef): Unit
 cactor_cluster.membership :: ClusterReceptionist.public func deregisterTyped<T>(key: ServiceKey<T>, ref: TypedActorRef<T>): Unit
 cactor_cluster.membership :: ClusterReceptionist.public func find(service: String): Array<ActorRef>
@@ -209,6 +254,7 @@ cactor_cluster.membership :: ClusterReceptionist.public func registerTyped<T>(ke
 cactor_cluster.membership :: ClusterReceptionist.public func subscribe(service: String, callback: (Array<ActorRef>)->Unit): Unit
 cactor_cluster.membership :: ClusterReceptionist.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, replicator: Replicator)
 cactor_cluster.membership :: ClusterReplicatorBinding.public static func bind(cluster: Cluster, replicator: Replicator): Unit
+cactor_cluster.membership :: ClusterSettings.public func withDowningProvider(provider: DowningProvider): ClusterSettings
 cactor_cluster.membership :: ClusterSettings.public func withJoinCompatibility(key: String, value: String): ClusterSettings
 cactor_cluster.membership :: ClusterSettings.public func withPruneTombstonesAfter(d: Duration): ClusterSettings
 cactor_cluster.membership :: ClusterSettings.public func withSeedNodeTimeout(d: Duration): ClusterSettings
@@ -291,12 +337,17 @@ cactor_cluster.membership :: DistributedPubSub.public func subscribeAsync(topic:
 cactor_cluster.membership :: DistributedPubSub.public func subscriberNodes(topic: String): Array<String>
 cactor_cluster.membership :: DistributedPubSub.public func unsubscribe(topic: String, subscriber: ActorRef): Unit
 cactor_cluster.membership :: DistributedPubSub.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, replicator: Replicator)
+cactor_cluster.membership :: DowningProvider.func decide(members: Array<Member>, unreachable: HashSet<String>, indirect: HashSet<String>): SbrDecision
+cactor_cluster.membership :: DowningProvider.func stableAfter(): Option<Duration>
 cactor_cluster.membership :: DowningStrategy.public func stableAfter(): Option<Duration>
 cactor_cluster.membership :: DowningStrategy.| AutoDownAfter(Duration)
+cactor_cluster.membership :: DowningStrategy.| Custom(DowningProvider)
 cactor_cluster.membership :: DowningStrategy.| KeepMajority(Duration)
 cactor_cluster.membership :: DowningStrategy.| KeepOldest(Duration)
 cactor_cluster.membership :: DowningStrategy.| NoDowning
 cactor_cluster.membership :: DowningStrategy.| StaticQuorum(Int64, Duration)
+cactor_cluster.membership :: FirstMemberAllocation.public func allocate(shard: Int64, members: Array<String>): Option<String>
+cactor_cluster.membership :: FirstMemberAllocation.public init()
 cactor_cluster.membership :: Grain.func onActivate(ctx: GrainContext): Unit
 cactor_cluster.membership :: Grain.func onCall(request: Message, ctx: GrainContext): Message
 cactor_cluster.membership :: Grain.func onCallAsync(request: Message, ctx: GrainContext): TypedPromise<Message>
@@ -366,9 +417,12 @@ cactor_cluster.membership :: RebalanceView.public let loads: Map<String, Map<Int
 cactor_cluster.membership :: RebalanceView.public let members: Array<String>
 cactor_cluster.membership :: RebalanceView.public let nowMs: Int64
 cactor_cluster.membership :: RebalanceView.public let unreachable: Int64
+cactor_cluster.membership :: RendezvousAllocation.public func allocate(shard: Int64, members: Array<String>): Option<String>
+cactor_cluster.membership :: RendezvousAllocation.public init()
 cactor_cluster.membership :: SbrDecision.| DownSelf
 cactor_cluster.membership :: SbrDecision.| DownUnreachable(Array<String>)
 cactor_cluster.membership :: SbrDecision.| NoAction
+cactor_cluster.membership :: ShardAllocationStrategy.func allocate(shard: Int64, members: Array<String>): Option<String>
 cactor_cluster.membership :: ShardControl.public func messageType(): String
 cactor_cluster.membership :: ShardControl.public init(kind: String, from: String, protocolVersion: Int64, items: Array<(Int64, Int64)>)
 cactor_cluster.membership :: ShardControl.public let from: String
@@ -412,6 +466,7 @@ cactor_cluster.membership :: ShardingEnvelope.public init(entityId: String, payl
 cactor_cluster.membership :: ShardingEnvelope.public let entityId: String
 cactor_cluster.membership :: ShardingEnvelope.public let payload: Message
 cactor_cluster.membership :: ShardingSettings.public func withAcquireWarnAfter(after: Duration): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withAllocationStrategy(strategy: ShardAllocationStrategy): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withBufferSize(size: Int64): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withLease(factory: (String)->Lease): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withLease(leases: ShardLeases): ShardingSettings
@@ -419,8 +474,9 @@ cactor_cluster.membership :: ShardingSettings.public func withLeaseRetry(min: Du
 cactor_cluster.membership :: ShardingSettings.public func withPassivation(idle: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withRebalance(policy: RebalancePolicy): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withoutLease(): ShardingSettings
-cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10, lease!: Option<ShardLeases>= None<ShardLeases>, leaseRetryMin!: Duration = Duration.millisecond * 200, leaseRetryMax!: Duration = Duration.second * 5)
+cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10, lease!: Option<ShardLeases>= None<ShardLeases>, leaseRetryMin!: Duration = Duration.millisecond * 200, leaseRetryMax!: Duration = Duration.second * 5, allocation!: ShardAllocationStrategy = RendezvousAllocation())
 cactor_cluster.membership :: ShardingSettings.public let acquireWarnAfter: Duration
+cactor_cluster.membership :: ShardingSettings.public let allocation: ShardAllocationStrategy
 cactor_cluster.membership :: ShardingSettings.public let bufferSize: Int64
 cactor_cluster.membership :: ShardingSettings.public let lease: Option<ShardLeases>
 cactor_cluster.membership :: ShardingSettings.public let leaseRetryMax: Duration
@@ -432,18 +488,21 @@ cactor_cluster.membership :: ShardingSettings.public static func defaults(): Sha
 cactor_cluster.membership :: ShardingSettings.public static func passivating(idle: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public static func remembering(replicator: Replicator): ShardingSettings
 cactor_cluster.membership :: public class Cluster
+cactor_cluster.membership :: public class ClusterMetrics
 cactor_cluster.membership :: public class ClusterReceptionist
 cactor_cluster.membership :: public class ClusterReplicatorBinding
 cactor_cluster.membership :: public class ClusterSharding
 cactor_cluster.membership :: public class ClusterSingleton
 cactor_cluster.membership :: public class ClusterSnapshot
 cactor_cluster.membership :: public class DistributedPubSub
+cactor_cluster.membership :: public class FirstMemberAllocation <: ShardAllocationStrategy
 cactor_cluster.membership :: public class GrainCallException <: Exception
 cactor_cluster.membership :: public class GrainContext
 cactor_cluster.membership :: public class GrainTimeoutException <: Exception
 cactor_cluster.membership :: public class Grains
 cactor_cluster.membership :: public class Member <: ToString
 cactor_cluster.membership :: public class RebalanceView
+cactor_cluster.membership :: public class RendezvousAllocation <: ShardAllocationStrategy
 cactor_cluster.membership :: public class ShardControl <: Message
 cactor_cluster.membership :: public class ShardLeases
 cactor_cluster.membership :: public class ShardLoadReport <: Message
@@ -468,7 +527,9 @@ cactor_cluster.membership :: public func shardOf(entityId: String, numberOfShard
 cactor_cluster.membership :: public func shardOwner(shard: Int64, members: Array<String>): Option<String>
 cactor_cluster.membership :: public func stableHash(s: String): UInt64
 cactor_cluster.membership :: public func uniqueAddressOf(address: String, uid: UInt64): String
+cactor_cluster.membership :: public interface DowningProvider
 cactor_cluster.membership :: public interface Grain
+cactor_cluster.membership :: public interface ShardAllocationStrategy
 cactor_cluster.membership :: public let CLUSTER_GOSSIP_VERSION: String
 cactor_cluster.membership :: public let SHARDING_HASH_VERSION: String
 cactor_cluster.membership :: public let SHARDING_PROTOCOL_VERSION: Int64
@@ -486,6 +547,18 @@ cactor_cluster.ops :: public func faultInjectionJson(transport: BlackholeTranspo
 cactor_cluster.ops :: public func shardingStatusJson(region: ClusterSharding): String
 cactor_cluster.ops :: public func singletonStatusJson(singleton: ClusterSingleton): String
 cactor_cluster.ops :: public func singletonsStatusJson(singletons: Array<ClusterSingleton>): String
+cactor_cluster.routing :: ClusterRouter.public func candidates(): Array<String>
+cactor_cluster.routing :: ClusterRouter.public func ref(): RemoteActorRef
+cactor_cluster.routing :: ClusterRouter.public func route(): String
+cactor_cluster.routing :: ClusterRouter.public func stop(): Unit
+cactor_cluster.routing :: ClusterRouter.public func tell(message: Message): Unit
+cactor_cluster.routing :: ClusterRouter.public func tell(message: Message, sender: ActorRef): Unit
+cactor_cluster.routing :: ClusterRouter.public init(cluster: Cluster, remote: SimpleRemoteManager, actorName: String, strategy!: ClusterRouterStrategy = ClusterRouterStrategy.RoundRobin, loadOf!: (String)->Int64 = { _: String =>0 })
+cactor_cluster.routing :: ClusterRouter.public prop name: String
+cactor_cluster.routing :: ClusterRouterStrategy.| LeastLoaded
+cactor_cluster.routing :: ClusterRouterStrategy.| RoundRobin
+cactor_cluster.routing :: public class ClusterRouter
+cactor_cluster.routing :: public enum ClusterRouterStrategy
 cactor_cluster.streamref :: OfferResult.public func isBackpressured(): Bool
 cactor_cluster.streamref :: OfferResult.public func isClosed(): Bool
 cactor_cluster.streamref :: OfferResult.public func isEnqueued(): Bool

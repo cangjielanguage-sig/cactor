@@ -93,12 +93,15 @@ public class FieldReader {
 // ======================= 可复制的值 =======================
 
 /** Replicator 中保存的值：五种 CRDT 之一 */
+/** Replicator 中保存的值：七种 CRDT 之一 */
 public enum ReplicatedValue {
     | Counter(GCounter)
     | PNCounterValue(PNCounter)
     | GSetValue(GSet)
     | ORSetValue(ORSet)
     | Register(LWWRegister<String>)
+    | ORMapValue(ORMap)
+    | LWWMapValue(LWWMap)
 
     public func kind(): String {
         match (this) {
@@ -107,6 +110,8 @@ public enum ReplicatedValue {
             case GSetValue(_) => "GSet"
             case ORSetValue(_) => "ORSet"
             case Register(_) => "LWWRegister"
+            case ORMapValue(_) => "ORMap"
+            case LWWMapValue(_) => "LWWMap"
         }
     }
 
@@ -118,6 +123,8 @@ public enum ReplicatedValue {
             case (GSetValue(a), GSetValue(b)) => GSetValue(a.merge(b))
             case (ORSetValue(a), ORSetValue(b)) => ORSetValue(a.merge(b))
             case (Register(a), Register(b)) => Register(a.merge(b))
+            case (ORMapValue(a), ORMapValue(b)) => ORMapValue(a.merge(b))
+            case (LWWMapValue(a), LWWMapValue(b)) => LWWMapValue(a.merge(b))
             case _ => throw IllegalArgumentException("不能合并 ${kind()} 与 ${other.kind()}")
         }
     }
@@ -155,6 +162,7 @@ public enum ReplicatedValue {
             case Counter(c) => c.needsPruning(removed)
             case PNCounterValue(c) => c.needsPruning(removed)
             case ORSetValue(o) => o.needsPruning(removed)
+            case ORMapValue(m) => m.needsPruning(removed)
             case _ => false
         }
     }
@@ -165,6 +173,7 @@ public enum ReplicatedValue {
             case Counter(c) => c.modifiedByNodes()
             case PNCounterValue(c) => c.modifiedByNodes()
             case ORSetValue(o) => o.modifiedByNodes()
+            case ORMapValue(m) => m.modifiedByNodes()
             case _ => Array<String>()
         }
     }
@@ -174,6 +183,7 @@ public enum ReplicatedValue {
             case Counter(c) => Counter(c.prune(removed, collapseInto))
             case PNCounterValue(c) => PNCounterValue(c.prune(removed, collapseInto))
             case ORSetValue(o) => ORSetValue(o.prune(removed, collapseInto))
+            case ORMapValue(m) => ORMapValue(m.prune(removed, collapseInto))
             case _ => this
         }
     }
@@ -183,6 +193,7 @@ public enum ReplicatedValue {
             case Counter(c) => Counter(c.cleanup(removed))
             case PNCounterValue(c) => PNCounterValue(c.cleanup(removed))
             case ORSetValue(o) => ORSetValue(o.cleanup(removed))
+            case ORMapValue(m) => ORMapValue(m.cleanup(removed))
             case _ => this
         }
     }
@@ -193,6 +204,7 @@ public enum ReplicatedValue {
             case Counter(c) => c.componentCount()
             case PNCounterValue(c) => c.componentCount()
             case ORSetValue(o) => o.componentCount()
+            case ORMapValue(m) => m.componentCount()
             case _ => 0
         }
     }
@@ -205,6 +217,8 @@ public enum ReplicatedValue {
             case (GSetValue(a), GSetValue(b)) => a == b
             case (ORSetValue(a), ORSetValue(b)) => a == b
             case (Register(a), Register(b)) => a.timestamp == b.timestamp && a.node == b.node && a.value == b.value
+            case (ORMapValue(a), ORMapValue(b)) => a == b
+            case (LWWMapValue(a), LWWMapValue(b)) => a == b
             case _ => false
         }
     }
@@ -225,30 +239,47 @@ public enum ReplicatedValue {
                     w.put(e)
                 }
             case ORSetValue(o) =>
-                // 按键排序：相同内容在任何节点上编码相同，摘要才能比较
-                let es = sortedKeys(o.entries)
-                w.put(es.size)
-                for (e in es) {
-                    let dots = o.entries[e].toArray()
-                    sort(dots)
-                    w.put(e)
-                    w.put(dots.size)
-                    for (d in dots) {
-                        w.put(d)
-                    }
-                }
-                let ns = sortedKeys(o.vv)
-                w.put(ns.size)
-                for (n in ns) {
-                    w.put(n)
-                    w.put(o.vv[n])
-                }
+                encodeORSetBody(w, o)
             case Register(r) =>
                 w.put(r.value)
                 w.put(r.timestamp)
                 w.put(r.node)
+            case ORMapValue(m) =>
+                // 键值对集合的规范编码与 ORSet 相同（元素已含 key 长度前缀）
+                encodeORSetBody(w, m.pairs)
+            case LWWMapValue(m) =>
+                let ks = sortedKeys(m.entries)
+                w.put(ks.size)
+                for (k in ks) {
+                    let r = m.entries[k]
+                    w.put(k)
+                    w.put(r.value)
+                    w.put(r.timestamp)
+                    w.put(r.node)
+                }
         }
         w.done()
+    }
+
+    /** ORSet 的规范编码（元素与点、版本向量都按键/节点排序） */
+    private static func encodeORSetBody(w: FieldWriter, o: ORSet): Unit {
+        let es = sortedKeys(o.entries)
+        w.put(es.size)
+        for (e in es) {
+            let dots = o.entries[e].toArray()
+            sort(dots)
+            w.put(e)
+            w.put(dots.size)
+            for (d in dots) {
+                w.put(d)
+            }
+        }
+        let ns = sortedKeys(o.vv)
+        w.put(ns.size)
+        for (n in ns) {
+            w.put(n)
+            w.put(o.vv[n])
+        }
     }
 
     private static func encodeCounter(w: FieldWriter, c: GCounter): Unit {
@@ -293,32 +324,48 @@ public enum ReplicatedValue {
                     set.add(r.next())
                 }
                 GSetValue(GSet(set))
-            case "ORSet" =>
-                let n = r.nextInt()
-                let entries = HashMap<String, HashSet<String>>()
-                for (_ in 0..n) {
-                    let e = r.next()
-                    let m = r.nextInt()
-                    let dots = HashSet<String>()
-                    for (_ in 0..m) {
-                        dots.add(r.next())
-                    }
-                    entries[e] = dots
-                }
-                let k = r.nextInt()
-                let vv = HashMap<String, Int64>()
-                for (_ in 0..k) {
-                    let node = r.next()
-                    vv[node] = r.nextInt()
-                }
-                ORSetValue(ORSet(entries, vv))
+            case "ORSet" => ORSetValue(decodeORSetBody(r))
             case "LWWRegister" =>
                 let value = r.next()
                 let ts = r.nextInt()
                 let node = r.next()
                 Register(LWWRegister<String>(value, ts, node))
+            case "ORMap" =>
+                ORMapValue(ORMap(decodeORSetBody(r)))
+            case "LWWMap" =>
+                let n = r.nextInt()
+                let entries = HashMap<String, LWWRegister<String>>()
+                for (_ in 0..n) {
+                    let k = r.next()
+                    let value = r.next()
+                    let ts = r.nextInt()
+                    let node = r.next()
+                    entries[k] = LWWRegister<String>(value, ts, node)
+                }
+                LWWMapValue(LWWMap(entries))
             case other => throw IllegalArgumentException("未知的 CRDT 类型: ${other}")
         }
+    }
+
+    private static func decodeORSetBody(r: FieldReader): ORSet {
+        let n = r.nextInt()
+        let entries = HashMap<String, HashSet<String>>()
+        for (_ in 0..n) {
+            let e = r.next()
+            let m = r.nextInt()
+            let dots = HashSet<String>()
+            for (_ in 0..m) {
+                dots.add(r.next())
+            }
+            entries[e] = dots
+        }
+        let k = r.nextInt()
+        let vv = HashMap<String, Int64>()
+        for (_ in 0..k) {
+            let node = r.next()
+            vv[node] = r.nextInt()
+        }
+        ORSet(entries, vv)
     }
 
     private static func decodeCounter(r: FieldReader): GCounter {
@@ -2065,6 +2112,78 @@ public class Replicator {
 
     public func addToSet(key: String, element: String): Unit {
         update(key, ReplicatedValue.ORSetValue(ORSet()), orSetAdd(key, element))
+    }
+
+    /** ORMap：在 mapKey 下放入 value（add-wins；并发 put 的不同值都保留） */
+    public func putInMap(key: String, mapKey: String, value: String): Unit {
+        let node = selfNode
+        update(key, ReplicatedValue.ORMapValue(ORMap()), { v =>
+            match (v) {
+                case ORMapValue(m) => ReplicatedValue.ORMapValue(m.put(node, mapKey, value))
+                case _ => throw IllegalArgumentException("${key} 不是 ORMap")
+            }
+        })
+    }
+
+    /** ORMap：移除 mapKey 下的某个值 */
+    public func removeFromMap(key: String, mapKey: String, value: String): Unit {
+        update(key, ReplicatedValue.ORMapValue(ORMap()), { v =>
+            match (v) {
+                case ORMapValue(m) => ReplicatedValue.ORMapValue(m.removeValue(mapKey, value))
+                case _ => throw IllegalArgumentException("${key} 不是 ORMap")
+            }
+        })
+    }
+
+    /** ORMap：移除整个 mapKey（观察-删除；并发的 put 仍是 add-wins） */
+    public func removeMapKey(key: String, mapKey: String): Unit {
+        update(key, ReplicatedValue.ORMapValue(ORMap()), { v =>
+            match (v) {
+                case ORMapValue(m) => ReplicatedValue.ORMapValue(m.removeKey(mapKey))
+                case _ => throw IllegalArgumentException("${key} 不是 ORMap")
+            }
+        })
+    }
+
+    /** ORMap：读取 mapKey 下的全部值（排序；键不存在时为空数组） */
+    public func mapValues(key: String, mapKey: String): Array<String> {
+        match (get(key)) {
+            case Some(ORMapValue(m)) => m.values(mapKey)
+            case _ => Array<String>()
+        }
+    }
+
+    /**
+     * LWWMap：写入 key 下的 mapKey。timestamp 由调用方给出（与 LWWRegister 一致，测试可确定性地设值）；
+     * 同一副本上的重复写入会自动取更晚的时间戳
+     */
+    public func putInLWWMap(key: String, mapKey: String, value: String, timestamp: Int64): Unit {
+        let node = selfNode
+        update(key, ReplicatedValue.LWWMapValue(LWWMap()), { v =>
+            match (v) {
+                case LWWMapValue(m) => ReplicatedValue.LWWMapValue(m.put(mapKey, value, timestamp, node))
+                case _ => throw IllegalArgumentException("${key} 不是 LWWMap")
+            }
+        })
+    }
+
+    /** LWWMap：删除 key 下的 mapKey（写入墓碑，旧副本不会复活它） */
+    public func removeFromLWWMap(key: String, mapKey: String, timestamp: Int64): Unit {
+        let node = selfNode
+        update(key, ReplicatedValue.LWWMapValue(LWWMap()), { v =>
+            match (v) {
+                case LWWMapValue(m) => ReplicatedValue.LWWMapValue(m.remove(mapKey, timestamp, node))
+                case _ => throw IllegalArgumentException("${key} 不是 LWWMap")
+            }
+        })
+    }
+
+    /** LWWMap：读取 key 下的 mapKey（墓碑或不存在返回 None） */
+    public func lwwMapGet(key: String, mapKey: String): Option<String> {
+        match (get(key)) {
+            case Some(LWWMapValue(m)) => m.get(mapKey)
+            case _ => None<String>
+        }
     }
 
     /**

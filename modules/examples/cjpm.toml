@@ -280,3 +280,21 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.ex28_actor_selection"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex29_custom_downing"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex30_distributed_config"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex31_cluster_router"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex32_distributed_trace"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex33_cluster_metrics"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex34_shard_allocation"]
+output-type = "executable"

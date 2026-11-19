@@ -440,13 +440,13 @@ cactor → streams / xstate / testkit
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
-### 真实应用示例（`ex01`–`ex28`）
+### 真实应用示例（`ex01`–`ex34`）
 
-这二十八个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+这三十四个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
 设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)，
 与 Akka / protoactor-go 官方示例的逐项对照见
 [docs/plan/20261117-porting-akka-protoactor.md](docs/plan/20261117-porting-akka-protoactor.md)。
-HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex28` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
+HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex34` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
 
 | 示例 | 内容 | 压到的能力 |
 |------|------|------|
@@ -478,6 +478,12 @@ HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–
 | [ex26_graceful_shutdown](modules/examples/src/ex26_graceful_shutdown/main.cj) | 集群优雅离开（差距 4.1 的框架修复）：协调关闭先 leave、幸存者看到 MemberLeft/Exited、upCount 3→2 | `Cluster.installCoordinatedShutdown`（新增） |
 | [ex27_streamref_pipeline](modules/examples/src/ex27_streamref_pipeline/main.cj) | 跨节点 StreamRef（对标 Akka StreamRefs）：200 条按序传输、buffer=4 背压、取消传播、本地 SSE | `StreamRefs.sourceRef/subscribe`、`StreamRefSettings` |
 | [ex28_actor_selection](modules/examples/src/ex28_actor_selection/main.cj) | 远程选择器（对标 Akka ActorSelection，差距 4.1 的框架修复）：`worker-*`/`worker-?` 通配投递、名称解析、resolveOne 唯一性、内部入口隔离 | `SimpleRemoteManager.actorSelection`、`ActorSelection`（新增） |
+| [ex29_custom_downing](modules/examples/src/ex29_custom_downing/main.cj) | 可插拔脑裂决策（对标 Akka DowningProvider，差距 4.2 的框架修复）：东区必须可用的业务规则，5 节点真实断网后西区多数派停止、东区少数派存活 | `DowningProvider`、`DowningStrategy.Custom`、`ClusterSettings.withDowningProvider`（新增） |
+| [ex30_distributed_config](modules/examples/src/ex30_distributed_config/main.cj) | 分布式配置（对标 Akka DData ORMap/LWWMap，差距 4.6 的框架修复）：并发改不同 key、同 key add-wins、观察-删除不复活、LWW 墓碑 | `ORMap`、`LWWMap`、`Replicator.putInMap/putInLWWMap`（新增） |
+| [ex31_cluster_router](modules/examples/src/ex31_cluster_router/main.cj) | 集群感知路由器（对标 Akka cluster-aware router，差距 4.5 的框架修复）：LeastLoaded/RoundRobin、成员 down 自动剔除、无候选明确失败 | `ClusterRouter`（新增） |
+| [ex32_distributed_trace](modules/examples/src/ex32_distributed_trace/main.cj) | 跨节点追踪关联（差距 4.10 的传播原语）：W3C traceparent 生成/解析、span 逐跳接续、两侧日志 Mdc 带同一 traceId、坏输入降级 | `toTraceParent/parseTraceParent/continueTrace`、`withTraceMdc`（新增） |
+| [ex33_cluster_metrics](modules/examples/src/ex33_cluster_metrics/main.cj) | 集群指标导出（差距 4.10 的指标部分）：成员/收敛/gossip/隔离/可靠投递未确认/分片托管/实体数，Prometheus 文本 + MetricRegistry 同源 | `ClusterMetrics`（新增） |
+| [ex34_shard_allocation](modules/examples/src/ex34_shard_allocation/main.cj) | 分片分配策略 SPI（差距 4.4）：同一集群共存两种策略——按分片奇偶落到两端、全部钉在最小地址节点 | `ShardAllocationStrategy`、`withAllocationStrategy`、`FirstMemberAllocation`（新增） |
 
 ---
 

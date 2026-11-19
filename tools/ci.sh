@@ -167,6 +167,12 @@ cactor_examples.ex23_sharding_passivation cactor_examples.ex24_at_least_once
 cactor_examples.ex25_broadcast_hub cactor_examples.ex26_graceful_shutdown
 cactor_examples.ex27_streamref_pipeline
 cactor_examples.ex28_actor_selection
+cactor_examples.ex29_custom_downing
+cactor_examples.ex30_distributed_config
+cactor_examples.ex31_cluster_router
+cactor_examples.ex32_distributed_trace
+cactor_examples.ex33_cluster_metrics
+cactor_examples.ex34_shard_allocation
 "
 for ex in $EXAMPLES_SELF_CHECK; do
     CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1

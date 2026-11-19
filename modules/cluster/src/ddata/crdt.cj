@@ -22,6 +22,7 @@ package cactor_cluster.ddata
 
 import std.collection.*
 import std.convert.*
+import std.sort.*
 
 /** 可合并的复制数据 */
 public interface ReplicatedData<T> {
@@ -714,4 +715,283 @@ public class LWWRegister<T> <: ReplicatedData<LWWRegister<T>> {
             this
         }
     }
+}
+
+// ======================= ORMap（对标 Akka ORMap：观察-删除键值映射） =======================
+
+/**
+ * 可增删键值映射，表示为"键值对集合"：每个 (key, value) 是 [ORSet] 的一个元素（长度前缀编码）。
+ *
+ * 为什么不是"每个 key 一个 ORSet"：一侧删掉整个 key 后，该 key 在它那里不存在；合并时
+ * 仅凭"对方没有这个 key"无法区分"对方没见过"与"对方删了"（缺 key 的一侧没有版本向量可依），
+ * 会复活已删除的值。把 (key,value) 都放进**同一个** ORSet，删除就是删点，
+ * ORSet 的版本向量天然表达"我见过并删除了"，add-wins 语义也随之继承。
+ *
+ * 同一 key 下并发 put 不同值：两个对都保留（add-wins）；并发 put 与删除同一个值：add 胜出。
+ * 不表示增量（deltaFrom 返回 None），由 Replicator 改发整值。
+ */
+public class ORMap <: ReplicatedData<ORMap> & Equatable<ORMap> {
+    let pairs: ORSet
+
+    public init() {
+        this.pairs = ORSet()
+    }
+
+    init(pairs: ORSet) {
+        this.pairs = pairs
+    }
+
+    /** 把 (key, value) 编码成一个元素："<key 字节数>:<key><value>"，长度前缀避免分隔符冲突 */
+    static func encodePair(key: String, value: String): String {
+        "${key.size}:${key}${value}"
+    }
+
+    static func decodePair(pair: String): Option<(String, String)> {
+        match (pair.indexOf(":")) {
+            case Some(i) =>
+                match (Int64.tryParse(pair[0..i])) {
+                    case Some(len) =>
+                        let start = i + 1
+                        if (len < 0 || start + len > pair.size) {
+                            None<(String, String)>
+                        } else {
+                            Some((pair[start..start + len], pair[(start + len)..]))
+                        }
+                    case None => None<(String, String)>
+                }
+            case None => None<(String, String)>
+        }
+    }
+
+    /** 在 key 下放入 value（add-wins：并发 put 的不同值都会保留） */
+    public func put(node: String, key: String, value: String): ORMap {
+        ORMap(pairs.add(node, encodePair(key, value)))
+    }
+
+    /** 移除 key 下的某个值 */
+    public func removeValue(key: String, value: String): ORMap {
+        ORMap(pairs.remove(encodePair(key, value)))
+    }
+
+    /** 移除整个键（移除该键当前的全部值；并发的 put 仍是 add-wins） */
+    public func removeKey(key: String): ORMap {
+        var next = pairs
+        for (p in pairs.elements()) {
+            match (decodePair(p)) {
+                case Some((k, _)) where k == key => next = next.remove(p)
+                case _ => ()
+            }
+        }
+        ORMap(next)
+    }
+
+    /** key 下的全部值（排序后返回） */
+    public func values(key: String): Array<String> {
+        let out = ArrayList<String>()
+        for (p in pairs.elements()) {
+            match (decodePair(p)) {
+                case Some((k, v)) where k == key => out.add(v)
+                case _ => ()
+            }
+        }
+        let arr = out.toArray()
+        sortStrings(arr)
+        arr
+    }
+
+    public func containsKey(key: String): Bool {
+        for (p in pairs.elements()) {
+            match (decodePair(p)) {
+                case Some((k, _)) where k == key => return true
+                case _ => ()
+            }
+        }
+        false
+    }
+
+    /** 键列表（去重、排序） */
+    public func keys(): Array<String> {
+        let set = HashSet<String>()
+        for (p in pairs.elements()) {
+            match (decodePair(p)) {
+                case Some((k, _)) => set.add(k)
+                case None => ()
+            }
+        }
+        let arr = ArrayList<String>(set).toArray()
+        sortStrings(arr)
+        arr
+    }
+
+    public func size(): Int64 {
+        keys().size
+    }
+
+    public func merge(other: ORMap): ORMap {
+        ORMap(pairs.merge(other.pairs))
+    }
+
+    public func componentCount(): Int64 {
+        pairs.componentCount()
+    }
+
+    public func needsPruning(removed: String): Bool {
+        pairs.needsPruning(removed)
+    }
+
+    public func modifiedByNodes(): Array<String> {
+        pairs.modifiedByNodes()
+    }
+
+    public func prune(removed: String, collapseInto: String): ORMap {
+        ORMap(pairs.prune(removed, collapseInto))
+    }
+
+    public func cleanup(removed: String): ORMap {
+        ORMap(pairs.cleanup(removed))
+    }
+
+    public operator func ==(other: ORMap): Bool {
+        pairs == other.pairs
+    }
+}
+
+// ======================= LWWMap（每个键一个最后写入胜出的寄存器） =======================
+
+/** 删除墓碑：写入它是删除，读取时视为不存在；墓碑本身参与合并，防止已删键被旧副本复活 */
+let LWW_MAP_TOMBSTONE: String = "\u{0001}"
+
+/**
+ * 最后写入胜出的映射：每个 key 独立的 [LWWRegister]，按 key 合并。
+ * 删除用墓碑表示（[remove]），墓碑与普通值一样按时间戳/节点决胜，因此合并后删除不会回退。
+ */
+public class LWWMap <: ReplicatedData<LWWMap> & Equatable<LWWMap> {
+    // 键 -> 寄存器（值可能是墓碑）
+    let entries: HashMap<String, LWWRegister<String>>
+
+    public init() {
+        this.entries = HashMap<String, LWWRegister<String>>()
+    }
+
+    init(entries: HashMap<String, LWWRegister<String>>) {
+        this.entries = entries
+    }
+
+    /** 写入 key；同一副本上重复写入时时间戳至少 +1（与 LWWRegister.set 一致） */
+    public func put(key: String, value: String, timestamp: Int64, node: String): LWWMap {
+        let next = HashMap<String, LWWRegister<String>>(entries)
+        let reg = match (entries.get(key)) {
+            case Some(r) => r.set(value, timestamp, node)
+            case None => LWWRegister<String>(value, timestamp, node)
+        }
+        next[key] = reg
+        LWWMap(next)
+    }
+
+    /** 删除 key（写入墓碑）；墓碑的删除时间戳参与合并，旧副本的值不会复活 */
+    public func remove(key: String, timestamp: Int64, node: String): LWWMap {
+        put(key, LWW_MAP_TOMBSTONE, timestamp, node)
+    }
+
+    public func get(key: String): Option<String> {
+        match (entries.get(key)) {
+            case Some(r) =>
+                if (r.value == LWW_MAP_TOMBSTONE) {
+                    None<String>
+                } else {
+                    Some(r.value)
+                }
+            case None => None<String>
+        }
+    }
+
+    public func containsKey(key: String): Bool {
+        get(key).isSome()
+    }
+
+    /** 键列表（不含墓碑；排序后返回） */
+    public func keys(): Array<String> {
+        let out = ArrayList<String>()
+        for ((k, r) in entries) {
+            if (r.value != LWW_MAP_TOMBSTONE) {
+                out.add(k)
+            }
+        }
+        let arr = out.toArray()
+        sortStrings(arr)
+        arr
+    }
+
+    /** 存活的键值对数（不含墓碑） */
+    public func size(): Int64 {
+        keys().size
+    }
+
+    public func merge(other: LWWMap): LWWMap {
+        let next = HashMap<String, LWWRegister<String>>()
+        let keys = HashSet<String>()
+        for ((k, _) in entries) {
+            keys.add(k)
+        }
+        for ((k, _) in other.entries) {
+            keys.add(k)
+        }
+        for (k in keys) {
+            let mine = entries.get(k)
+            let theirs = other.entries.get(k)
+            if (let Some(a) <- mine) {
+                next[k] = match (theirs) {
+                    case Some(b) => a.merge(b)
+                    case None => a
+                }
+            } else if (let Some(b) <- theirs) {
+                next[k] = b
+            }
+        }
+        LWWMap(next)
+    }
+
+    public func componentCount(): Int64 {
+        0
+    }
+
+    public func needsPruning(removed: String): Bool {
+        false
+    }
+
+    public func modifiedByNodes(): Array<String> {
+        Array<String>()
+    }
+
+    public func prune(removed: String, collapseInto: String): LWWMap {
+        this
+    }
+
+    public func cleanup(removed: String): LWWMap {
+        this
+    }
+
+    public operator func ==(other: LWWMap): Bool {
+        let a = keys()
+        let b = other.keys()
+        if (a.size != b.size) {
+            return false
+        }
+        for (i in 0..a.size) {
+            if (a[i] != b[i]) {
+                return false
+            }
+            let ra = entries[a[i]]
+            let rb = other.entries[b[i]]
+            if (ra.value != rb.value || ra.timestamp != rb.timestamp || ra.node != rb.node) {
+                return false
+            }
+        }
+        true
+    }
+}
+
+/** 排序字符串数组（CRDT 内部用于稳定输出/编码） */
+func sortStrings(arr: Array<String>): Unit {
+    sort(arr)
 }

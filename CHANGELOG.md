@@ -7,6 +7,84 @@
 
 ## [未发布]
 
+### ✨ 新增：分片分配策略 SPI `ShardAllocationStrategy`（`docs/plan/20261117.md` 差距 4.4 的分配部分）
+
+分片归属此前写死为 rendezvous 哈希，想按业务亲和性/容量隔离分配必须改框架源码。现在可插拔：
+
+- 新接口 `cactor_cluster.membership.ShardAllocationStrategy { allocate(shard, members): Option<String> }`，
+  必须是纯函数（各节点独立计算需一致）；
+- 内置 `RendezvousAllocation`（默认，行为与之前完全相同）与 `FirstMemberAllocation`；
+- 新配置 `ShardingSettings.withAllocationStrategy(strategy)`；区域的两处归属计算都走该策略；
+- 示例 `ex34_shard_allocation`（同一集群共存"按分片奇偶分配"与"全部钉在最小地址节点"两种策略）、
+  测试 `ShardAllocationStrategyTest` 覆盖；
+- 仍待做：分片协调状态持久化（全灭重启后保持原宿主）。
+
+### ✨ 新增：集群 / 远程侧 Prometheus 指标 `ClusterMetrics`（`docs/plan/20261117.md` 差距 4.10 的指标部分）
+
+`/metrics` 此前只有运行时指标，集群侧 0 指标。新增 `cactor_cluster.membership.ClusterMetrics`：
+
+- 抓取时读实时快照并渲染 Prometheus 文本，同时写入 foundation `MetricRegistry`（程序化可读）；
+- 指标：`cactor_cluster_members_up/total`、`unreachable`、`converged`、`gossip_total`、
+  `quarantined`、`pending_asks`、`cactor_remote_reliable_{resent,duplicates,unacked}_*`；
+- 可选挂接 `ClusterSharding`：`shards_owned`、`shards_acquiring`、`shards_acquisitions_total`、
+  `entities_local`、`entities_passivated_total`；挂接 `Replicator`：`ddata_keys`；
+- 示例 `ex33_cluster_metrics`（3 节点 + 分片，/metrics /metrics/all /state）、测试 `ClusterMetricsTest` 覆盖；
+- 仍待做：与运行时指标合并成单一渲染入口、OTLP/Jaeger 导出。
+
+### ✨ 新增：W3C traceparent 传播原语与 Mdc 绑定（`docs/plan/20261117.md` 差距 4.10 的传播部分）
+
+`foundation/monitoring/tracing.cj` 补齐上下文传播所需的最小原语（此前只有 ID 生成）：
+
+- `toTraceParent(ctx)`：生成 W3C `traceparent`（`00-<trace-id>-<parent-id>-01`）；
+- `parseTraceParent(text)`：严格解析（版本/长度/小写十六进制），坏输入返回 `None` 不抛异常；
+- `continueTrace(text)`：接续上游 trace，生成子 span（同 traceId、parent 指向调用方）；
+- `traceMdcFields(ctx)` / `withTraceMdc(ctx, block)`：把 traceId/spanId/parentSpanId
+  注入当前线程日志字段，块结束（含异常）自动恢复；
+- 示例 `ex32_distributed_trace`（2 节点：W3C traceparent 逐跳接续、两侧日志 Mdc 同 traceId、
+  坏输入降级）、测试 `TraceContextTest` 覆盖。
+- 仍待做：线协议自动携带 traceparent、集群侧指标、OTLP/Jaeger 导出。
+
+### ✨ 新增：集群感知路由器 `ClusterRouter`（`docs/plan/20261117.md` 差距 4.5）
+
+跨节点分发不再需要应用自己拼成员列表与远程引用：
+
+- `cactor_cluster.routing.ClusterRouter(cluster, remote, actorName, strategy, loadOf)`；
+- `RoundRobin`：候选按地址排序后轮询；`LeastLoaded`：按应用提供的 `loadOf(address)`
+  选负载最低者，相同按地址最小者；
+- 每次路由读取实时成员视图（`cluster.state()`），被 down / 移除的成员自动剔除，
+  不存在缓存过期竞态；
+- 无候选（集群终止 / 全部 down / 路由器 `stop()`）时 `route()`/`tell()` 抛
+  `IllegalStateException`，不静默丢消息；
+- 示例 `ex31_cluster_router`、测试 `ClusterRouterTest` 覆盖。
+
+### ✨ 新增：Map 系 CRDT `ORMap` / `LWWMap`（`docs/plan/20261117.md` 差距 4.6）
+
+Distributed Data 新增两种最常用的 Map 类型（对标 Akka `ORMap` / `LWWMap`）：
+
+- `ORMap`：键值对集合的观察-删除语义。并发改不同 key 互不干扰；同一 key 并发 put 不同值 add-wins；
+  `removeKey`/`removeValue` 在合并后不回退（旧副本不会复活已删除的 key）。
+  编码为 `${key.size}:${key}${value}` 作为 `ORSet` 元素，直接复用点标记与版本向量；
+- `LWWMap`：每键一个 `LWWRegister`，按 (timestamp, node) 决胜；删除写墓碑，合并后删除不回退；
+- `ReplicatedValue` 新分支 `ORMapValue` / `LWWMapValue`，线编码复用 `ORSet` 的规范编码；
+- `Replicator` 便捷方法：`putInMap`、`removeFromMap`、`removeMapKey`、`mapValues`、
+  `putInLWWMap`、`removeFromLWWMap`、`lwwMapGet`；
+- 示例 `ex30_distributed_config`（3 节点真实 gossip：并发写、add-wins、观察-删除、LWW 墓碑）、
+  测试 `CrdtMapTest` 与 `MapReplicatorTest` 覆盖。
+
+### ✨ 新增：可插拔脑裂决策 `DowningProvider`（`docs/plan/20261117.md` 差距 4.2）
+
+内置策略（KeepMajority / KeepOldest / StaticQuorum / AutoDownAfter）之外，用户现在可以注入
+自己的存活规则（例如"指定业务区必须至少一个节点可达"）：
+
+- 新接口 `cactor_cluster.membership.DowningProvider`：
+  `stableAfter()` + `decide(members, unreachable, indirect)`；`decide` 必须是纯函数，
+  保证分区两侧在各自视图上算出一致的结论；
+- 新枚举分支 `DowningStrategy.Custom(DowningProvider)`；内置策略的 `sbrDecide` 纯函数语义不变；
+- 新配置方法 `ClusterSettings.withDowningProvider(provider)`；从配置文件读取时仍只接受内置策略名；
+- **注意**：对 `DowningStrategy` 做穷尽 `match` 的外部代码需要处理新分支（源级破坏）；
+- 示例 `ex29_custom_downing`（5 节点真实断网：多数派西区停止、少数派东区存活）、
+  测试 `testCustomDowningProviderIsConsulted` 与 `testCustomProviderOverridesMajority` 覆盖。
+
 ### ✨ 新增：远程 `ActorSelection`（`docs/plan/20261117.md` 差距 4.1）
 
 按路径/通配寻址远程 Actor，不再要求调用方事先持有引用：
