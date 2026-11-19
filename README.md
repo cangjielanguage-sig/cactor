@@ -440,13 +440,13 @@ cactor → streams / xstate / testkit
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
-### 真实应用示例（`ex01`–`ex27`）
+### 真实应用示例（`ex01`–`ex28`）
 
-这二十七个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+这二十八个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
 设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)，
 与 Akka / protoactor-go 官方示例的逐项对照见
 [docs/plan/20261117-porting-akka-protoactor.md](docs/plan/20261117-porting-akka-protoactor.md)。
-HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex27` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
+HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex28` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
 
 | 示例 | 内容 | 压到的能力 |
 |------|------|------|
@@ -477,6 +477,7 @@ HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–
 | [ex25_broadcast_hub](modules/examples/src/ex25_broadcast_hub/main.cj) | 广播中心与每订阅者背压（差距 4.8 的应用层补法）：快慢订阅者隔离、有界队列明确丢弃、SSE | `Sources.queue` + `DropNew`、Lou SSE |
 | [ex26_graceful_shutdown](modules/examples/src/ex26_graceful_shutdown/main.cj) | 集群优雅离开（差距 4.1 的框架修复）：协调关闭先 leave、幸存者看到 MemberLeft/Exited、upCount 3→2 | `Cluster.installCoordinatedShutdown`（新增） |
 | [ex27_streamref_pipeline](modules/examples/src/ex27_streamref_pipeline/main.cj) | 跨节点 StreamRef（对标 Akka StreamRefs）：200 条按序传输、buffer=4 背压、取消传播、本地 SSE | `StreamRefs.sourceRef/subscribe`、`StreamRefSettings` |
+| [ex28_actor_selection](modules/examples/src/ex28_actor_selection/main.cj) | 远程选择器（对标 Akka ActorSelection，差距 4.1 的框架修复）：`worker-*`/`worker-?` 通配投递、名称解析、resolveOne 唯一性、内部入口隔离 | `SimpleRemoteManager.actorSelection`、`ActorSelection`（新增） |
 
 ---
 

@@ -19,6 +19,26 @@ package cactor_cluster.membership
 import std.time.*
 import std.collection.*
 
+/**
+ * 可插拔脑裂决策（对标 Akka `DowningProvider`）。
+ *
+ * `decide` 必须是**纯函数**：只依赖传入的成员表与不可达集合，不读真实时钟、不做 IO。
+ * 分区两侧会在各自（可能不同）的视图上各自计算，纯函数是"最多一侧存活"的前提。
+ */
+public interface DowningProvider {
+    /**
+     * 可达性视图需要稳定多久再决策；`None` 表示无需稳定（每个心跳周期都可决策）。
+     * 参与稳定判定的策略（内置 KeepMajority 等）返回 `Some(...)`。
+     */
+    func stableAfter(): Option<Duration>
+
+    /**
+     * members：未被移除、未 down 的成员（含 Joining，是否计票由实现决定）；
+     * unreachable：本节点判定不可达的成员；indirect：间接不可达（本节点能连上、其他可达成员连不上）。
+     */
+    func decide(members: Array<Member>, unreachable: HashSet<String>, indirect: HashSet<String>): SbrDecision
+}
+
 /** 不可达成员的处理方式 */
 public enum DowningStrategy {
     /** 不自动处理，只能手动 down */
@@ -31,12 +51,15 @@ public enum DowningStrategy {
     | KeepOldest(Duration)
     /** 可达成员数不少于 quorum 的一侧存活 */
     | StaticQuorum(Int64, Duration)
+    /** 用户自定义决策（DowningProvider SPI） */
+    | Custom(DowningProvider)
 
     public func stableAfter(): Option<Duration> {
         match (this) {
             case KeepMajority(d) => Some(d)
             case KeepOldest(d) => Some(d)
             case StaticQuorum(_, d) => Some(d)
+            case Custom(p) => p.stableAfter()
             case _ => None<Duration>
         }
     }
@@ -67,6 +90,11 @@ public func sbrDecide(strategy: DowningStrategy, members: Array<Member>, unreach
  */
 public func sbrDecide(strategy: DowningStrategy, members: Array<Member>, unreachable: HashSet<String>,
     indirect: HashSet<String>): SbrDecision {
+    // 自定义规则直接接管（内置策略保持下面的纯函数语义不变）
+    match (strategy) {
+        case Custom(p) => return p.decide(members, unreachable, indirect)
+        case _ => ()
+    }
     let voters = ArrayList<Member>()
     for (m in members) {
         if (indirect.contains(m.address)) {

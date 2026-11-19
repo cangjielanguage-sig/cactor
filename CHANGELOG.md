@@ -7,6 +7,18 @@
 
 ## [未发布]
 
+### ✨ 新增：远程 `ActorSelection`（`docs/plan/20261117.md` 差距 4.1）
+
+按路径/通配寻址远程 Actor，不再要求调用方事先持有引用：
+
+- `SimpleRemoteManager.actorSelection(address, path)` 创建选择器，路径支持
+  `cactor://host:port/user/<pattern>`、`/user/<pattern>` 或裸 pattern；
+- `ActorSelection.tell(msg)` 把目标写成 `$sel:<pattern>` 发一帧，由对端本地展开通配并逐个投递
+  （零额外往返、不阻塞）；`resolveNames()` 走 `$sys SELECT` 排序返回业务名称；
+  `resolveOne()` 要求恰好一个匹配；
+- 通配语义 `*` / `?`；以 `$` 开头的内部处理器（`$sys`、ask/回复临时入口）永远不参与匹配；
+- 无匹配计入对端死信计数。示例 `ex28_actor_selection`、测试 `ActorSelectionTest` 覆盖。
+
 ### ✨ 新增：`Cluster.installCoordinatedShutdown()`（`docs/plan/20261117.md` 差距 4.1）
 
 把集群优雅离开接入协调关闭：在 `CoordinatedShutdown.PhaseClusterLeave` 阶段发送 `leave()`
@@ -22,7 +34,7 @@ Distributed Data 的读写一致性新增 minCap：至少 n 个副本回应/确�
 - 新增枚举分支 `cactor_cluster.ddata.ReadConsistency.ReadMinCap(Int64, Duration)`
   与 `WriteConsistency.WriteMinCap(Int64, Duration)`；
 - `n <= 0` 抛 `IllegalArgumentException`；`n` 超过当前视图副本数时按实际副本数处理；
-- 示例 `real21_read_min_cap` 与测试 `ReadMinCapTest` 覆盖"总副本 4、可达 2：Majority 失败、minCap(2) 成功"。
+- 示例 `ex21_read_min_cap` 与测试 `ReadMinCapTest` 覆盖"总副本 4、可达 2：Majority 失败、minCap(2) 成功"。
 
 ### 💥 破坏性变更（`docs/plan/20261116.md` B4c：runtime 的第二套实现，生产代码 −2,333 行）
 

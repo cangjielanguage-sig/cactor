@@ -258,6 +258,11 @@ public class SimpleRemoteReceiver {
 
     /** 按目标名称把消息交给已注册的处理器；找不到时计为不可投递 */
     public func dispatch(targetActor: String, message: Message, sender: Option<String>): Unit {
+        // 选择器：目标名写成 "$sel:<pattern>"，在这里展开通配并逐个投递（对端本地完成，零额外往返）
+        if (targetActor.startsWith(SELECTION_PREFIX)) {
+            dispatchSelection(targetActor[SELECTION_PREFIX.size..], message, sender)
+            return
+        }
         let handler = synchronized(mutex) { messageHandlers.get(targetActor) }
         match (handler) {
             case Some(h) =>
@@ -268,6 +273,29 @@ public class SimpleRemoteReceiver {
                 }
             case None =>
                 undeliverableCount.fetchAdd(1)
+        }
+    }
+
+    /**
+     * 选择器展开：只匹配业务处理器；以 `$` 开头的内部入口（$sys、回复入口、ask 临时入口、
+     * 其它选择器回复入口）永远不参与匹配，避免选择器打到内部协议或递归匹配自身。
+     */
+    private func dispatchSelection(pattern: String, message: Message, sender: Option<String>): Unit {
+        let names = synchronized(mutex) {
+            let out = ArrayList<String>()
+            for ((name, _) in messageHandlers) {
+                if (!name.startsWith("$") && selectionGlobMatch(pattern, name)) {
+                    out.add(name)
+                }
+            }
+            out.toArray()
+        }
+        if (names.isEmpty()) {
+            undeliverableCount.fetchAdd(1)
+            return
+        }
+        for (name in names) {
+            dispatch(name, message, sender)
         }
     }
 

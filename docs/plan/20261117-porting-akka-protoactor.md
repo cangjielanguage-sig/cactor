@@ -80,7 +80,7 @@
 | `EventAdapter` + `upcast` | `EventAdapter`（无 upcast） | 差距 4.7 |
 | `FSM[S,D]` | "状态即行为" + `withTimers` | 无专用 FSM DSL，但语义等价 |
 | `GraphDSL` | 无组合子层 | 差距 4.8 |
-| `ActorSelection`（远程） | 无 | 差距 4.1 |
+| `ActorSelection`（远程） | `SimpleRemoteManager.actorSelection` → `ActorSelection.tell/resolveNames/resolveOne` | 差距 4.1 已补（ex28）；通配 `*`/`?`，`$` 内部入口不可选中 |
 | `DowningProvider` | 5 种策略写死在枚举 | 差距 4.2 |
 
 ---
@@ -207,7 +207,6 @@ spawn { app.listen() }
 
 | 能力 | 判据 | 影响 | 建议 |
 |---|---|---|---|
-| 远程 `ActorSelection` | `grep actorSelection modules/remote` = 0 | 无法按路径向未持有引用的远程 Actor 发消息 | 先用 Receptionist 按名查找（`findTyped`） |
 | Multi-DC / roles / ClusterClient | 差距 4.1/4.3 | 跨机房、外部进程访问集群 | 先做 `20261117.md` C1–C2 |
 | 分片协调状态持久化 | 差距 4.4 | 全灭重启后分片重排 | 实体用 remember-entities + 事件溯源兜底 |
 | DData Map CRDT | 差距 4.6 | 分布式配置只能塞 `LWWRegister` | 用 `ORSet` 自拼或等 C4 |

@@ -277,3 +277,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.ex27_streamref_pipeline"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex28_actor_selection"]
+output-type = "executable"

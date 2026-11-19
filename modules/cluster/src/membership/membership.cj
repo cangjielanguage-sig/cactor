@@ -630,6 +630,15 @@ public struct ClusterSettings {
             joinCompatibility, pruneTombstonesAfter)
     }
 
+    /**
+     * 使用自定义脑裂决策（对标 Akka `DowningProvider`）。provider 的 `decide` 必须是纯函数：
+     * 两侧各自在本地视图上计算，纯函数才能保证最多一侧存活。
+     */
+    public func withDowningProvider(provider: DowningProvider): ClusterSettings {
+        ClusterSettings(gossipInterval, heartbeatInterval, phiThreshold, acceptableHeartbeatPause,
+            DowningStrategy.Custom(provider), seedNodeTimeout, joinCompatibility, pruneTombstonesAfter)
+    }
+
     /** 墓碑保留时长（见 pruneTombstonesAfter），其余不变 */
     public func withPruneTombstonesAfter(d: Duration): ClusterSettings {
         if (d <= Duration.Zero) {
@@ -680,7 +689,8 @@ public struct ClusterSettings {
             case "keep-oldest" => DowningStrategy.KeepOldest(stable)
             case "static-quorum" => DowningStrategy.StaticQuorum(cfg.getInt("cluster.quorum-size"), stable)
             case other => throw ConfigException(
-                "配置 cluster.downing = \"${other}\"（来自 ${cfg.origin("cluster.downing") ?? "?"}）不是 none / auto-down / keep-majority / keep-oldest / static-quorum")
+                "配置 cluster.downing = \"${other}\"（来自 ${cfg.origin("cluster.downing") ?? "?"}）不是 none / auto-down / keep-majority / keep-oldest / static-quorum；" +
+                "自定义决策请用 ClusterSettings.withDowningProvider 以代码注入")
         }
         ClusterSettings(cfg.getDuration("cluster.gossip-interval", d.gossipInterval),
             cfg.getDuration("cluster.heartbeat-interval", d.heartbeatInterval),

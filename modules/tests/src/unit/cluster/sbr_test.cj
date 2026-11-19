@@ -151,6 +151,43 @@ func setOf(xs: Array<String>): HashSet<String> {
     HashSet<String>(xs)
 }
 
+/** 自定义规则：要求的每个业务区都必须至少有一个可达成员，否则本侧停止（对标"华东+华南至少各一个"） */
+class ZoneQuorumProvider <: DowningProvider {
+    private let zones: HashMap<String, String>
+    private let required: Array<String>
+
+    init(zones: HashMap<String, String>, required: Array<String>) {
+        this.zones = zones
+        this.required = required
+    }
+
+    public func stableAfter(): Option<Duration> {
+        Some(Duration.millisecond * 100)
+    }
+
+    public func decide(members: Array<Member>, unreachable: HashSet<String>,
+        indirect: HashSet<String>): SbrDecision {
+        let reachableZones = HashSet<String>()
+        let downList = ArrayList<String>()
+        for (m in members) {
+            if (unreachable.contains(m.address) || indirect.contains(m.address)) {
+                downList.add(m.address)
+            } else if (let Some(z) <- zones.get(m.address)) {
+                reachableZones.add(z)
+            }
+        }
+        if (downList.isEmpty()) {
+            return SbrDecision.NoAction
+        }
+        for (z in required) {
+            if (!reachableZones.contains(z)) {
+                return SbrDecision.DownSelf
+            }
+        }
+        SbrDecision.DownUnreachable(downList.toArray())
+    }
+}
+
 @Test
 public class SbrDecideTest {
     let km = DowningStrategy.KeepMajority(Duration.second)
@@ -204,6 +241,29 @@ public class SbrDecideTest {
         @Expect(DowningStrategy.NoDowning.stableAfter().isNone(), true)
         @Expect(ad.stableAfter().isNone(), true)
         @Expect(sq.stableAfter().isSome(), true)
+    }
+
+    @TestCase
+    public func testCustomDowningProviderIsConsulted(): Unit {
+        let zones = HashMap<String, String>()
+        zones["a"] = "east"
+        zones["b"] = "east"
+        zones["c"] = "west"
+        zones["d"] = "west"
+        zones["e"] = "west"
+        let custom = DowningStrategy.Custom(ZoneQuorumProvider(zones, ["east", "west"]))
+        @Expect(custom.stableAfter().isSome(), true)
+
+        let five = ups(["a", "b", "c", "d", "e"])
+        // 东区两个都不可达：多数派（3/5）会存活，但自定义规则要求两个区各至少一个 -> 本侧停止
+        @Expect(describe(sbrDecide(km, five, setOf(["a", "b"]))), "down:a,b")
+        @Expect(describe(sbrDecide(custom, five, setOf(["a", "b"]))), "self")
+        // 两个区都还有可达成员：存活并 down 掉不可达的西区成员
+        @Expect(describe(sbrDecide(custom, five, setOf(["d", "e"]))), "down:d,e")
+        // 没有不可达成员时无需动作
+        @Expect(describe(sbrDecide(custom, five, setOf([]))), "none")
+        // 间接不可达同样计入 down 列表
+        @Expect(describe(sbrDecide(custom, five, setOf([]), setOf(["d"]))), "down:d")
     }
 }
 
@@ -328,6 +388,27 @@ public class SplitBrainResolverTest {
         p.split([addressesOf(oldSide), addressesOf(others)])
         @Expect(awaitCondition(CLUSTER_WAIT, { => sideDowned(others) }), true)
         @Expect(awaitCondition(CLUSTER_WAIT, { => sideSurvived(oldSide) }), true)
+        closeAll(nodes)
+    }
+
+    @TestCase
+    public func testCustomProviderOverridesMajority(): Unit {
+        let p = Partition()
+        let zones = HashMap<String, String>()
+        // 业务规则："东区必须始终可用"——东区不可达的一侧停止，哪怕它是多数派
+        let custom = DowningStrategy.Custom(ZoneQuorumProvider(zones, ["east"]))
+        let nodes = startPartitionable(5, "sbr-custom", sbrSettings(custom), p)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 5) }), true)
+        // 东区 2 个（少数派）、西区 3 个（多数派）
+        for (i in 0..5) {
+            zones[nodes[i].address()] = if (i < 2) { "east" } else { "west" }
+        }
+        let east = [nodes[0], nodes[1]]
+        let west = [nodes[2], nodes[3], nodes[4]]
+        p.split([addressesOf(east), addressesOf(west)])
+        // KeepMajority 会保留 3/5 的西区；自定义规则让失去东区的西侧停止，东区（少数派）存活
+        @Expect(awaitCondition(CLUSTER_WAIT, { => sideDowned(west) }), true)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => sideSurvived(east) }), true)
         closeAll(nodes)
     }
 

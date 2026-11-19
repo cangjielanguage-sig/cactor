@@ -38,6 +38,7 @@ import std.sync.*
 import std.time.*
 import std.convert.*
 import std.math.*
+import std.sort.*
 import cactor_core.actor.*
 import cactor_core.message.*
 import cactor_core.typed.{TypedPromise, TypedAskTimeoutException, PromiseActorRef}
@@ -1912,6 +1913,38 @@ public class RemotingCore {
         }
     }
 
+    /**
+     * 选择解析：把匹配到的暴露名称回给请求方的临时入口。
+     * 只返回业务名称（`$` 开头的内部入口不可被选择），排序后一次性回包，避免逐条消息。
+     */
+    private func respondSelection(replyName: String, pattern: String, replyAddrText: String): Unit {
+        let names = synchronized(lock) {
+            let out = ArrayList<String>()
+            for ((name, _) in exposed) {
+                if (!name.startsWith("$") && selectionGlobMatch(pattern, name)) {
+                    out.add(name)
+                }
+            }
+            sort(out, by: { a: String, b: String => a.compare(b) })
+            out.toArray()
+        }
+        let payload = StringBuilder()
+        var first = true
+        for (name in names) {
+            if (!first) {
+                payload.append("\n")
+            }
+            first = false
+            payload.append(name)
+        }
+        try {
+            sender.sendMessage(NetworkAddress.parse(replyAddrText), replyName,
+                StringMessage("SELECT-REPLY|${names.size}|${payload.toString()}"))
+        } catch (e: Exception) {
+            log_remoting.debug("选择解析回复失败: ${e.message}")
+        }
+    }
+
     func onSystemMessage(m: Message): Unit {
         let text = match (m) {
             case s: StringMessage => s.getContent()
@@ -1952,6 +1985,7 @@ public class RemotingCore {
                     }
                 }
             case "DEATH" where parts.size >= 3 => deliverTerminated(parts[2], parts[1])
+            case "SELECT" where parts.size >= 4 => respondSelection(parts[1], parts[2], parts[3])
             case "ACK" where parts.size >= 3 =>
                 if (let Some(n) <- Int64.tryParse(parts[2])) {
                     onAck(parts[1], n, if (parts.size >= 4) { UInt64.tryParse(parts[3]) } else { None<UInt64> })

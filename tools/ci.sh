@@ -166,6 +166,7 @@ cactor_examples.ex21_read_min_cap cactor_examples.ex22_grains_async
 cactor_examples.ex23_sharding_passivation cactor_examples.ex24_at_least_once
 cactor_examples.ex25_broadcast_hub cactor_examples.ex26_graceful_shutdown
 cactor_examples.ex27_streamref_pipeline
+cactor_examples.ex28_actor_selection
 "
 for ex in $EXAMPLES_SELF_CHECK; do
     CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1

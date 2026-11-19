@@ -1,5 +1,12 @@
 # CActor 公开 API 快照：modules/remote（tools/api_snapshot.py 生成，勿手改）
 # 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_remote :: ActorSelection.public func path(): String
+cactor_remote :: ActorSelection.public func resolveNames(timeout!: Duration = Duration.second * 2): Array<String>
+cactor_remote :: ActorSelection.public func resolveOne(timeout!: Duration = Duration.second * 2): RemoteActorRef
+cactor_remote :: ActorSelection.public func tell(message: Message): Unit
+cactor_remote :: ActorSelection.public func tell(message: Message, senderPath: Option<String>): Unit
+cactor_remote :: ActorSelection.public prop selectionPattern: String
+cactor_remote :: ActorSelection.public prop targetAddress: NetworkAddress
 cactor_remote :: PeerWireProfile.public func toString(): String
 cactor_remote :: PeerWireProfile.public init(address: String, uid: UInt64, protocolVersion: Int64, capabilities: UInt64, negotiated: Bool)
 cactor_remote :: PeerWireProfile.public let address: String
@@ -157,6 +164,7 @@ cactor_remote :: WireProtocolSettings.public let minPeerProtocolVersion: Int64
 cactor_remote :: WireProtocolSettings.public let protocolVersion: Int64
 cactor_remote :: WireProtocolSettings.public static func defaults(): WireProtocolSettings
 cactor_remote :: WireProtocolSettings.public static func legacyEmulation(): WireProtocolSettings
+cactor_remote :: extend SimpleRemoteManager.public func actorSelection(targetAddress: NetworkAddress, path: String): ActorSelection
 cactor_remote :: extend SimpleRemoteManager.public func ask(target: RemoteActorRef, message: Message, timeout: Duration): TypedPromise<Message>
 cactor_remote :: extend SimpleRemoteManager.public func configure(settings: RemotingSettings): Unit
 cactor_remote :: extend SimpleRemoteManager.public func configureWire(settings: WireProtocolSettings): Unit
@@ -186,6 +194,7 @@ cactor_remote :: extend SimpleRemoteManager.public func wireIncompatibleReceived
 cactor_remote :: extend SimpleRemoteManager.public func wireIncompatibleSent(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func wireProtocolRejected(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func wireSettings(): WireProtocolSettings
+cactor_remote :: public class ActorSelection
 cactor_remote :: public class ReliableEnvelope <: Message
 cactor_remote :: public class RemoteActorRef <: ActorRef
 cactor_remote :: public class RemoteAskCapacityException <: Exception
@@ -200,6 +209,7 @@ cactor_remote :: public class WireIncompatibleEvent <: ToString
 cactor_remote :: public enum WireDirection <: ToString
 cactor_remote :: public func encodeRemoteSender(address: NetworkAddress, name: String): String
 cactor_remote :: public func parseRemoteSender(text: String): Option<(NetworkAddress, String)>
+cactor_remote :: public func selectionGlobMatch(pattern: String, text: String): Bool
 cactor_remote :: public let REPLY_ENTRY_IDLE_TTL_MS: Int64
 cactor_remote :: public struct PeerWireProfile <: ToString
 cactor_remote :: public struct ReliableBudgetUsage
