@@ -15,3 +15,4 @@ modules/tests/src/unit/runtime/backpressure/backpressure_test.cj
 modules/tests/src/unit/runtime/stop_protocol/stop_protocol_test.cj
 modules/tests/src/unit/cluster/grains_test.cj
 modules/tests/src/unit/cluster/sharding_features_test.cj
+modules/tests/src/unit/patterns/backpressure_c2_test.cj

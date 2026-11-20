@@ -230,7 +230,9 @@
 ? :: SimpleUserActorRef.public func fullPath(): String
 ? :: SimpleUserActorRef.public func getName(): String
 ? :: SimpleUserActorRef.public func hashCode(): Int32
+? :: SimpleUserActorRef.public func isBusy(): Bool
 ? :: SimpleUserActorRef.public func isTerminated(): Bool
+? :: SimpleUserActorRef.public func mailboxBacklogSeconds(): Float64
 ? :: SimpleUserActorRef.public func pending(): Int64
 ? :: SimpleUserActorRef.public func pendingCount(): Int64
 ? :: SimpleUserActorRef.public func processed(): Int64

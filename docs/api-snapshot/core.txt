@@ -74,7 +74,9 @@ cactor_core.actor :: ActorPath.public func toString(): String
 cactor_core.actor :: ActorPath.public init(system: String, path: String)
 cactor_core.actor :: ActorRef.func equals(other: ActorRef): Bool
 cactor_core.actor :: ActorRef.func hashCode(): Int32
+cactor_core.actor :: ActorRef.func isBusy(): Bool
 cactor_core.actor :: ActorRef.func isTerminated(): Bool
+cactor_core.actor :: ActorRef.func mailboxBacklogSeconds(): Float64
 cactor_core.actor :: ActorRef.func pendingCount(): Int64
 cactor_core.actor :: ActorRef.func tell(message: Message): Unit
 cactor_core.actor :: ActorRef.func tell(message: Message, sender: ActorRef): Unit

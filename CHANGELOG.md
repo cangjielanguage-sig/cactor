@@ -7,6 +7,24 @@
 
 ## [未发布]
 
+### ✨ 新增：显式背压与负载自报（AR5：C2）
+
+- `ActorRef.isBusy()`：本地引用"正在处理"时为真；`ActorRef.mailboxBacklogSeconds()`：
+  最老一条待处理消息的等待秒数（`CellMailbox` 空→非空记时刻、排空清零）；
+- Prometheus 每 Actor `cactor_actor_mailbox_backlog_seconds`（积压可观测，不自动丢弃）；
+- `cactor_patterns.backpressure.BackpressuredRef<T>`：非阻塞 `offer` 返回
+  `OfferResult { Enqueued | Backpressured(inFlight, limit) | Closed }`，
+  在途到水位时消息不入队并带回容量；`whenWritable(timeout)` 供上游降速；不做隐式阻塞发送；
+- 测试 `BackpressureC2Test`：处理中 isBusy/积压时长上升与归零；慢消费者 5000 条、
+  水位 32、在途始终 ≤32、零丢弃、停止后 Closed。
+
+### ✨ 新增：集群优雅离开等待分片移交（AR5：C3）
+
+- `Cluster.installCoordinatedShutdown(waitForLeave!, shardings!)` 新增可选 `shardings`：
+  在 cluster-leave 阶段等本地托管实体清零（分片移交），预算超时只记日志、继续关闭；
+- 测试 `leaveWithShardingsCompletesWithinBudget`：3 节点 + 分片，关闭在预算内完成、
+  离开节点实体数为 0、幸存节点收敛为 2。
+
 ### ✨ 新增：可睡眠会话 `SleepableActor`（AR5：P2 / F1）
 
 空闲会话不再长期占一个 Actor。`cactor_platform/lifecycle` 提供：

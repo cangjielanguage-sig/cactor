@@ -1899,11 +1899,17 @@ public class Cluster {
     }
 
     /**
-     * 把优雅离开接入协调关闭（差距 4.1）：在 cluster-leave 阶段发送 leave 并等待本地状态离开 Up，
-     * 后续 actor-system-terminate 阶段才停止守护 Actor，其余节点因此看到 Leaving/Exiting 而不是直接不可达。
-     * 幂等；等待超过 waitForLeave 时只记日志，不阻塞关闭流程（与 Akka 的阶段超时语义一致）。
+     * 把优雅离开接入协调关闭（差距 4.1 / C3）：在 cluster-leave 阶段发送 leave、等待本地离开 Up，
+     * 并（可选）等待本地托管的实体移交出去；后续 actor-system-terminate 阶段才停止守护 Actor，
+     * 其余节点因此看到 Leaving/Exiting 而不是直接不可达。
+     *
+     * @param waitForLeave 两个等待（离开 Up + 分片移交）共用的总预算；超时只记日志、继续关闭
+     * @param shardings 本节点上需要等待移交的分片区域；空数组表示不等分片
+     *
+     * 幂等；等待超过预算时不阻塞关闭流程（与 Akka 的阶段超时语义一致）。
      */
-    public func installCoordinatedShutdown(waitForLeave!: Duration = Duration.second * 2): Unit {
+    public func installCoordinatedShutdown(waitForLeave!: Duration = Duration.second * 2,
+        shardings!: Array<ClusterSharding> = Array<ClusterSharding>()): Unit {
         if (!shutdownInstalled.compareAndSwap(false, true)) {
             return
         }
@@ -1914,6 +1920,19 @@ public class Cluster {
                 let deadline = MonoTime.now() + waitForLeave
                 while (isUp() && MonoTime.now() < deadline) {
                     sleep(Duration.millisecond * 10)
+                }
+                // C3：等本地托管的实体全部移交（离开后分片归属重算，旧节点上的实体停止）
+                if (shardings.size > 0 && MonoTime.now() < deadline) {
+                    while (MonoTime.now() < deadline) {
+                        var local: Int64 = 0
+                        for (s in shardings) {
+                            local += s.localEntityCount()
+                        }
+                        if (local == 0) {
+                            break
+                        }
+                        sleep(Duration.millisecond * 10)
+                    }
                 }
             } catch (e: Exception) {
                 // 已经离开或守护 Actor 已停止：关闭流程继续

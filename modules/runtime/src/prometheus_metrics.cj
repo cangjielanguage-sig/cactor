@@ -122,6 +122,12 @@ extend CActorRuntime {
                     w.sample(name, "system=\"${sys}\",path=\"${escapePrometheusLabel(c.path.getPath())}\"", f(c))
                 }
             }
+            // C2-a：最老一条待处理消息的等待秒数（积压告警用，不自动丢弃）
+            w.header("cactor_actor_mailbox_backlog_seconds", "gauge", "Per-actor oldest pending message age in seconds")
+            for (c in cells) {
+                w.sampleFloat("cactor_actor_mailbox_backlog_seconds",
+                    "system=\"${sys}\",path=\"${escapePrometheusLabel(c.path.getPath())}\"", c.mailboxBacklogSeconds())
+            }
         }
         w.sb.toString()
     }

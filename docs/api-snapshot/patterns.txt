@@ -88,6 +88,23 @@ cactor_patterns.ask :: public enum Result<T>
 cactor_patterns.ask :: public enum TypedResult<T>
 cactor_patterns.ask :: public struct Ask
 cactor_patterns.ask :: public struct AskStats
+cactor_patterns.backpressure :: BackpressuredRef.public func capacity(): Int64
+cactor_patterns.backpressure :: BackpressuredRef.public func inFlight(): Int64
+cactor_patterns.backpressure :: BackpressuredRef.public func offer(message: T): OfferResult
+cactor_patterns.backpressure :: BackpressuredRef.public func targetRef(): ActorRef
+cactor_patterns.backpressure :: BackpressuredRef.public func whenWritable(timeout: Duration): Bool
+cactor_patterns.backpressure :: BackpressuredRef.public init(target: ActorRef, limit!: Int64 = 1024)
+cactor_patterns.backpressure :: OfferResult.| Backpressured(Int64, Int64)
+cactor_patterns.backpressure :: OfferResult.| Closed
+cactor_patterns.backpressure :: OfferResult.| Enqueued
+cactor_patterns.backpressure :: extend OfferResult.public func inFlight(): Int64
+cactor_patterns.backpressure :: extend OfferResult.public func isBackpressured(): Bool
+cactor_patterns.backpressure :: extend OfferResult.public func isClosed(): Bool
+cactor_patterns.backpressure :: extend OfferResult.public func isEnqueued(): Bool
+cactor_patterns.backpressure :: extend OfferResult.public func limit(): Int64
+cactor_patterns.backpressure :: extend OfferResult.public func toString(): String
+cactor_patterns.backpressure :: public class BackpressuredRef<T>where T <: Message
+cactor_patterns.backpressure :: public enum OfferResult
 cactor_patterns.delivery :: AtLeastOnceDelivery.public func envelope(message: Message): DeliveryEnvelope
 cactor_patterns.delivery :: AtLeastOnceDelivery.public func nextDeliveryId(): String
 cactor_patterns.delivery :: AtLeastOnceDelivery.public func resend(target: RemoteActorRef, envelope: DeliveryEnvelope): Unit
