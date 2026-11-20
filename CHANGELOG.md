@@ -7,6 +7,22 @@
 
 ## [未发布]
 
+### ✨ 新增：Party / Matchmaker / 共享 KV（AR9：F2 / F3 / F6）
+
+- `cactor_platform/party`：`PartyHost` + `PartyMember`。成员表、加入幂等、上限明确拒绝
+  （`accepted=false, reason="party is full"`）、广播可排除发起者；主持人 = 最早加入的存活成员，
+  本地成员失联（DeathWatch）或显式离开后自动顺延。远程成员不做本地 watch（需显式 leave）。
+- `cactor_platform/matchmaker`：`Matchmaker` + `MatchTicket`。按 mode 分桶（不全表扫），
+  兼容条件为共同属性键取值相同（可选 `rankTolerance` 区间）；匹配与入队同锁完成，
+  同一张票不会匹配两次；TTL 到期由后台 50ms 清扫并返回 `Expired`。
+- `cactor_platform/kv`：`KvStore` 接口（get/getMajority/put/delete/keys/list/incr），
+  `DDataKvStore`（LWWMap 存值、PNCounter 计数、`ReadMajority` 读多数，副本不足抛
+  `KvReadConsistencyException`）与 `MemoryKvStore`（单节点）。
+- 测试：`PartyTest` 3/3、`PartySpanTest`（跨节点广播走真实 TCP）、`MatchmakerTest` 3/3
+  （含 200 票 8 线程并发恰好各匹配一次）、`KvStoreTest` 2/2、`DDataKvTest` 2/2。
+- **未做**：F5 版本化 socket 协议（帧长协商/GoAway/背压容量/租约到期）需要 2.0.0 线协议授权，
+  AR9 保持 🟡；F6 的 Sqlite 实现未引入（接外部 KV 实现同一接口即可）。
+
 ### ✨ 新增：Scoped 授权与 trace 跨节点传播（AR8：P6/G1 + P7/G2）
 
 **按 actor 授权（`cactor_platform/auth`）**

@@ -178,6 +178,29 @@ HTTP 协议（与框架无关，`DurableStreamProtocol` 只映射头）：
 类型：`cactor_platform.durable.DurableStreamRegistry`、`cactor_platform.durable.DurableStream`、
 `cactor_platform.durable.DurableStreamProtocol`。
 
+## 6.1 Party / Matchmaker / 共享 KV
+
+```cangjie
+// 多方会话：join 返回 accepted/reason，主持人 = 最早加入的存活成员
+let party = PartyHost.start(system, "room-1", maxMembers: 8)
+party.join(PartyMember.create("alice", "host", aliceRef))
+party.broadcast("hello", exceptMemberId: Some("alice"))
+
+// 匹配：同 mode + 共同属性不冲突；TTL 到期 Expired
+let maker = Matchmaker.create()
+let p = maker.submit(MatchTicket("t1", "duel", attrs), ttl: 5.seconds)
+
+// 共享 KV：DData 多主最终一致，过半读在副本不足时明确抛错
+let kv = DDataKvStore(replicator, namespace: "quota")
+kv.put("tenant:42", "100")
+let used = kv.incr("tenant:42:used", 1)
+```
+
+类型：`cactor_platform.party.PartyHost`、`cactor_platform.party.PartyMember`、
+`cactor_platform.matchmaker.Matchmaker`、`cactor_platform.matchmaker.MatchTicket`、
+`cactor_platform.kv.KvStore`、`cactor_platform.kv.DDataKvStore`、
+`cactor_platform.kv.MemoryKvStore`。
+
 ## 7. 一条完整的 pic 接入路径（AR11 目标）
 
 1. 启动时建 `ClusterSharding` + `SessionRegistry` + `SleepRegistry`；
