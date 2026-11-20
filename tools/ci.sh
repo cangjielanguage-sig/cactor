@@ -66,6 +66,10 @@ step "公开 API 快照检查（E51）"
 # 签名有未登记的变化即失败；有意修改时 python3 tools/api_snapshot.py --update 并在 CHANGELOG 记录
 python3 tools/api_snapshot.py
 
+step "Agent 接入文档一致性（G4）"
+# docs/agent-integration.md 里引用的公开类型必须出现在 API 快照中，防止文档随代码漂移
+python3 tools/check_agent_docs.py
+
 step "@Deprecated 完整性检查（E51：每个弃用都必须有 since 和移除版本）"
 python3 tools/check_deprecations.py
 

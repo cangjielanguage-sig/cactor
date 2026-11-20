@@ -7,6 +7,24 @@
 
 ## [未发布]
 
+### ✨ 新增：MCP server 与 Agent 接入文档（AR7：P5 / G4）
+
+`cactor_platform/mcp` 让 pic 这类已有 MCP client 的运行时把 CActor 里的 actor、实体、流当工具调用。
+只做协议与调度，工具 schema 与实现由使用方提供：
+
+- JSON-RPC 方法：`initialize`（协议版本 `2024-11-05` 与 tools 能力）、`notifications/initialized`
+  （通知返回 202，无响应体）、`ping`、`tools/list`、`tools/call`；
+- `McpServer.mount(path, provider)` 支持多个挂载点；`handle(path, body)` 是纯函数式单次处理，
+  `start(address, port)` 用 `stdx.net.http` 后台 serve，`port(0)` 时返回实际分配端口；
+- 错误映射显式：未知工具/`params` 非对象 → `-32602`；超时或 provider 抛异常 → `-32603`；
+  `McpToolBusinessException` → 正常 `result` 且 `content` 带 `isError: true`；
+  未知方法 `-32601`、坏 JSON `-32700`；
+- 工具 schema 由 `ToolDescriptor.inputSchemaJson` 提供；单个坏 schema 退化为空对象，不影响 `tools/list`；
+- 测试 `McpServerTest` 3/3：真实 stdx HTTP 客户端完成 initialize + tools/list（含 schema）、
+  tools/call 经 `AskInbox` 触发真实 Actor 并连续两次计数递增、五类错误映射；
+- G4：新增 `docs/agent-integration.md`（sessionId 寻址、睡/醒、受监督执行、MCP、Edge、Durable Streams、
+  pic 接入路径），`tools/check_agent_docs.py` 校验文中 23 个公开类型都在 API 快照里，已接入 `tools/ci.sh`。
+
 ### ✨ 新增：Edge 无状态接入层（AR6：P3 / F4）
 
 `cactor_platform/edge` 把"长连接"与"业务状态"分离：连接只落在 Edge 节点，会话状态留在

@@ -181,6 +181,40 @@ cactor_platform.lifecycle :: public abstract class SleepableActor <: Actor
 cactor_platform.lifecycle :: public class SleepRegistry
 cactor_platform.lifecycle :: public class SleepableHandle
 cactor_platform.lifecycle :: public enum SleepPolicy
+cactor_platform.mcp :: McpCallContext.public func expired(): Bool
+cactor_platform.mcp :: McpCallContext.public func remaining(): Duration
+cactor_platform.mcp :: McpCallContext.public init(toolName: String, timeout: Duration)
+cactor_platform.mcp :: McpCallContext.public prop toolName: String
+cactor_platform.mcp :: McpHttpResponse.public init(status: UInt16, body: String)
+cactor_platform.mcp :: McpHttpResponse.public let body: String
+cactor_platform.mcp :: McpHttpResponse.public let status: UInt16
+cactor_platform.mcp :: McpServer.public func handle(path: String, body: String): McpHttpResponse
+cactor_platform.mcp :: McpServer.public func mount(path: String, provider: McpToolProvider): McpServer
+cactor_platform.mcp :: McpServer.public func start(address!: String = "", port!: UInt16 = 0): RunningMcpServer
+cactor_platform.mcp :: McpServer.public init(serverName!: String = "", serverVersion!: String = "", defaultTimeout!: Duration = Duration.second * 30)
+cactor_platform.mcp :: McpToolBusinessException.public init(detail: String)
+cactor_platform.mcp :: McpToolBusinessException.public let detail: String
+cactor_platform.mcp :: McpToolProvider.func call(name: String, argsJson: String, ctx: McpCallContext): TypedPromise<String>
+cactor_platform.mcp :: McpToolProvider.func list(): Array<ToolDescriptor>
+cactor_platform.mcp :: RunningMcpServer.public func close(): Unit
+cactor_platform.mcp :: RunningMcpServer.public let port: UInt16
+cactor_platform.mcp :: ToolDescriptor.public init(name: String, description: String, inputSchemaJson: String)
+cactor_platform.mcp :: ToolDescriptor.public let description: String
+cactor_platform.mcp :: ToolDescriptor.public let inputSchemaJson: String
+cactor_platform.mcp :: ToolDescriptor.public let name: String
+cactor_platform.mcp :: public class McpCallContext
+cactor_platform.mcp :: public class McpServer
+cactor_platform.mcp :: public class McpToolBusinessException <: Exception
+cactor_platform.mcp :: public class RunningMcpServer
+cactor_platform.mcp :: public interface McpToolProvider
+cactor_platform.mcp :: public let MCP_INTERNAL_ERROR: Int64
+cactor_platform.mcp :: public let MCP_INVALID_PARAMS: Int64
+cactor_platform.mcp :: public let MCP_INVALID_REQUEST: Int64
+cactor_platform.mcp :: public let MCP_METHOD_NOT_FOUND: Int64
+cactor_platform.mcp :: public let MCP_PARSE_ERROR: Int64
+cactor_platform.mcp :: public let MCP_PROTOCOL_VERSION: String
+cactor_platform.mcp :: public struct McpHttpResponse
+cactor_platform.mcp :: public struct ToolDescriptor
 cactor_platform.session :: SessionRegistry.public func ask(sessionId: String, message: Message, timeout: Duration): TypedPromise<Message>
 cactor_platform.session :: SessionRegistry.public func localSessionCount(): Int64
 cactor_platform.session :: SessionRegistry.public func localSessionIds(): Array<String>

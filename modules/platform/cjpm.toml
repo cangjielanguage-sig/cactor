@@ -18,3 +18,17 @@ cactor_persistence = { path = "../persistence" }
 cactor_streams = { path = "../streams" }
 cactor_cluster = { path = "../cluster" }
 cactor = { path = "../cactor" }
+
+# 平台模块直接 import stdx（MCP server 用 net.http、协议用 encoding.json）：
+# 与 remote 一样，模块自身声明 stdx 静态库路径，脱离 workspace 单独构建时也能找到。
+[target.x86_64-unknown-linux-gnu.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.aarch64-unknown-linux-gnu.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.aarch64-apple-darwin.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]
+
+[target.x86_64-apple-darwin.bin-dependencies]
+  path-option = ["${CANGJIE_STDX_PATH}"]

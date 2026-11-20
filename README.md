@@ -412,7 +412,7 @@ cactor → streams / xstate / platform / testkit
 | cluster | `cactor_cluster` | 成员协议、分片、单例、服务发现与分布式数据 |
 | testkit | `cactor_testkit` | 运行时探针、同步行为测试与故障测试工具 |
 | xstate | `cactor_xstate` | 状态机 |
-| platform | `cactor_platform` | 平台原语：受监督执行（SupervisedCall）、可睡眠会话（SleepableActor）、按 sessionId 寻址（SessionRegistry）、持久流（DurableStreams）、无状态 Edge 接入（EdgeRouter） |
+| platform | `cactor_platform` | 平台原语：受监督执行（SupervisedCall）、可睡眠会话（SleepableActor）、按 sessionId 寻址（SessionRegistry）、持久流（DurableStreams）、无状态 Edge 接入（EdgeRouter）、MCP server（McpServer） |
 | tests | `cactor_tests` | 单元测试与集成测试 |
 | examples | `cactor_examples` | 示例程序 |
 
@@ -584,6 +584,7 @@ tools/publish.sh core runtime    # 只发布指定模块
 | [架构设计](docs/zh/architecture.md) | 分层设计与关键组件 |
 | [包与模块结构](docs/zh/package-structure.md) | 模块划分与依赖关系 |
 | [API 参考](docs/zh/api-reference.md) | 主要类型与接口 |
+| [Agent 接入](docs/agent-integration.md) | 面向 pic 等 agent 运行时：会话寻址、睡/醒、MCP server、Edge 与流 |
 | [性能调优指南](docs/zh/performance.md) | 编译优化、运行时参数、编写 Actor 的性能规则、如何测量 |
 | [文档索引](docs/zh/README.md) | 全部中文文档 |
 | [更新日志](CHANGELOG.md) | 版本变更记录 |
