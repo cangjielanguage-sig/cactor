@@ -410,6 +410,9 @@ class CellMailbox {
     // 已关闭：Actor 停止后不再接受新消息。判定在锁内与入队原子完成，
     // 否则"发送方刚检查完 terminated"与"Cell 排空邮箱"之间的窗口会让消息滞留（不投递也不计死信）
     private var closed: Bool = false
+    // C2-a：最老一条待处理消息的入队时刻（monoNanos，0 = 空）。
+    // 只在持锁时读写；不参与热路径（仅 isBusy/指标读取）
+    private var oldestNanosValue: Int64 = 0
     // 共享空数组哨兵（P1-13）：仓颉里 `Option<Array<T>>` 字段占 32 字节，
     // 而普通数组引用只占 8 字节。邮箱有 6 个这样的字段，全部改成"共享空数组 + size==0 判定"
     // 后每 Actor 省约 144 字节。哨兵只读：size==0 时一律换成新分配的真实数组后再写入。
@@ -492,6 +495,10 @@ class CellMailbox {
         try {
             if (closed) {
                 return false
+            }
+            // C2-a：从空变为非空时记下最老消息的入队时刻（dr 里还有消息时 oldest 已非 0，不覆盖）
+            if (inCount == 0 && oldestNanosValue == 0) {
+                oldestNanosValue = monoNanos()
             }
             if (inMessages.size == 0) {
                 // 首条消息（或上一批换回了空数组）：按初始容量分配
@@ -613,6 +620,7 @@ class CellMailbox {
     /** 仅由持有调度权的线程调用 */
     func poll(): Option<Message> {
         if (drIndex == drCount && !refill()) {
+            clearOldestIfEmpty()
             return None<Message>
         }
         // refill 成功后 drMessages 必然非空（inCount > 0）；sender 数组可能仍为空哨兵（无发送方）
@@ -687,8 +695,7 @@ class CellMailbox {
     }
 
     /** 近似计数（仅用于诊断，可从任意线程调用） */
-    func count(): Int64 {
-        let local = drCount - drIndex
+    func count(): Int64 {        let local = drCount - drIndex
         var incoming: Int64 = 0
         lockBox()
         try {
@@ -697,6 +704,32 @@ class CellMailbox {
             unlockBox()
         }
         incoming + (if (local > 0) { local } else { 0 })
+    }
+
+    /** 排空后清空最老时间；只在调用方已确认 refill 失败（无本地积压）时调用 */
+    private func clearOldestIfEmpty(): Unit {
+        lockBox()
+        try {
+            if (inCount == 0) {
+                oldestNanosValue = 0
+            }
+        } finally {
+            unlockBox()
+        }
+    }
+
+    /** C2-a：最老一条待处理消息已经等待的纳秒数；空邮箱为 0 */
+    func backlogNanos(): Int64 {
+        lockBox()
+        try {
+            if (oldestNanosValue == 0) {
+                return 0
+            }
+            let now = monoNanos()
+            if (now <= oldestNanosValue) { 0 } else { now - oldestNanosValue }
+        } finally {
+            unlockBox()
+        }
     }
 }
 
@@ -1291,6 +1324,20 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         pending()
     }
 
+    /** ActorRef.isBusy（C2-a）：正在处理（持有调度权）即视为忙 */
+    public func isBusy(): Bool {
+        (schedState.load() & SCHED_BIT) != 0
+    }
+
+    /** ActorRef.mailboxBacklogSeconds（C2-a）：最老一条待处理消息的等待秒数（优先级邮箱暂不统计） */
+    public func mailboxBacklogSeconds(): Float64 {
+        if (mailboxKind == MAILBOX_PRIORITY) {
+            0.0
+        } else {
+            Float64(mailbox.backlogNanos()) / 1000000000.0
+        }
+    }
+
     /** 被监督重启的次数 */
     public func restarts(): Int64 {
         match (mailbox.anomaliesIfAny()) {
@@ -1402,6 +1449,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
      * 那样该 Actor 再也不会被调度（不处理消息、不计死信，terminateAll 只能等到超时）。
      */
     func run(): Unit {
+        let startedAt = MonoTime.now()
         try {
             runLoop()
         } catch (e: Exception) {
@@ -1410,6 +1458,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             cellLog.error("Actor ${fullPath()} 消息循环发生 Error（已隔离，继续调度）: ${e}")
         } finally {
             releaseAndReschedule()
+            // A1b：按调度模式记录一次 run 的时长；只加在批边界，不按消息计
+            RunDurationMetrics.record(executor.mode(), (MonoTime.now() - startedAt).toNanoseconds())
         }
     }
 
@@ -2707,6 +2757,8 @@ interface CellExecutor {
     func executeAgain(cell: SimpleUserActorRef): Unit
     func nextAffinity(): Int64
     func throughput(): Int64
+    /** 调度模式名（Prometheus 直方图的 mode 标签）：default / blocking / thread-per-actor */
+    func mode(): String
 }
 
 /**
@@ -3097,8 +3149,10 @@ func envInt(name: String, defaultValue: Int64, minValue: Int64): Int64 {
  * 会阻塞的 Actor 应使用 Props.withDispatcher("blocking")。
  */
 public class ActorCellDispatcher <: CellExecutor {
-    private static let defaultInstance: ActorCellDispatcher = ActorCellDispatcher()
+    static let defaultInstance: ActorCellDispatcher = ActorCellDispatcher()
     private static let blockingInstance: BlockingCellExecutor = BlockingCellExecutor()
+    // A1：ThreadPerActor 调度器（每 Actor 一根专属轻量线程）；按需启动
+    private static let threadPerActorInstance: ThreadPerActorExecutor = ThreadPerActorExecutor()
 
     private let started: AtomicBool = AtomicBool(false)
     private let ready: AtomicBool = AtomicBool(false)
@@ -3129,6 +3183,7 @@ public class ActorCellDispatcher <: CellExecutor {
     static func forName(name: String): CellExecutor {
         match (name) {
             case "blocking" | "blocking-io" => blockingInstance
+            case "thread-per-actor" | "threadPerActor" | "thread-per-actor-io" => threadPerActorInstance
             case _ => defaultInstance
         }
     }
@@ -3139,6 +3194,10 @@ public class ActorCellDispatcher <: CellExecutor {
 
     public func throughput(): Int64 {
         throughputValue
+    }
+
+    public func mode(): String {
+        "default"
     }
 
     public func execute(cell: SimpleUserActorRef): Unit {
@@ -3378,6 +3437,25 @@ public class ActorCellDispatcher <: CellExecutor {
     public static func getBlockingWorkerCount(): Int64 {
         blockingInstance.workerCount()
     }
+
+    /** ThreadPerActor 调度器当前存活的专属线程数（A1） */
+    public static func getThreadPerActorThreadCount(): Int64 {
+        threadPerActorInstance.liveCount()
+    }
+
+    /** ThreadPerActor 调度器累计创建 / 回收的线程数（A1，用于验证空闲回收） */
+    public static func getThreadPerActorCreatedCount(): Int64 {
+        threadPerActorInstance.createdCount()
+    }
+
+    public static func getThreadPerActorReapedCount(): Int64 {
+        threadPerActorInstance.reapedCount()
+    }
+
+    /** 运行期调整 ThreadPerActor 的空闲回收阈值（毫秒，0 = 不回收）；测试与调优用 */
+    public static func setThreadPerActorIdleMillis(ms: Int64): Unit {
+        threadPerActorInstance.setIdleMillis(ms)
+    }
 }
 
 /**
@@ -3413,6 +3491,10 @@ class BlockingCellExecutor <: CellExecutor {
     public func throughput(): Int64 {
         // 阻塞型 Actor 每次只处理少量消息就让出，避免长时间独占线程
         8
+    }
+
+    public func mode(): String {
+        "blocking"
     }
 
     public func execute(cell: SimpleUserActorRef): Unit {
@@ -3498,5 +3580,288 @@ class BlockingCellExecutor <: CellExecutor {
     /** 当前工作线程数（含按需扩容的线程） */
     func workerCount(): Int64 {
         workers.load()
+    }
+}
+
+/**
+ * ThreadPerActor 调度器（A1）：每个 Cell 一根专属的仓颉轻量线程。
+ *
+ * 为什么可行：仓颉线程是用户态轻量线程（M:N，可抢占），阻塞时 native 线程会切去执行其他就绪线程
+ * （阻塞式 foreign 例外，见 docs/plan/20261117-actor.md §2.6）。因此 receive 里的 sleep / 同步 IO /
+ * LLM 等待只让该 Actor 自己的线程停下，不会像亲和池那样拖慢同一 worker 上的其他 Actor。
+ *
+ * 线程池语义：线程按 Cell 懒创建、在两次调度之间挂起等待，空闲超过
+ * CACTOR_THREAD_PER_ACTOR_IDLE_MS（默认 10s，0 = 不回收）后线程退出并从注册表移除；
+ * 下一条消息到达时重新创建。线程总数上限 CACTOR_THREAD_PER_ACTOR_MAX（默认 1024），
+ * 超过上限时回退到默认亲和池，保证任务不会被无声丢弃。
+ *
+ * 注册表用"开放寻址 + refEq"，键是 Cell 引用本身：不拼路径字符串，也不要求 ActorRef 实现 Equatable。
+ * 注册表只在调度切换点（每批消息一次）加锁，目标负载（阻塞调用）下这点开销可以忽略。
+ */
+class ThreadPerActorExecutor <: CellExecutor {
+    private let lock = Mutex()
+    private var keys: Array<Option<SimpleUserActorRef>> = Array<Option<SimpleUserActorRef>>(64, repeat: None<SimpleUserActorRef>)
+    private var slots: Array<Option<ThreadPerActorSlot>> = Array<Option<ThreadPerActorSlot>>(64, repeat: None<ThreadPerActorSlot>)
+    private var used: Int64 = 0
+    private let idleMillisValue: AtomicInt64 = AtomicInt64(envInt("CACTOR_THREAD_PER_ACTOR_IDLE_MS", 10000, 0))
+    private let maxThreads: Int64 = envInt("CACTOR_THREAD_PER_ACTOR_MAX", 1024, 1)
+    private let throughputValue: Int64 = envInt("CACTOR_THREAD_PER_ACTOR_THROUGHPUT", 64, 1)
+    private let live = AtomicInt64(0)
+    private let created = AtomicInt64(0)
+    private let reaped = AtomicInt64(0)
+
+    public func nextAffinity(): Int64 {
+        0
+    }
+
+    public func throughput(): Int64 {
+        throughputValue
+    }
+
+    public func mode(): String {
+        "thread-per-actor"
+    }
+
+    public func execute(cell: SimpleUserActorRef): Unit {
+        // 极少数情况下会在 slot 创建与 signal 之间被回收线程摘下：重试一次即可
+        var attempts = 0
+        while (attempts < 4) {
+            attempts++
+            match (slotFor(cell)) {
+                case Some(s) =>
+                    if (s.signal()) {
+                        return
+                    }
+                case None =>
+                    // 达到线程上限：回退到默认亲和池，任务仍然会被执行
+                    ActorCellDispatcher.defaultInstance.execute(cell)
+                    return
+            }
+        }
+        ActorCellDispatcher.defaultInstance.execute(cell)
+    }
+
+    public func executeAgain(cell: SimpleUserActorRef): Unit {
+        execute(cell)
+    }
+
+    func idleMillis(): Int64 {
+        idleMillisValue.load()
+    }
+
+    /** 运行期调整空闲回收阈值（0 = 不回收）；用于调优与测试，默认取 CACTOR_THREAD_PER_ACTOR_IDLE_MS */
+    func setIdleMillis(ms: Int64): Unit {
+        idleMillisValue.store(if (ms < 0) { 0 } else { ms })
+    }
+
+    func liveCount(): Int64 {
+        live.load()
+    }
+
+    func createdCount(): Int64 {
+        created.load()
+    }
+
+    func reapedCount(): Int64 {
+        reaped.load()
+    }
+
+    /** 当前 Cell 的专属线程槽；没有则创建线程并登记。达到上限时返回 None */
+    private func slotFor(cell: SimpleUserActorRef): Option<ThreadPerActorSlot> {
+        synchronized(lock) {
+            if (let Some(s) <- lookupLocked(cell)) {
+                return Some(s)
+            }
+            if (live.load() >= maxThreads) {
+                return None<ThreadPerActorSlot>
+            }
+            let s = ThreadPerActorSlot(this, cell)
+            insertLocked(cell, s)
+            live.fetchAdd(1)
+            created.fetchAdd(1)
+            // 子线程启动后先等 signal：slotFor 返回后再由调用方置 pending，
+            // 因此这里不需要把"已登记"与"已唤醒"做成一个原子步骤
+            spawn {
+                markActorThread()
+                s.loop()
+            }
+            Some(s)
+        }
+    }
+
+    /** 线程空闲到期后调用：确认确实没有待处理工作，再从注册表移除并允许线程退出 */
+    func tryReap(slot: ThreadPerActorSlot): Bool {
+        synchronized(lock) {
+            if (!slot.tryStop()) {
+                return false
+            }
+            removeLocked(slot.cell)
+        }
+        live.fetchAdd(-1)
+        reaped.fetchAdd(1)
+        true
+    }
+
+    private func indexOfLocked(cell: SimpleUserActorRef): Int64 {
+        let mask = keys.size - 1
+        var i = Int64(cell.hashCode()) & mask
+        while (true) {
+            match (keys[i]) {
+                case Some(k) =>
+                    if (refEq(k, cell)) {
+                        return i
+                    }
+                    i = (i + 1) & mask
+                case None => return -1
+            }
+        }
+        -1
+    }
+
+    private func lookupLocked(cell: SimpleUserActorRef): Option<ThreadPerActorSlot> {
+        let i = indexOfLocked(cell)
+        if (i < 0) {
+            None<ThreadPerActorSlot>
+        } else {
+            slots[i]
+        }
+    }
+
+    private func insertLocked(cell: SimpleUserActorRef, slot: ThreadPerActorSlot): Unit {
+        if ((used + 1) * 4 > keys.size) {
+            rehashLocked(keys.size * 2)
+        }
+        var i = Int64(cell.hashCode()) & (keys.size - 1)
+        while (keys[i].isSome()) {
+            i = (i + 1) & (keys.size - 1)
+        }
+        keys[i] = Some(cell)
+        slots[i] = Some(slot)
+        used++
+    }
+
+    private func removeLocked(cell: SimpleUserActorRef): Unit {
+        let i = indexOfLocked(cell)
+        if (i < 0) {
+            return
+        }
+        keys[i] = None<SimpleUserActorRef>
+        slots[i] = None<ThreadPerActorSlot>
+        used--
+        // 开放寻址不能留空洞：直接重建（回收很少发生，且表规模与活跃线程数同阶）
+        rehashLocked(keys.size)
+    }
+
+    private func rehashLocked(capacityHint: Int64): Unit {
+        let oldKeys = keys
+        let oldSlots = slots
+        var capacity: Int64 = 64
+        while (capacity < (used + 1) * 4) {
+            capacity *= 2
+        }
+        if (capacityHint > capacity) {
+            capacity = capacityHint
+        }
+        let newKeys = Array<Option<SimpleUserActorRef>>(capacity, repeat: None<SimpleUserActorRef>)
+        let newSlots = Array<Option<ThreadPerActorSlot>>(capacity, repeat: None<ThreadPerActorSlot>)
+        for (i in 0..oldKeys.size) {
+            match (oldKeys[i]) {
+                case Some(k) =>
+                    var j = Int64(k.hashCode()) & (capacity - 1)
+                    while (newKeys[j].isSome()) {
+                        j = (j + 1) & (capacity - 1)
+                    }
+                    newKeys[j] = Some(k)
+                    newSlots[j] = oldSlots[i]
+                case None => ()
+            }
+        }
+        keys = newKeys
+        slots = newSlots
+    }
+}
+
+/** ThreadPerActor 模式下每个 Cell 的运行槽：待运行标志 + 空闲等待 */
+class ThreadPerActorSlot {
+    let cell: SimpleUserActorRef
+    private let owner: ThreadPerActorExecutor
+    private let lock = Mutex()
+    private let cond: Condition
+    private var pending = false
+    private var stopped = false
+
+    init(owner: ThreadPerActorExecutor, cell: SimpleUserActorRef) {
+        this.owner = owner
+        this.cell = cell
+        this.cond = synchronized(lock) { lock.condition() }
+    }
+
+    /** 唤醒专属线程处理该 Cell；已被回收时返回 false，由调用方重建槽位 */
+    func signal(): Bool {
+        synchronized(lock) {
+            if (stopped) {
+                return false
+            }
+            pending = true
+            cond.notify()
+        }
+        true
+    }
+
+    /**
+     * 空闲到期时的退出检查：有待处理工作（pending）就拒绝退出。
+     * 与 signal 共用锁，保证"检查 pending + 置 stopped"是原子的。
+     */
+    func tryStop(): Bool {
+        synchronized(lock) {
+            if (pending) {
+                return false
+            }
+            stopped = true
+        }
+        true
+    }
+
+    func loop(): Unit {
+        while (true) {
+            var run = false
+            synchronized(lock) {
+                if (!pending) {
+                    let idleMs = owner.idleMillis()
+                    if (idleMs > 0) {
+                        let deadline = MonoTime.now() + Duration.millisecond * idleMs
+                        while (!pending) {
+                            let now = MonoTime.now()
+                            if (now >= deadline) {
+                                break
+                            }
+                            cond.wait(timeout: deadline - now)
+                        }
+                    } else {
+                        while (!pending) {
+                            cond.wait()
+                        }
+                    }
+                }
+                if (pending) {
+                    pending = false
+                    run = true
+                }
+            }
+            if (!run) {
+                // 空闲超时：从注册表移除后线程退出；若期间又来了消息（tryStop=false），继续循环
+                if (owner.tryReap(this)) {
+                    return
+                }
+                continue
+            }
+            try {
+                cell.run()
+            } catch (e: Exception) {
+                cellLog.error("ThreadPerActor 执行异常: ${e}")
+            } catch (e: Error) {
+                cellLog.error("ThreadPerActor 执行发生 Error: ${e}")
+            }
+        }
     }
 }

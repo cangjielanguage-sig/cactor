@@ -10,3 +10,5 @@ output-type = "static"
 [dependencies]
 cactor_foundation = { path = "../foundation" }
 cactor_core = { path = "../core" }
+cactor_remote = { path = "../remote" }
+cactor_persistence = { path = "../persistence" }

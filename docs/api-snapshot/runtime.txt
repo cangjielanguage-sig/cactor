@@ -2,13 +2,18 @@
 # 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
 ? :: ActorCellDispatcher.public func execute(cell: SimpleUserActorRef): Unit
 ? :: ActorCellDispatcher.public func executeAgain(cell: SimpleUserActorRef): Unit
+? :: ActorCellDispatcher.public func mode(): String
 ? :: ActorCellDispatcher.public func nextAffinity(): Int64
 ? :: ActorCellDispatcher.public func throughput(): Int64
 ? :: ActorCellDispatcher.public static func getBlockingWorkerCount(): Int64
 ? :: ActorCellDispatcher.public static func getExecutedCount(): Int64
 ? :: ActorCellDispatcher.public static func getQueuedCount(): Int64
+? :: ActorCellDispatcher.public static func getThreadPerActorCreatedCount(): Int64
+? :: ActorCellDispatcher.public static func getThreadPerActorReapedCount(): Int64
+? :: ActorCellDispatcher.public static func getThreadPerActorThreadCount(): Int64
 ? :: ActorCellDispatcher.public static func getWorkerCount(): Int64
 ? :: ActorCellDispatcher.public static func lastStarvationPath(): Option<String>
+? :: ActorCellDispatcher.public static func setThreadPerActorIdleMillis(ms: Int64): Unit
 ? :: ActorCellDispatcher.public static func starvationWarningCount(): Int64
 ? :: ActorFailureMessage.public func getFailure(): ActorFailure
 ? :: ActorFailureMessage.public func getPayload(): String
@@ -158,6 +163,10 @@
 ? :: RestartMessage.public func messageType(): String
 ? :: RestartMessage.public func priority(): Int32
 ? :: RestartMessage.public init(reason: Exception)
+? :: RunDurationMetrics.public static func prometheusText(): String
+? :: RunDurationMetrics.public static func record(mode: String, nanos: Int64): Unit
+? :: RunDurationMetrics.public static func runCount(mode: String): Int64
+? :: RunDurationMetrics.public static func totalNanos(mode: String): Int64
 ? :: RuntimeSystemGuardian.public func createSystemActor(props: Props<Actor>, name: String): ActorRef
 ? :: RuntimeSystemGuardian.public func createUserGuardian(): ActorRef
 ? :: RuntimeSystemGuardian.public func getSystemActor(name: String): Option<ActorRef>
@@ -167,6 +176,7 @@
 ? :: RuntimeSystemGuardian.public prop description: String
 ? :: RuntimeSystemGuardian.public prop name: String
 ? :: RuntimeUserGuardian.public func awaitTerminated(cell: SimpleUserActorRef, timeout: Duration): Bool
+? :: RuntimeUserGuardian.public func budgetRejectionCount(): Int64
 ? :: RuntimeUserGuardian.public func createUserActor(props: Props<Actor>, name: String): ActorRef
 ? :: RuntimeUserGuardian.public func deadLetterCount(): Int64
 ? :: RuntimeUserGuardian.public func defaultStrategy(): SupervisionStrategy
@@ -176,6 +186,7 @@
 ? :: RuntimeUserGuardian.public func liveCellCount(): Int64
 ? :: RuntimeUserGuardian.public func liveCells(): Array<SimpleUserActorRef>
 ? :: RuntimeUserGuardian.public func lookup(path: String): Option<ActorRef>
+? :: RuntimeUserGuardian.public func maxActors(): Int64
 ? :: RuntimeUserGuardian.public func publishDeadLetter(message: Message, path: String): Unit
 ? :: RuntimeUserGuardian.public func receive(message: Message, context: ActorContext): MessageResult
 ? :: RuntimeUserGuardian.public func removeUserActor(child: ActorRef): Bool
@@ -188,6 +199,7 @@
 ? :: RuntimeUserGuardian.public func unhandledCount(): Int64
 ? :: RuntimeUserGuardian.public init(system: ActorSystem)
 ? :: RuntimeUserGuardian.public init(system: ActorSystem, scheduler: ActorScheduler)
+? :: RuntimeUserGuardian.public init(system: ActorSystem, scheduler: ActorScheduler, maxActors: Int64)
 ? :: RuntimeUserGuardian.public prop description: String
 ? :: RuntimeUserGuardian.public prop name: String
 ? :: SimpleActorRegistry.public func clear(): Unit
@@ -272,9 +284,11 @@
 ? :: public struct CompactActorState
 ? :: public struct PoolStats
 ? :: public struct PooledContextStats
+? :: public struct RunDurationMetrics
 ? :: public struct SimpleContextActorPath <: ContextActorPath
 ? :: public struct StartMessage <: SystemMessage
 ? :: public struct StopMessage <: SystemMessage
+cactor_runtime :: CActorRuntime.public func actorBudgetUsage(): ActorBudgetUsage
 cactor_runtime :: CActorRuntime.public func actorOf(props: Props<Actor>): ActorRef
 cactor_runtime :: CActorRuntime.public func actorOf(props: Props<Actor>, name: String): ActorRef
 cactor_runtime :: CActorRuntime.public func deadLetterCount(): Int64
@@ -302,14 +316,19 @@ cactor_runtime :: CActorRuntime.public func stopActor(actorRef: ActorRef): Unit
 cactor_runtime :: CActorRuntime.public func subscribeDeadLetters(listener: (Message, String)->Unit): Unit
 cactor_runtime :: CActorRuntime.public func unhandledCount(): Int64
 cactor_runtime :: CActorRuntime.public init(systemName: String, config: CActorRuntimeConfig)
+cactor_runtime :: CActorRuntimeConfig.public func effectiveActorLimit(): Int64
 cactor_runtime :: CActorRuntimeConfig.public func getDescription(): String
+cactor_runtime :: CActorRuntimeConfig.public func withActorMemoryBudget(bytes: Int64): CActorRuntimeConfig
+cactor_runtime :: CActorRuntimeConfig.public func withMaxActors(n: Int64): CActorRuntimeConfig
 cactor_runtime :: CActorRuntimeConfig.public func withScheduler(scheduler: ActorScheduler): CActorRuntimeConfig
-cactor_runtime :: CActorRuntimeConfig.public init(mailboxConfig: MailboxConfig, dispatcherConfig: DispatcherConfig, highPerformanceConfig: HighPerformanceActorSystemConfig, enableMonitoring: Bool, enablePersistence: Bool, scheduler!: ActorScheduler = RealTimeScheduler.instance)
+cactor_runtime :: CActorRuntimeConfig.public init(mailboxConfig: MailboxConfig, dispatcherConfig: DispatcherConfig, highPerformanceConfig: HighPerformanceActorSystemConfig, enableMonitoring: Bool, enablePersistence: Bool, scheduler!: ActorScheduler = RealTimeScheduler.instance, maxActors!: Int64 = 0, actorMemoryBudgetBytes!: Int64 = 0)
+cactor_runtime :: CActorRuntimeConfig.public let actorMemoryBudgetBytes: Int64
 cactor_runtime :: CActorRuntimeConfig.public let dispatcherConfig: DispatcherConfig
 cactor_runtime :: CActorRuntimeConfig.public let enableMonitoring: Bool
 cactor_runtime :: CActorRuntimeConfig.public let enablePersistence: Bool
 cactor_runtime :: CActorRuntimeConfig.public let highPerformanceConfig: HighPerformanceActorSystemConfig
 cactor_runtime :: CActorRuntimeConfig.public let mailboxConfig: MailboxConfig
+cactor_runtime :: CActorRuntimeConfig.public let maxActors: Int64
 cactor_runtime :: CActorRuntimeConfig.public let scheduler: ActorScheduler
 cactor_runtime :: CActorRuntimeConfig.public static func createDefault(): CActorRuntimeConfig
 cactor_runtime :: CActorRuntimeConfig.public static func createExtreme(): CActorRuntimeConfig
@@ -327,8 +346,15 @@ cactor_runtime :: CActorRuntimeStats.public let systemGuardianStats: GuardianSta
 cactor_runtime :: CActorRuntimeStats.public let systemName: String
 cactor_runtime :: CActorRuntimeStats.public let uptime: Int64
 cactor_runtime :: CActorRuntimeStats.public let userGuardianStats: GuardianStats
+cactor_runtime :: DispatcherDiagnostics.public static func affinityWorkerCount(): Int64
 cactor_runtime :: DispatcherDiagnostics.public static func lastStarvationPath(): Option<String>
+cactor_runtime :: DispatcherDiagnostics.public static func runCount(mode: String): Int64
+cactor_runtime :: DispatcherDiagnostics.public static func runDurationPrometheus(): String
+cactor_runtime :: DispatcherDiagnostics.public static func setThreadPerActorIdleMillis(ms: Int64): Unit
 cactor_runtime :: DispatcherDiagnostics.public static func starvationWarnings(): Int64
+cactor_runtime :: DispatcherDiagnostics.public static func threadPerActorCreated(): Int64
+cactor_runtime :: DispatcherDiagnostics.public static func threadPerActorReaped(): Int64
+cactor_runtime :: DispatcherDiagnostics.public static func threadPerActorThreads(): Int64
 cactor_runtime :: RuntimeActorSystem.public func actorOf(props: Props<Actor>): ActorRef
 cactor_runtime :: RuntimeActorSystem.public func actorOf(props: Props<Actor>, name: String): ActorRef
 cactor_runtime :: RuntimeActorSystem.public func actorSelection(path: String): ActorSelection
@@ -347,6 +373,20 @@ cactor_runtime :: public let DEFAULT_MAX_ACTOR_SERIES: Int64
 cactor_runtime :: public struct CActorRuntimeConfig
 cactor_runtime :: public struct CActorRuntimeStats
 cactor_runtime :: public struct DispatcherDiagnostics
+cactor_runtime.budget :: ActorBudgetExceededException.public init(limit: Int64, liveActors: Int64)
+cactor_runtime.budget :: ActorBudgetExceededException.public let limit: Int64
+cactor_runtime.budget :: ActorBudgetExceededException.public let liveActors: Int64
+cactor_runtime.budget :: ActorBudgetUsage.public func isLimited(): Bool
+cactor_runtime.budget :: ActorBudgetUsage.public func remaining(): Int64
+cactor_runtime.budget :: ActorBudgetUsage.public init(liveActors: Int64, maxActors: Int64, memoryBudgetBytes: Int64, estimatedBytesPerActor: Int64, rejections: Int64)
+cactor_runtime.budget :: ActorBudgetUsage.public let estimatedBytesPerActor: Int64
+cactor_runtime.budget :: ActorBudgetUsage.public let liveActors: Int64
+cactor_runtime.budget :: ActorBudgetUsage.public let maxActors: Int64
+cactor_runtime.budget :: ActorBudgetUsage.public let memoryBudgetBytes: Int64
+cactor_runtime.budget :: ActorBudgetUsage.public let rejections: Int64
+cactor_runtime.budget :: public class ActorBudgetExceededException <: Exception
+cactor_runtime.budget :: public let ESTIMATED_BYTES_PER_ACTOR: Int64
+cactor_runtime.budget :: public struct ActorBudgetUsage
 cactor_runtime.lifecycle :: ActorLifecycleInfo.public init(actorRef: ActorRef, state: ActorLifecycleState, createdAt: Int64, lastStateChange: Int64, restartCount: Int32, failureReason: Option<Exception>)
 cactor_runtime.lifecycle :: ActorLifecycleInfo.public let actorRef: ActorRef
 cactor_runtime.lifecycle :: ActorLifecycleInfo.public let createdAt: Int64

@@ -23,6 +23,7 @@ import cactor_core.guardian.{GuardianStats}
 import cactor_core.config.{MailboxConfig, DispatcherConfig}
 import cactor_runtime.lifecycle.{ActorLifecycleManager, CoordinatedShutdown}
 import cactor_runtime.registry.{SimpleActorRegistry}
+import cactor_runtime.budget.{ActorBudgetUsage, ESTIMATED_BYTES_PER_ACTOR}
 import cactor_core.supervision.{SupervisionStrategy}
 // runtime 侧的 supervision / events / monitoring 三套已删除（E20′ B4c）：
 //   supervision.SupervisionManager —— 零消费者，core 的 Supervisor + SupervisionStrategy 是唯一监督实现；
@@ -83,9 +84,9 @@ public class CActorRuntime {
         this.actorRegistry = SimpleActorRegistry()
         this.lifecycleManager = ActorLifecycleManager()
 
-        // 创建Guardian Actors
+        // 创建Guardian Actors（用户 Guardian 承担全局 Actor 预算 C1）
         this.systemGuardian = RuntimeSystemGuardian(actorSystem)
-        this.userGuardian = RuntimeUserGuardian(actorSystem, config.scheduler)
+        this.userGuardian = RuntimeUserGuardian(actorSystem, config.scheduler, config.effectiveActorLimit())
 
         // 创建运行时组件
         this.runtimeMailboxFactory = RuntimeMailboxFactory(RuntimeMailboxConfig.createUnbounded())
@@ -222,6 +223,20 @@ public class CActorRuntime {
     /** 系统内累计的死信数 */
     public func deadLetterCount(): Int64 {
         userGuardian.deadLetterCount()
+    }
+
+    /**
+     * 全局 Actor 预算使用快照（C1）：存活数、上限、内存预算与拒绝次数。
+     * 未配置预算时 maxActors = 0，remaining() 返回 -1。
+     */
+    public func actorBudgetUsage(): ActorBudgetUsage {
+        ActorBudgetUsage(
+            userGuardian.liveCellCount(),
+            userGuardian.maxActors(),
+            config.actorMemoryBudgetBytes,
+            ESTIMATED_BYTES_PER_ACTOR,
+            userGuardian.budgetRejectionCount()
+        )
     }
 
     /**
@@ -451,6 +466,16 @@ public struct CActorRuntimeConfig {
     public let enableMonitoring: Bool
     public let enablePersistence: Bool
     /**
+     * 全局 Actor 数上限（C1）：按存活 Cell 计（含子 Actor），0 = 不限。
+     * 超限时 actorOf 抛 ActorBudgetExceededException，而不是等堆耗尽。
+     */
+    public let maxActors: Int64
+    /**
+     * 全局 Actor 内存预算（C1，字节）：按 ESTIMATED_BYTES_PER_ACTOR 换算成 Actor 数上限，
+     * 与 maxActors 取小；0 = 不限。
+     */
+    public let actorMemoryBudgetBytes: Int64
+    /**
      * 定时器 / 接收超时 / 退避重启 / Actor 内 ask 超时使用的调度器（E52）。
      * 默认真实时间；测试注入 cactor_testkit.ManualTime 后这些路径只随虚拟时间触发
      */
@@ -462,7 +487,9 @@ public struct CActorRuntimeConfig {
         highPerformanceConfig: HighPerformanceActorSystemConfig,
         enableMonitoring: Bool,
         enablePersistence: Bool,
-        scheduler!: ActorScheduler = RealTimeScheduler.instance
+        scheduler!: ActorScheduler = RealTimeScheduler.instance,
+        maxActors!: Int64 = 0,
+        actorMemoryBudgetBytes!: Int64 = 0
     ) {
         this.mailboxConfig = mailboxConfig
         this.dispatcherConfig = dispatcherConfig
@@ -470,12 +497,46 @@ public struct CActorRuntimeConfig {
         this.enableMonitoring = enableMonitoring
         this.enablePersistence = enablePersistence
         this.scheduler = scheduler
+        this.maxActors = if (maxActors < 0) { 0 } else { maxActors }
+        this.actorMemoryBudgetBytes = if (actorMemoryBudgetBytes < 0) { 0 } else { actorMemoryBudgetBytes }
     }
 
     /** 换用另一个调度器（其余配置不变） */
     public func withScheduler(scheduler: ActorScheduler): CActorRuntimeConfig {
         CActorRuntimeConfig(mailboxConfig, dispatcherConfig, highPerformanceConfig, enableMonitoring, enablePersistence,
-            scheduler: scheduler)
+            scheduler: scheduler, maxActors: maxActors, actorMemoryBudgetBytes: actorMemoryBudgetBytes)
+    }
+
+    /** 设置全局 Actor 数上限（C1）；0 = 不限 */
+    public func withMaxActors(n: Int64): CActorRuntimeConfig {
+        CActorRuntimeConfig(mailboxConfig, dispatcherConfig, highPerformanceConfig, enableMonitoring, enablePersistence,
+            scheduler: scheduler, maxActors: n, actorMemoryBudgetBytes: actorMemoryBudgetBytes)
+    }
+
+    /** 设置全局 Actor 内存预算（C1，字节）；0 = 不限。按每 Actor 估计字节数换算成 Actor 上限 */
+    public func withActorMemoryBudget(bytes: Int64): CActorRuntimeConfig {
+        CActorRuntimeConfig(mailboxConfig, dispatcherConfig, highPerformanceConfig, enableMonitoring, enablePersistence,
+            scheduler: scheduler, maxActors: maxActors, actorMemoryBudgetBytes: bytes)
+    }
+
+    /**
+     * 实际生效的 Actor 数上限：maxActors 与"内存预算 / 每 Actor 估计字节"取小；都为 0 时返回 0（不限）。
+     */
+    public func effectiveActorLimit(): Int64 {
+        var byMemory: Int64 = 0
+        if (actorMemoryBudgetBytes > 0) {
+            byMemory = actorMemoryBudgetBytes / ESTIMATED_BYTES_PER_ACTOR
+            if (byMemory < 1) {
+                byMemory = 1
+            }
+        }
+        if (maxActors > 0 && byMemory > 0) {
+            if (maxActors < byMemory) { maxActors } else { byMemory }
+        } else if (maxActors > 0) {
+            maxActors
+        } else {
+            byMemory
+        }
     }
 
     /**
@@ -582,7 +643,7 @@ public struct CActorRuntimeConfig {
     }
 
     public func getDescription(): String {
-        "CActorRuntimeConfig(monitoring=${enableMonitoring}, persistence=${enablePersistence})"
+        "CActorRuntimeConfig(monitoring=${enableMonitoring}, persistence=${enablePersistence}, maxActors=${maxActors}, actorMemoryBudgetBytes=${actorMemoryBudgetBytes})"
     }
 }
 

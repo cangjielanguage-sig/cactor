@@ -73,19 +73,23 @@ public class ClusterMetricsTest {
             rep.putInMap("config", "mode", "fast")
 
             let text = metrics.renderPrometheus()
-            @Expect(text.contains("cactor_cluster_members_up 2"), true)
-            @Expect(text.contains("cactor_cluster_members_total 2"), true)
-            @Expect(text.contains("cactor_cluster_converged 1"), true)
             @Expect(text.contains("cactor_cluster_shards_owned"), true)
             @Expect(text.contains("cactor_cluster_entities_local"), true)
             @Expect(text.contains("cactor_cluster_ddata_keys"), true)
             @Expect(text.contains("# TYPE cactor_cluster_members_up gauge"), true)
-
-            // 指标源与文本一致
-            @Expect(gaugeOf(metrics, "cactor_cluster_members_up"), 2.0)
-            @Expect(gaugeOf(metrics, "cactor_cluster_converged"), 1.0)
             @Expect(gaugeOf(metrics, "cactor_cluster_ddata_keys") >= 1.0, true)
             @Expect(gaugeOf(metrics, "cactor_cluster_entities_local"), Float64(regions[0].localEntityCount()))
+
+            // 负载高时可达性视图可能短暂去收敛：轮询到"同一次渲染里文本与注册表都满足"为止，
+            // 避免抓取瞬间恰好落在一次未收敛的快照上导致偶发失败
+            @Expect(awaitCondition(CLUSTER_WAIT, { =>
+                let t = metrics.renderPrometheus()
+                t.contains("cactor_cluster_members_up 2") &&
+                t.contains("cactor_cluster_members_total 2") &&
+                t.contains("cactor_cluster_converged 1") &&
+                Int64(gaugeOf(metrics, "cactor_cluster_members_up")) == 2 &&
+                Int64(gaugeOf(metrics, "cactor_cluster_converged")) == 1
+            }), true)
 
             // 隔离对端：quarantine 指标立即反映
             nodes[0].remote.quarantine(nodes[1].addr(), "metrics-test")

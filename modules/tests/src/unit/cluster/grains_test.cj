@@ -61,6 +61,56 @@ class CounterGrain <: Grain {
     }
 }
 
+/** 框架级状态存储：内存 map，记录写入次数 */
+class MapGrainStorage <: GrainStorage {
+    let lock = Mutex()
+    let values = HashMap<String, String>()
+    let writes = AtomicInt64(0)
+
+    private func key(kind: String, id: String): String {
+        "${kind}/${id}"
+    }
+
+    public func read(kind: String, id: String): Option<String> {
+        synchronized(lock) {
+            values.get(key(kind, id))
+        }
+    }
+
+    public func write(kind: String, id: String, state: String): Unit {
+        synchronized(lock) {
+            values[key(kind, id)] = state
+        }
+        writes.fetchAdd(1)
+    }
+
+    public func remove(kind: String, id: String): Unit {
+        synchronized(lock) {
+            values.remove(key(kind, id))
+        }
+    }
+}
+
+/** 只实现 encodeState/decodeState：读写由框架在激活/停用边界完成 */
+class StoredGrain <: Grain {
+    var count: Int64 = 0
+
+    public func onCall(request: Message, ctx: GrainContext): Message {
+        if ((request as StringMessage).getOrThrow().getContent() == "inc") {
+            count++
+        }
+        StringMessage("${count}")
+    }
+
+    public func encodeState(): Option<String> {
+        Some<String>("${count}")
+    }
+
+    public func decodeState(state: String): Unit {
+        count = Int64.parse(state)
+    }
+}
+
 func grainsOn(nodes: Array<CNode>, store: Option<DurableStateStore>, events: EventRecorder, idle: Duration): Array<Grains> {
     Array<Grains>(nodes.size, { i =>
         let n = nodes[i]
@@ -243,6 +293,27 @@ public class GrainsTest {
         @Expect(durable.stats()[0], 2)
         volatile.stop()
         durable.stop()
+        closeAll(nodes)
+    }
+
+    @TestCase
+    public func testGrainStoragePersistsAcrossDeactivation(): Unit {
+        let nodes = startCluster(1, "grain-storage", FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 1) }), true)
+        let storage = MapGrainStorage()
+        let n = nodes[0]
+        let grains = Grains(n.cluster, n.kit.system, n.remote, "stored", { _ => StoredGrain() },
+            Duration.millisecond * 200, storage: Some<GrainStorage>(storage))
+        @Expect(text(grains.call("x", StringMessage("inc"), Duration.second * 5)), "1")
+        @Expect(text(grains.call("x", StringMessage("inc"), Duration.second * 5)), "2")
+        // 空闲停用：框架调用 encodeState 写出，不需要业务自己 pass 存储
+        @Expect(awaitCondition(CLUSTER_WAIT, { => grains.stats()[1] == 1 }), true)
+        @Expect(storage.writes.load(), 1)
+        @Expect(storage.read("stored", "x"), Some<String>("2"))
+        // 重新激活：框架在 onActivate 前读回并 decodeState
+        @Expect(text(grains.call("x", StringMessage("inc"), Duration.second * 5)), "3")
+        @Expect(grains.stats()[0], 2)
+        grains.stop()
         closeAll(nodes)
     }
 

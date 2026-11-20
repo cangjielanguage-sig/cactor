@@ -227,6 +227,10 @@ cactor_cluster.membership :: Cluster.public func subscribe(callback: (ClusterEve
 cactor_cluster.membership :: Cluster.public init(system: CActorSystem, remote: SimpleRemoteManager, seeds: Array<NetworkAddress>, settings: ClusterSettings)
 cactor_cluster.membership :: Cluster.public let selfAddress: String
 cactor_cluster.membership :: Cluster.public let selfUid: UInt64
+cactor_cluster.membership :: ClusterClient.public func members(): Array<String>
+cactor_cluster.membership :: ClusterClient.public func ref(actorName: String): RemoteActorRef
+cactor_cluster.membership :: ClusterClient.public func tell(actorName: String, message: Message): Unit
+cactor_cluster.membership :: ClusterClient.public init(remote: SimpleRemoteManager, contacts: Array<NetworkAddress>, timeout!: Duration = Duration.second * 2)
 cactor_cluster.membership :: ClusterEvent.public func toString(): String
 cactor_cluster.membership :: ClusterEvent.| LeaderChanged(Option<String>)
 cactor_cluster.membership :: ClusterEvent.| MemberDowned(Member)
@@ -348,6 +352,8 @@ cactor_cluster.membership :: DowningStrategy.| NoDowning
 cactor_cluster.membership :: DowningStrategy.| StaticQuorum(Int64, Duration)
 cactor_cluster.membership :: FirstMemberAllocation.public func allocate(shard: Int64, members: Array<String>): Option<String>
 cactor_cluster.membership :: FirstMemberAllocation.public init()
+cactor_cluster.membership :: Grain.func decodeState(state: String): Unit
+cactor_cluster.membership :: Grain.func encodeState(): Option<String>
 cactor_cluster.membership :: Grain.func onActivate(ctx: GrainContext): Unit
 cactor_cluster.membership :: Grain.func onCall(request: Message, ctx: GrainContext): Message
 cactor_cluster.membership :: Grain.func onCallAsync(request: Message, ctx: GrainContext): TypedPromise<Message>
@@ -357,6 +363,9 @@ cactor_cluster.membership :: GrainCallException.public init(message: String)
 cactor_cluster.membership :: GrainContext.public let id: String
 cactor_cluster.membership :: GrainContext.public let kind: String
 cactor_cluster.membership :: GrainContext.public let node: String
+cactor_cluster.membership :: GrainStorage.func read(kind: String, id: String): Option<String>
+cactor_cluster.membership :: GrainStorage.func remove(kind: String, id: String): Unit
+cactor_cluster.membership :: GrainStorage.func write(kind: String, id: String, state: String): Unit
 cactor_cluster.membership :: GrainTimeoutException.public init(message: String)
 cactor_cluster.membership :: Grains.public func activeIds(): Array<String>
 cactor_cluster.membership :: Grains.public func call(id: String, request: Message, timeout: Duration): Message
@@ -365,8 +374,8 @@ cactor_cluster.membership :: Grains.public func ownerCount(): Int64
 cactor_cluster.membership :: Grains.public func stats(): (Int64, Int64, Int64, Int64)
 cactor_cluster.membership :: Grains.public func stop(): Unit
 cactor_cluster.membership :: Grains.public func tell(id: String, message: Message): Unit
-cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration)
-cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration, numberOfShards: Int64)
+cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration, numberOfShards: Int64, storage!: Option<GrainStorage>= None<GrainStorage>)
+cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration, storage!: Option<GrainStorage>= None<GrainStorage>)
 cactor_cluster.membership :: Grains.public let kind: String
 cactor_cluster.membership :: Member.public func isOlderThan(other: Member): Bool
 cactor_cluster.membership :: Member.public func toString(): String
@@ -488,6 +497,7 @@ cactor_cluster.membership :: ShardingSettings.public static func defaults(): Sha
 cactor_cluster.membership :: ShardingSettings.public static func passivating(idle: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public static func remembering(replicator: Replicator): ShardingSettings
 cactor_cluster.membership :: public class Cluster
+cactor_cluster.membership :: public class ClusterClient
 cactor_cluster.membership :: public class ClusterMetrics
 cactor_cluster.membership :: public class ClusterReceptionist
 cactor_cluster.membership :: public class ClusterReplicatorBinding
@@ -529,7 +539,9 @@ cactor_cluster.membership :: public func stableHash(s: String): UInt64
 cactor_cluster.membership :: public func uniqueAddressOf(address: String, uid: UInt64): String
 cactor_cluster.membership :: public interface DowningProvider
 cactor_cluster.membership :: public interface Grain
+cactor_cluster.membership :: public interface GrainStorage
 cactor_cluster.membership :: public interface ShardAllocationStrategy
+cactor_cluster.membership :: public let CLUSTER_CLIENT_QUERY: String
 cactor_cluster.membership :: public let CLUSTER_GOSSIP_VERSION: String
 cactor_cluster.membership :: public let SHARDING_HASH_VERSION: String
 cactor_cluster.membership :: public let SHARDING_PROTOCOL_VERSION: Int64

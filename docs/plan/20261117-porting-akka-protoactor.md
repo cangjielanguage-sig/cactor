@@ -43,7 +43,7 @@
 | akka-sample-cluster-metrics | 自适应负载均衡 | `ClusterRouter` + 应用负载回调（`LeastLoaded`）；分片再平衡为 `RebalancePolicy` | `ex31`、`ex02` | ✅ 应用层可实现 |
 | Akka Multi-DC | roles、data-center、ClusterClient | 无 | — | ❌ 差距 4.1/4.3 |
 | Akka HTTP 示例 | HTTP 路由 + ask | 由 **Lou** 承载（非 CActor 模块） | `ex06`/`07`/`08`/`09` | ✅ 组合方案 |
-| Akka Projection / CQRS | 事件流投影读模型 | 无内建 `Projection`；用 `replay` 手写（`projection` 泛指） | **`ex13`** | 🟡 可移植，需自己补（差距 4.12） |
+| Akka Projection / CQRS | 事件流投影读模型 + 持久化偏移 | `Projection`（`persistence/projection.cj`）：按 tag 取事件、偏移落盘、断点续跑、全量重建 | **`ex37`**（`ex13` 为手工版） | ✅ 已补（差距 4.12） |
 | akka-sample-cluster（work pull） | Receptionist 发现、任务分发、重试/死信 | `ClusterReceptionist` + 超时重排 | **`ex15`** | ✅（重排语义需应用自建） |
 | Akka Persistence schema evolution | 事件版本升级（upcast） | `EventAdapter.fromJournal(manifest, data)` 按 manifest 分派 | **`ex16`** | ✅ 应用层可实现；无框架级 upcast 链 |
 | protoactor remote / Akka DeathWatch | 远程 watch、Terminated、quarantine | `watchRemote`（被监视端需 `enableRemoteWatch`）、`quarantine` | **`ex17`** | ✅ |
@@ -210,7 +210,7 @@ spawn { app.listen() }
 | Multi-DC / roles / ClusterClient | 差距 4.1/4.3 | 跨机房、外部进程访问集群 | 先做 `20261117.md` C1–C2 |
 | 分片协调状态持久化 | 差距 4.4 | 全灭重启后分片重排 | 实体用 remember-entities + 事件溯源兜底 |
 | DData Map CRDT | 差距 4.6 | 分布式配置只能塞 `LWWRegister` | 用 `ORSet` 自拼或等 C4 |
-| Projection / Durable Subscriber | 差距 4.8/4.12 | 读模型、离线订阅重放 | 用 `journal_v2` 自行 replay（`ex13` 是完整手工示例） |
+| Projection / Durable Subscriber | 差距 4.8/4.12 | 读模型、离线订阅重放 | Projection 已内建（`ex37`）；Durable Subscriber 仍用 `journal_v2` 自行 replay（`ex13`/`ex18`） |
 | GraphDSL / BroadcastHub | 差距 4.8 | 多入多出流编排 | 线性算子 + `async`/`buffer` 组合（`ex12` 展示 SSE 管道与背压） |
 | trace 跨节点 / OTel | 差距 4.10 | 分布式排障只能看日志 | 先做指标统一（C6） |
 | 幂等 / at-least-once 高层 API | 差距 4.13 | 重复投递需自建去重表 | 用 `DurableStateStore` 做去重（`ex02`/`ex03` 已示范） |
@@ -260,6 +260,13 @@ spawn { app.listen() }
 | ex11 | Akka Routers / protoactor router | 8 条轮询 2/2/2/2；广播全覆盖；目标停止后自动摘除；动态加目标 |
 | ex12 | akka-sample-streams | SSE 20 条有序；`Source.queue` 满时明确 Dropped；async 边界不乱序 |
 | ex13 | Akka Projection / CQRS | 全量重建两次一致；增量只消费新事件；按 (id,seq) 幂等 |
+| ex37 | Akka Projection（持久化偏移） | 20 条事件投影一致；重复运行幂等；重开目录续跑；rebuild 重放 22 条 |
+| ex38 | Akka EventAdapter upcast | v1/v2/当前混合日志恢复 1100；冷重启不变；旧 manifest 原样保留 |
+| ex39 | Orleans IGrainStorage | 停用自动写、重激活自动读、进程重启续算；Lou 端点一致 |
+| ex40 | Akka at-least-once delivery（差距 4.13） | 同信封重发只扣一次；重启后去重仍生效；Lou /charge /charges /stats 一致 |
+| ex41 | Akka Distributed PubSub durable（差距 4.8） | 离线补齐、重启不重复、游标 8、SSE 历史后实时 |
+| ex42 | Akka multi-agent orchestration / durable workflow | 审批点崩溃续跑、工具幂等、预算失败、trace 根+步骤、SSE 事件 |
+| ex43 | Akka CircuitBreaker / API gateway | 配额 429、故障转移、断路器 open、计费幂等、SSE、Prometheus |
 | ex14 | Akka CircuitBreaker / protoactor middleware | 2 次失败后 Open；Open 不调用下游；半开恢复；退避重启后可用 |
 
 复现命令：
@@ -274,7 +281,12 @@ for e in ex01_agent_runtime ex02_tenant_orders ex03_event_backbone ex04_edge_con
          ex18_durable_pubsub ex19_cluster_router ex20_singleton_lease \
          ex21_read_min_cap ex22_grains_async ex23_sharding_passivation \
          ex24_at_least_once ex25_broadcast_hub ex26_graceful_shutdown \
-         ex27_streamref_pipeline; do
+         ex27_streamref_pipeline ex28_actor_selection ex29_custom_downing \
+         ex30_distributed_config ex31_cluster_router ex32_distributed_trace \
+         ex33_cluster_metrics ex34_shard_allocation ex35_otlp_export \
+         ex36_cluster_client ex37_projection ex38_schema_upcast \
+         ex39_grain_storage ex40_at_least_once ex41_durable_subscriber \
+         ex42_agent_swarm ex43_inference_gateway; do
   CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.$e || echo "FAIL: $e"
 done
 

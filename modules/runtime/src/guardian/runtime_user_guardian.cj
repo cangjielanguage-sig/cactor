@@ -18,6 +18,7 @@ import cactor_core.supervision.{SupervisionStrategy, DefaultSupervisionStrategy,
 import cactor_core.system.{ActorSystem}
 import cactor_core.typed.{TypedPayloadBox}
 import cactor_core.guardian.{GuardianType}
+import cactor_runtime.budget.{ActorBudgetExceededException}
 
 // gracefulStop 等待终止的分段长度：正常由终止方唤醒，分段只是兜底
 let TERMINATION_RECHECK: Duration = Duration.millisecond * 50
@@ -63,15 +64,25 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
 
     // 本系统全部 Cell 的定时器 / 接收超时 / 退避重启都经它安排（E52）；默认真实时间
     private let schedulerValue: ActorScheduler
+    // 全局 Actor 预算（C1）：存活 Cell 数上限（含子 Actor），0 = 不限
+    private let maxActorsValue: Int64
+    // 因预算被拒绝的创建次数（C1）
+    private let budgetRejections: AtomicInt64 = AtomicInt64(0)
+    private let budgetLog: LogRateLimiter = LogRateLimiter(envInt("CACTOR_LOG_BUDGET_REJECTIONS", 10, 0), Duration.minute * 5)
 
     public init(system: ActorSystem) {
-        this(system, RealTimeScheduler.instance)
+        this(system, RealTimeScheduler.instance, 0)
     }
 
     public init(system: ActorSystem, scheduler: ActorScheduler) {
+        this(system, scheduler, 0)
+    }
+
+    public init(system: ActorSystem, scheduler: ActorScheduler, maxActors: Int64) {
         super(GuardianType.User, None<ActorRef>)  // 用户Guardian通常没有父Guardian
         this.schedulerValue = scheduler
         this.actorSystem = system
+        this.maxActorsValue = if (maxActors < 0) { 0 } else { maxActors }
         this.userActors = HashMap<String, ActorRef>()
         // 与 Akka 经典 API 相同：默认不限次数重启（旧默认值一分钟 3 次后停止，长期运行的 Actor 会因偶发故障被永久停止）
         this.defaultSupervisionStrategy = DefaultSupervisionStrategy.restartAlways()
@@ -375,20 +386,51 @@ public class RuntimeUserGuardian <: BaseGuardianActor {
      * 顶层 Cell 则在这里按需拼一次用于登记全局路径表。
      */
     func createCell(props: Props<Actor>, name: String, parent: Option<SimpleUserActorRef>): SimpleUserActorRef {
-        let actor = props.create()
-        // preStart 改在 Cell 线程、onStarted 之前执行（E33）
-        let cell = SimpleUserActorRef(name, actor, props.creator(), this, parent, props)
-        // 置启动位并调度：保证 onStarted 先于任何用户消息执行（P1-17，替代 SysStarted 系统消息）
-        cell.scheduleStart()
-        if (parent.isSome()) {
+        // 先占预算名额再构造：并发创建时也严格不超过上限；构造失败则退回名额
+        reserveCellBudget()
+        try {
+            let actor = props.create()
+            // preStart 改在 Cell 线程、onStarted 之前执行（E33）
+            let cell = SimpleUserActorRef(name, actor, props.creator(), this, parent, props)
+            // 置启动位并调度：保证 onStarted 先于任何用户消息执行（P1-17，替代 SysStarted 系统消息）
+            cell.scheduleStart()
             // 子 Actor 不进全局路径表：百万级子 Actor 时每个表项（路径 String + 条目）约 150 字节，
-            // 且创建要串行过全局注册表；子 Actor 由父的 childMap 承载，lookup 按段遍历
-            liveCellTotal.fetchAdd(1)
-        } else {
-            // 顶层 Actor 已由 createUserActor 写入 userActors，这里无需再登记路径
-            liveCellTotal.fetchAdd(1)
+            // 且创建要串行过全局注册表；子 Actor 由父的 childMap 承载，lookup 按段遍历。
+            // 顶层 Actor 已由 createUserActor 写入 userActors，这里无需再登记路径。
+            cell
+        } catch (e: Exception) {
+            liveCellTotal.fetchAdd(-1)
+            throw e
+        } catch (e: Error) {
+            liveCellTotal.fetchAdd(-1)
+            throw e
         }
-        cell
+    }
+
+    /**
+     * 全局 Actor 预算（C1）：原子地占用一个存活名额，超限则拒绝。
+     * 存活计数在 createCell 开始时增加、Cell 终止时减少，因此"正在创建"的名额也被计入，
+     * 并发创建不会突破上限。
+     */
+    private func reserveCellBudget(): Unit {
+        let live = liveCellTotal.fetchAdd(1) + 1
+        if (maxActorsValue > 0 && live > maxActorsValue) {
+            liveCellTotal.fetchAdd(-1)
+            budgetRejections.fetchAdd(1)
+            budgetLog.tryLog({ s => log.warn(s) },
+                { => "Actor 预算已满（上限 ${maxActorsValue}），拒绝创建新 Actor；停止不用的 Actor 或调大 maxActors" })
+            throw ActorBudgetExceededException(maxActorsValue, live - 1)
+        }
+    }
+
+    /** 系统级 Actor 数上限（0 = 不限） */
+    public func maxActors(): Int64 {
+        maxActorsValue
+    }
+
+    /** 因预算被拒绝的创建次数（进程内累计） */
+    public func budgetRejectionCount(): Int64 {
+        budgetRejections.load()
     }
 
     /** 默认监督策略（父 Actor 未指定时使用）：OneForOne，异常时重启 */

@@ -58,6 +58,10 @@ cjpm build
 step "模块分层检查"
 python3 tools/check_module_deps.py
 
+step "消息处理方法中的阻塞调用扫描（A1b）"
+# 默认调度器上的 receive 里做 sleep / 同步 IO / foreign 会占住整个工作线程；命中即失败（误报走白名单）
+python3 tools/check_blocking_in_actor.py
+
 step "公开 API 快照检查（E51）"
 # 签名有未登记的变化即失败；有意修改时 python3 tools/api_snapshot.py --update 并在 CHANGELOG 记录
 python3 tools/api_snapshot.py
@@ -173,6 +177,15 @@ cactor_examples.ex31_cluster_router
 cactor_examples.ex32_distributed_trace
 cactor_examples.ex33_cluster_metrics
 cactor_examples.ex34_shard_allocation
+cactor_examples.ex35_otlp_export
+cactor_examples.ex36_cluster_client
+cactor_examples.ex37_projection
+cactor_examples.ex38_schema_upcast
+cactor_examples.ex39_grain_storage
+cactor_examples.ex40_at_least_once
+cactor_examples.ex41_durable_subscriber
+cactor_examples.ex42_agent_swarm
+cactor_examples.ex43_inference_gateway
 "
 for ex in $EXAMPLES_SELF_CHECK; do
     CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1

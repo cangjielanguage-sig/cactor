@@ -235,6 +235,8 @@ public class Tracer {
     private let finishedSpans: ArrayDeque<Span>
     private let maxFinishedSpans: Int64
     private var droppedSpans: Int64 = 0
+    // 可选批量导出器：默认 None（不导出，行为与之前一致）
+    private var exporter: Option<BatchSpanExporter> = None<BatchSpanExporter>
     private let mutex: Mutex
 
     public init(serviceName: String) {
@@ -286,13 +288,33 @@ public class Tracer {
      */
     public func finishSpan(span: Span): Unit {
         span.finish()
-        synchronized(mutex) {
+        let target = synchronized(mutex) {
             activeSpans.remove(span.spanId)
             finishedSpans.addLast(span)
             while (finishedSpans.size > maxFinishedSpans) {
                 finishedSpans.removeFirst()
                 droppedSpans++
             }
+            exporter
+        }
+        // 导出在锁外进行：下游再慢也不能占住 Tracer 的锁；失败由 BatchSpanExporter 吞掉
+        match (target) {
+            case Some(e) => e.enqueue(spanRecordOf(span, serviceName))
+            case None => ()
+        }
+    }
+
+    /** 安装批量导出器（默认不导出；同一个 Tracer 只保留最后一次安装的导出器） */
+    public func attachExporter(e: BatchSpanExporter): Unit {
+        synchronized(mutex) {
+            exporter = Some(e)
+        }
+    }
+
+    /** 移除导出器（之后只保留本地环形缓冲） */
+    public func detachExporter(): Unit {
+        synchronized(mutex) {
+            exporter = None<BatchSpanExporter>
         }
     }
 

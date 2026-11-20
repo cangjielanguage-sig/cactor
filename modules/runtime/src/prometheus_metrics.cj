@@ -12,7 +12,7 @@ package cactor_runtime
 
 import std.collection.*
 import std.sort.*
-import cactor_runtime.guardian.{ActorCellDispatcher, SimpleUserActorRef}
+import cactor_runtime.guardian.{ActorCellDispatcher, SimpleUserActorRef, RunDurationMetrics}
 
 /** 转义标签值中的反斜杠、双引号和换行 */
 public func escapePrometheusLabel(value: String): String {
@@ -44,6 +44,10 @@ class PrometheusWriter {
     func sample(name: String, labels: String, value: Int64): Unit {
         sb.append("${name}{${labels}} ${value}\n")
     }
+
+    func sampleFloat(name: String, labels: String, value: Float64): Unit {
+        sb.append("${name}{${labels}} ${value}\n")
+    }
 }
 
 /**
@@ -72,6 +76,11 @@ extend CActorRuntime {
         let sys = escapePrometheusLabel(getSystemName())
         let guardian = getUserGuardian()
         w.metric("cactor_actors_live", "gauge", "Number of live actors (including children)", guardian.liveCellCount())
+        // C1：全局 Actor 预算（0 = 不限）
+        let budget = actorBudgetUsage()
+        w.metric("cactor_actor_budget_limit", "gauge", "Configured global actor limit (0 = unlimited)", budget.maxActors)
+        w.metric("cactor_actor_budget_rejections_total", "counter", "Actor creations rejected by the global budget",
+            budget.rejections)
         w.metric("cactor_dead_letters_total", "counter", "Messages that could not be delivered", guardian.deadLetterCount())
         w.metric("cactor_dispatcher_threads", "gauge", "Worker threads of the default dispatcher", ActorCellDispatcher.getWorkerCount())
         w.metric("cactor_dispatcher_executions_total", "counter", "Actor runs executed by the default dispatcher", ActorCellDispatcher.getExecutedCount())
@@ -80,6 +89,14 @@ extend CActorRuntime {
             "Times a default-dispatcher worker was stuck in one actor run longer than CACTOR_STARVATION_WARN_MS",
             ActorCellDispatcher.starvationWarningCount())
         w.metric("cactor_blocking_dispatcher_threads", "gauge", "Worker threads of the blocking dispatcher", ActorCellDispatcher.getBlockingWorkerCount())
+        w.metric("cactor_thread_per_actor_threads", "gauge", "Live dedicated threads of the thread-per-actor dispatcher",
+            ActorCellDispatcher.getThreadPerActorThreadCount())
+        w.metric("cactor_thread_per_actor_threads_created_total", "counter", "Dedicated threads created by the thread-per-actor dispatcher",
+            ActorCellDispatcher.getThreadPerActorCreatedCount())
+        w.metric("cactor_thread_per_actor_threads_reaped_total", "counter", "Idle dedicated threads reaped by the thread-per-actor dispatcher",
+            ActorCellDispatcher.getThreadPerActorReapedCount())
+        // A1b：按调度模式的运行时长直方图（未产生运行的 mode 不输出）
+        w.sb.append(RunDurationMetrics.prometheusText())
         if (perActor) {
             let all = guardian.liveCells()
             let limit = if (maxActorSeries < 0) { 0 } else { maxActorSeries }

@@ -24,7 +24,7 @@ ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 SNAPSHOT_DIR = os.path.join(ROOT, 'docs', 'api-snapshot')
 # 库模块（发布到中心仓的那些）；tests / examples 不是公开 API
 MODULES = ['foundation', 'core', 'runtime', 'patterns', 'remote', 'persistence', 'cluster',
-           'streams', 'xstate', 'testkit', 'cactor', 'macros']
+           'streams', 'xstate', 'platform', 'testkit', 'cactor', 'macros']
 
 MODIFIERS = r'(?:public|open|abstract|sealed|static|mut|override|redef|operator|const|unsafe|foreign)'
 DECL_KW = r'(class|struct|enum|interface|func|prop|let|var|init|type|macro|main)'

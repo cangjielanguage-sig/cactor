@@ -88,6 +88,34 @@ cactor_patterns.ask :: public enum Result<T>
 cactor_patterns.ask :: public enum TypedResult<T>
 cactor_patterns.ask :: public struct Ask
 cactor_patterns.ask :: public struct AskStats
+cactor_patterns.delivery :: AtLeastOnceDelivery.public func envelope(message: Message): DeliveryEnvelope
+cactor_patterns.delivery :: AtLeastOnceDelivery.public func nextDeliveryId(): String
+cactor_patterns.delivery :: AtLeastOnceDelivery.public func resend(target: RemoteActorRef, envelope: DeliveryEnvelope): Unit
+cactor_patterns.delivery :: AtLeastOnceDelivery.public func tell(target: RemoteActorRef, message: Message): String
+cactor_patterns.delivery :: AtLeastOnceDelivery.public func tell(target: RemoteActorRef, message: Message, sender: ActorRef): String
+cactor_patterns.delivery :: AtLeastOnceDelivery.public init(remote: SimpleRemoteManager, instanceId!: String = "")
+cactor_patterns.delivery :: DeliveryEnvelope.public func messageType(): String
+cactor_patterns.delivery :: DeliveryEnvelope.public init(deliveryId: String, payload: Message)
+cactor_patterns.delivery :: DeliveryEnvelope.public let deliveryId: String
+cactor_patterns.delivery :: DeliveryEnvelope.public let payload: Message
+cactor_patterns.delivery :: DeliveryIdStore.func contains(deliveryId: String): Bool
+cactor_patterns.delivery :: DeliveryIdStore.func mark(deliveryId: String): Unit
+cactor_patterns.delivery :: DurableDeliveryIdStore.public func contains(deliveryId: String): Bool
+cactor_patterns.delivery :: DurableDeliveryIdStore.public func mark(deliveryId: String): Unit
+cactor_patterns.delivery :: DurableDeliveryIdStore.public init(store: DurableStateStore, prefix!: String = "")
+cactor_patterns.delivery :: IdempotentReceiver.public func handle(envelope: DeliveryEnvelope, handler: (Message)->Unit): Bool
+cactor_patterns.delivery :: IdempotentReceiver.public func stats(): (Int64, Int64)
+cactor_patterns.delivery :: IdempotentReceiver.public init(store: DeliveryIdStore)
+cactor_patterns.delivery :: MemoryDeliveryIdStore.public func contains(deliveryId: String): Bool
+cactor_patterns.delivery :: MemoryDeliveryIdStore.public func mark(deliveryId: String): Unit
+cactor_patterns.delivery :: MemoryDeliveryIdStore.public func size(): Int64
+cactor_patterns.delivery :: public class AtLeastOnceDelivery
+cactor_patterns.delivery :: public class DeliveryEnvelope <: Message
+cactor_patterns.delivery :: public class DurableDeliveryIdStore <: DeliveryIdStore
+cactor_patterns.delivery :: public class IdempotentReceiver
+cactor_patterns.delivery :: public class MemoryDeliveryIdStore <: DeliveryIdStore
+cactor_patterns.delivery :: public interface DeliveryIdStore
+cactor_patterns.delivery :: public let DELIVERY_ENVELOPE_TYPE: String
 cactor_patterns.routing :: AddRoutee.public func messageType(): String
 cactor_patterns.routing :: AddRoutee.public init(routee: ActorRef)
 cactor_patterns.routing :: AddRoutee.public let routee: ActorRef

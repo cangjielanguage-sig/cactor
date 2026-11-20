@@ -7,7 +7,8 @@
  * - 回合制：同一个 Grain 的调用逐个执行，不需要锁；
  * - 空闲停用：空闲超过 idleTimeout 后停用（onDeactivate），下次调用重新激活（onActivate）；
  * - 故障后自动重新激活：所在节点宕机并被移出集群后，下一次调用在其他节点上激活；
- *   需要保留的状态由 Grain 自己保存（例如 DurableStateStore），在 onActivate 中读取；
+ *   需要保留的状态可配置 `GrainStorage`（框架在激活/停用边界自动读/写，对标 Orleans IGrainStorage），
+ *   或由 Grain 自己在 onActivate 中读取（例如 DurableStateStore）；
  * - 异常传回调用方（GrainCallException），Grain 本身继续可用（与 Orleans 相同）；
  * - 每次调用带超时（GrainTimeoutException）；超时后到达的应答被丢弃。
  * - 异步（E12′，N13）：callAsync 返回 Promise、不占线程；call 在它上面阻塞等待，只能在 Actor 之外调用
@@ -77,6 +78,29 @@ public interface Grain {
 
     /** 停用（空闲超时、移交或节点离开） */
     func onDeactivate(ctx: GrainContext): Unit {}
+
+    /**
+     * 自动持久化（对标 Orleans IGrainStorage）：配置了 GrainStorage 时，框架在 onActivate 前读回状态并调用
+     * decodeState，在 onDeactivate 后调用 encodeState 写出。默认 None = 不持久化（行为与之前一致）。
+     */
+    func encodeState(): Option<String> {
+        None<String>
+    }
+
+    /** 从存储读回的状态恢复；只在配置了 GrainStorage 且读到状态时调用 */
+    func decodeState(state: String): Unit {}
+}
+
+/**
+ * Grain 状态存储（对标 Orleans IGrainStorage）：read/write/remove 均为纯存储操作，
+ * 由框架在激活/停用边界调用，业务不必再手写读写样板。
+ */
+public interface GrainStorage {
+    func read(kind: String, id: String): Option<String>
+
+    func write(kind: String, id: String, state: String): Unit
+
+    func remove(kind: String, id: String): Unit
 }
 
 public class GrainCallException <: Exception {
@@ -235,24 +259,32 @@ class GrainHost <: Actor {
     let local: (GrainReply) -> Unit
     // 本节点的应答地址（"地址#uid"）：调用方就是本进程时直接交给本地的等待表
     let localEndpoint: String
+    // 可选状态存储：激活前读、停用后写（None 时保持"业务自己管理状态"的原行为）
+    let storage: Option<GrainStorage>
     // 结果未完成的异步调用数；不可重入时 > 0 期间后续调用进 waiting
     var inFlight: Int64 = 0
     let waiting = ArrayDeque<GrainCall>()
 
     init(ctx: GrainContext, grain: Grain, remote: SimpleRemoteManager, stats: GrainStats, local: (GrainReply) -> Unit,
-        localEndpoint: String) {
+        localEndpoint: String, storage: Option<GrainStorage>) {
         this.ctx = ctx
         this.grain = grain
         this.remote = remote
         this.stats = stats
         this.local = local
         this.localEndpoint = localEndpoint
+        this.storage = storage
     }
 
     public prop name: String { get() { "grain" } }
     public prop description: String { get() { "grain ${ctx.kind}/${ctx.id}" } }
 
     public func preStart(): Unit {
+        if (let Some(st) <- storage) {
+            if (let Some(s) <- st.read(ctx.kind, ctx.id)) {
+                grain.decodeState(s)
+            }
+        }
         grain.onActivate(ctx)
         synchronized(stats.lock) {
             stats.activations++
@@ -263,6 +295,16 @@ class GrainHost <: Actor {
         try {
             grain.onDeactivate(ctx)
         } finally {
+            if (let Some(st) <- storage) {
+                try {
+                    match (grain.encodeState()) {
+                        case Some(s) => st.write(ctx.kind, ctx.id, s)
+                        case None => ()
+                    }
+                } catch (_: Exception) {
+                    // 停用路径上的写失败不能反过来阻止释放实体；下次激活会重新读到旧版本
+                }
+            }
             synchronized(stats.lock) {
                 stats.deactivations++
             }
@@ -380,12 +422,18 @@ public class Grains {
     private let log = Logging.logger("cactor.cluster.grains")
 
     public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String,
-        factory: (String) -> Grain, idleTimeout: Duration) {
-        this(cluster, system, remote, kind, factory, idleTimeout, 64)
+        factory: (String) -> Grain, idleTimeout: Duration,
+        storage!: Option<GrainStorage> = None<GrainStorage>) {
+        this(cluster, system, remote, kind, factory, idleTimeout, 64, storage: storage)
     }
 
+    /**
+     * @param storage 可选的状态存储：配置后框架在激活前读回、停用后写出（Grain 实现 encodeState/decodeState）；
+     *                不配置时行为与之前完全一致（状态由业务在 onActivate/onDeactivate 自己管理）。
+     */
     public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String,
-        factory: (String) -> Grain, idleTimeout: Duration, numberOfShards: Int64) {
+        factory: (String) -> Grain, idleTimeout: Duration, numberOfShards: Int64,
+        storage!: Option<GrainStorage> = None<GrainStorage>) {
         MessageCodecRegistry.register("cactor.GrainCall", GrainCallCodec())
         MessageCodecRegistry.register("cactor.GrainReply", GrainReplyCodec())
         this.kind = kind
@@ -398,7 +446,7 @@ public class Grains {
         let rt = router
         let deliver = { r: GrainReply => rt.onReply(r) }
         this.sharding = ClusterSharding(cluster, system, remote, "grain-${kind}", numberOfShards,
-            { id => GrainHost(GrainContext(kind, id, node), factory(id), remote, st, deliver, ep) },
+            { id => GrainHost(GrainContext(kind, id, node), factory(id), remote, st, deliver, ep, storage) },
             // 关闭按负载的自动再平衡：Grain 的激活是**有状态**的（非持久化 Grain 的内存状态随激活走），
             // 因为负载差异把它搬到别的节点等于静默丢掉状态，还违反"同一标识固定宿主"的语义；
             // 分布本身由 rendezvous 哈希保证，激活的迁移只发生在节点离开/宕机时。

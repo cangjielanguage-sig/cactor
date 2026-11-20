@@ -12,6 +12,7 @@ import cactor_core.typed.{TypedBehavior, TypedBehaviors, TypedActorRef, TypedAct
 import std.sync.{Mutex}
 import cactor_runtime.wrappers.{TypedActorRefWrapper, MessageBridge}
 import cactor_runtime.{CActorRuntime, CActorRuntimeConfig}
+import cactor_runtime.budget.{ActorBudgetUsage}
 import cactor_runtime.typed.{TypedActorSystemImpl}
 import std.time.*
 import cactor_core.message.{Message}
@@ -124,6 +125,11 @@ public class CActorSystem {
     /** 系统调度器（E52）：定时器、接收超时、退避重启、Actor 内 ask 超时都经它安排 */
     public func scheduler(): ActorScheduler {
         runtime.scheduler()
+    }
+
+    /** 全局 Actor 预算使用快照（C1）：存活数、上限与拒绝次数 */
+    public func actorBudgetUsage(): ActorBudgetUsage {
+        runtime.actorBudgetUsage()
     }
 
     /**

@@ -119,6 +119,16 @@ cactor_persistence :: DurableStateStore.func get(persistenceId: String): Option<
 cactor_persistence :: DurableStateStore.func persistenceIds(): Array<String>
 cactor_persistence :: DurableStateStore.func revisionOf(persistenceId: String): Int64
 cactor_persistence :: DurableStateStore.func upsert(persistenceId: String, revision: Int64, state: String): Unit
+cactor_persistence :: DurableSubscription.public func isActive(): Bool
+cactor_persistence :: DurableSubscription.public func unsubscribe(): Unit
+cactor_persistence :: DurableSubscription.public prop subscriptionName: String
+cactor_persistence :: DurableTopic.public func highestSequenceNr(): Int64
+cactor_persistence :: DurableTopic.public func history(fromSeq: Int64): Array<(Int64, String)>
+cactor_persistence :: DurableTopic.public func offsetOf(name: String, offsets: DurableStateStore): Int64
+cactor_persistence :: DurableTopic.public func publish(payload: String): Int64
+cactor_persistence :: DurableTopic.public func subscribe(name: String, offsets: DurableStateStore, handler: (Int64, String)->Unit, fromSeq!: Int64 = 0): DurableSubscription
+cactor_persistence :: DurableTopic.public init(topic: String, store: DurableStateStore, retention!: Int64 = 0)
+cactor_persistence :: DurableTopic.public prop topicName: String
 cactor_persistence :: EnhancedEventStore.func deleteEventStream(persistenceId: String, toSequenceNr: Int64): Future<Unit>
 cactor_persistence :: EnhancedEventStore.func getHighestSequenceNr(persistenceId: String): Future<Int64>
 cactor_persistence :: EnhancedEventStore.func loadEventStream(persistenceId: String, fromSequenceNr: Int64, toSequenceNr: Int64): Future<Array<PersistentEvent>>
@@ -352,6 +362,11 @@ cactor_persistence :: PersistentEvent.public let payload: EventPayload
 cactor_persistence :: PersistentEvent.public let persistenceId: String
 cactor_persistence :: PersistentEvent.public let sequenceNr: Int64
 cactor_persistence :: PersistentEvent.public let timestamp: DateTime
+cactor_persistence :: Projection.public func offsetOf(persistenceId: String): Int64
+cactor_persistence :: Projection.public func reset(): Unit
+cactor_persistence :: Projection.public func runOnce(tag: String): Int64
+cactor_persistence :: Projection.public init(name: String, journal: ReadJournal, offsetStore: DurableStateStore, apply: (EventEnvelope)->Unit)
+cactor_persistence :: Projection.public prop projectionName: String
 cactor_persistence :: Query.func getParameters(): HashMap<String, String>
 cactor_persistence :: Query.func getQueryId(): String
 cactor_persistence :: Query.func getQueryType(): String
@@ -430,6 +445,8 @@ cactor_persistence :: public class CounterIncrementedEvent <: EventPayload
 cactor_persistence :: public class DefaultPersistencePlugin <: PersistencePlugin
 cactor_persistence :: public class DurableStateConflictException <: Exception
 cactor_persistence :: public class DurableStateRecord
+cactor_persistence :: public class DurableSubscription
+cactor_persistence :: public class DurableTopic
 cactor_persistence :: public class EventEnvelope
 cactor_persistence :: public class EventHandlerException <: PersistenceException
 cactor_persistence :: public class EventStoreFactory
@@ -458,6 +475,7 @@ cactor_persistence :: public class PersistencePlugins
 cactor_persistence :: public class PersistentActorFactory
 cactor_persistence :: public class PersistentActorManager
 cactor_persistence :: public class PersistentCounterActor <: PersistentActor
+cactor_persistence :: public class Projection
 cactor_persistence :: public class QuerySubscription
 cactor_persistence :: public class ReadJournal
 cactor_persistence :: public class RecoveryCompleteMessage <: Message
@@ -551,6 +569,7 @@ cactor_persistence.typed :: EventAdapter.func fromJournal(manifest: String, data
 cactor_persistence.typed :: EventAdapter.func manifest(event: E): String
 cactor_persistence.typed :: EventAdapter.func tags(event: E): Array<String>
 cactor_persistence.typed :: EventAdapter.func toJournal(event: E): String
+cactor_persistence.typed :: EventAdapter.func upcast(manifest: String, data: String): (String, String)
 cactor_persistence.typed :: EventSourcedBehavior.public func behavior(): TypedBehavior<C>
 cactor_persistence.typed :: EventSourcedBehavior.public func receiveSignal(handler: (S, TypedSignal)->Unit): EventSourcedBehavior<C, E, S>
 cactor_persistence.typed :: EventSourcedBehavior.public func snapshotWhen(predicate: (S, E, Int64)->Bool): EventSourcedBehavior<C, E, S>
@@ -563,7 +582,8 @@ cactor_persistence.typed :: FunctionEventAdapter.public func fromJournal(manifes
 cactor_persistence.typed :: FunctionEventAdapter.public func manifest(event: E): String
 cactor_persistence.typed :: FunctionEventAdapter.public func tags(event: E): Array<String>
 cactor_persistence.typed :: FunctionEventAdapter.public func toJournal(event: E): String
-cactor_persistence.typed :: FunctionEventAdapter.public init(manifest!: (E)->String, toJournal!: (E)->String, fromJournal!: (String, String)->E, tags!: (E)->Array<String>= { _ =>Array<String>()})
+cactor_persistence.typed :: FunctionEventAdapter.public func upcast(manifest: String, data: String): (String, String)
+cactor_persistence.typed :: FunctionEventAdapter.public init(manifest!: (E)->String, toJournal!: (E)->String, fromJournal!: (String, String)->E, tags!: (E)->Array<String>= { _ =>Array<String>()}, upcast!: (String, String)->(String, String)= { m, d =>(m, d)})
 cactor_persistence.typed :: FunctionStateCodec.public func decode(data: String): S
 cactor_persistence.typed :: FunctionStateCodec.public func encode(state: S): String
 cactor_persistence.typed :: FunctionStateCodec.public init(encode!: (S)->String, decode!: (String)->S)

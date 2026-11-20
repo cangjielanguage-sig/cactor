@@ -60,6 +60,15 @@ public interface EventAdapter<E> {
     /** 从日志读回 0..n 个事件；数据无法解析时抛异常（恢复失败，Actor 停止，不会带着错误状态继续运行） */
     func fromJournal(manifest: String, data: String): Array<E>
 
+    /**
+     * schema 演进（对标 Akka EventAdapter 的 upcast）：把旧 manifest/data 升级成当前格式。
+     * 恢复时先 upcast 再 fromJournal，因此 fromJournal 只需处理最新格式。
+     * 默认原样返回；多级演进由实现链式调用（v1 → v2 → v3）完成。
+     */
+    func upcast(manifest: String, data: String): (String, String) {
+        (manifest, data)
+    }
+
     /** 事件的标签（ReadJournal.currentEventsByTag 按它查询），默认没有 */
     func tags(event: E): Array<String> {
         Array<String>()
@@ -72,13 +81,16 @@ public class FunctionEventAdapter<E> <: EventAdapter<E> {
     private let encode: (E) -> String
     private let decode: (String, String) -> E
     private let tagsOf: (E) -> Array<String>
+    private let upcastFn: (String, String) -> (String, String)
 
     public init(manifest!: (E) -> String, toJournal!: (E) -> String, fromJournal!: (String, String) -> E,
-        tags!: (E) -> Array<String> = { _ => Array<String>() }) {
+        tags!: (E) -> Array<String> = { _ => Array<String>() },
+        upcast!: (String, String) -> (String, String) = { m, d => (m, d) }) {
         this.manifestOf = manifest
         this.encode = toJournal
         this.decode = fromJournal
         this.tagsOf = tags
+        this.upcastFn = upcast
     }
 
     public func manifest(event: E): String {
@@ -91,6 +103,10 @@ public class FunctionEventAdapter<E> <: EventAdapter<E> {
 
     public func fromJournal(manifest: String, data: String): Array<E> {
         [decode(manifest, data)]
+    }
+
+    public func upcast(manifest: String, data: String): (String, String) {
+        upcastFn(manifest, data)
     }
 
     public func tags(event: E): Array<String> {

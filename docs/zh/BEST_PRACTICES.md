@@ -186,6 +186,35 @@ let config = CActorRuntimeConfig.createProduction()
             .withThroughput(100))
 ```
 
+### 2.1 调度模式：别让一个阻塞调用拖慢整条工作线程（A1）
+
+仓颉线程是用户态轻量线程（M:N、可抢占），阻塞时运行时会切去执行其他就绪线程。
+框架层提供三种调度模式，按"这个 Actor 会不会阻塞"选择：
+
+| 模式 | 适用 | 代价 |
+|---|---|---|
+| `DispatcherMode.Affinity`（默认） | 纯计算、短消息处理 | 高吞吐低延迟；`receive` 里阻塞会拖慢同 worker 的其他 Actor |
+| `DispatcherMode.ThreadPerActor` | LLM 等待、同步 IO、阻塞式 `foreign`、数量随会话增长 | 每个活跃 Actor 一根专属线程（空闲回收，默认 10s） |
+| `DispatcherMode.Blocking` | 少量长期阻塞的专用 Actor | 共享阻塞线程池，按需扩容（上限 64） |
+
+```cangjie
+// 会把线程等住的会话 Actor：用 ThreadPerActor，阻塞只影响它自己
+let sessionProps = PropsFactory.create<Actor>({ => SessionActor() })
+    .withDispatcherMode(DispatcherMode.ThreadPerActor)
+
+// 少量固定的大 IO 任务：用 Blocking 共享池
+let ioProps = PropsFactory.create<Actor>({ => IoWorker() })
+    .withDispatcherMode(DispatcherMode.Blocking)
+```
+
+规则：
+- **不要把阻塞调用放在默认亲和池的 `receive` 里**。`tools/check_blocking_in_actor.py` 会扫描
+  `receive` / `onXxx` 中的 `sleep(`、同步文件 IO、`awaitCondition(`、阻塞式 `foreign`，CI 命中即失败
+  （确有必要时在方法内加 `// blocking-ok`，或在 `tools/blocking_allowlist.txt` 里豁免）。
+- 阻塞式 `foreign` C 函数会占住 **native** 线程，比普通 `sleep` 严重：接 C SDK 一律用 `ThreadPerActor`。
+- 运行时长直方图 `cactor_actor_run_duration_seconds{mode="..."}` 可区分"默认池上的长运行"（疑似阻塞）
+  与"ThreadPerActor 上的长运行"（符合预期）。
+
 ### 3. 批量处理
 
 ```cangjie

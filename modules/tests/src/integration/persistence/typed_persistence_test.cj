@@ -97,6 +97,41 @@ class TpAdapter <: EventAdapter<TpEvt> {
     }
 }
 
+/** 只认新格式，旧格式由框架 upcast 先升级（v1 → 数值*10，v2 → 数值+100） */
+class UpcastAdapter <: EventAdapter<TpEvt> {
+    public func manifest(event: TpEvt): String {
+        match (event) {
+            case TpEvt.Added(_) => "Added"
+            case TpEvt.Locked => "Locked"
+            case TpEvt.Unlocked => "Unlocked"
+        }
+    }
+
+    public func toJournal(event: TpEvt): String {
+        match (event) {
+            case TpEvt.Added(n) => "${n}"
+            case _ => ""
+        }
+    }
+
+    public func fromJournal(manifest: String, data: String): Array<TpEvt> {
+        match (manifest) {
+            case "Added" => [TpEvt.Added(Int64.parse(data))]
+            case "Locked" => [TpEvt.Locked]
+            case "Unlocked" => [TpEvt.Unlocked]
+            case other => throw IllegalArgumentException("未知事件类型：${other}")
+        }
+    }
+
+    public func upcast(manifest: String, data: String): (String, String) {
+        match (manifest) {
+            case "Added.v1" => ("Added", "${Int64.parse(data) * 10}")
+            case "Added.v2" => ("Added", "${Int64.parse(data) + 100}")
+            case _ => (manifest, data)
+        }
+    }
+}
+
 let tpCodec = FunctionStateCodec<TpState>(encode: { s => "${s.total}|${s.locked}" }, decode: { d =>
     let parts = d.split("|")
     TpState(Int64.parse(parts[0]), parts[1] == "true")
@@ -419,6 +454,37 @@ public class TypedPersistenceTest {
         @Expect(rec.contains("recovered:3:16"), true)
         @Expect(tpAddAndGet(ref, 1), 17)
         @Expect(journal.highestSequenceNr(pid), 4)
+        kit.shutdown()
+    }
+
+    @TestCase
+    func eventAdapterUpcastChainMigratesOldEvents(): Unit {
+        // 框架级 upcast：恢复时先把旧 manifest/data 升级成当前格式，fromJournal 只处理最新格式。
+        // v1 的数值语义是"乘以 10"，v2 是"加 100"，新格式原样。
+        let pid = tpPid("upcast")
+        let journal = MemoryEventStore()
+        journal.append(pid, [BasicEvent("u1", pid, "Added.v1", "2"), BasicEvent("u2", pid, "Added.v2", "3"),
+            BasicEvent("u3", pid, "Added", "4")], 0)
+        let kit = ActorTestKit("tp-upcast")
+        let rec = EventRecorder()
+        let b = EventSourcedBehavior<TpCmd, TpEvt, TpState>(PersistenceId.of("Counter", "upcast"),
+            emptyState: TpState(0, false),
+            commandHandler: { _, _, effect => effect.none() },
+            eventHandler: { s, e =>
+                match (e) {
+                    case TpEvt.Added(n) => TpState(s.total + n, s.locked)
+                    case TpEvt.Locked => TpState(s.total, true)
+                    case TpEvt.Unlocked => TpState(s.total, false)
+                }
+            }, eventAdapter: UpcastAdapter(), journal: journal).receiveSignal({ s, signal =>
+            match (signal) {
+                case r: RecoveryCompleted => rec.record("recovered:${r.highestSequenceNr}:${s.total}")
+                case _ => ()
+            }
+        })
+        kit.system.typed().actorOf(b.behavior(), "upcast")
+        // 2*10 + 3+100 + 4 = 127
+        @Expect(rec.await("recovered:3:127", TP_T), true)
         kit.shutdown()
     }
 

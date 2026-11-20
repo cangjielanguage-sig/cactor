@@ -387,14 +387,14 @@ Actor 失败时，由监督策略决定如何处理：`Resume`（忽略并继续
 
 ## 架构设计
 
-项目是一个 cjpm workspace，由 `modules/` 下的 14 个模块组成。能力从底层向上组合，依赖只能指向下层；精确依赖见[包结构](docs/zh/package-structure.md)。
+项目是一个 cjpm workspace，由 `modules/` 下的 15 个模块组成。能力从底层向上组合，依赖只能指向下层；精确依赖见[包结构](docs/zh/package-structure.md)。
 
 ```text
 foundation → core → runtime → cactor
                   → patterns
                   → remote → cluster
                   → persistence
-cactor → streams / xstate / testkit
+cactor → streams / xstate / platform / testkit
 独立宏模块：macros；最上层：tests / examples
 ```
 
@@ -412,6 +412,7 @@ cactor → streams / xstate / testkit
 | cluster | `cactor_cluster` | 成员协议、分片、单例、服务发现与分布式数据 |
 | testkit | `cactor_testkit` | 运行时探针、同步行为测试与故障测试工具 |
 | xstate | `cactor_xstate` | 状态机 |
+| platform | `cactor_platform` | 平台原语：受监督执行（SupervisedCall）、可睡眠会话（SleepableActor）、按 sessionId 寻址（SessionRegistry） |
 | tests | `cactor_tests` | 单元测试与集成测试 |
 | examples | `cactor_examples` | 示例程序 |
 
@@ -440,13 +441,13 @@ cactor → streams / xstate / testkit
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
-### 真实应用示例（`ex01`–`ex34`）
+### 真实应用示例（`ex01`–`ex43`）
 
-这三十四个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+这四十三个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
 设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)，
 与 Akka / protoactor-go 官方示例的逐项对照见
 [docs/plan/20261117-porting-akka-protoactor.md](docs/plan/20261117-porting-akka-protoactor.md)。
-HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex34` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
+HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex43` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
 
 | 示例 | 内容 | 压到的能力 |
 |------|------|------|
@@ -484,6 +485,15 @@ HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–
 | [ex32_distributed_trace](modules/examples/src/ex32_distributed_trace/main.cj) | 跨节点追踪关联（差距 4.10 的传播原语）：W3C traceparent 生成/解析、span 逐跳接续、两侧日志 Mdc 带同一 traceId、坏输入降级 | `toTraceParent/parseTraceParent/continueTrace`、`withTraceMdc`（新增） |
 | [ex33_cluster_metrics](modules/examples/src/ex33_cluster_metrics/main.cj) | 集群指标导出（差距 4.10 的指标部分）：成员/收敛/gossip/隔离/可靠投递未确认/分片托管/实体数，Prometheus 文本 + MetricRegistry 同源 | `ClusterMetrics`（新增） |
 | [ex34_shard_allocation](modules/examples/src/ex34_shard_allocation/main.cj) | 分片分配策略 SPI（差距 4.4）：同一集群共存两种策略——按分片奇偶落到两端、全部钉在最小地址节点 | `ShardAllocationStrategy`、`withAllocationStrategy`、`FirstMemberAllocation`（新增） |
+| [ex35_otlp_export](modules/examples/src/ex35_otlp_export/main.cj) | OTLP 导出（差距 4.10 的导出部分）：批量导出器、失败隔离（下游抛异常不影响业务）、OTLP/JSON、跨节点 span 父子链 | `SpanExporter`、`BatchSpanExporter`、`toOtlpJson`、`Tracer.attachExporter`（新增） |
+| [ex36_cluster_client](modules/examples/src/ex36_cluster_client/main.cj) | 集群客户端（差距 4.3 / C2c）：外部进程不加入集群，按联系点查 Up 成员后轮询投递；成员下线自动更新，无联系点明确失败 | `ClusterClient`（新增） |
+| [ex37_projection](modules/examples/src/ex37_projection/main.cj) | 持久化投影进度（差距 4.12）：事件投影成读模型、每标识偏移落盘、重启从断点续跑、reset 后全量重建 | `Projection`、`ReadJournal.currentEventsByTag`、`DurableStateStore`（新增） |
+| [ex38_schema_upcast](modules/examples/src/ex38_schema_upcast/main.cj) | 事件 schema 演进（差距 4.7 的框架修复）：v1（元）/v2（元;补贴）/当前格式（分）混合日志恢复，冷重启同样生效，旧事件不被改写 | `EventAdapter.upcast`（新增）、`EventSourcedBehavior` 恢复路径 |
+| [ex39_grain_storage](modules/examples/src/ex39_grain_storage/main.cj) | Grain 状态存储钩子（差距 4.7 的框架修复，对标 Orleans IGrainStorage）：激活前自动读回、停用后自动写出、跨进程重启续算，业务不写读/写样板 | `GrainStorage`、`Grain.encodeState/decodeState`、`Grains(..., storage: ...)`（新增） |
+| [ex40_at_least_once](modules/examples/src/ex40_at_least_once/main.cj) | 至少一次投递 + 幂等扣费（差距 4.13）：稳定 deliveryId、同一信封重发只生效一次、去重表落盘、接收端重启仍识别重复 | `AtLeastOnceDelivery`、`DeliveryEnvelope`、`IdempotentReceiver`、`DurableDeliveryIdStore`（新增） |
+| [ex41_durable_subscriber](modules/examples/src/ex41_durable_subscriber/main.cj) | 持久订阅（差距 4.8）：离线期间消息不丢、重连按序补齐、游标落盘重启不重复消费、处理失败不推进游标、SSE 先补历史再接实时 | `DurableTopic`、`DurableSubscription`（新增） |
+| [ex42_agent_swarm](modules/examples/src/ex42_agent_swarm/main.cj) | 多 Agent 协作编排（§31 首选）：审批点暂停、崩溃续跑、工具幂等、预算失败、trace 根+步骤 span、SSE 事件回看 | `DurableStateStore`、`DurableTopic`、`AtLeastOnce` 思想、`SpanRecord/toOtlpJson`、Lou |
+| [ex43_inference_gateway](modules/examples/src/ex43_inference_gateway/main.cj) | 多租户推理网关（§31 第 2 项）：配额 429、上游故障转移、断路器打开、计费幂等、SSE 逐 token、Prometheus 指标 | `BasicCircuitBreaker`、`AtLeastOnceDelivery`、`FileDurableStateStore`、Lou |
 
 ---
 

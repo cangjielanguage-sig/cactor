@@ -610,6 +610,11 @@ cactor_foundation.monitoring :: AlertRule.public let threshold: Float64
 cactor_foundation.monitoring :: AlertStatus.| Active
 cactor_foundation.monitoring :: AlertStatus.| Resolved
 cactor_foundation.monitoring :: AlertStatus.| Silenced
+cactor_foundation.monitoring :: BatchSpanExporter.public func enqueue(record: SpanRecord): Unit
+cactor_foundation.monitoring :: BatchSpanExporter.public func exportedCount(): Int64
+cactor_foundation.monitoring :: BatchSpanExporter.public func failureCount(): Int64
+cactor_foundation.monitoring :: BatchSpanExporter.public func flush(): Unit
+cactor_foundation.monitoring :: BatchSpanExporter.public init(downstream: SpanExporter, batchSize!: Int64 = 128)
 cactor_foundation.monitoring :: ConsoleNotificationChannel.public func getName(): String
 cactor_foundation.monitoring :: ConsoleNotificationChannel.public func isEnabled(): Bool
 cactor_foundation.monitoring :: ConsoleNotificationChannel.public func send(alert: AlertEvent): Bool
@@ -661,6 +666,10 @@ cactor_foundation.monitoring :: Histogram.public func observe(value: Float64): U
 cactor_foundation.monitoring :: Histogram.public func toPrometheus(metricName: String): String
 cactor_foundation.monitoring :: Histogram.public init(name: String, buckets: Array<Int64>)
 cactor_foundation.monitoring :: Histogram.public init(name: String, buckets: Array<Int64>, tags: HashMap<String, String>)
+cactor_foundation.monitoring :: InMemorySpanExporter.public func clear(): Unit
+cactor_foundation.monitoring :: InMemorySpanExporter.public func export(spans: Array<SpanRecord>): Unit
+cactor_foundation.monitoring :: InMemorySpanExporter.public func snapshot(): Array<SpanRecord>
+cactor_foundation.monitoring :: InMemorySpanExporter.public init()
 cactor_foundation.monitoring :: LogNotificationChannel.public func getName(): String
 cactor_foundation.monitoring :: LogNotificationChannel.public func isEnabled(): Bool
 cactor_foundation.monitoring :: LogNotificationChannel.public func send(alert: AlertEvent): Bool
@@ -708,12 +717,26 @@ cactor_foundation.monitoring :: Span.public let parentSpanId: Option<String>
 cactor_foundation.monitoring :: Span.public let spanId: String
 cactor_foundation.monitoring :: Span.public let startTime: Int64
 cactor_foundation.monitoring :: Span.public let traceId: String
+cactor_foundation.monitoring :: SpanExporter.func export(spans: Array<SpanRecord>): Unit
 cactor_foundation.monitoring :: SpanLog.public init(timestamp: Int64, message: String)
 cactor_foundation.monitoring :: SpanLog.public let message: String
 cactor_foundation.monitoring :: SpanLog.public let timestamp: Int64
 cactor_foundation.monitoring :: SpanLogWithFields.public init(timestamp: Int64, fields: HashMap<String, String>)
 cactor_foundation.monitoring :: SpanLogWithFields.public let fields: HashMap<String, String>
 cactor_foundation.monitoring :: SpanLogWithFields.public let timestamp: Int64
+cactor_foundation.monitoring :: SpanRecord.public func toString(): String
+cactor_foundation.monitoring :: SpanRecord.public init(service: String, traceId: String, spanId: String, parentSpanId: Option<String>, name: String, startTimeMillis: Int64, durationMillis: Int64, tags: HashMap<String, String>)
+cactor_foundation.monitoring :: SpanRecord.public let durationMillis: Int64
+cactor_foundation.monitoring :: SpanRecord.public let name: String
+cactor_foundation.monitoring :: SpanRecord.public let parentSpanId: Option<String>
+cactor_foundation.monitoring :: SpanRecord.public let service: String
+cactor_foundation.monitoring :: SpanRecord.public let spanId: String
+cactor_foundation.monitoring :: SpanRecord.public let startTimeMillis: Int64
+cactor_foundation.monitoring :: SpanRecord.public let tags: HashMap<String, String>
+cactor_foundation.monitoring :: SpanRecord.public let traceId: String
+cactor_foundation.monitoring :: ThrowingSpanExporter.public func export(spans: Array<SpanRecord>): Unit
+cactor_foundation.monitoring :: ThrowingSpanExporter.public init()
+cactor_foundation.monitoring :: ThrowingSpanExporter.public let attempts
 cactor_foundation.monitoring :: TimerMetric.public func getAverageTime(): Float64
 cactor_foundation.monitoring :: TimerMetric.public func getCount(): Int64
 cactor_foundation.monitoring :: TimerMetric.public func getMaxTime(): Float64
@@ -733,7 +756,9 @@ cactor_foundation.monitoring :: TraceContext.public let parentSpanId: Option<Str
 cactor_foundation.monitoring :: TraceContext.public let spanId: String
 cactor_foundation.monitoring :: TraceContext.public let traceId: String
 cactor_foundation.monitoring :: TraceContext.public static func createRoot(traceId: String): TraceContext
+cactor_foundation.monitoring :: Tracer.public func attachExporter(e: BatchSpanExporter): Unit
 cactor_foundation.monitoring :: Tracer.public func clearFinishedSpans(): Unit
+cactor_foundation.monitoring :: Tracer.public func detachExporter(): Unit
 cactor_foundation.monitoring :: Tracer.public func finishSpan(span: Span): Unit
 cactor_foundation.monitoring :: Tracer.public func getActiveSpanCount(): Int32
 cactor_foundation.monitoring :: Tracer.public func getDroppedSpanCount(): Int64
@@ -744,14 +769,17 @@ cactor_foundation.monitoring :: Tracer.public func startSpan(operationName: Stri
 cactor_foundation.monitoring :: Tracer.public init(serviceName: String)
 cactor_foundation.monitoring :: Tracer.public init(serviceName: String, maxFinishedSpans: Int64)
 cactor_foundation.monitoring :: public class AlertManager
+cactor_foundation.monitoring :: public class BatchSpanExporter
 cactor_foundation.monitoring :: public class ConsoleNotificationChannel <: NotificationChannel
 cactor_foundation.monitoring :: public class CounterMetric <: Metric
 cactor_foundation.monitoring :: public class DuplicateMetricException <: Exception
 cactor_foundation.monitoring :: public class GaugeMetric <: Metric
 cactor_foundation.monitoring :: public class Histogram
+cactor_foundation.monitoring :: public class InMemorySpanExporter <: SpanExporter
 cactor_foundation.monitoring :: public class LogNotificationChannel <: NotificationChannel
 cactor_foundation.monitoring :: public class MetricRegistry
 cactor_foundation.monitoring :: public class Span
+cactor_foundation.monitoring :: public class ThrowingSpanExporter <: SpanExporter
 cactor_foundation.monitoring :: public class TimerMetric <: Metric
 cactor_foundation.monitoring :: public class Tracer
 cactor_foundation.monitoring :: public enum AlertCondition
@@ -763,11 +791,14 @@ cactor_foundation.monitoring :: public func continueTrace(text: String): Option<
 cactor_foundation.monitoring :: public func generateSpanId(): String
 cactor_foundation.monitoring :: public func generateTraceId(): String
 cactor_foundation.monitoring :: public func parseTraceParent(text: String): Option<TraceContext>
+cactor_foundation.monitoring :: public func spanRecordOf(span: Span, service: String): SpanRecord
+cactor_foundation.monitoring :: public func toOtlpJson(serviceName: String, spans: Array<SpanRecord>): String
 cactor_foundation.monitoring :: public func toTraceParent(ctx: TraceContext): String
 cactor_foundation.monitoring :: public func traceMdcFields(ctx: TraceContext): Array<(String, String)>
 cactor_foundation.monitoring :: public func withTraceMdc<T>(ctx: TraceContext, block: ()->T): T
 cactor_foundation.monitoring :: public interface Metric
 cactor_foundation.monitoring :: public interface NotificationChannel
+cactor_foundation.monitoring :: public interface SpanExporter
 cactor_foundation.monitoring :: public let DEFAULT_MAX_ALERT_HISTORY: Int64
 cactor_foundation.monitoring :: public let DEFAULT_MAX_FINISHED_SPANS: Int64
 cactor_foundation.monitoring :: public struct AlertEvent
@@ -778,6 +809,7 @@ cactor_foundation.monitoring :: public struct GlobalTracer
 cactor_foundation.monitoring :: public struct MetricValue
 cactor_foundation.monitoring :: public struct SpanLog
 cactor_foundation.monitoring :: public struct SpanLogWithFields
+cactor_foundation.monitoring :: public struct SpanRecord <: ToString
 cactor_foundation.monitoring :: public struct TraceContext
 cactor_foundation.network :: BlackholeTransport.public func blackhole(address: NetworkAddress): Unit
 cactor_foundation.network :: BlackholeTransport.public func blackhole(address: String): Unit

@@ -7,6 +7,171 @@
 
 ## [未发布]
 
+### ✨ 新增：可睡眠会话 `SleepableActor`（AR5：P2 / F1）
+
+空闲会话不再长期占一个 Actor。`cactor_platform/lifecycle` 提供：
+
+- `SleepableActor` 基类（`state()` / `restore()` / `onMessage()`）与
+  `SleepPolicy { Idle(Duration) | Explicit }`；
+- `SleepRegistry` + `SleepableHandle`：handle 不是 ActorRef，不占 Actor；
+- 睡 = 向会话要状态 → 写入 `DurableStateStore`（修订号递增）→ 停止会话实例；
+  管理器只保留 key/代数/定时器，状态不常驻内存；
+- 醒 = 同一 `receive` 内读回状态、创建实例并投递触发消息：唤醒期间的消息不丢、不乱序、不重复；
+- `Idle(d)` 每条消息重置定时器；`handle.sleep()` 显式睡眠；
+- 管理器跑在 `DispatcherMode.ThreadPerActor`，状态文件 IO 不占亲和池；
+- 测试 `SleepableTest` 3/3（状态恢复、50 条唤醒消息恰好一次、Idle 自动睡）。
+
+### ✨ 新增：`cactor_platform` 模块与受监督执行 / 会话寻址（AR4：P1、P8、D4）
+
+新增第 13 个库模块 `cactor_platform`（L6，平台原语，不含 Agent 语义）：
+
+- `platform/exec`：`SupervisedCall<T>` 把任意可失败调用放进受监督 Actor；失败按
+  `TypedSupervisorStrategy` 重启并重新执行（默认最多 3 次 / 60s）；超时置位
+  `AskCancellationToken` 并以 `SupervisedCallTimeoutException` 失败；`IsolationLevel.ThreadPerTask`
+  映射 `DispatcherMode.ThreadPerActor`（A1），阻塞调用只占自己的线程；成功/失败后协调者与工作者都停止，
+  不泄漏 Actor；
+- `platform/session`：`SessionRegistry` 按 sessionId 经 `ClusterSharding` 路由，
+  `session<T>(id)` 返回路由型 `TypedActorRef`（不占本地 Actor）；同一 id 跨节点解析到同一实体；
+- 模块门禁：`check_module_deps.py` 增加 `cactor_platform`（L6）与 stdx 白名单，
+  `api_snapshot.py` 纳入 platform（快照 13 个模块）；反例（core→platform、platform→xstate 同层）均报红；
+- 测试：`SupervisedCallTest`（重启、超时取消、失败隔离、1000 次调用无泄漏）、
+  `SessionRegistryTest`（2 节点、单宿主、跨节点计数连续）。
+
+### ✨ 新增：ex43 多租户推理网关（§31 第 2 项真实示例）
+
+- 租户配额持久化：超额 429，拒绝请求不触达上游；
+- 每上游一个 `BasicCircuitBreaker`：连续失败打开、健康副本转移；
+- 计费 `AtLeastOnceDelivery` + `IdempotentReceiver`：发送方重试不重复扣费；
+- SSE 逐 token 输出；Prometheus 文本含请求/拒绝/失败/断路器/租户费用；
+- Lou：`/infer`、`/stream`、`/upstream/fail`、`/metrics`、`/state`。
+
+### ✨ 新增：全局 Actor 预算（C1）
+
+单邮箱有界只能限制一个 Actor 的积压，拦不住"创建了太多 Actor"导致的 OOM。现在提供系统级预算：
+
+- `CActorRuntimeConfig.withMaxActors(n)` / `withActorMemoryBudget(bytes)`；内存预算按
+  `ESTIMATED_BYTES_PER_ACTOR = 1200` 换算成 Actor 上限，与 `maxActors` 取小（`effectiveActorLimit()`）；
+- 超限抛 `ActorBudgetExceededException(limit, liveActors)`；名额在构造前原子占用、构造失败回滚，
+  顶层/子 Actor/类型化 Actor 共用同一份预算；已有 Actor 不受影响，停止后名额释放；
+- `CActorSystem.actorBudgetUsage()` / `CActorRuntime.actorBudgetUsage()`：存活数、上限、内存预算、
+  拒绝次数与剩余名额；
+- 指标 `cactor_actor_budget_limit`、`cactor_actor_budget_rejections_total`；
+- 测试 `ActorBudgetTest` 覆盖拒绝、已建可用、停止后释放、子 Actor 共享预算与内存预算换算。
+
+### ✨ 新增：ex42 多 Agent 协作编排（§31 首选真实示例）
+
+- 每任务一个经典 Actor + `DurableStateStore`：审批点暂停、进程崩溃后新 Actor 从存储续跑；
+- `ToolExecutor` 用 (task, step) 作幂等键，重复批准/恢复不重复执行工具；
+- 预算上限：耗尽后任务失败，不越界执行；
+- 任务事件写 `DurableTopic`，SSE 先补历史再接实时；
+- 每个任务一条 trace（根 span + 步骤 span），可导出 OTLP/JSON；
+- Lou：`/tasks`、`/tasks/:id/approve`、`/tasks/:id`、`/tasks/:id/events`、`/traces`、`/effects`。
+
+### ✨ 新增：调度模式 `DispatcherMode` 与 ThreadPerActor（A1）
+
+仓颉线程是用户态轻量线程（M:N、可抢占），阻塞时运行时会切去执行其他就绪线程；此前框架只暴露了
+亲和池与共享阻塞池，AI/IO 密集负载（LLM 等待、同步 IO、阻塞式 `foreign`）落在亲和池上会拖慢
+同一 worker 的其他 Actor。现在：
+
+- `DispatcherMode { Affinity | ThreadPerActor | Blocking }`，`Props.withDispatcherMode(...)` /
+  `TypedProps.withDispatcherMode(...)`（等价于 `withDispatcher(dispatcherName(mode))`）；
+- `ThreadPerActor`：每个 Cell 一根专属线程，懒创建、空闲回收（`CACTOR_THREAD_PER_ACTOR_IDLE_MS`，
+  默认 10s）、总量上限（`CACTOR_THREAD_PER_ACTOR_MAX`，默认 1024，超限回退亲和池）；
+- 默认仍是 `Affinity`，既有行为不变；
+- 诊断：`DispatcherDiagnostics.threadPerActorThreads/Created/Reaped()`。
+
+### ✨ 新增：阻塞可观测与 CI 扫描（A1b）
+
+- `cactor_actor_run_duration_seconds{mode="default|blocking|thread-per-actor"}` 直方图，区分
+  "默认池上的长运行（疑似阻塞）"与"ThreadPerActor 上的长运行（符合预期）"；
+- `cactor_thread_per_actor_threads{,_created_total,_reaped_total}` 指标；
+- `tools/check_blocking_in_actor.py`：扫描 `receive` / `onXxx` 中的 `sleep(`、同步文件 IO、
+  `awaitCondition(`、阻塞式 `foreign`，CI（`tools/ci.sh`）命中即失败；误报走行内 `// blocking-ok`
+  或 `tools/blocking_allowlist.txt`。
+
+### ✨ 新增：持久化主题 `DurableTopic`（差距 4.8 的 Durable Subscriber）
+
+`DistributedPubSub` 是内存扇出，订阅者离线期间的消息会丢。新增 `persistence/durable_topic.cj`：
+
+- `publish(payload)` 返回主题内单调序号，每条消息按序号写入 `DurableStateStore`；
+- `subscribe(name, offsets, handler, fromSeq!)`：先补齐游标之后的历史再接实时投递，
+  handler 成功后才推进游标（失败不推进，重连重放，至少一次）；
+- 游标单独存 `DurableStateStore`，`unsubscribe` 只停实时投递、保留进度；
+- `retention` 只保留最近 N 条，旧消息按序号删除；
+- 示例 `ex41_durable_subscriber`（离线补齐、重启不重复、SSE 历史+实时）、
+  测试 `DurableTopicTest` 覆盖。
+
+### ✨ 新增：至少一次投递高层 API `cactor_patterns.delivery`（差距 4.13）
+
+远程层原本只有通道级可靠投递（重发/ACK/按通道序号去重），用户拿不到业务幂等键。现在：
+
+- `DeliveryEnvelope(deliveryId, payload)`：用户可见的包装消息，经 `tellReliable` 发送；
+- `AtLeastOnceDelivery(remote)`：生成稳定 `${实例}-${序号}` deliveryId，`tell/envelope/resend` 三种用法；
+- `DeliveryIdStore`（`MemoryDeliveryIdStore` / `DurableDeliveryIdStore`）：去重表；
+- `IdempotentReceiver.handle(envelope, handler)`：首次执行并标记，重复直接丢弃；handler 失败不标记；
+- 语义明确为"可能重复、不会静默丢失"，不承诺恰好一次；
+- 示例 `ex40_at_least_once`（同信封重发只扣一次、接收端重启后仍识别重复、Lou 端点）、
+  测试 `AtLeastOnceTest` 覆盖。
+
+### ✨ 新增：事件 schema 演进（框架级 `EventAdapter.upcast`，差距 4.7）
+
+此前 schema 升级只能写进 `fromJournal`，恢复代码被迫同时处理所有历史格式。现在：
+
+- `EventAdapter.upcast(manifest, data): (String, String)` 默认原样返回；恢复路径先 upcast 再
+  `fromJournal`，多级演进由适配器链式升级（v1 → v2 → 当前）；
+- `FunctionEventAdapter` 增加可选 `upcast` 参数，函数式适配器同样可用；
+- 示例 `ex38_schema_upcast`（v1 元 / v2 元;补贴 / 当前分，混合日志恢复 + 冷重启 + 旧事件原样保留）、
+  测试 `eventAdapterUpcastChainMigratesOldEvents` 覆盖。
+
+### ✨ 新增：Grain 状态存储 `GrainStorage`（差距 4.7，对标 Orleans IGrainStorage）
+
+Grain 此前需要自己在 `onActivate/onDeactivate` 读写 `DurableStateStore`。现在框架提供边界钩子：
+
+- `GrainStorage { read(kind, id): Option<String>; write(kind, id, state); remove(kind, id) }`；
+- `Grain.encodeState(): Option<String>` / `decodeState(state)` 默认不持久化，配置存储后由
+  `GrainHost` 在激活前读回、停用后写出（写失败不阻止停用）；
+- `Grains(..., storage: Some(...))` 显式开启，不配置时行为完全不变；
+- 示例 `ex39_grain_storage`（空闲停用自动写、重激活自动读、跨进程重启续算）、
+  测试 `testGrainStoragePersistsAcrossDeactivation` 覆盖。
+
+### ✨ 新增：持久化投影进度 `Projection`（`docs/plan/20261117.md` 差距 4.12）
+
+CQRS 的读模型需要记录"处理到哪"，此前只有示例层的临时实现。新增 `persistence/projection.cj`：
+
+- `Projection(name, journal, offsetStore, apply)`：按 tag 从 `ReadJournal.currentEventsByTag` 取事件，
+  对每个 persistenceId 只应用序号大于已处理偏移的事件；偏移整体写入 `DurableStateStore`
+  键 `projection-offset-<name>`，重启后从断点续跑；
+- `runOnce(tag): Int64` 返回本次应用条数；无新事件不写存储；`offsetOf(pid)` 查询已处理序号；
+- `reset()` 清除全部偏移，调用方清空读模型后重放即完成全量重建；
+- 不复活已弃用的 `CQRSBus`，只驱动"事件 → 读模型"与进度，读模型类型由调用方决定；
+- 示例 `ex37_projection`（20 条事件投影、重复运行幂等、重开目录续跑、rebuild 重放 22 条）、
+  测试 `ProjectionTest` 覆盖。
+
+### ✨ 新增：集群客户端 `ClusterClient`（`docs/plan/20261117.md` 差距 4.3 / C2c）
+
+外部进程（网关、BFF、运维脚本）无需加入集群即可按逻辑名访问集群内服务：
+
+- `cactor_cluster.membership.ClusterClient(remote, contacts, timeout)`：向任一联系点的 "cluster" 守护
+  查询当前 Up 成员（普通远程消息，协议 `$cc-members|...`，不新增线协议版本）；
+- `members()` 逐个尝试联系点、全部失败抛 `IllegalStateException`；`tell/ref(actorName)` 按成员轮询投递；
+- 集群侧由 `ClusterDaemon` 响应查询（up 成员排序返回）；
+- 示例 `ex36_cluster_client`（3 节点业务集群 + 未加入集群的客户端节点，down 成员后查询自动收敛）、
+  测试 `ClusterClientTest` 覆盖；
+- 仍待做：Multi-DC（roles / data-center / 跨 DC gossip 隔离）。
+
+### ✨ 新增：Span 导出器与 OTLP/JSON（`docs/plan/20261117.md` 差距 4.10 的导出部分）
+
+Tracer 此前只有内存环形缓冲，无导出能力。新增 `foundation/monitoring/span_exporter.cj`：
+
+- `SpanExporter` 接口；`InMemorySpanExporter`（测试/示例）、`ThrowingSpanExporter`（故障注入）；
+- `BatchSpanExporter`：业务线程只入队，达到 batchSize 或 `flush()` 时批量下发；
+  **下游异常被吞掉并计数**（`failureCount()`），不会沿调用栈影响业务；
+- `Tracer.attachExporter` / `detachExporter`：默认不导出，行为与之前完全一致；
+- `toOtlpJson(serviceName, spans)`：OTLP/JSON（`resourceSpans`）编码，属性做 JSON 转义；
+  foundation 不依赖 stdx，HTTP 发送由应用完成；
+- 示例 `ex35_otlp_export`（2 节点跨节点 span 父子链 + 失败隔离 + `/v1/traces` OTLP JSON）、
+  测试 `SpanExporterTest` 覆盖。
+
 ### ✨ 新增：分片分配策略 SPI `ShardAllocationStrategy`（`docs/plan/20261117.md` 差距 4.4 的分配部分）
 
 分片归属此前写死为 rendezvous 哈希，想按业务亲和性/容量隔离分配必须改框架源码。现在可插拔：

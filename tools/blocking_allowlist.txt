@@ -1,0 +1,17 @@
+# A1b: 消息处理方法中阻塞调用的豁免清单
+#
+# 每行是一个"仓库相对路径前缀"，命中即整文件豁免。只放两类：
+#   1. 测试用例：故意构造阻塞场景来验证调度/背压/监督语义；
+#   2. 确实需要同步语义、且已经跑在 ThreadPerActor / Blocking 上的实现。
+# 新增豁免请在该行后写清原因；能用 // blocking-ok 行内标注的，优先用行内标注。
+
+# 测试：故意在 receive 里阻塞，用于验证阻塞调度器扩容、隔离与背压
+modules/tests/src/unit/runtime/scheduling/blocking_pool_test.cj
+modules/tests/src/unit/runtime/scheduling/starvation_and_block_test.cj
+modules/tests/src/unit/runtime/scheduling/thread_per_actor_test.cj
+modules/tests/src/unit/runtime/concurrency/concurrency_hardening_test.cj
+modules/tests/src/unit/runtime/concurrency/actor_cell_test.cj
+modules/tests/src/unit/runtime/backpressure/backpressure_test.cj
+modules/tests/src/unit/runtime/stop_protocol/stop_protocol_test.cj
+modules/tests/src/unit/cluster/grains_test.cj
+modules/tests/src/unit/cluster/sharding_features_test.cj

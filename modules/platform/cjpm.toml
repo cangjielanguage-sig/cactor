@@ -1,0 +1,20 @@
+[package]
+name = "cactor_platform"
+version = "1.2.1"
+description = "平台原语：受监督执行、会话寻址（Agent 语义在 pic，不在此模块）"
+cjc-version = "1.2.0"
+license = ["MIT"]
+repository = "https://gitcode.com/Cangjie-SIG/cactor.git"
+output-type = "static"
+
+# 平台层（L6）：只提供通用原语，不被任何库模块反向依赖。
+# 依赖 cluster 的分片/接收者；ClusterSharding 的公开 API 需要门面 CActorSystem，故直接依赖 cactor。
+[dependencies]
+cactor_foundation = { path = "../foundation" }
+cactor_core = { path = "../core" }
+cactor_runtime = { path = "../runtime" }
+cactor_remote = { path = "../remote" }
+cactor_persistence = { path = "../persistence" }
+cactor_streams = { path = "../streams" }
+cactor_cluster = { path = "../cluster" }
+cactor = { path = "../cactor" }

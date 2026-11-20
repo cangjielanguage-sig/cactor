@@ -319,6 +319,15 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `ex32_distributed_trace` | ✅ 运行 | 自检退出码 0 |
 | `ex33_cluster_metrics` | ✅ 运行 | 自检退出码 0 |
 | `ex34_shard_allocation` | ✅ 运行 | 自检退出码 0 |
+| `ex35_otlp_export` | ✅ 运行 | 自检退出码 0 |
+| `ex36_cluster_client` | ✅ 运行 | 自检退出码 0 |
+| `ex37_projection` | ✅ 运行 | 自检退出码 0 |
+| `ex38_schema_upcast` | ✅ 运行 | 自检退出码 0 |
+| `ex39_grain_storage` | ✅ 运行 | 自检退出码 0 |
+| `ex40_at_least_once` | ✅ 运行 | 自检退出码 0 |
+| `ex41_durable_subscriber` | ✅ 运行 | 自检退出码 0 |
+| `ex42_agent_swarm` | ✅ 运行 | 自检退出码 0 |
+| `ex43_inference_gateway` | ✅ 运行 | 自检退出码 0 |
 | `functional_actor_demo` | ✅ 运行 | 自检退出码 0 |
 | `hello_world_demo` | ✅ 运行 | 自检退出码 0 |
 | `idle_probe` | — | measurement：空闲调度探测（3 秒采样），用于调参而非门禁 |

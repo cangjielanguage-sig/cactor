@@ -220,6 +220,11 @@ public struct TypedProps {
         TypedProps(name, mailboxCapacity, overflow, protocolTypeName)
     }
 
+    /** 按调度模式选择调度器（A1）：Affinity / ThreadPerActor / Blocking */
+    public func withDispatcherMode(mode: DispatcherMode): TypedProps {
+        TypedProps(dispatcherName(mode), mailboxCapacity, overflow, protocolTypeName)
+    }
+
     /** 有界邮箱：超过容量的消息被丢弃并计为死信 */
     public func withBoundedMailbox(capacity: Int64): TypedProps {
         TypedProps(dispatcher, capacity, MailboxOverflow.DropNew, protocolTypeName)

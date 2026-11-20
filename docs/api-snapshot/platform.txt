@@ -1,0 +1,50 @@
+# CActor 公开 API 快照：modules/platform（tools/api_snapshot.py 生成，勿手改）
+# 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_platform.exec :: IsolationLevel.| Actor
+cactor_platform.exec :: IsolationLevel.| Process
+cactor_platform.exec :: IsolationLevel.| ThreadPerTask
+cactor_platform.exec :: SupervisedCall.public func submit(name: String, work: ()->T): TypedPromise<T>
+cactor_platform.exec :: SupervisedCall.public func submit(name: String, work: (AskCancellationToken)->T): TypedPromise<T>
+cactor_platform.exec :: SupervisedCall.public init(system: TypedActorSystemImpl, policy!: TypedSupervisorStrategy = SupervisedCall<T>.defaultPolicy(), timeout!: Duration = Duration.second * 30, isolation!: IsolationLevel = IsolationLevel.ThreadPerTask)
+cactor_platform.exec :: SupervisedCall.public static func defaultPolicy(): TypedSupervisorStrategy
+cactor_platform.exec :: SupervisedCallFailedException.public init(name: String, cause: String)
+cactor_platform.exec :: SupervisedCallTimeoutException.public init(workName: String, timeout: Duration)
+cactor_platform.exec :: SupervisedCallTimeoutException.public let timeout: Duration
+cactor_platform.exec :: SupervisedCallTimeoutException.public let workName: String
+cactor_platform.exec :: public class SupervisedCall<T>
+cactor_platform.exec :: public class SupervisedCallFailedException <: Exception
+cactor_platform.exec :: public class SupervisedCallTimeoutException <: Exception
+cactor_platform.exec :: public enum IsolationLevel
+cactor_platform.lifecycle :: SleepPolicy.| Explicit
+cactor_platform.lifecycle :: SleepPolicy.| Idle(Duration)
+cactor_platform.lifecycle :: SleepRegistry.public func handle(key: String, factory: (Option<String>)->Actor): SleepableHandle
+cactor_platform.lifecycle :: SleepRegistry.public func sleepPolicy(): SleepPolicy
+cactor_platform.lifecycle :: SleepRegistry.public func stop(): Unit
+cactor_platform.lifecycle :: SleepRegistry.public init(system: CActorSystem, name: String, store!: DurableStateStore = MemoryDurableStateStore(), policy!: SleepPolicy = SleepPolicy.Explicit)
+cactor_platform.lifecycle :: SleepableActor.public func onMessage(message: Message, context: ActorContext): MessageResult
+cactor_platform.lifecycle :: SleepableActor.public func preStart(): Unit
+cactor_platform.lifecycle :: SleepableActor.public func receive(message: Message, context: ActorContext): MessageResult
+cactor_platform.lifecycle :: SleepableActor.public func restore(state: String): Unit
+cactor_platform.lifecycle :: SleepableActor.public func state(): String
+cactor_platform.lifecycle :: SleepableActor.public init()
+cactor_platform.lifecycle :: SleepableActor.public init(restored: Option<String>)
+cactor_platform.lifecycle :: SleepableHandle.public func pathString(): String
+cactor_platform.lifecycle :: SleepableHandle.public func sleep(): Unit
+cactor_platform.lifecycle :: SleepableHandle.public func tell(message: Message): Unit
+cactor_platform.lifecycle :: SleepableHandle.public func tell(message: Message, sender: ActorRef): Unit
+cactor_platform.lifecycle :: SleepableHandle.public func toString(): String
+cactor_platform.lifecycle :: public abstract class SleepableActor <: Actor
+cactor_platform.lifecycle :: public class SleepRegistry
+cactor_platform.lifecycle :: public class SleepableHandle
+cactor_platform.lifecycle :: public enum SleepPolicy
+cactor_platform.session :: SessionRegistry.public func ask(sessionId: String, message: Message, timeout: Duration): TypedPromise<Message>
+cactor_platform.session :: SessionRegistry.public func localSessionCount(): Int64
+cactor_platform.session :: SessionRegistry.public func localSessionIds(): Array<String>
+cactor_platform.session :: SessionRegistry.public func ownerCount(): Int64
+cactor_platform.session :: SessionRegistry.public func pathOf(sessionId: String): String
+cactor_platform.session :: SessionRegistry.public func session<T>(sessionId: String): TypedActorRef<T>where T <: Message
+cactor_platform.session :: SessionRegistry.public func tell(sessionId: String, message: Message): Unit
+cactor_platform.session :: SessionRegistry.public func tell(sessionId: String, message: Message, sender: ActorRef): Unit
+cactor_platform.session :: SessionRegistry.public func typeName(): String
+cactor_platform.session :: SessionRegistry.public init(sharding: ClusterSharding)
+cactor_platform.session :: public class SessionRegistry

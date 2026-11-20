@@ -303,7 +303,8 @@ func loadEventSourced<E, S>(pid: String, journal: EventStore, snapshots: Option<
         if (env.sequenceNr != expected) {
             throw PersistenceException("${pid} 的日志缺少序号 ${expected}..${env.sequenceNr - 1}（快照序号 ${from}）")
         }
-        events.add(all: adapter.fromJournal(env.event.getEventType(), env.event.getEventData()))
+        let (manifest, data) = adapter.upcast(env.event.getEventType(), env.event.getEventData())
+        events.add(all: adapter.fromJournal(manifest, data))
         expected++
     }
     if (expected <= highest) {

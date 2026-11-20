@@ -246,6 +246,40 @@ public enum MailboxOverflow {
     | Block(Duration)
 }
 
+/**
+ * 调度模式（A1）：决定一个 Actor 在哪个执行单元上运行。
+ *
+ * 仓颉线程是用户态轻量线程、M:N 且支持抢占（见 docs/plan/20261117-actor.md §2.2），
+ * 因此"每个 Actor 一根线程"是可行且廉价的；阻塞式调用（LLM 等待、同步 IO、阻塞式 foreign）
+ * 只让当前线程停下，不会拖慢同进程的其他 Actor。
+ */
+public enum DispatcherMode {
+    /**
+     * 亲和池（默认）：高吞吐、低延迟，多个 Actor 共享一个工作线程。
+     * 在 receive 中阻塞会拖慢同一工作线程上的其他 Actor。
+     */
+    | Affinity
+
+    /**
+     * 每 Actor 一根专属线程：阻塞天然隔离，适合 LLM/IO 密集或数量随会话增长的 Actor。
+     * 线程池化并回收空闲线程（CACTOR_THREAD_PER_ACTOR_IDLE_MS，默认 10s），
+     * 线程总数上限由 CACTOR_THREAD_PER_ACTOR_MAX（默认 1024）约束。
+     */
+    | ThreadPerActor
+
+    /** 共享的独立阻塞线程池：适合"少量、长期阻塞"的专用 Actor（现有 BlockingCellExecutor） */
+    | Blocking
+}
+
+/** 调度模式对应的调度器名（Props.dispatcher 使用的字符串） */
+public func dispatcherName(mode: DispatcherMode): String {
+    match (mode) {
+        case DispatcherMode.Affinity => "default"
+        case DispatcherMode.ThreadPerActor => "thread-per-actor"
+        case DispatcherMode.Blocking => "blocking"
+    }
+}
+
 /** 邮箱已满（MailboxOverflow.Fail） */
 public class MailboxFullException <: Exception {
     public init(message: String) {
@@ -288,6 +322,14 @@ public struct Props<T> where T <: Actor {
      */
     public func withDispatcher(dispatcher: String): Props<T> {
         Props<T>(factory, dispatcher, mailboxType, supervisionStrategy, mailboxCapacity, strategy, overflow)
+    }
+
+    /**
+     * 按调度模式选择调度器（A1）：Affinity（默认）/ ThreadPerActor / Blocking。
+     * 等价于 withDispatcher(dispatcherName(mode))，但避免调用方记调度器字符串。
+     */
+    public func withDispatcherMode(mode: DispatcherMode): Props<T> {
+        Props<T>(factory, dispatcherName(mode), mailboxType, supervisionStrategy, mailboxCapacity, strategy, overflow)
     }
 
     /**

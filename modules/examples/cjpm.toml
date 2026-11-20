@@ -298,3 +298,30 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.ex34_shard_allocation"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex35_otlp_export"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex36_cluster_client"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex37_projection"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex38_schema_upcast"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex39_grain_storage"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex40_at_least_once"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex41_durable_subscriber"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex42_agent_swarm"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex43_inference_gateway"]
+output-type = "executable"

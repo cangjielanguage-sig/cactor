@@ -108,6 +108,9 @@ cactor_core.actor :: DeadLetterRef.public func tell(message: Message, sender: Op
 cactor_core.actor :: DeadLetterRef.public init(id: String)
 cactor_core.actor :: DeadLetterRef.public prop path: ActorPath
 cactor_core.actor :: DeathPactException.public init(path: String)
+cactor_core.actor :: DispatcherMode.| Affinity
+cactor_core.actor :: DispatcherMode.| Blocking
+cactor_core.actor :: DispatcherMode.| ThreadPerActor
 cactor_core.actor :: InvalidActorNameException.public init(message: String)
 cactor_core.actor :: Kill.public func messageType(): String
 cactor_core.actor :: Kill.public func priority(): Int32
@@ -137,6 +140,7 @@ cactor_core.actor :: Props.public func getSupervisorStrategy(): Option<Supervisi
 cactor_core.actor :: Props.public func withBoundedMailbox(capacity: Int64): Props<T>
 cactor_core.actor :: Props.public func withBoundedMailbox(capacity: Int64, overflow: MailboxOverflow): Props<T>
 cactor_core.actor :: Props.public func withDispatcher(dispatcher: String): Props<T>
+cactor_core.actor :: Props.public func withDispatcherMode(mode: DispatcherMode): Props<T>
 cactor_core.actor :: Props.public func withMailbox(mailboxType: String): Props<T>
 cactor_core.actor :: Props.public func withSupervisionStrategy(strategy: String): Props<T>
 cactor_core.actor :: Props.public func withSupervisorStrategy(strategy: SupervisionStrategy): Props<T>
@@ -202,9 +206,11 @@ cactor_core.actor :: public class Terminated <: Message
 cactor_core.actor :: public class UnhandledMessage <: Message
 cactor_core.actor :: public class UnsupportedContextException <: Exception
 cactor_core.actor :: public enum ActorLifecycleState
+cactor_core.actor :: public enum DispatcherMode
 cactor_core.actor :: public enum MailboxOverflow
 cactor_core.actor :: public enum Result<T>
 cactor_core.actor :: public enum SupervisionDirective
+cactor_core.actor :: public func dispatcherName(mode: DispatcherMode): String
 cactor_core.actor :: public func isAffinityWorkerThread(): Bool
 cactor_core.actor :: public func markAffinityWorkerThread(): Unit
 cactor_core.actor :: public interface Actor
@@ -1207,6 +1213,7 @@ cactor_core.typed :: TypedPromises.public static func successful<T>(value: T): T
 cactor_core.typed :: TypedProps.public func withBoundedMailbox(capacity: Int64): TypedProps
 cactor_core.typed :: TypedProps.public func withBoundedMailbox(capacity: Int64, overflow: MailboxOverflow): TypedProps
 cactor_core.typed :: TypedProps.public func withDispatcher(name: String): TypedProps
+cactor_core.typed :: TypedProps.public func withDispatcherMode(mode: DispatcherMode): TypedProps
 cactor_core.typed :: TypedProps.public func withProtocolTypeName(name: String): TypedProps
 cactor_core.typed :: TypedProps.public init()
 cactor_core.typed :: TypedProps.public let dispatcher: String

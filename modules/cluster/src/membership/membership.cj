@@ -480,6 +480,9 @@ public enum ClusterEvent <: ToString {
     }
 }
 
+/** 集群客户端查询前缀（C2c）：外部进程不加入集群也能拿到 Up 成员列表 */
+public let CLUSTER_CLIENT_QUERY: String = "$cc-members|"
+
 let DEFAULT_SEED_NODE_TIMEOUT = Duration.second * 5
 let DEFAULT_PRUNE_TOMBSTONES_AFTER = Duration.hour * 24
 
@@ -899,6 +902,39 @@ class ClusterDaemon <: Actor {
         MessageResult.Handled
     }
 
+    /** 回外部客户端的成员查询：`<replyAddr>|<replyName>` → `$cc-members|<replyName>|<count>|<a1,a2,...>` */
+    private func respondClientQuery(rest: String) {
+        let parts = rest.split("|")
+        if (parts.size < 2) {
+            return
+        }
+        let replyAddr = parts[0]
+        let replyName = parts[1]
+        let names = ArrayList<String>()
+        for ((a, m) in gossip.members) {
+            if (m.status == MemberStatus.Up) {
+                names.add(a)
+            }
+        }
+        let arr = names.toArray()
+        sort(arr)
+        let sb = StringBuilder()
+        var first = true
+        for (a in arr) {
+            if (!first) {
+                sb.append(",")
+            }
+            first = false
+            sb.append(a)
+        }
+        try {
+            remote.sendMessage(NetworkAddress.parse(replyAddr), replyName,
+                StringMessage("${CLUSTER_CLIENT_QUERY}${replyName}|${arr.size}|${sb.toString()}"))
+        } catch (_: Exception) {
+            // 查询方已离开：忽略
+        }
+    }
+
     // ---------- 发送 ----------
 
     private func send(to: String, text: String): Unit {
@@ -982,6 +1018,12 @@ class ClusterDaemon <: Actor {
     // ---------- 接收 ----------
 
     private func onRemote(text: String): Unit {
+        // 集群客户端（C2c）查询：不加入集群的外部进程向任一成员的 "cluster" 查询当前 Up 成员。
+        // 用独立前缀在 FieldReader 之前分流，避免与成员协议字段混淆
+        if (text.startsWith(CLUSTER_CLIENT_QUERY)) {
+            respondClientQuery(text[CLUSTER_CLIENT_QUERY.size..])
+            return
+        }
         try {
             let r = FieldReader(text)
             let kind = r.next()
