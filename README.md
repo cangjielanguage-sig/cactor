@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo.svg" alt="CActor logo" width="150" />
+
 # CActor
 
 **仓颉 Actor 模型库 · AI Agent 的底层运行时**

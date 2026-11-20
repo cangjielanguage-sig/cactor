@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="assets/logo.svg" alt="CActor logo" width="150" />
+
 # CActor
 
 **An actor model library for Cangjie · the runtime layer for AI agents**
