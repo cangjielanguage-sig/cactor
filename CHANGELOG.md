@@ -7,6 +7,41 @@
 
 ## [未发布]
 
+### ✨ 新增：Edge 无状态接入层（AR6：P3 / F4）
+
+`cactor_platform/edge` 把"长连接"与"业务状态"分离：连接只落在 Edge 节点，会话状态留在
+集群 Actor 里，断线凭令牌从 `lastAck + 1` 续传。
+
+- `EdgeRouter`：连接 ↔ 集群 Actor。`EdgeActorResolver` 可插拔，
+  `ReceptionistEdgeResolver` 经 `ClusterReceptionist` 全集群解析（跨节点得到 `RemoteActorRef`），
+  `LocalEdgeResolver` 供单机/测试；每次投递重新解析，实例迁移后自动跟随；
+- 无状态出站：入站消息以本节点回复 sink 为 sender，会话 Actor 的 `reply` 回到 sink，
+  sink 追加到本节点 `DurableStream`（复用 G3），断线期间消息不丢；
+- 恢复令牌 `EdgeRecoveryToken`：`sessionId + lastAck + expiresAt` 的 HMAC-SHA256 签名
+  （复用 `foundation.hashing`，常数时间比较）；`EdgeConnection.poll` 从 `lastAck + 1` 续读，
+  `ack` 只增不减；令牌过期 401、跨会话或不匹配 403；
+- 帧与握手（与 HTTP 框架无关）：`EdgeSse`（`id:` = offset、多行 `data:`、60s 驻留上限
+  `shouldRecycle`）、`EdgeWs`（首行 offset + 载荷）、`EdgeGateway.upgrade`
+  （`GET /v1/edge/{sessionId}`，401/403/404/405 明确映射）；
+- 测试 `EdgeRouterTest` 4/4：跨节点路由（连接 node0、Actor node1、回复回流）、
+  令牌续传（不重放已确认、不丢未确认）、令牌拒绝（过期/跨会话/篡改）、握手与帧编码。
+
+### ✨ 新增：Durable Streams（AR6：P4 / G3）
+
+`cactor_platform/durable` 提供可续读、可 fork、带 TTL 的持久事件流语义（存储复用
+`DurableStateStore`，不新建日志）：
+
+- offset 从 1 单调递增，`ZERO_OFFSET = 0`；单次读上限 128 条；
+- 游标续读 `stream-next-offset` / `stream-cursor` / `stream-seq`；
+- 长轮询：无新消息最多等 2s，期间有新消息立即返回；
+- fork：从第 N 条复制前缀到新流（`stream-forked-from` / `stream-fork-offset`），之后两条流独立；
+- TTL：`stream-ttl` / `stream-expires-at`，到期读写抛 `DurableStreamExpiredException`，协议返回 410；
+- 多生产者：`producer-id` 标识每条记录，offset 仍连续；
+- `DurableStreamProtocol.handle(DurableRequest)`：与 HTTP 框架无关的
+  `GET/POST /v1/stream/{path}` 与头映射，便于挂到任意 HTTP 服务端；
+- 测试 `DurableStreamTest` 6/6（续读、长轮询、fork、多生产者、TTL、协议头/404/405/410）。
+
+
 ### ✨ 新增：显式背压与负载自报（AR5：C2）
 
 - `ActorRef.isBusy()`：本地引用"正在处理"时为真；`ActorRef.mailboxBacklogSeconds()`：

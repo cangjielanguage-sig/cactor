@@ -1,5 +1,149 @@
 # CActor 公开 API 快照：modules/platform（tools/api_snapshot.py 生成，勿手改）
 # 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_platform.durable :: DurableRequest.public init(method: String, path: String, headers!: HashMap<String, String>= HashMap<String, String>(), body!: String = "")
+cactor_platform.durable :: DurableRequest.public let body: String
+cactor_platform.durable :: DurableRequest.public let headers: HashMap<String, String>
+cactor_platform.durable :: DurableRequest.public let method: String
+cactor_platform.durable :: DurableRequest.public let path: String
+cactor_platform.durable :: DurableResponse.public init(status: Int64, headers: HashMap<String, String>, body: String)
+cactor_platform.durable :: DurableResponse.public let body: String
+cactor_platform.durable :: DurableResponse.public let headers: HashMap<String, String>
+cactor_platform.durable :: DurableResponse.public let status: Int64
+cactor_platform.durable :: DurableStream.public func append(payload: String, producerId!: String = ""): Int64
+cactor_platform.durable :: DurableStream.public func expiresAtMillis(): Int64
+cactor_platform.durable :: DurableStream.public func fork(target: String, atOffset: Int64): DurableStream
+cactor_platform.durable :: DurableStream.public func forkOffset(): Int64
+cactor_platform.durable :: DurableStream.public func forkedFrom(): Option<String>
+cactor_platform.durable :: DurableStream.public func nextOffset(): Int64
+cactor_platform.durable :: DurableStream.public func read(fromOffset!: Int64 = ZERO_OFFSET, maxRows!: Int64 = MAX_READ_ROWS): StreamRead
+cactor_platform.durable :: DurableStream.public func readLongPoll(fromOffset!: Int64 = ZERO_OFFSET, timeout!: Duration = DEFAULT_LONG_POLL, maxRows!: Int64 = MAX_READ_ROWS): StreamRead
+cactor_platform.durable :: DurableStream.public func ttlSeconds(): Int64
+cactor_platform.durable :: DurableStream.public prop path: String
+cactor_platform.durable :: DurableStreamExpiredException.public init(path: String, expiresAtMillis: Int64)
+cactor_platform.durable :: DurableStreamExpiredException.public let expiresAtMillis: Int64
+cactor_platform.durable :: DurableStreamExpiredException.public let path: String
+cactor_platform.durable :: DurableStreamProtocol.public func handle(request: DurableRequest): DurableResponse
+cactor_platform.durable :: DurableStreamProtocol.public init(registry: DurableStreamRegistry, basePath!: String = "")
+cactor_platform.durable :: DurableStreamRegistry.public func exists(path: String): Bool
+cactor_platform.durable :: DurableStreamRegistry.public func fork(source: String, target: String, atOffset: Int64): DurableStream
+cactor_platform.durable :: DurableStreamRegistry.public func stream(path: String, ttlSeconds!: Int64 = 0): DurableStream
+cactor_platform.durable :: DurableStreamRegistry.public init(store: DurableStateStore)
+cactor_platform.durable :: StreamRead.public func isEmpty(): Bool
+cactor_platform.durable :: StreamRead.public init(records: Array<StreamRecord>, nextOffset: Int64, forkedFrom: Option<String>, forkOffset: Int64, ttlSeconds: Int64, expiresAtMillis: Int64)
+cactor_platform.durable :: StreamRead.public let expiresAtMillis: Int64
+cactor_platform.durable :: StreamRead.public let forkOffset: Int64
+cactor_platform.durable :: StreamRead.public let forkedFrom: Option<String>
+cactor_platform.durable :: StreamRead.public let nextOffset: Int64
+cactor_platform.durable :: StreamRead.public let records: Array<StreamRecord>
+cactor_platform.durable :: StreamRead.public let ttlSeconds: Int64
+cactor_platform.durable :: StreamRecord.public init(offset: Int64, producerId: String, payload: String)
+cactor_platform.durable :: StreamRecord.public let offset: Int64
+cactor_platform.durable :: StreamRecord.public let payload: String
+cactor_platform.durable :: StreamRecord.public let producerId: String
+cactor_platform.durable :: public class DurableStream
+cactor_platform.durable :: public class DurableStreamExpiredException <: Exception
+cactor_platform.durable :: public class DurableStreamProtocol
+cactor_platform.durable :: public class DurableStreamRegistry
+cactor_platform.durable :: public let DEFAULT_LONG_POLL: Duration
+cactor_platform.durable :: public let HEADER_CURSOR: String
+cactor_platform.durable :: public let HEADER_EXPIRES_AT: String
+cactor_platform.durable :: public let HEADER_FORKED_FROM: String
+cactor_platform.durable :: public let HEADER_FORK_OFFSET: String
+cactor_platform.durable :: public let HEADER_NEXT_OFFSET: String
+cactor_platform.durable :: public let HEADER_PRODUCER_ID: String
+cactor_platform.durable :: public let HEADER_SEQ: String
+cactor_platform.durable :: public let HEADER_TTL: String
+cactor_platform.durable :: public let MAX_READ_ROWS: Int64
+cactor_platform.durable :: public let ZERO_OFFSET: Int64
+cactor_platform.durable :: public struct DurableRequest
+cactor_platform.durable :: public struct DurableResponse
+cactor_platform.durable :: public struct StreamRead
+cactor_platform.durable :: public struct StreamRecord
+cactor_platform.edge :: EdgeActorResolver.func resolve(sessionId: String): Option<ActorRef>
+cactor_platform.edge :: EdgeConnectResult.| Connected(EdgeConnection)
+cactor_platform.edge :: EdgeConnectResult.| Unauthorized(Int64, String)
+cactor_platform.edge :: EdgeConnection.public func ack(offset: Int64): Unit
+cactor_platform.edge :: EdgeConnection.public func deliver(payload: String): EdgeDeliverResult
+cactor_platform.edge :: EdgeConnection.public func lastAckedOffset(): Int64
+cactor_platform.edge :: EdgeConnection.public func poll(timeout!: Duration = DEFAULT_LONG_POLL, maxRows!: Int64 = MAX_READ_ROWS): StreamRead
+cactor_platform.edge :: EdgeConnection.public func recoveryToken(ttl!: Duration = DEFAULT_EDGE_TOKEN_TTL): String
+cactor_platform.edge :: EdgeConnection.public func streamPath(): String
+cactor_platform.edge :: EdgeConnection.public prop sessionId: String
+cactor_platform.edge :: EdgeDeliverResult.| Delivered
+cactor_platform.edge :: EdgeDeliverResult.| NoRoute(String)
+cactor_platform.edge :: EdgeGateway.public func upgrade(request: EdgeRequest): EdgeUpgradeResult
+cactor_platform.edge :: EdgeGateway.public init(router: EdgeRouter, basePath!: String = "")
+cactor_platform.edge :: EdgeMessageFactory.func inbound(sessionId: String, payload: String): Message
+cactor_platform.edge :: EdgeRecoveryToken.public static func issue(secret: String, sessionId: String, lastAck: Int64, ttlMillis!: Int64, nowMillis!: Int64): String
+cactor_platform.edge :: EdgeRecoveryToken.public static func verify(secret: String, token: String, nowMillis!: Int64): EdgeTokenResult
+cactor_platform.edge :: EdgeReplyEncoder.func encode(message: Message): Option<String>
+cactor_platform.edge :: EdgeRequest.public init(method: String, path: String, headers!: HashMap<String, String>= HashMap<String, String>())
+cactor_platform.edge :: EdgeRequest.public let headers: HashMap<String, String>
+cactor_platform.edge :: EdgeRequest.public let method: String
+cactor_platform.edge :: EdgeRequest.public let path: String
+cactor_platform.edge :: EdgeRouter.public func connect(sessionId: String, resumeToken!: Option<String>= None): EdgeConnectResult
+cactor_platform.edge :: EdgeRouter.public func hasStream(sessionId: String): Bool
+cactor_platform.edge :: EdgeRouter.public func issueRecoveryToken(sessionId: String, lastAck: Int64, ttl!: Duration = DEFAULT_EDGE_TOKEN_TTL): String
+cactor_platform.edge :: EdgeRouter.public func publish(sessionId: String, payload: String, producerId!: String = ""): Int64
+cactor_platform.edge :: EdgeRouter.public func resolveActor(sessionId: String): Option<ActorRef>
+cactor_platform.edge :: EdgeRouter.public func streamFor(sessionId: String): DurableStream
+cactor_platform.edge :: EdgeRouter.public init(system: CActorSystem, store: DurableStateStore, resolver: EdgeActorResolver, secret: String, messages!: EdgeMessageFactory = StringEdgeMessages(), replies!: EdgeReplyEncoder = StringEdgeReplies(), streamTtlSeconds!: Int64 = 0)
+cactor_platform.edge :: EdgeSse.public static func encode(records: Array<StreamRecord>): String
+cactor_platform.edge :: EdgeSse.public static func keepAlive(): String
+cactor_platform.edge :: EdgeSse.public static func shouldRecycle(connectedAt: MonoTime, now!: MonoTime = MonoTime.now()): Bool
+cactor_platform.edge :: EdgeTokenResult.| Expired(String)
+cactor_platform.edge :: EdgeTokenResult.| Invalid(String)
+cactor_platform.edge :: EdgeTokenResult.| Valid(String, Int64)
+cactor_platform.edge :: EdgeUpgrade.public init(connection: EdgeConnection, headers: HashMap<String, String>)
+cactor_platform.edge :: EdgeUpgrade.public let connection: EdgeConnection
+cactor_platform.edge :: EdgeUpgrade.public let headers: HashMap<String, String>
+cactor_platform.edge :: EdgeUpgradeResult.| Rejected(Int64, String)
+cactor_platform.edge :: EdgeUpgradeResult.| Upgraded(EdgeUpgrade)
+cactor_platform.edge :: EdgeWs.public static func decode(text: String): Option<EdgeWsFrame>
+cactor_platform.edge :: EdgeWs.public static func encode(records: Array<StreamRecord>): Array<String>
+cactor_platform.edge :: EdgeWs.public static func encodeOne(record: StreamRecord): String
+cactor_platform.edge :: EdgeWsFrame.public init(offset: Int64, payload: String)
+cactor_platform.edge :: EdgeWsFrame.public let offset: Int64
+cactor_platform.edge :: EdgeWsFrame.public let payload: String
+cactor_platform.edge :: LocalEdgeResolver.public func bind(sessionId: String, ref: ActorRef): Unit
+cactor_platform.edge :: LocalEdgeResolver.public func resolve(sessionId: String): Option<ActorRef>
+cactor_platform.edge :: LocalEdgeResolver.public func unbind(sessionId: String): Unit
+cactor_platform.edge :: LocalEdgeResolver.public init()
+cactor_platform.edge :: ReceptionistEdgeResolver.public func resolve(sessionId: String): Option<ActorRef>
+cactor_platform.edge :: ReceptionistEdgeResolver.public func serviceName(sessionId: String): String
+cactor_platform.edge :: ReceptionistEdgeResolver.public init(receptionist: ClusterReceptionist, servicePrefix!: String = "")
+cactor_platform.edge :: StringEdgeMessages.public func inbound(sessionId: String, payload: String): Message
+cactor_platform.edge :: StringEdgeMessages.public init()
+cactor_platform.edge :: StringEdgeReplies.public func encode(message: Message): Option<String>
+cactor_platform.edge :: StringEdgeReplies.public init()
+cactor_platform.edge :: public class EdgeConnection
+cactor_platform.edge :: public class EdgeGateway
+cactor_platform.edge :: public class EdgeRouter
+cactor_platform.edge :: public class EdgeSse
+cactor_platform.edge :: public class EdgeWs
+cactor_platform.edge :: public class LocalEdgeResolver <: EdgeActorResolver
+cactor_platform.edge :: public class ReceptionistEdgeResolver <: EdgeActorResolver
+cactor_platform.edge :: public class StringEdgeMessages <: EdgeMessageFactory
+cactor_platform.edge :: public class StringEdgeReplies <: EdgeReplyEncoder
+cactor_platform.edge :: public enum EdgeConnectResult
+cactor_platform.edge :: public enum EdgeDeliverResult
+cactor_platform.edge :: public enum EdgeTokenResult
+cactor_platform.edge :: public enum EdgeUpgradeResult
+cactor_platform.edge :: public func edgeStreamPath(sessionId: String): String
+cactor_platform.edge :: public interface EdgeActorResolver
+cactor_platform.edge :: public interface EdgeMessageFactory
+cactor_platform.edge :: public interface EdgeReplyEncoder
+cactor_platform.edge :: public let DEFAULT_EDGE_TOKEN_TTL: Duration
+cactor_platform.edge :: public let EDGE_TOKEN_VERSION: String
+cactor_platform.edge :: public let HEADER_EDGE_NEXT_OFFSET: String
+cactor_platform.edge :: public let HEADER_LAST_ACK: String
+cactor_platform.edge :: public let HEADER_RESUME_TOKEN: String
+cactor_platform.edge :: public let HEADER_SESSION_ID: String
+cactor_platform.edge :: public let MAX_SSE_RESIDENCE: Duration
+cactor_platform.edge :: public struct EdgeRecoveryToken
+cactor_platform.edge :: public struct EdgeRequest
+cactor_platform.edge :: public struct EdgeUpgrade
+cactor_platform.edge :: public struct EdgeWsFrame
 cactor_platform.exec :: IsolationLevel.| Actor
 cactor_platform.exec :: IsolationLevel.| Process
 cactor_platform.exec :: IsolationLevel.| ThreadPerTask

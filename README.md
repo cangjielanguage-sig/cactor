@@ -412,7 +412,7 @@ cactor → streams / xstate / platform / testkit
 | cluster | `cactor_cluster` | 成员协议、分片、单例、服务发现与分布式数据 |
 | testkit | `cactor_testkit` | 运行时探针、同步行为测试与故障测试工具 |
 | xstate | `cactor_xstate` | 状态机 |
-| platform | `cactor_platform` | 平台原语：受监督执行（SupervisedCall）、可睡眠会话（SleepableActor）、按 sessionId 寻址（SessionRegistry） |
+| platform | `cactor_platform` | 平台原语：受监督执行（SupervisedCall）、可睡眠会话（SleepableActor）、按 sessionId 寻址（SessionRegistry）、持久流（DurableStreams）、无状态 Edge 接入（EdgeRouter） |
 | tests | `cactor_tests` | 单元测试与集成测试 |
 | examples | `cactor_examples` | 示例程序 |
 
