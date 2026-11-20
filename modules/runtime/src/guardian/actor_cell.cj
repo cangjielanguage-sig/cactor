@@ -768,8 +768,15 @@ public class SimpleUserActorRef <: RunLink & ActorRef & ActorContext {
     // path 属性按需构造时使用的 system 名（与 createCell 构造 ActorPath 时一致）
     private static let actorPathSystem: String = "user-system"
 
-    /** 固定分配到的工作线程（亲和调度） */
-    let affinity: Int64
+    /**
+     * 分配到的工作线程（亲和调度）。
+     *
+     * A2：Cell 被捐赠给空闲线程时，亲和迁移到接收方（连续被窃的 Cell 跟随窃取方，
+     * 后续外部 tell 直接投到它实际被处理的那个线程，减少跨核迁移）。
+     * 写只会发生在"该 Cell 正躺在某个就绪队列里"的时刻——此时 SCHED_BIT 已置位，
+     * 不会有其他线程在 trySchedule 里读 affinity（只有 0→1 置位那一刻读），故不构成数据竞争。
+     */
+    var affinity: Int64
 
     // 兼容性构造器：path 参数保留（旧调用方签名不变），但 Cell 的完整路径由
     // "guardian 顶层前缀 + name"惰性派生（P1-11）；仓库内唯一的构造点是 createCell。
@@ -3170,6 +3177,8 @@ class DispatcherWorker {
     static let IDLE_BACKOFF_MAX_US: Int64 = 100_000
 
     let dispatcher: ActorCellDispatcher
+    // A2：本线程在 dispatcher.workers 里的下标。捐赠时把 Cell 的 affinity 迁移到此值
+    let index: Int64
     let queue: RunQueue = RunQueue()
     let sleeping: AtomicBool = AtomicBool(false)
     let lock: Mutex = Mutex()
@@ -3186,8 +3195,9 @@ class DispatcherWorker {
     private var seenExecuted: Array<Int64> = Array<Int64>()
     private var seenSince: Array<MonoTime> = Array<MonoTime>()
 
-    init(dispatcher: ActorCellDispatcher) {
+    init(dispatcher: ActorCellDispatcher, index: Int64) {
         this.dispatcher = dispatcher
+        this.index = index
         this.cond = synchronized(lock) { lock.condition() }
     }
 
@@ -3221,15 +3231,62 @@ class DispatcherWorker {
         }
     }
 
-    /** 有空闲线程时，把本线程队列里的下一个 Cell（不含 runNext）交给它 */
+    /** 被捐赠时接纳一个 Cell：迁移亲和到本线程，再入队（不唤醒，批量结束后统一 wakeUp） */
+    func adopt(cell: SimpleUserActorRef): Unit {
+        cell.affinity = index
+        queue.add(cell)
+    }
+
+    /** 批量捐赠完成后唤醒一次；单个 Cell 捐赠也走这里，避免逐个 notifyAll */
+    func wakeUp(): Unit {
+        if (sleeping.load()) {
+            synchronized(lock) {
+                cond.notifyAll()
+            }
+        }
+    }
+
+    /**
+     * 有空闲线程时，把本线程队列里的 Cell 交给它（不含 runNext）。
+     *
+     * A2：批量捐赠——一次最多取出 `CACTOR_DISPATCHER_STEAL_BATCH` 个作为一个批次交给同一个空闲线程，
+     * 把"扫描举手线程 + CAS + 唤醒"的固定开销摊到整批上，降低扇出/负载不均时的调度开销。
+     * batch ≤ 1 时退回逐 Cell 捐赠（灰度关闭路径，行为与旧实现一致）。
+     * 取出的 Cell 都已置 SCHED_BIT、正躺在就绪队列里，跨队列搬移不改变"同一时刻只有一个调度者"的约束。
+     */
     private func donateIfHungry(): Unit {
         if (dispatcher.hungryCount.load() <= 0) {
             return
         }
-        if (let Some(cell) <- queue.remove()) {
-            if (!dispatcher.donate(cell, this)) {
-                queue.add(cell)
+        let batch = dispatcher.stealBatch()
+        if (batch <= 1) {
+            if (let Some(cell) <- queue.remove()) {
+                if (!dispatcher.donate(cell, this)) {
+                    queue.add(cell)
+                }
             }
+            return
+        }
+        // 先取一个再找目标：队列为空时不必扫描所有 worker。
+        // 找到目标后把已取出的那个连同后续最多 batch-1 个一起交给它。
+        match (queue.remove()) {
+            case None => return
+            case Some(first) =>
+                match (dispatcher.pickHungry(this)) {
+                    case None => queue.add(first)
+                    case Some(w) =>
+                        w.adopt(first)
+                        var moved: Int64 = 1
+                        while (moved < batch) {
+                            match (queue.remove()) {
+                                case Some(cell) =>
+                                    w.adopt(cell)
+                                    moved++
+                                case None => break
+                            }
+                        }
+                        w.wakeUp()
+                }
         }
     }
 
@@ -3442,6 +3499,9 @@ public class ActorCellDispatcher <: CellExecutor {
     private var workers: Array<DispatcherWorker> = Array<DispatcherWorker>()
     private let affinitySeq: AtomicInt64 = AtomicInt64(0)
     private let throughputValue: Int64
+    // A2：一次捐赠最多转移的 Cell 数（0/1 = 退回逐个捐赠）。默认 16 把小批量扇出的
+    // "找空闲线程 + 唤醒" 开销摊薄；可用 CACTOR_DISPATCHER_STEAL_BATCH 灰度调整或关闭。
+    private let stealBatchValue: Int64
     // 举手等待捐赠的空闲线程数（忙线程每次运行前读一次，大于 0 才去找）
     let hungryCount: AtomicInt64 = AtomicInt64(0)
     // 捐赠扫描起点轮转序列
@@ -3461,6 +3521,7 @@ public class ActorCellDispatcher <: CellExecutor {
 
     init() {
         this.throughputValue = envInt("CACTOR_DISPATCHER_THROUGHPUT", 64, 1)
+        this.stealBatchValue = envInt("CACTOR_DISPATCHER_STEAL_BATCH", 16, 0)
     }
 
     static func forName(name: String): CellExecutor {
@@ -3538,20 +3599,36 @@ public class ActorCellDispatcher <: CellExecutor {
         workers[cell.affinity % workers.size].submit(cell)
     }
 
-    /** 把 Cell 交给一个举手的空闲线程；没有抢到返回 false */
-    func donate(cell: SimpleUserActorRef, from: DispatcherWorker): Bool {
-        // 起点轮转：固定从 0 号开始会让低编号线程成为捐赠热点
+    func stealBatch(): Int64 {
+        stealBatchValue
+    }
+
+    /**
+     * 选一个举手的空闲线程并把它的 hungry 置为 false（饿汉数同步减一）；没有则返回 None。
+     * 起点轮转：固定从 0 号开始会让低编号线程成为捐赠热点。
+     */
+    func pickHungry(from: DispatcherWorker): Option<DispatcherWorker> {
         let n = workers.size
         let start = donateSeq.fetchAdd(1)
         for (k in 0..n) {
             let w = workers[(start + k) % n]
             if (!refEq(w, from) && w.hungry.load() && w.hungry.compareAndSwap(true, false)) {
                 hungryCount.fetchAdd(-1)
-                w.submit(cell)
-                return true
+                return Some(w)
             }
         }
-        false
+        None<DispatcherWorker>
+    }
+
+    /** 把 Cell 交给一个举手的空闲线程；没有抢到返回 false */
+    func donate(cell: SimpleUserActorRef, from: DispatcherWorker): Bool {
+        match (pickHungry(from)) {
+            case None => false
+            case Some(w) =>
+                w.adopt(cell)
+                w.wakeUp()
+                true
+        }
     }
 
     private func ensureStarted(): Unit {
@@ -3572,7 +3649,7 @@ public class ActorCellDispatcher <: CellExecutor {
             }
             n = envInt("CACTOR_DISPATCHER_THREADS", n, 1)
             let spin = Duration.microsecond * envInt("CACTOR_DISPATCHER_SPIN_US", 50, 0)
-            let ws = Array<DispatcherWorker>(n, { _ => DispatcherWorker(this) })
+            let ws = Array<DispatcherWorker>(n, { i => DispatcherWorker(this, i) })
             workers = ws
             // 开放寻址表（容量为 2 的幂且至少是线程数的 4 倍），键为仓颉线程 id，值为工作线程下标
             var capacity: Int64 = 8
