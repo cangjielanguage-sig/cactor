@@ -7,6 +7,16 @@
 
 ## [未发布]
 
+### ✨ 新增：批量投递 `tellBatch`（AR3 / A3）
+
+- `ActorRef.tellBatch(messages)`：默认逐条 `tell`，所有引用实现无需改动即可用；
+- 本地 Actor Cell 对无界邮箱（绝大多数 Actor）走一次持锁批量追加：一次扩容、一次置
+  `INCOMING_BIT`、一次调度选举；有界/优先级邮箱退回逐条入队，保持原有背压、优先级与异常语义；
+- 批量消息**不携带发送方**（sender 为 None），顺序与逐条 `tell` 完全一致；
+- 类型化侧 `TypedActorRef.tellBatch` 默认逐条，`ClassicTypedRef` 覆盖为装箱后走经典批量路径；
+- 测试 `TellBatchTest` 3/3（1000 条顺序、与 `tell` 混用顺序、类型化 200 条）。
+  吞吐断言（1,000 条 ≥25%）待空闲机器复测。
+
 ### ⚡ 性能：Actor Cell 冷字段容器（AR2 / A4 阶段性）
 
 - `SimpleUserActorRef` 原先为 watch / become / stash / unstash / 接收超时 / 定时器 / 停止合批计数

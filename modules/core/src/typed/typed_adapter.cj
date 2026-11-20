@@ -158,6 +158,12 @@ public class ClassicTypedRef<T> <: TypedActorRef<T> & TypeExpectationCarrier {
         classic.tell(TypedPayloadBox(message, typeTag: typeTag), sender)
     }
 
+    /** 批量发送：装箱后交给经典引用的批量路径（无界邮箱一次入队） */
+    public func tellBatch(messages: Array<T>): Unit {
+        let boxed = Array<Message>(messages.size, { i => TypedPayloadBox(messages[i], typeTag: typeTag) })
+        classic.tellBatch(boxed)
+    }
+
     public func typeExpectation(): Option<TypedTypeTag> {
         typeTag
     }

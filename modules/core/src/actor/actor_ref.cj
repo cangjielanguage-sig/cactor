@@ -55,6 +55,16 @@ public interface ActorRef {
         tell(message, Some(sender.path.toString()))
     }
 
+    /**
+     * 批量发送（A3）：默认逐条 `tell`；本地 Actor Cell 覆盖为"一次入队锁批量追加"。
+     * 顺序与逐条 tell 完全一致；批量投递不携带发送方（sender 为 None）。
+     */
+    func tellBatch(messages: Array<Message>): Unit {
+        for (m in messages) {
+            tell(m)
+        }
+    }
+
     /** tell 的运算符写法：`ref << msg`，可以链式书写 `ref << a << b` */
     operator func <<(message: Message): ActorRef {
         tell(message)

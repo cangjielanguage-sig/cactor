@@ -81,6 +81,7 @@ cactor_core.actor :: ActorRef.func pendingCount(): Int64
 cactor_core.actor :: ActorRef.func tell(message: Message): Unit
 cactor_core.actor :: ActorRef.func tell(message: Message, sender: ActorRef): Unit
 cactor_core.actor :: ActorRef.func tell(message: Message, sender: Option<String>): Unit
+cactor_core.actor :: ActorRef.func tellBatch(messages: Array<Message>): Unit
 cactor_core.actor :: ActorRef.operator func<<(message: Message): ActorRef
 cactor_core.actor :: ActorRef.prop path: ActorPath
 cactor_core.actor :: ActorScheduler.func monotonicNow(): MonoTime
@@ -1015,6 +1016,7 @@ cactor_core.typed :: ClassicTypedRef.public func equals(other: TypedActorRef<T>)
 cactor_core.typed :: ClassicTypedRef.public func pathString(): String
 cactor_core.typed :: ClassicTypedRef.public func tell(message: T): Unit
 cactor_core.typed :: ClassicTypedRef.public func tell(message: T, sender: ActorRef): Unit
+cactor_core.typed :: ClassicTypedRef.public func tellBatch(messages: Array<T>): Unit
 cactor_core.typed :: ClassicTypedRef.public func toClassic(): Option<ActorRef>
 cactor_core.typed :: ClassicTypedRef.public func toString(): String
 cactor_core.typed :: ClassicTypedRef.public func typeExpectation(): Option<TypedTypeTag>
@@ -1110,6 +1112,7 @@ cactor_core.typed :: TypedActorContext.prop timers: TypedTimerScheduler<T>
 cactor_core.typed :: TypedActorRef.func equals(other: TypedActorRef<T>): Bool
 cactor_core.typed :: TypedActorRef.func pathString(): String
 cactor_core.typed :: TypedActorRef.func tell(message: T): Unit
+cactor_core.typed :: TypedActorRef.func tellBatch(messages: Array<T>): Unit
 cactor_core.typed :: TypedActorRef.func toClassic(): Option<ActorRef>
 cactor_core.typed :: TypedActorRef.operator func<<(message: T): TypedActorRef<T>
 cactor_core.typed :: TypedActorRefs.public static func equals<T>(a: TypedActorRef<T>, b: TypedActorRef<T>): Bool

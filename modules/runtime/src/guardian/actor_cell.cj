@@ -571,6 +571,43 @@ class CellMailbox {
     }
 
     /**
+     * 批量入队（A3）：一次持锁追加整批，顺序与逐条 add 完全一致。
+     * 批量投递不携带发送方（sender 均为 None），所以不分配 sender 数组。
+     * 返回 false 表示邮箱已关闭，调用方应把整批计入死信。
+     */
+    func addBatch(messages: Array<Message>): Bool {
+        if (messages.size == 0) {
+            return true
+        }
+        lockBox()
+        try {
+            if (closed) {
+                return false
+            }
+            if (inCount == 0 && oldestNanosValue == 0) {
+                oldestNanosValue = monoNanos()
+            }
+            // 一次扩到能装下整批（growIncoming 按 2× 增长，避免逐条检查容量）
+            while (inCount + messages.size > inMessages.size) {
+                growIncoming()
+            }
+            let emptyBefore = inCount == 0
+            let msgs = inMessages
+            for (i in 0..messages.size) {
+                msgs[inCount + i] = Some(messages[i])
+            }
+            inCount += messages.size
+            // 与 add 相同：只在"从空变为非空"时置提示位，后续消息不碰原子字
+            if (emptyBefore) {
+                state.fetchOr(INCOMING_BIT)
+            }
+            true
+        } finally {
+            unlockBox()
+        }
+    }
+
+    /**
      * 在邮箱锁内投递系统消息（P1-17）：与 close 互斥，所以停止后的消息不会滞留在系统栈里。
      * 首次投递时分配系统栈并置 SYS_BIT；返回 false 表示邮箱已关闭，调用方按"死亡后"规则处理。
      */
@@ -1185,6 +1222,36 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     public func tell(message: Message, sender: ActorRef): Unit {
         enqueue(message, None<String>, Some(sender))
+    }
+
+    /**
+     * 批量发送（A3）：无界邮箱（绝大多数 Actor）走一次持锁批量追加，
+     * 有界/优先级邮箱退回逐条 enqueue，保持原有背压、优先级与错误语义。
+     * 批量消息不带发送方；顺序与逐条 tell 一致。
+     */
+    public func tellBatch(messages: Array<Message>): Unit {
+        if (messages.size == 0) {
+            return
+        }
+        if (mailboxKind != MAILBOX_UNBOUNDED) {
+            for (m in messages) {
+                enqueue(m, None<String>, None<ActorRef>)
+            }
+            return
+        }
+        if ((schedState.load() & TERM_BIT) != 0) {
+            for (m in messages) {
+                deadLetter(m)
+            }
+            return
+        }
+        if (!mailbox.addBatch(messages)) {
+            for (m in messages) {
+                deadLetter(m)
+            }
+            return
+        }
+        trySchedule()
     }
 
     private func enqueue(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Unit {

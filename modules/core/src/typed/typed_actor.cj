@@ -75,6 +75,16 @@ public interface TypedActorRef<T> {
         tell(message)
         this
     }
+
+    /**
+     * 批量发送（A3）：默认逐条 tell；由经典 Actor 支撑的引用会走一次入队的批量路径。
+     * 顺序与逐条 tell 一致，批量投递不带发送方。
+     */
+    func tellBatch(messages: Array<T>): Unit {
+        for (m in messages) {
+            tell(m)
+        }
+    }
 }
 
 /**

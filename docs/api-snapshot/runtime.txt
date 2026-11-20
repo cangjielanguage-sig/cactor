@@ -240,6 +240,7 @@
 ? :: SimpleUserActorRef.public func tell(message: Message): Unit
 ? :: SimpleUserActorRef.public func tell(message: Message, sender: ActorRef): Unit
 ? :: SimpleUserActorRef.public func tell(message: Message, sender: Option<String>): Unit
+? :: SimpleUserActorRef.public func tellBatch(messages: Array<Message>): Unit
 ? :: SimpleUserActorRef.public func toString(): String
 ? :: SimpleUserActorRef.public func unhandled(): Int64
 ? :: SimpleUserActorRef.public init(name: String, actor: Actor, factory: ()->Actor, path: ActorPath, guardian: RuntimeUserGuardian)
