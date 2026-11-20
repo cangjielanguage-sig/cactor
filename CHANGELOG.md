@@ -7,6 +7,15 @@
 
 ## [未发布]
 
+### ✨ 新增：ex44 Agent 记忆与画像（§31 第 3 项真实示例）
+
+- 每租户独立事件库 + `Projection` 同时维护时间线与画像，`rebuild` 全量重建；
+- `EventAdapter.upcast` 把 v1（纯文本）/v2（类型|文本）升级到当前（类型|文本|重要度）；
+- 写入按 deliveryId 幂等（`IdempotentReceiver` + `DurableDeliveryIdStore`）；
+- `DurableTopic` 变更流：下游离线后按游标补齐；
+- 租户隔离：独立事件库/读模型/变更流；
+- Lou：`/memories`、`/timeline`、`/profile`、`/rebuild`、`/changes/stream`（SSE）、`/raw`。
+
 ### ✨ 新增：批量投递 `tellBatch`（AR3 / A3）
 
 - `ActorRef.tellBatch(messages)`：默认逐条 `tell`，所有引用实现无需改动即可用；
@@ -17,16 +26,22 @@
 - 测试 `TellBatchTest` 3/3（1000 条顺序、与 `tell` 混用顺序、类型化 200 条）。
   吞吐断言（1,000 条 ≥25%）待空闲机器复测。
 
-### ⚡ 性能：Actor Cell 冷字段容器（AR2 / A4 阶段性）
+### ⚡ 性能：每 Actor 存活堆降到 888 B（AR2 / A4 达成）
 
 - `SimpleUserActorRef` 原先为 watch / become / stash / unstash / 接收超时 / 定时器 / 停止合批计数
   各保留一个 `Option` 槽位，绝大多数叶 Actor 永远用不到。现收进按需分配的 `CellExtras`：
   叶 Actor 只多付一个指针，用到相关能力时才创建；匿名子 Actor 序号移入 `ChildTable`。
+- 第二轮结构改造：
+  - Cell 自身实现 `ActorContext`，`contextImpl()` 返回 `this`，去掉每 Actor 的 `CellContext` 对象；
+  - 邮箱字段与方法并入 Cell（不再有独立 `CellMailbox` 对象），不是 struct 值复制，热路径无额外拷贝；
+  - 有界/优先级邮箱的附加对象合并为 `MailboxAux`，容量/溢出策略移入 `BoundedSlots`；
+  - unstash 游标移入 `CellExtras`；邮箱关闭标志改由锁内检查 `TERM_BIT` 取代；
+  - `processedCount` 改为 Cell 线程写、指标宽松读的普通 64 位字段；邮箱初始容量 4 → 1。
 - 线程域不变：`stoppingChildCount` 仍由父在置 `BATCH_BIT` 前写入，子看到该位后才读；
-  watch/stash/become/定时器仍只在 Cell 线程访问。
-- 实测（`scale_test 200000 child`）：每 Actor 存活堆 1,118 → **1,086 B**（目标 ≤900 B，仍未达成）。
-  对照 `top` 模式 1,856 B；`soak_test 20` 静止 Cell 201→201、堆 21MB→18MB、零丢失。
-- 全量 1003/1003 通过。
+  watch/stash/become/定时器仍只在 Cell 线程访问；`processedCount` 只由 Cell 线程自增。
+- 实测（`scale_test 200000 child`）：每 Actor 存活堆 1,118 → 1,086 → **888 B**（目标 ≤900 B 达成）。
+  对照 `top` 模式 1,856 B；`soak_test 20` 静止 Cell 201→201、堆 75MB→87MB、零丢失、4.5M 条/秒。
+- 全量 1006/1006 通过。
 
 ### ✨ 新增：Party / Matchmaker / 共享 KV（AR9：F2 / F3 / F6）
 

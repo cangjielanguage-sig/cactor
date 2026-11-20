@@ -272,26 +272,22 @@ class SpinLock <: Lock {
 
 // 邮箱缓冲区参数与共享空数组哨兵（P1-13/P1-14）。放在包级：struct 不支持静态字段，
 // 且哨兵只读、全进程一份。
-let MAILBOX_INITIAL_CAPACITY: Int64 = 4
+let MAILBOX_INITIAL_CAPACITY: Int64 = 1
 let MAILBOX_RETAIN_CAPACITY: Int64 = 256
 let EMPTY_MESSAGES: Array<Option<Message>> = Array<Option<Message>>()
 let EMPTY_SENDERS: Array<Option<String>> = Array<Option<String>>()
 let EMPTY_SENDER_REFS: Array<Option<ActorRef>> = Array<Option<ActorRef>>()
 
 /**
- * 无界邮箱：双缓冲数组（与 protoactor-go 的 goring 同类），稳态下不分配内存
- * - 发送方持锁把消息追加到 incoming；消费方把本地的 draining 读空后，持锁与 incoming 整体交换，之后无锁处理整批
- * - 不用链表的原因：仓颉的原子变量是独立的堆对象，链表每条消息至少两次分配（节点 + 原子引用）。
- *   实测多线程下分配与 GC 不能随线程数扩展（8 线程的总吞吐与 1 线程相当），数组在稳态下零分配，可以扩展；
- *   并且链表里已出队的节点仍指向后继，GC 压力大时会成串滞留，吞吐偶发跌到 1/10
- * - 不用 std Mutex：扇入时 Mutex 的加解锁要走运行时重量级路径；这里用内联自适应自旋锁
- *   （32 次自旋后 sleep(0)，扇入时避免持锁方被抢占后其余线程空转）
- * - 缓冲区在第一条消息到达时才分配，从未收到消息的 Actor 不占这部分内存；突发后超过阈值的缓冲区在交换时丢弃
+ * 无界邮箱（A4 起内联在 SimpleUserActorRef 上）：双缓冲数组，稳态下不分配内存。
+ * - 发送方持锁追加到 incoming；消费方读空 draining 后持锁与 incoming 整体交换，之后无锁处理整批；
+ * - 不用链表：仓颉原子变量是堆对象，链表每条消息至少两次分配，多线程下分配/GC 不能随线程扩展；
+ * - 不用 std Mutex：扇入时走运行时重量级路径，这里用内联自适应自旋锁（32 次自旋后 sleep(0)）；
+ * - 缓冲区首条消息才分配，突发后超大缓冲在交换时丢弃。
  *
- * P1-18 尝试（已否决，留档备查）：曾把本类改为 struct 内联进 Cell——值类型虽省约 16 B
- * 对象头，但 `this.mailbox.add(...)` 等 mut 方法每次调用都按值复制整个 struct（双缓冲
- * 8 字段 + 锁），交替 A/B 实测 [1] 13M → 4.3M、[6] 62M → 30M msg/s，吞吐损失过半，
- * 故回退为 class。空 class 对象实测约 38 B，与本类字段合计的间接层开销远小于此损失。
+ * P1-18（留档）：曾把邮箱改为 struct 内联进 Cell，值类型省对象头但 mut 方法每次按值复制整个
+ * struct，吞吐损失过半，已回退。A4 改为"把字段与方法直接并入 Cell"：不复制、不加间接层，
+ * 只省掉独立对象的头与指针（实测对象约 38 B）。
  */
 /** 父 Actor 的子表与它的锁（R8）：只为有子 Actor 的 Cell 分配 */
 class ChildTable {
@@ -323,6 +319,18 @@ class CellExtras {
     var timeoutStateValue: Option<ReceiveTimeoutState> = None<ReceiveTimeoutState>
     var cellTimersValue: Option<CellTimers> = None<CellTimers>
     var stoppingChildCount: Option<AtomicInt64> = None<AtomicInt64>
+    var loggerValue: Option<Logger> = None<Logger>
+    var unstashIndex: Int64 = 0
+}
+
+/**
+ * 有界/优先级邮箱的附加对象（P2/A4）：此前是 Cell 上两个 `Option` 槽位，
+ * 无界邮箱（绝大多数 Actor）永远为 None。合并成一个 Option 后，每个无界 Actor 少一个槽位。
+ * 只在构造时写入一次，之后不再变，任意线程读都安全。
+ */
+class MailboxAux {
+    var bounded: Option<BoundedSlots> = None<BoundedSlots>
+    var priority: Option<PriorityCellMailbox> = None<PriorityCellMailbox>
 }
 
 /**
@@ -351,13 +359,18 @@ let BLOCK_RECHECK: Duration = Duration.millisecond * 50
  * 唤醒在锁内，等待者从"占位失败"到 wait 也一直持锁，所以不会漏掉
  */
 class BoundedSlots {
+    // 容量与溢出策略只有有界邮箱用：放在这里，无界/优先级 Actor 不再各付 16 字节
+    let capacity: Int64
+    let overflow: MailboxOverflow
     let count = AtomicInt64(0)
     let waiters = AtomicInt64(0)
     private let lock = Mutex()
     private let cond: Condition
     private let warnedOnWorker = AtomicBool(false)
 
-    init() {
+    init(capacity: Int64, overflow: MailboxOverflow) {
+        this.capacity = capacity
+        this.overflow = overflow
         this.cond = synchronized(lock) { lock.condition() }
     }
 
@@ -407,389 +420,6 @@ let MONO_EPOCH: MonoTime = MonoTime.now()
 func monoNanos(): Int64 {
     let n = (MonoTime.now() - MONO_EPOCH).toNanoseconds()
     if (n <= 0) { 1 } else { n }
-}
-
-class CellMailbox {
-    // 初始容量 4：多数 Actor 每条消息处理完即空（drain 场景），数组越小、长期占用越少；
-    // 突发按 2× 增长，超过 MAILBOX_RETAIN_CAPACITY 的大缓冲在换批时丢弃
-
-    // 内联自适应自旋锁（P1-14）：不再持有独立的 SpinLock 对象（每实例约 25 B），
-    // 用 AtomicBool 字段 + 手动 lock/unlock。语义与原 SpinLock 相同（32 次自旋后 sleep(0)）。
-    private let held = AtomicBool(false)
-    // Cell 的调度状态字：INCOMING_BIT 是"incoming 可能有消息"的乐观提示（权威判定见下方 inCount）
-    private let state: AtomicInt64
-    // 待处理计数（P2-4）：发送方本来就持有邮箱锁才写缓冲区，计数放在同一临界区内做普通自增；
-    // 每条 tell 因此不再对 schedState 做一次 fetchAdd（少一次跨核缓存行的 RMW）。
-    // 锁外的"邮箱是否非空"快速判定改读 schedState 的 INCOMING_BIT，该位只在
-    // "一批的第一条消息"入队时置位、在消费方换批/确认空批时清除，也是每批一次而非每条一次。
-    //
-    // 丢失唤醒的配对关系（INCOMING_BIT 只是提示，权威仍是锁内 inCount）：
-    //   发送方：lock { 写槽位；inCount++；首条时置 INCOMING_BIT } → 读/置 SCHED_BIT
-    //   消费方：清 SCHED_BIT → 读 INCOMING_BIT（refill 快速路径 / nonEmpty）
-    // INCOMING_BIT 与 SCHED_BIT 在同一个原子字上，两侧读的都是同一字的全序值：
-    // 若消费方没看到提示，说明它的读排在发送方置位之前，而它清 SCHED_BIT 在其读之前，
-    // 发送方之后的置位必然成功；若发送方先入队，则提示必然可见。任一交错都不会丢失唤醒。
-    // 已关闭：Actor 停止后不再接受新消息。判定在锁内与入队原子完成，
-    // 否则"发送方刚检查完 terminated"与"Cell 排空邮箱"之间的窗口会让消息滞留（不投递也不计死信）
-    private var closed: Bool = false
-    // C2-a：最老一条待处理消息的入队时刻（monoNanos，0 = 空）。
-    // 只在持锁时读写；不参与热路径（仅 isBusy/指标读取）
-    private var oldestNanosValue: Int64 = 0
-    // 共享空数组哨兵（P1-13）：仓颉里 `Option<Array<T>>` 字段占 32 字节，
-    // 而普通数组引用只占 8 字节。邮箱有 6 个这样的字段，全部改成"共享空数组 + size==0 判定"
-    // 后每 Actor 省约 144 字节。哨兵只读：size==0 时一律换成新分配的真实数组后再写入。
-    // in* 只在持锁时访问；首次入队时才分配
-    private var inMessages: Array<Option<Message>> = EMPTY_MESSAGES
-    private var inSenders: Array<Option<String>> = EMPTY_SENDERS
-    private var inSenderRefs: Array<Option<ActorRef>> = EMPTY_SENDER_REFS
-    private var inCount: Int64 = 0
-    // dr* 只由持有调度权的消费方访问；首次 refill 时才分配
-    private var drMessages: Array<Option<Message>> = EMPTY_MESSAGES
-    private var drSenders: Array<Option<String>> = EMPTY_SENDERS
-    private var drSenderRefs: Array<Option<ActorRef>> = EMPTY_SENDER_REFS
-    private var drCount: Int64 = 0
-    private var drIndex: Int64 = 0
-    // 系统消息栈（P1-17）：首次收到系统消息时在锁内分配，SYS_BIT 置位后发布。
-    // 从未收到系统消息的 Actor（常见叶 Actor）不占这个原子对象（约 55 B）。
-    private var sysHeadValue: Option<AtomicOptionReference<SysNode>> = None<AtomicOptionReference<SysNode>>
-    // 异常计数（R19）：绝大多数 Actor 永远为 0，按需分配；可能由任意线程首次触发（死信来自发送方），
-    // 因此在邮箱锁内分配、经 STATS_BIT 发布
-    private var anomalyValue: Option<CellAnomalies> = None<CellAnomalies>
-
-    init(state: AtomicInt64) {
-        this.state = state
-    }
-
-    func anomalies(): CellAnomalies {
-        if ((state.load() & STATS_BIT) != 0) {
-            return anomalyValue.getOrThrow()
-        }
-        lockBox()
-        try {
-            match (anomalyValue) {
-                case Some(a) => a
-                case None =>
-                    let a = CellAnomalies()
-                    anomalyValue = Some(a)
-                    state.fetchOr(STATS_BIT)
-                    a
-            }
-        } finally {
-            unlockBox()
-        }
-    }
-
-    /** 读取方：没有发布过就是全 0 */
-    func anomaliesIfAny(): Option<CellAnomalies> {
-        if ((state.load() & STATS_BIT) == 0) {
-            return None<CellAnomalies>
-        }
-        anomalyValue
-    }
-
-    /** 调度权持有者在释放调度位之前调用：出队缓冲里是否还有没处理的消息（dr* 只属于持有者） */
-    func ownerBacklog(): Bool {
-        drIndex < drCount
-    }
-
-    /** 释放调度位之后可以安全调用：只读原子提示位 */
-    func incomingHint(): Bool {
-        (state.load() & INCOMING_BIT) != 0
-    }
-
-    private func lockBox(): Unit {
-        var spins: Int64 = 0
-        while (!held.compareAndSwap(false, true)) {
-            spins++
-            if (spins > 32) {
-                sleep(Duration.Zero)
-            }
-        }
-    }
-
-    private func unlockBox(): Unit {
-        held.store(false)
-    }
-
-    /** 入队；邮箱已关闭时返回 false（消息应计为死信） */
-    func add(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Bool {
-        lockBox()
-        try {
-            if (closed) {
-                return false
-            }
-            // C2-a：从空变为非空时记下最老消息的入队时刻（dr 里还有消息时 oldest 已非 0，不覆盖）
-            if (inCount == 0 && oldestNanosValue == 0) {
-                oldestNanosValue = monoNanos()
-            }
-            if (inMessages.size == 0) {
-                // 首条消息（或上一批换回了空数组）：按初始容量分配
-                inMessages = Array<Option<Message>>(MAILBOX_INITIAL_CAPACITY, repeat: None<Message>)
-            }
-            let msgs = inMessages
-            if (inCount == msgs.size) {
-                growIncoming()
-            }
-            // Array 是引用类型：通过局部引用写入与字段里的是同一个数组
-            let slotMsgs = inMessages
-            slotMsgs[inCount] = Some(message)
-            // sender 两件套懒分配：绝大多数消息不带发送方（普通 tell），
-            // 只有第一条带发送方的消息才分配这两个数组（各约 100–140 字节）
-            if (sender.isSome()) {
-                if (inSenders.size != slotMsgs.size) {
-                    inSenders = Array<Option<String>>(slotMsgs.size, repeat: None<String>)
-                }
-                inSenders[inCount] = sender
-            }
-            if (senderRef.isSome()) {
-                if (inSenderRefs.size != slotMsgs.size) {
-                    inSenderRefs = Array<Option<ActorRef>>(slotMsgs.size, repeat: None<ActorRef>)
-                }
-                inSenderRefs[inCount] = senderRef
-            }
-            inCount++
-            // 一批的第一条消息置提示位；后续消息只做普通自增，不再碰原子字。
-            if (inCount == 1) {
-                state.fetchOr(INCOMING_BIT)
-            }
-            // 调度位由调用方 trySchedule 单独做一次 fetchOr 选举（不能与计数合并自加：
-            // 整数自加遇到 bit0 已置位会向上进位，污染终止位）。
-            true
-        } finally {
-            unlockBox()
-        }
-    }
-
-    /** 关闭邮箱：与入队在同一把锁内判定，关闭后不再接受新消息 */
-    func close(): Unit {
-        lockBox()
-        try {
-            closed = true
-        } finally {
-            unlockBox()
-        }
-    }
-
-    /**
-     * 批量入队（A3）：一次持锁追加整批，顺序与逐条 add 完全一致。
-     * 批量投递不携带发送方（sender 均为 None），所以不分配 sender 数组。
-     * 返回 false 表示邮箱已关闭，调用方应把整批计入死信。
-     */
-    func addBatch(messages: Array<Message>): Bool {
-        if (messages.size == 0) {
-            return true
-        }
-        lockBox()
-        try {
-            if (closed) {
-                return false
-            }
-            if (inCount == 0 && oldestNanosValue == 0) {
-                oldestNanosValue = monoNanos()
-            }
-            // 一次扩到能装下整批（growIncoming 按 2× 增长，避免逐条检查容量）
-            while (inCount + messages.size > inMessages.size) {
-                growIncoming()
-            }
-            let emptyBefore = inCount == 0
-            let msgs = inMessages
-            for (i in 0..messages.size) {
-                msgs[inCount + i] = Some(messages[i])
-            }
-            inCount += messages.size
-            // 与 add 相同：只在"从空变为非空"时置提示位，后续消息不碰原子字
-            if (emptyBefore) {
-                state.fetchOr(INCOMING_BIT)
-            }
-            true
-        } finally {
-            unlockBox()
-        }
-    }
-
-    /**
-     * 在邮箱锁内投递系统消息（P1-17）：与 close 互斥，所以停止后的消息不会滞留在系统栈里。
-     * 首次投递时分配系统栈并置 SYS_BIT；返回 false 表示邮箱已关闭，调用方按"死亡后"规则处理。
-     */
-    func pushSystem(message: SysMsg): Bool {
-        lockBox()
-        try {
-            if (closed) {
-                return false
-            }
-            let head = match (sysHeadValue) {
-                case Some(h) => h
-                case None =>
-                    let h = AtomicOptionReference<SysNode>()
-                    sysHeadValue = Some(h)
-                    // 发布顺序：先写字段，再置 SYS_BIT（seq_cst RMW）。
-                    // 消费方看到 SYS_BIT 后读该字段，acquire 语义保证能看到上面的写。
-                    state.fetchOr(SYS_BIT)
-                    h
-            }
-            // 必须用 CAS：邮箱锁只串行化"推送方之间"，消费方 takeSystemMessages 的 swap 不持锁。
-            // 若用 load + swap，消费方在两步之间取走 cur，随后 swap 会把已取走的节点重新挂回栈上，
-            // 同一条系统消息被处理两次（R4：监督指令重复执行、ReceiveTimeout 定时链倍增）。
-            while (true) {
-                let cur = head.load()
-                if (let Some(c) <- cur) {
-                    if (refEq(c, SYS_CLOSED)) {
-                        return false
-                    }
-                }
-                if (head.compareAndSwap(cur, SysNode(message, cur))) {
-                    return true
-                }
-            }
-            return false
-        } finally {
-            unlockBox()
-        }
-    }
-
-    /** 已发布的系统栈（调用方必须先观察到 SYS_BIT；此后该引用不再变化） */
-    func sysHeadPublished(): AtomicOptionReference<SysNode> {
-        sysHeadValue.getOrThrow()
-    }
-
-    private func growIncoming(): Unit {
-        let oldMsgs = inMessages
-        let old = oldMsgs.size
-        let capacity = if (old == 0) { MAILBOX_INITIAL_CAPACITY } else { old * 2 }
-        let messages = Array<Option<Message>>(capacity, repeat: None<Message>)
-        oldMsgs.copyTo(messages, 0, 0, inCount)
-        inMessages = messages
-        // sender 数组可能仍是共享空哨兵（从未有过带发送方的消息）；已分配则同步扩容
-        if (inSenders.size > 0) {
-            let senders = Array<Option<String>>(capacity, repeat: None<String>)
-            inSenders.copyTo(senders, 0, 0, inCount)
-            inSenders = senders
-        }
-        if (inSenderRefs.size > 0) {
-            let senderRefs = Array<Option<ActorRef>>(capacity, repeat: None<ActorRef>)
-            inSenderRefs.copyTo(senderRefs, 0, 0, inCount)
-            inSenderRefs = senderRefs
-        }
-    }
-
-    /** 最近一次 poll 出的消息的发送方（仅消费者使用） */
-    var lastSender: Option<String> = None<String>
-    var lastSenderRef: Option<ActorRef> = None<ActorRef>
-
-    /** 仅由持有调度权的线程调用 */
-    func poll(): Option<Message> {
-        if (drIndex == drCount && !refill()) {
-            clearOldestIfEmpty()
-            return None<Message>
-        }
-        // refill 成功后 drMessages 必然非空（inCount > 0）；sender 数组可能仍为空哨兵（无发送方）
-        let msgs = drMessages
-        let i = drIndex
-        drIndex++
-        let message = msgs[i]
-        // 逐项清空：已处理的消息不能被缓冲区继续引用（消息可能很大），交换回 incoming 时也就是干净的
-        msgs[i] = None<Message>
-        if (i < drSenders.size) {
-            let s = drSenders[i]
-            if (s.isSome()) { drSenders[i] = None<String> }
-            lastSender = s
-        } else {
-            lastSender = None<String>
-        }
-        if (i < drSenderRefs.size) {
-            let r = drSenderRefs[i]
-            if (r.isSome()) { drSenderRefs[i] = None<ActorRef> }
-            lastSenderRef = r
-        } else {
-            lastSenderRef = None<ActorRef>
-        }
-        message
-    }
-
-    /** 本地批已读完：与 incoming 交换；incoming 为空时返回 false */
-    private func refill(): Bool {
-        drIndex = 0
-        drCount = 0
-        // 锁外快速路径：提示位未置说明上一批之后没有新消息（位与 SCHED_BIT 同字，全序可靠）
-        if ((state.load() & INCOMING_BIT) == 0) {
-            return false
-        }
-        lockBox()
-        try {
-            if (inCount == 0) {
-                // 提示位过期（换批与清位之间被并发读到）：清位后返回空
-                state.fetchAnd(INCOMING_CLEAR_MASK)
-                return false
-            }
-            // 与 dr 交换：incoming 的数组交给消费方，上一轮消费完的数组换回 incoming 复用。
-            // 空数组（哨兵或首次的空 dr）换回去表示"尚无缓冲区"，下一次 add 按初始容量重新分配。
-            let messages = drMessages
-            let oldSenders = drSenders
-            let oldSenderRefs = drSenderRefs
-            drMessages = inMessages
-            drSenders = inSenders
-            drSenderRefs = inSenderRefs
-            drCount = inCount
-            if (messages.size > MAILBOX_RETAIN_CAPACITY) {
-                // 突发留下的大缓冲区不再复用，下次入队时再按初始容量分配
-                inMessages = EMPTY_MESSAGES
-                inSenders = EMPTY_SENDERS
-                inSenderRefs = EMPTY_SENDER_REFS
-            } else {
-                inMessages = messages
-                inSenders = oldSenders
-                inSenderRefs = oldSenderRefs
-            }
-            inCount = 0
-            // 与换批在同一临界区内清提示位：之后的发送方会重新置位
-            state.fetchAnd(INCOMING_CLEAR_MASK)
-        } finally {
-            unlockBox()
-        }
-        drCount > 0
-    }
-
-    func nonEmpty(): Bool {
-        drIndex < drCount || (state.load() & INCOMING_BIT) != 0
-    }
-
-    /** 近似计数（仅用于诊断，可从任意线程调用） */
-    func count(): Int64 {        let local = drCount - drIndex
-        var incoming: Int64 = 0
-        lockBox()
-        try {
-            incoming = inCount
-        } finally {
-            unlockBox()
-        }
-        incoming + (if (local > 0) { local } else { 0 })
-    }
-
-    /** 排空后清空最老时间；只在调用方已确认 refill 失败（无本地积压）时调用 */
-    private func clearOldestIfEmpty(): Unit {
-        lockBox()
-        try {
-            if (inCount == 0) {
-                oldestNanosValue = 0
-            }
-        } finally {
-            unlockBox()
-        }
-    }
-
-    /** C2-a：最老一条待处理消息已经等待的纳秒数；空邮箱为 0 */
-    func backlogNanos(): Int64 {
-        lockBox()
-        try {
-            if (oldestNanosValue == 0) {
-                return 0
-            }
-            let now = monoNanos()
-            if (now <= oldestNanosValue) { 0 } else { now - oldestNanosValue }
-        } finally {
-            unlockBox()
-        }
-    }
 }
 
 /**
@@ -870,7 +500,7 @@ let MAILBOX_PRIORITY: Int64 = 2
 /**
  * 用户 Actor 的引用与执行单元（Actor Cell）
  */
-public class SimpleUserActorRef <: RunLink & ActorRef {
+public class SimpleUserActorRef <: RunLink & ActorRef & ActorContext {
     private var actor: Actor
     private let actorFactory: () -> Actor
     // 名字（= 路径最后一段）：与父的 childMap 键是同一个 String 实例，子 Actor 不额外占内存。
@@ -880,7 +510,6 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     private let pathHashValue: Int32
     let guardian: RuntimeUserGuardian
     let parentCell: Option<SimpleUserActorRef>
-    let childStrategy: Option<SupervisionStrategy>
     private let executor: CellExecutor
 
     // 共享的空容器：只读路径返回它们，写路径一律先分配真实容器
@@ -892,17 +521,18 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     private static let EMPTY_UNSTASHED: ArrayList<Envelope> = ArrayList<Envelope>(0)
 
     // ---- 邮箱（任意线程写） ----
-    private var mailbox: CellMailbox
     private let mailboxKind: Int64
-    private let capacity: Int64
-    private let overflow: MailboxOverflow
-    // 仅 MAILBOX_BOUNDED 使用：懒分配，无界/优先级邮箱（绝大多数 Actor）不占这个原子对象
-    private var boundedCountValue: Option<BoundedSlots> = None<BoundedSlots>
-    private let priorityMailboxValue: Option<PriorityCellMailbox>
-    // 只在 mailboxKind == MAILBOX_PRIORITY 时使用
+    let childStrategy: Option<SupervisionStrategy>
+    // 有界/优先级邮箱的附加对象（P2/A4）：合并成一个 Option，无界邮箱（绝大多数 Actor）只付一个槽位
+    private var mailboxAuxValue: Option<MailboxAux> = None<MailboxAux>
     private prop priorityMailbox: PriorityCellMailbox {
         get() {
-            priorityMailboxValue.getOrThrow()
+            mailboxAuxValue.getOrThrow().priority.getOrThrow()
+        }
+    }
+    private prop boundedSlots: BoundedSlots {
+        get() {
+            mailboxAuxValue.getOrThrow().bounded.getOrThrow()
         }
     }
 
@@ -918,8 +548,10 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     // 丢失唤醒论证：提示位与 SCHED_BIT 同字，发送方"锁内入队/置提示 → 读置 SCHED"、
     // 消费方"清 SCHED → 读提示"，两读在同一原子字的总序上，任一交错不会双丢。
     private let schedState: AtomicInt64
-    // 已处理消息数（R19）：64 位，不再在 65535 饱和。死信 / 重启 / 未处理是异常计数，按需分配在邮箱里
-    private let processedCount: AtomicInt64
+    // 已处理消息数（R19）：64 位，不再在 65535 饱和。死信 / 重启 / 未处理是异常计数，按需分配在邮箱里。
+    // 只有 Cell 线程写；Prometheus 从其他线程读。64 位对齐的普通读在支持的平台上不会撕裂，
+    // 指标允许短暂看到稍旧的值，因此不再为每个 Actor 付一个 AtomicInt64 对象（约 38 B）。
+    private var processedCountValue: Int64 = 0
 
     // ---- 只在 Cell 线程内访问 ----
     private var state: Int64 = STATE_RUNNING
@@ -931,7 +563,6 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     // 冷字段容器（P2/A4）：叶 Actor 只有这一个 32 字节的槽位，用到 watch/stash/become/定时器/
     // 接收超时/停止合批时才分配 CellExtras（见类头注释）
     private var extrasValue: Option<CellExtras> = None<CellExtras>
-    private var unstashIndex: Int64 = 0
     // 停止合批（P5-2）：父进入"停止整棵子树"时把子数记入 stoppingChildren 并置 BATCH_BIT；
     // 每个子终止恰好把计数减 1，减到 0 的那一方让父收尾。这样百万子 Actor 不必各发一条
     // SysChildTerminated 在父的 sysHead 上做百万次 CAS 争用与百万次 childMap.remove。
@@ -947,7 +578,6 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     private var currentMessage: Option<Message> = None<Message>
     private var currentSender: Option<String> = None<String>
     private var currentSenderRef: Option<ActorRef> = None<ActorRef>
-    private var contextValue: Option<CellContext> = None<CellContext>
 
 
     // ---- 按需容器的访问器 ----
@@ -1015,6 +645,14 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 let e = CellExtras()
                 extrasValue = Some(e)
                 e
+        }
+    }
+
+    /** unstash 游标：只有存在 unstashed 时才非 0；extras 未分配时按 0 处理，不触发分配 */
+    private func unstashCursor(): Int64 {
+        match (extrasValue) {
+            case Some(e) => e.unstashIndex
+            case None => 0
         }
     }
 
@@ -1158,17 +796,20 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         this.executor = ActorCellDispatcher.forName(props.getDispatcher())
         this.affinity = executor.nextAffinity()
         this.schedState = AtomicInt64(0)
-        this.mailbox = CellMailbox(schedState)
         this.mailboxKind = match (props.getMailboxType()) {
             case "bounded" => if (props.getMailboxCapacity() > 0) { MAILBOX_BOUNDED } else { MAILBOX_UNBOUNDED }
             case "priority" => MAILBOX_PRIORITY
             case _ => MAILBOX_UNBOUNDED
         }
-        this.capacity = props.getMailboxCapacity()
-        this.overflow = props.getMailboxOverflow()
-        this.boundedCountValue = if (mailboxKind == MAILBOX_BOUNDED) { Some(BoundedSlots()) } else { None<BoundedSlots> }
-        this.priorityMailboxValue = if (mailboxKind == MAILBOX_PRIORITY) { Some(PriorityCellMailbox()) } else { None<PriorityCellMailbox> }
-        this.processedCount = AtomicInt64(0)
+        if (mailboxKind == MAILBOX_BOUNDED) {
+            let aux = MailboxAux()
+            aux.bounded = Some(BoundedSlots(props.getMailboxCapacity(), props.getMailboxOverflow()))
+            this.mailboxAuxValue = Some(aux)
+        } else if (mailboxKind == MAILBOX_PRIORITY) {
+            let aux = MailboxAux()
+            aux.priority = Some(PriorityCellMailbox())
+            this.mailboxAuxValue = Some(aux)
+        }
     }
 
     // 完整路径按需拼接：顶层 = "/user/<名字>"，子 Actor = 父路径 + "/" + 名字。
@@ -1245,7 +886,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             }
             return
         }
-        if (!mailbox.addBatch(messages)) {
+        if (!mboxAddBatch(messages)) {
             for (m in messages) {
                 deadLetter(m)
             }
@@ -1261,21 +902,22 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         if (mailboxKind == MAILBOX_UNBOUNDED) {
             // 邮箱已关闭（Actor 正在停止）：入队被拒绝，计为死信而不是滞留在邮箱里
-            if (!mailbox.add(message, sender, senderRef)) {
+            if (!mboxAdd(message, sender, senderRef)) {
                 deadLetter(message)
                 return
             }
         } else if (mailboxKind == MAILBOX_BOUNDED) {
+            let slots = boundedSlots
             if (!reserveSlot()) {
                 deadLetter(message)
-                match (overflow) {
-                    case MailboxOverflow.Fail => throw MailboxFullException("Actor ${fullPath()} 的邮箱已满（容量 ${capacity}）")
+                match (slots.overflow) {
+                    case MailboxOverflow.Fail => throw MailboxFullException("Actor ${fullPath()} 的邮箱已满（容量 ${slots.capacity}）")
                     case _ => ()
                 }
                 return
             }
-            if (!mailbox.add(message, sender, senderRef)) {
-                boundedCount.fetchAdd(-1)
+            if (!mboxAdd(message, sender, senderRef)) {
+                slots.count.fetchAdd(-1)
                 deadLetter(message)
                 return
             }
@@ -1301,18 +943,14 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             deadLetter(message)
             return
         }
-        boundedCount.fetchAdd(1)
-        if (!mailbox.add(message, None<String>, None<ActorRef>)) {
-            boundedCount.fetchAdd(-1)
+        let slots = boundedSlots
+        slots.count.fetchAdd(1)
+        if (!mboxAdd(message, None<String>, None<ActorRef>)) {
+            slots.count.fetchAdd(-1)
             deadLetter(message)
             return
         }
         trySchedule()
-    }
-
-    /** 有界邮箱的占位计数（仅 MAILBOX_BOUNDED 会调用，此时必然已分配） */
-    private prop boundedCount: AtomicInt64 {
-        get() { boundedCountValue.getOrThrow().count }
     }
 
     /**
@@ -1323,25 +961,25 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
      *   不再"让出 64 次后每 50µs 醒一次"地轮询。
      */
     private func reserveSlot(): Bool {
-        let slots = boundedCountValue.getOrThrow()
-        if (slots.count.fetchAdd(1) < capacity) {
+        let slots = boundedSlots
+        if (slots.count.fetchAdd(1) < slots.capacity) {
             return true
         }
         slots.count.fetchAdd(-1)
-        match (overflow) {
+        match (slots.overflow) {
             case MailboxOverflow.Block(timeout) =>
                 if (isAffinityWorkerThread()) {
                     slots.warnBlockedOnWorker(fullPath())
                     return false
                 }
-                slots.awaitSlot(capacity, timeout, { => (schedState.load() & TERM_BIT) != 0 })
+                slots.awaitSlot(slots.capacity, timeout, { => (schedState.load() & TERM_BIT) != 0 })
             case _ => false
         }
     }
 
     /** 出队一条后归还占位；有发送方在等空位时唤醒一个 */
     private func releaseSlot(): Unit {
-        let slots = boundedCountValue.getOrThrow()
+        let slots = boundedSlots
         slots.count.fetchAdd(-1)
         if (slots.waiters.load() > 0) {
             slots.signal()
@@ -1349,7 +987,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     func deadLetter(message: Message): Unit {
-        mailbox.anomalies().deadLetters.fetchAdd(1)
+        mboxAnomalies().deadLetters.fetchAdd(1)
         guardian.publishDeadLetter(message, fullPath())
     }
 
@@ -1357,7 +995,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     func sendSystem(message: SysMsg): Unit {
         // pushSystem 在邮箱锁内与 close 互斥：close 前的入队一定被随后的排空看到，
         // close 后的入队直接走死亡后规则，不会滞留在系统栈里。
-        if (!mailbox.pushSystem(message)) {
+        if (!mboxPushSystem(message)) {
             handleSystemAfterDeath(message)
             return
         }
@@ -1368,7 +1006,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if ((schedState.load() & SYS_BIT) == 0) {
             return false
         }
-        match (mailbox.sysHeadPublished().load()) {
+        match (mboxSysHeadPublished().load()) {
             case Some(c) => !refEq(c, SYS_CLOSED)
             case None => false
         }
@@ -1382,7 +1020,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if ((schedState.load() & SYS_BIT) == 0) {
             return result
         }
-        let head = mailbox.sysHeadPublished()
+        let head = mboxSysHeadPublished()
         let taken = if (closing) {
             head.swap(SYS_CLOSED)
         } else {
@@ -1413,12 +1051,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     /** 已处理的消息数（64 位单调计数） */
     public func processed(): Int64 {
-        processedCount.load()
+        processedCountValue
     }
 
     /** 被丢弃的消息数（停止后收到、有界邮箱已满等） */
     public func deadLetters(): Int64 {
-        match (mailbox.anomaliesIfAny()) {
+        match (mboxAnomaliesIfAny()) {
             case Some(a) => a.deadLetters.load()
             case None => 0
         }
@@ -1429,7 +1067,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (mailboxKind == MAILBOX_PRIORITY) {
             priorityMailbox.count()
         } else {
-            mailbox.count()
+            mboxCount()
         }
     }
 
@@ -1448,13 +1086,13 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (mailboxKind == MAILBOX_PRIORITY) {
             0.0
         } else {
-            Float64(mailbox.backlogNanos()) / 1000000000.0
+            Float64(mboxBacklogNanos()) / 1000000000.0
         }
     }
 
     /** 被监督重启的次数 */
     public func restarts(): Int64 {
-        match (mailbox.anomaliesIfAny()) {
+        match (mboxAnomaliesIfAny()) {
             case Some(a) => a.restarts.load()
             case None => 0
         }
@@ -1468,7 +1106,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     /** 最近一次实际完成重启的时刻（调度器时钟）；从未重启返回 None。可从任意线程调用 */
     func lastRestartTime(): Option<MonoTime> {
-        match (mailbox.anomaliesIfAny()) {
+        match (mboxAnomaliesIfAny()) {
             case Some(a) =>
                 let n = a.lastRestartNanos.load()
                 if (n > 0) {
@@ -1490,7 +1128,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
 
     /** receive 返回 Unhandled 的次数 */
     public func unhandled(): Int64 {
-        match (mailbox.anomaliesIfAny()) {
+        match (mboxAnomaliesIfAny()) {
             case Some(a) => a.unhandled.load()
             case None => 0
         }
@@ -1531,7 +1169,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (mailboxKind == MAILBOX_PRIORITY) {
             false
         } else {
-            mailbox.ownerBacklog()
+            mboxOwnerBacklog()
         }
     }
 
@@ -1540,7 +1178,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (mailboxKind == MAILBOX_PRIORITY) {
             priorityMailbox.nonEmpty()
         } else {
-            mailbox.incomingHint()
+            mboxIncomingHint()
         }
     }
 
@@ -1548,12 +1186,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (mailboxKind == MAILBOX_PRIORITY) {
             priorityMailbox.nonEmpty()
         } else {
-            mailbox.nonEmpty()
+            mboxNonEmpty()
         }
     }
 
     private func hasUnstashed(): Bool {
-        unstashIndex < unstashed().size
+        unstashCursor() < unstashed().size
     }
 
     /**
@@ -1598,11 +1236,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 break
             }
             if (hasUnstashed()) {
-                let env = unstashed()[unstashIndex]
-                unstashIndex++
-                if (unstashIndex >= unstashed().size) {
+                let env = unstashed()[unstashCursor()]
+                extras().unstashIndex += 1
+                if (extras().unstashIndex >= unstashed().size) {
                     extras().unstashedValue = Some(ArrayList<Envelope>(0))
-                    unstashIndex = 0
+                    extras().unstashIndex = 0
                 }
                 invoke(env.message, env.sender, env.senderRef)
                 count++
@@ -1616,12 +1254,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                     case None => break
                 }
             } else {
-                match (mailbox.poll()) {
+                match (mboxPoll()) {
                     case Some(message) =>
                         if (mailboxKind == MAILBOX_BOUNDED) {
                             releaseSlot()
                         }
-                        invoke(message, mailbox.lastSender, mailbox.lastSenderRef)
+                        invoke(message, lastSender, lastSenderRef)
                         count++
                     case None => break
                 }
@@ -1679,18 +1317,18 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 payload = te.payload
                 currentMessage = Some(payload)
             case _: PoisonPill =>
-                processedCount.fetchAdd(1)
+                processedCountValue += 1
                 clearCurrent()
                 initiateTerminate()
                 return
             case _: StopMessage =>
                 // system.stop：在已入队的消息之后停止，不交给用户的 receive
-                processedCount.fetchAdd(1)
+                processedCountValue += 1
                 clearCurrent()
                 initiateTerminate()
                 return
             case _: Kill =>
-                processedCount.fetchAdd(1)
+                processedCountValue += 1
                 clearCurrent()
                 handleFailure(ActorKilledException(fullPath()))
                 return
@@ -1739,7 +1377,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             match (result) {
                 case MessageResult.Handled => ()
                 case MessageResult.Unhandled =>
-                    mailbox.anomalies().unhandled.fetchAdd(1)
+                    mboxAnomalies().unhandled.fetchAdd(1)
                     if (payload is Terminated) {
                         // 与 Akka 一致：监视者不处理 Terminated 视为失败
                         let t = (payload as Terminated).getOrThrow()
@@ -1758,7 +1396,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             // 用户代码中的 Error（如递归过深的 StackOverflowError）按失败交给监督，不杀死工作线程
             handleFailure(ActorErrorException(fullPath(), e))
         }
-        processedCount.fetchAdd(1)
+        processedCountValue += 1
         match (extrasValue) {
             case Some(e) => match (e.timeoutStateValue) {
                 case Some(t) =>
@@ -1966,7 +1604,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             let fresh = actorFactory()
             actor = fresh
             fresh.postRestart(reason)
-            let stats = mailbox.anomalies()
+            let stats = mboxAnomalies()
             stats.restarts.fetchAdd(1)
             stats.lastRestartNanos.store(schedulerNanos())
             state = STATE_RUNNING
@@ -2283,7 +1921,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         if (mailboxKind == MAILBOX_PRIORITY) {
             priorityMailbox.close()
         } else {
-            mailbox.close()
+            mboxClose()
         }
         let remaining = takeSystemMessages(true)
         guardian.onCellTerminated(this)
@@ -2313,8 +1951,8 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
         // 未处理的消息计为死信
         while (hasUnstashed()) {
-            deadLetter(unstashed()[unstashIndex].message)
-            unstashIndex++
+            deadLetter(unstashed()[unstashCursor()].message)
+            extras().unstashIndex += 1
         }
         for (env in stashBuffer()) {
             deadLetter(env.message)
@@ -2325,7 +1963,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 deadLetter(env.message)
             }
         } else {
-            while (let Some(m) <- mailbox.poll()) {
+            while (let Some(m) <- mboxPoll()) {
                 deadLetter(m)
             }
         }
@@ -2410,16 +2048,504 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         }
     }
 
-    // ---------------- 上下文能力（只在 Cell 线程内调用） ----------------
+    // ---------------- 内联邮箱（A4：去掉独立 CellMailbox 对象） ----------------
+    // 字段原先是 CellMailbox 的成员；内联后省掉对象头与指针，方法直接在本 Cell 上执行，
+    // 不涉及 struct 值复制。线程域与原实现一致：in* 在锁内，dr* 只在持有调度权的线程访问。
 
-    func contextImpl(): CellContext {
-        match (contextValue) {
-            case Some(c) => c
-            case None =>
-                let c = CellContext(this)
-                contextValue = Some(c)
-                c
+    // 初始容量 4：多数 Actor 每条消息处理完即空（drain 场景），数组越小、长期占用越少；
+        // 突发按 2× 增长，超过 MAILBOX_RETAIN_CAPACITY 的大缓冲在换批时丢弃
+
+        // 内联自适应自旋锁（P1-14）：不再持有独立的 SpinLock 对象（每实例约 25 B），
+        // 用 AtomicBool 字段 + 手动 lock/unlock。语义与原 SpinLock 相同（32 次自旋后 sleep(0)）。
+        private let mboxHeld = AtomicBool(false)
+        // Cell 的调度状态字：INCOMING_BIT 是"incoming 可能有消息"的乐观提示（权威判定见下方 inCount）
+        // 待处理计数（P2-4）：发送方本来就持有邮箱锁才写缓冲区，计数放在同一临界区内做普通自增；
+        // 每条 tell 因此不再对 schedState 做一次 fetchAdd（少一次跨核缓存行的 RMW）。
+        // 锁外的"邮箱是否非空"快速判定改读 schedState 的 INCOMING_BIT，该位只在
+        // "一批的第一条消息"入队时置位、在消费方换批/确认空批时清除，也是每批一次而非每条一次。
+        //
+        // 丢失唤醒的配对关系（INCOMING_BIT 只是提示，权威仍是锁内 inCount）：
+        //   发送方：lock { 写槽位；inCount++；首条时置 INCOMING_BIT } → 读/置 SCHED_BIT
+        //   消费方：清 SCHED_BIT → 读 INCOMING_BIT（refill 快速路径 / mboxNonEmpty）
+        // INCOMING_BIT 与 SCHED_BIT 在同一个原子字上，两侧读的都是同一字的全序值：
+        // 若消费方没看到提示，说明它的读排在发送方置位之前，而它清 SCHED_BIT 在其读之前，
+        // 发送方之后的置位必然成功；若发送方先入队，则提示必然可见。任一交错都不会丢失唤醒。
+        // 已关闭：Actor 停止后不再接受新消息。判定在锁内与入队原子完成，
+        // 否则"发送方刚检查完 terminated"与"Cell 排空邮箱"之间的窗口会让消息滞留（不投递也不计死信）
+        // C2-a：最老一条待处理消息的入队时刻（monoNanos，0 = 空）。
+        // 只在持锁时读写；不参与热路径（仅 isBusy/指标读取）
+        private var oldestNanosValue: Int64 = 0
+        // 共享空数组哨兵（P1-13）：仓颉里 `Option<Array<T>>` 字段占 32 字节，
+        // 而普通数组引用只占 8 字节。邮箱有 6 个这样的字段，全部改成"共享空数组 + size==0 判定"
+        // 后每 Actor 省约 144 字节。哨兵只读：size==0 时一律换成新分配的真实数组后再写入。
+        // in* 只在持锁时访问；首次入队时才分配
+        private var inMessages: Array<Option<Message>> = EMPTY_MESSAGES
+        private var inSenders: Array<Option<String>> = EMPTY_SENDERS
+        private var inSenderRefs: Array<Option<ActorRef>> = EMPTY_SENDER_REFS
+        private var inCount: Int64 = 0
+        // dr* 只由持有调度权的消费方访问；首次 refill 时才分配
+        private var drMessages: Array<Option<Message>> = EMPTY_MESSAGES
+        private var drSenders: Array<Option<String>> = EMPTY_SENDERS
+        private var drSenderRefs: Array<Option<ActorRef>> = EMPTY_SENDER_REFS
+        private var drCount: Int64 = 0
+        private var drIndex: Int64 = 0
+        // 系统消息栈（P1-17）：首次收到系统消息时在锁内分配，SYS_BIT 置位后发布。
+        // 从未收到系统消息的 Actor（常见叶 Actor）不占这个原子对象（约 55 B）。
+        private var sysHeadValue: Option<AtomicOptionReference<SysNode>> = None<AtomicOptionReference<SysNode>>
+        // 异常计数（R19）：绝大多数 Actor 永远为 0，按需分配；可能由任意线程首次触发（死信来自发送方），
+        // 因此在邮箱锁内分配、经 STATS_BIT 发布
+        private var anomalyValue: Option<CellAnomalies> = None<CellAnomalies>
+
+
+        func mboxAnomalies(): CellAnomalies {
+            if ((schedState.load() & STATS_BIT) != 0) {
+                return anomalyValue.getOrThrow()
+            }
+            lockBox()
+            try {
+                match (anomalyValue) {
+                    case Some(a) => a
+                    case None =>
+                        let a = CellAnomalies()
+                        anomalyValue = Some(a)
+                        schedState.fetchOr(STATS_BIT)
+                        a
+                }
+            } finally {
+                unlockBox()
+            }
         }
+
+        /** 读取方：没有发布过就是全 0 */
+        func mboxAnomaliesIfAny(): Option<CellAnomalies> {
+            if ((schedState.load() & STATS_BIT) == 0) {
+                return None<CellAnomalies>
+            }
+            anomalyValue
+        }
+
+        /** 调度权持有者在释放调度位之前调用：出队缓冲里是否还有没处理的消息（dr* 只属于持有者） */
+        func mboxOwnerBacklog(): Bool {
+            drIndex < drCount
+        }
+
+        /** 释放调度位之后可以安全调用：只读原子提示位 */
+        func mboxIncomingHint(): Bool {
+            (schedState.load() & INCOMING_BIT) != 0
+        }
+
+        private func lockBox(): Unit {
+            var spins: Int64 = 0
+            while (!mboxHeld.compareAndSwap(false, true)) {
+                spins++
+                if (spins > 32) {
+                    sleep(Duration.Zero)
+                }
+            }
+        }
+
+        private func unlockBox(): Unit {
+            mboxHeld.store(false)
+        }
+
+        /** 入队；邮箱已关闭时返回 false（消息应计为死信） */
+        func mboxAdd(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Bool {
+            lockBox()
+            try {
+                // 停止流程先置 TERM_BIT 再排空邮箱：锁内看到该位就拒绝新消息
+                if ((schedState.load() & TERM_BIT) != 0) {
+                    return false
+                }
+                // C2-a：从空变为非空时记下最老消息的入队时刻（dr 里还有消息时 oldest 已非 0，不覆盖）
+                if (inCount == 0 && oldestNanosValue == 0) {
+                    oldestNanosValue = monoNanos()
+                }
+                if (inMessages.size == 0) {
+                    // 首条消息（或上一批换回了空数组）：按初始容量分配
+                    inMessages = Array<Option<Message>>(MAILBOX_INITIAL_CAPACITY, repeat: None<Message>)
+                }
+                let msgs = inMessages
+                if (inCount == msgs.size) {
+                    growIncoming()
+                }
+                // Array 是引用类型：通过局部引用写入与字段里的是同一个数组
+                let slotMsgs = inMessages
+                slotMsgs[inCount] = Some(message)
+                // sender 两件套懒分配：绝大多数消息不带发送方（普通 tell），
+                // 只有第一条带发送方的消息才分配这两个数组（各约 100–140 字节）
+                if (sender.isSome()) {
+                    if (inSenders.size != slotMsgs.size) {
+                        inSenders = Array<Option<String>>(slotMsgs.size, repeat: None<String>)
+                    }
+                    inSenders[inCount] = sender
+                }
+                if (senderRef.isSome()) {
+                    if (inSenderRefs.size != slotMsgs.size) {
+                        inSenderRefs = Array<Option<ActorRef>>(slotMsgs.size, repeat: None<ActorRef>)
+                    }
+                    inSenderRefs[inCount] = senderRef
+                }
+                inCount++
+                // 一批的第一条消息置提示位；后续消息只做普通自增，不再碰原子字。
+                if (inCount == 1) {
+                    schedState.fetchOr(INCOMING_BIT)
+                }
+                // 调度位由调用方 trySchedule 单独做一次 fetchOr 选举（不能与计数合并自加：
+                // 整数自加遇到 bit0 已置位会向上进位，污染终止位）。
+                true
+            } finally {
+                unlockBox()
+            }
+        }
+
+        /**
+         * 关闭邮箱：终止流程在置 TERM_BIT 之后调用。拒绝新消息改由锁内检查 TERM_BIT 完成，
+         * 不再需要单独的 closed 字段（省 8 字节），语义不变：关闭后入队一律计死信。
+         */
+        func mboxClose(): Unit {}
+
+        /**
+         * 批量入队（A3）：一次持锁追加整批，顺序与逐条 mboxAdd 完全一致。
+         * 批量投递不携带发送方（sender 均为 None），所以不分配 sender 数组。
+         * 返回 false 表示邮箱已关闭，调用方应把整批计入死信。
+         */
+        func mboxAddBatch(messages: Array<Message>): Bool {
+            if (messages.size == 0) {
+                return true
+            }
+            lockBox()
+            try {
+                // 停止流程先置 TERM_BIT 再排空邮箱：锁内看到该位就拒绝新消息
+                if ((schedState.load() & TERM_BIT) != 0) {
+                    return false
+                }
+                if (inCount == 0 && oldestNanosValue == 0) {
+                    oldestNanosValue = monoNanos()
+                }
+                // 一次扩到能装下整批（growIncoming 按 2× 增长，避免逐条检查容量）
+                while (inCount + messages.size > inMessages.size) {
+                    growIncoming()
+                }
+                let emptyBefore = inCount == 0
+                let msgs = inMessages
+                for (i in 0..messages.size) {
+                    msgs[inCount + i] = Some(messages[i])
+                }
+                inCount += messages.size
+                // 与 mboxAdd 相同：只在"从空变为非空"时置提示位，后续消息不碰原子字
+                if (emptyBefore) {
+                    schedState.fetchOr(INCOMING_BIT)
+                }
+                true
+            } finally {
+                unlockBox()
+            }
+        }
+
+        /**
+         * 在邮箱锁内投递系统消息（P1-17）：与 mboxClose 互斥，所以停止后的消息不会滞留在系统栈里。
+         * 首次投递时分配系统栈并置 SYS_BIT；返回 false 表示邮箱已关闭，调用方按"死亡后"规则处理。
+         */
+        func mboxPushSystem(message: SysMsg): Bool {
+            lockBox()
+            try {
+                // 停止流程先置 TERM_BIT 再排空邮箱：锁内看到该位就拒绝新消息
+                if ((schedState.load() & TERM_BIT) != 0) {
+                    return false
+                }
+                let head = match (sysHeadValue) {
+                    case Some(h) => h
+                    case None =>
+                        let h = AtomicOptionReference<SysNode>()
+                        sysHeadValue = Some(h)
+                        // 发布顺序：先写字段，再置 SYS_BIT（seq_cst RMW）。
+                        // 消费方看到 SYS_BIT 后读该字段，acquire 语义保证能看到上面的写。
+                        schedState.fetchOr(SYS_BIT)
+                        h
+                }
+                // 必须用 CAS：邮箱锁只串行化"推送方之间"，消费方 takeSystemMessages 的 swap 不持锁。
+                // 若用 load + swap，消费方在两步之间取走 cur，随后 swap 会把已取走的节点重新挂回栈上，
+                // 同一条系统消息被处理两次（R4：监督指令重复执行、ReceiveTimeout 定时链倍增）。
+                while (true) {
+                    let cur = head.load()
+                    if (let Some(c) <- cur) {
+                        if (refEq(c, SYS_CLOSED)) {
+                            return false
+                        }
+                    }
+                    if (head.compareAndSwap(cur, SysNode(message, cur))) {
+                        return true
+                    }
+                }
+                return false
+            } finally {
+                unlockBox()
+            }
+        }
+
+        /** 已发布的系统栈（调用方必须先观察到 SYS_BIT；此后该引用不再变化） */
+        func mboxSysHeadPublished(): AtomicOptionReference<SysNode> {
+            sysHeadValue.getOrThrow()
+        }
+
+        private func growIncoming(): Unit {
+            let oldMsgs = inMessages
+            let old = oldMsgs.size
+            let capacity = if (old == 0) { MAILBOX_INITIAL_CAPACITY } else { old * 2 }
+            let messages = Array<Option<Message>>(capacity, repeat: None<Message>)
+            oldMsgs.copyTo(messages, 0, 0, inCount)
+            inMessages = messages
+            // sender 数组可能仍是共享空哨兵（从未有过带发送方的消息）；已分配则同步扩容
+            if (inSenders.size > 0) {
+                let senders = Array<Option<String>>(capacity, repeat: None<String>)
+                inSenders.copyTo(senders, 0, 0, inCount)
+                inSenders = senders
+            }
+            if (inSenderRefs.size > 0) {
+                let senderRefs = Array<Option<ActorRef>>(capacity, repeat: None<ActorRef>)
+                inSenderRefs.copyTo(senderRefs, 0, 0, inCount)
+                inSenderRefs = senderRefs
+            }
+        }
+
+        /** 最近一次 mboxPoll 出的消息的发送方（仅消费者使用） */
+        var lastSender: Option<String> = None<String>
+        var lastSenderRef: Option<ActorRef> = None<ActorRef>
+
+        /** 仅由持有调度权的线程调用 */
+        func mboxPoll(): Option<Message> {
+            if (drIndex == drCount && !refill()) {
+                clearOldestIfEmpty()
+                return None<Message>
+            }
+            // refill 成功后 drMessages 必然非空（inCount > 0）；sender 数组可能仍为空哨兵（无发送方）
+            let msgs = drMessages
+            let i = drIndex
+            drIndex++
+            let message = msgs[i]
+            // 逐项清空：已处理的消息不能被缓冲区继续引用（消息可能很大），交换回 incoming 时也就是干净的
+            msgs[i] = None<Message>
+            if (i < drSenders.size) {
+                let s = drSenders[i]
+                if (s.isSome()) { drSenders[i] = None<String> }
+                lastSender = s
+            } else {
+                lastSender = None<String>
+            }
+            if (i < drSenderRefs.size) {
+                let r = drSenderRefs[i]
+                if (r.isSome()) { drSenderRefs[i] = None<ActorRef> }
+                lastSenderRef = r
+            } else {
+                lastSenderRef = None<ActorRef>
+            }
+            message
+        }
+
+        /** 本地批已读完：与 incoming 交换；incoming 为空时返回 false */
+        private func refill(): Bool {
+            drIndex = 0
+            drCount = 0
+            // 锁外快速路径：提示位未置说明上一批之后没有新消息（位与 SCHED_BIT 同字，全序可靠）
+            if ((schedState.load() & INCOMING_BIT) == 0) {
+                return false
+            }
+            lockBox()
+            try {
+                if (inCount == 0) {
+                    // 提示位过期（换批与清位之间被并发读到）：清位后返回空
+                    schedState.fetchAnd(INCOMING_CLEAR_MASK)
+                    return false
+                }
+                // 与 dr 交换：incoming 的数组交给消费方，上一轮消费完的数组换回 incoming 复用。
+                // 空数组（哨兵或首次的空 dr）换回去表示"尚无缓冲区"，下一次 mboxAdd 按初始容量重新分配。
+                let messages = drMessages
+                let oldSenders = drSenders
+                let oldSenderRefs = drSenderRefs
+                drMessages = inMessages
+                drSenders = inSenders
+                drSenderRefs = inSenderRefs
+                drCount = inCount
+                if (messages.size > MAILBOX_RETAIN_CAPACITY) {
+                    // 突发留下的大缓冲区不再复用，下次入队时再按初始容量分配
+                    inMessages = EMPTY_MESSAGES
+                    inSenders = EMPTY_SENDERS
+                    inSenderRefs = EMPTY_SENDER_REFS
+                } else {
+                    inMessages = messages
+                    inSenders = oldSenders
+                    inSenderRefs = oldSenderRefs
+                }
+                inCount = 0
+                // 与换批在同一临界区内清提示位：之后的发送方会重新置位
+                schedState.fetchAnd(INCOMING_CLEAR_MASK)
+            } finally {
+                unlockBox()
+            }
+            drCount > 0
+        }
+
+        func mboxNonEmpty(): Bool {
+            drIndex < drCount || (schedState.load() & INCOMING_BIT) != 0
+        }
+
+        /** 近似计数（仅用于诊断，可从任意线程调用） */
+        func mboxCount(): Int64 {        let local = drCount - drIndex
+            var incoming: Int64 = 0
+            lockBox()
+            try {
+                incoming = inCount
+            } finally {
+                unlockBox()
+            }
+            incoming + (if (local > 0) { local } else { 0 })
+        }
+
+        /** 排空后清空最老时间；只在调用方已确认 refill 失败（无本地积压）时调用 */
+        private func clearOldestIfEmpty(): Unit {
+            lockBox()
+            try {
+                if (inCount == 0) {
+                    oldestNanosValue = 0
+                }
+            } finally {
+                unlockBox()
+            }
+        }
+
+        /** C2-a：最老一条待处理消息已经等待的纳秒数；空邮箱为 0 */
+        func mboxBacklogNanos(): Int64 {
+            lockBox()
+            try {
+                if (oldestNanosValue == 0) {
+                    return 0
+                }
+                let now = monoNanos()
+                if (now <= oldestNanosValue) { 0 } else { now - oldestNanosValue }
+            } finally {
+                unlockBox()
+            }
+        }
+
+    // ---------------- 上下文能力（只在 Cell 线程内调用） ----------------
+    // P2/A4：Cell 自身实现 ActorContext，`contextImpl()` 返回 this，省掉每个 Actor 一个
+    // CellContext 对象（实测约 38 B 对象头 + 两个字段）与一个 contextValue 槽位。
+
+    func contextImpl(): SimpleUserActorRef {
+        this
+    }
+
+    public func sender(): Option<String> {
+        senderPathInternal()
+    }
+
+    public prop self: ActorRef {
+        get() { this }
+    }
+
+    public func senderRef(): Option<ActorRef> {
+        senderRefInternal()
+    }
+
+    public func parent(): Option<ActorRef> {
+        match (parentCell) {
+            case Some(p) => Some<ActorRef>(p)
+            case None => None<ActorRef>
+        }
+    }
+
+    public func reply(message: Message): Unit {
+        replyInternal(message)
+    }
+
+    public func send(target: ActorRef, message: Message): Unit {
+        target.tell(message, this)
+    }
+
+    public func actorOf(props: Props<Actor>, name: String): ActorRef {
+        spawnChild(props, name)
+    }
+
+    public func actorOf(creator: () -> Actor): ActorRef {
+        spawnAnonymousChild(creator)
+    }
+
+    public func children(): Array<ActorRef> {
+        childrenInternal()
+    }
+
+    public func child(name: String): Option<ActorRef> {
+        childInternal(name)
+    }
+
+    public func stop(ref: ActorRef): Unit {
+        stopInternal(ref)
+    }
+
+    public func watch(ref: ActorRef): Unit {
+        watchInternal(ref)
+    }
+
+    public func unwatch(ref: ActorRef): Unit {
+        unwatchInternal(ref)
+    }
+
+    public func watchWith(ref: ActorRef, message: Message): Unit {
+        watchWithInternal(ref, message)
+    }
+
+    public func become(behavior: Receive, discardOld: Bool): Unit {
+        becomeInternal(behavior, discardOld)
+    }
+
+    public func unbecome(): Unit {
+        unbecomeInternal()
+    }
+
+    public func setReceiveTimeout(timeout: Duration): Unit {
+        setReceiveTimeoutInternal(timeout)
+    }
+
+    public func cancelReceiveTimeout(): Unit {
+        cancelReceiveTimeoutInternal()
+    }
+
+    public prop timers: TimerScheduler {
+        get() { timersImpl() }
+    }
+
+    public func scheduler(): ActorScheduler {
+        guardian.scheduler()
+    }
+
+    public func stash(): Unit {
+        stashInternal()
+    }
+
+    public func unstashAll(): Unit {
+        unstashAllInternal()
+    }
+
+    public func system(): ActorSystemView {
+        match (guardian.systemView()) {
+            case Some(v) => v
+            case None => throw UnsupportedContextException("system")
+        }
+    }
+
+    public func log(): Logger {
+        let e = extras()
+        match (e.loggerValue) {
+            case Some(l) => l
+            case None =>
+                let l = Logging.logger(fullPath())
+                e.loggerValue = Some(l)
+                l
+        }
+    }
+
+    public func lookup(path: String): Option<ActorRef> {
+        guardian.lookup(path)
     }
 
     func timersImpl(): CellTimers {
@@ -2631,12 +2757,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         let merged = ArrayList<Envelope>()
         merged.add(all: stashBuffer())
         while (hasUnstashed()) {
-            merged.add(unstashed()[unstashIndex])
-            unstashIndex++
+            merged.add(unstashed()[unstashCursor()])
+            extras().unstashIndex += 1
         }
         stashBufferMut().clear()
         extras().unstashedValue = Some(merged)
-        unstashIndex = 0
+        extras().unstashIndex = 0
     }
 
     /** 定时器触发时由定时器线程调用 */

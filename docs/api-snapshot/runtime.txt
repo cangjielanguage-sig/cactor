@@ -225,6 +225,12 @@
 ? :: SimpleSystemActorRef.public func tell(message: Message, sender: Option<String>): Unit
 ? :: SimpleSystemActorRef.public init(name: String, actor: Actor, path: ActorPath)
 ? :: SimpleSystemActorRef.public prop path: ActorPath
+? :: SimpleUserActorRef.public func actorOf(creator: ()->Actor): ActorRef
+? :: SimpleUserActorRef.public func actorOf(props: Props<Actor>, name: String): ActorRef
+? :: SimpleUserActorRef.public func become(behavior: Receive, discardOld: Bool): Unit
+? :: SimpleUserActorRef.public func cancelReceiveTimeout(): Unit
+? :: SimpleUserActorRef.public func child(name: String): Option<ActorRef>
+? :: SimpleUserActorRef.public func children(): Array<ActorRef>
 ? :: SimpleUserActorRef.public func deadLetters(): Int64
 ? :: SimpleUserActorRef.public func equals(other: ActorRef): Bool
 ? :: SimpleUserActorRef.public func fullPath(): String
@@ -232,21 +238,40 @@
 ? :: SimpleUserActorRef.public func hashCode(): Int32
 ? :: SimpleUserActorRef.public func isBusy(): Bool
 ? :: SimpleUserActorRef.public func isTerminated(): Bool
+? :: SimpleUserActorRef.public func log(): Logger
+? :: SimpleUserActorRef.public func lookup(path: String): Option<ActorRef>
 ? :: SimpleUserActorRef.public func mailboxBacklogSeconds(): Float64
+? :: SimpleUserActorRef.public func parent(): Option<ActorRef>
 ? :: SimpleUserActorRef.public func pending(): Int64
 ? :: SimpleUserActorRef.public func pendingCount(): Int64
 ? :: SimpleUserActorRef.public func processed(): Int64
+? :: SimpleUserActorRef.public func reply(message: Message): Unit
 ? :: SimpleUserActorRef.public func restarts(): Int64
+? :: SimpleUserActorRef.public func scheduler(): ActorScheduler
+? :: SimpleUserActorRef.public func send(target: ActorRef, message: Message): Unit
+? :: SimpleUserActorRef.public func sender(): Option<String>
+? :: SimpleUserActorRef.public func senderRef(): Option<ActorRef>
+? :: SimpleUserActorRef.public func setReceiveTimeout(timeout: Duration): Unit
+? :: SimpleUserActorRef.public func stash(): Unit
+? :: SimpleUserActorRef.public func stop(ref: ActorRef): Unit
+? :: SimpleUserActorRef.public func system(): ActorSystemView
 ? :: SimpleUserActorRef.public func tell(message: Message): Unit
 ? :: SimpleUserActorRef.public func tell(message: Message, sender: ActorRef): Unit
 ? :: SimpleUserActorRef.public func tell(message: Message, sender: Option<String>): Unit
 ? :: SimpleUserActorRef.public func tellBatch(messages: Array<Message>): Unit
 ? :: SimpleUserActorRef.public func toString(): String
+? :: SimpleUserActorRef.public func unbecome(): Unit
 ? :: SimpleUserActorRef.public func unhandled(): Int64
+? :: SimpleUserActorRef.public func unstashAll(): Unit
+? :: SimpleUserActorRef.public func unwatch(ref: ActorRef): Unit
+? :: SimpleUserActorRef.public func watch(ref: ActorRef): Unit
+? :: SimpleUserActorRef.public func watchWith(ref: ActorRef, message: Message): Unit
 ? :: SimpleUserActorRef.public init(name: String, actor: Actor, factory: ()->Actor, path: ActorPath, guardian: RuntimeUserGuardian)
 ? :: SimpleUserActorRef.public init(name: String, actor: Actor, path: ActorPath, guardian: RuntimeUserGuardian)
 ? :: SimpleUserActorRef.public prop path: ActorPath
 ? :: SimpleUserActorRef.public prop pathString: String
+? :: SimpleUserActorRef.public prop self: ActorRef
+? :: SimpleUserActorRef.public prop timers: TimerScheduler
 ? :: StartMessage.public func messageType(): String
 ? :: StartMessage.public init()
 ? :: StopMessage.public func getPayload(): String
@@ -275,7 +300,7 @@
 ? :: public class SimpleActorRegistry
 ? :: public class SimpleSystemActorContext <: ActorContext
 ? :: public class SimpleSystemActorRef <: ActorRef
-? :: public class SimpleUserActorRef <: RunLink & ActorRef
+? :: public class SimpleUserActorRef <: RunLink & ActorRef & ActorContext
 ? :: public class StopMessage <: AutoReceivedMessage
 ? :: public class SystemContextActorRef <: ContextActorRef
 ? :: public func isActorThread(): Bool
