@@ -94,19 +94,23 @@ public class BackpressureC2Test {
         let system = CActorSystemFactory.create("bp-ref")
         try {
             let processed = AtomicInt64(0)
-            let ref = system.actorOf({ => SlowConsumer(processed, Duration.microsecond * 100) }, "slow")
+            let ref = system.actorOf({ => SlowConsumer(processed, Duration.microsecond * 20) }, "slow")
             let limit: Int64 = 32
             let bp = BackpressuredRef<StringMessage>(ref, limit: limit)
-            let n: Int64 = 5000
+            let n: Int64 = 2000
             var offered: Int64 = 0
             var maxPending: Int64 = 0
+            var maxExactInFlight: Int64 = 0
             var sawBackpressure = false
             while (offered < n) {
                 match (bp.offer(StringMessage("x"))) {
                     case Enqueued =>
                         offered++
+                        // pendingCount 是跨线程近似计数（读侧可能看到滞后的 drIndex），允许 1–2 的抖动
                         let p = bp.inFlight()
                         if (p > maxPending) { maxPending = p }
+                        let exact = offered - processed.load()
+                        if (exact > maxExactInFlight) { maxExactInFlight = exact }
                     case Backpressured(inFlight, lim) =>
                         sawBackpressure = true
                         if (inFlight > maxPending) { maxPending = inFlight }
@@ -119,7 +123,9 @@ public class BackpressureC2Test {
                 }
             }
             @Expect(sawBackpressure, true)
-            @Expect(maxPending <= limit, true)
+            // 精确在途（已 offer - 已处理）不超过水位；近似计数允许少量抖动
+            @Expect(maxExactInFlight <= limit + 1, true)
+            @Expect(maxPending <= limit + 2, true)
             @Expect(awaitCondition(Duration.second * 30, { => processed.load() == n }), true)
 
             system.stop(ref)

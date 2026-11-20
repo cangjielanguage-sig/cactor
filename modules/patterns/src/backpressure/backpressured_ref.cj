@@ -107,6 +107,8 @@ public class BackpressuredRef<T> where T <: Message {
      * - 本地积压 >= limit → Backpressured(当前积压, limit)，消息未入队；
      * - 否则入队并返回 Enqueued。
      * 远程/包装引用无法观测积压（pendingCount < 0）时直接发送并返回 Enqueued。
+     * 本地引用的 pendingCount 是跨线程近似计数（读侧可能看到滞后的消费进度），
+     * 会短暂高估 1–2 条，水位判断因此是"保守"的（宁可早一点返回 Backpressured）。
      */
     public func offer(message: T): OfferResult {
         if (target.isTerminated()) {
