@@ -18,7 +18,7 @@ CActor 是 cjpm workspace，根 `cjpm.toml` 定义 **14 个模块**。模块包�
 | cactor | `cactor` | core, runtime | 系统门面与管理 HTTP API |
 | streams | `cactor_streams` | macros, foundation, core, cactor | 背压流（E60）：Reactive Streams 接口、Source/Flow/Sink 蓝图、融合岛 + async 边界、取消与流内监督 |
 | cluster | `cactor_cluster` | foundation, core, remote, cactor | 成员协议、分片、单例、服务发现、分布式数据 |
-| xstate | `cactor_xstate` | foundation, core, cactor | 实验性状态机，不依赖 cluster |
+| xstate | `cactor_xstate` | foundation, core, cactor | 实验性状态机（已冻结，待 E51 移除；新代码用 `@StateMachine`），不依赖 cluster |
 | platform | `cactor_platform` | foundation, core, runtime, remote, persistence, streams, cluster, cactor | 平台原语（L6）：受监督执行、可睡眠会话、按 sessionId 寻址、持久流、无状态 Edge 接入、MCP server、Scoped 授权、Party/Matchmaker/共享 KV；不被任何库模块反向依赖 |
 | testkit | `cactor_testkit` | foundation, core, runtime, cactor | TestProbe、BehaviorTestKit、ManualTime、ProcessBarrier 等 |
 | tests | `cactor_tests` | foundation, core, runtime, patterns, remote, persistence, cactor, testkit, macros, cluster, platform | 单元与集成测试 |

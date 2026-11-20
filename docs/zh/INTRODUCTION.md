@@ -196,7 +196,7 @@ cactor → streams / xstate / testkit
 | remote | `cactor_remote` | 基于 std.net 的 TCP 远程通信 | 原型 |
 | persistence | `cactor_persistence` | 事件溯源、快照、CQRS | 原型 |
 | cluster | `cactor_cluster` | 成员协议、分片、Singleton、分布式发布订阅、CRDT | 原型 |
-| xstate | `cactor_xstate` | XState 风格状态机，可与 Actor 组合 | 实验性 |
+| xstate | `cactor_xstate` | XState 风格状态机，可与 Actor 组合 | 实验性（已冻结，新代码用 `@StateMachine`） |
 
 > 另外还有 `cactor_macros`（宏，独立）、`cactor_tests` 和 `cactor_examples`。`distribution` / `integration` 聚合与重复模块已删除；直接使用 remote / persistence / cluster、foundation 与 testkit。精确依赖见[包结构](package-structure.md)。
 
@@ -228,7 +228,7 @@ cactor_testkit  = "1.2.1"   # 写测试时
 | 一次工具调用要拿到结果，还要防超时 | 请求-响应 | `Ask.ask` / `askAsync` / `AskFuture` |
 | 工具报错、模型超时、上游限流要有章法 | 监督与退避 | `OneForOneStrategy`、`BackoffSupervisorStrategy`、断路器 |
 | 上下文不能无限膨胀，忙不过来要拒绝 | 有界邮箱与背压 | `withBoundedMailbox(capacity, overflow)` |
-| 多轮决策、等待人工审批、分支工作流 | 状态机 | `xstate`（实验性） |
+| 多轮决策、等待人工审批、分支工作流 | 状态机 | `@StateMachine`（推荐）；`xstate` 实验性且已冻结 |
 | Token / 事件要流式吐给前端 | 流处理 | `cactor_streams`（实验性） |
 | 对话与决策要可回放、可恢复 | 事件溯源 + 快照 | `cactor_persistence`（原型） |
 | 按会话 ID 把 Agent 分布到多台机器 | 分片 + 位置透明 | `cactor_cluster`（原型） |

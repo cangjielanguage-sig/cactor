@@ -1,5 +1,10 @@
 # cactor_xstate
 
+> **状态：实验性，已冻结（D2）。** 本模块保留发布以兼容既有引用，但**不再演进而待移除**：
+> 仍有 36 处占位实现，且与 `@StateMachine` 宏（编译期检查、与 Actor/Behaviors 直接组合）能力重叠。
+> **新代码请使用 `@StateMachine`**；本模块按 E51 在 12 个月后（约 2027-11）移除。
+> 占位词不计入 `quality_metrics.py` 的总目标（`--allow-placeholders xstate`）。
+
 状态机。XState 风格的状态机：core/lang/features/enterprise 四层，用于显式建模状态转移。
 
 ## 安装

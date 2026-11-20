@@ -10,6 +10,8 @@
     python3 tools/quality_metrics.py --json     # 机器可读
     python3 tools/quality_metrics.py --dead     # 额外列出零引用包（E20′/E46/E47 的待删清单）
     python3 tools/quality_metrics.py --check    # 按计划的最终目标判定（未达标即退出码 1）
+    python3 tools/quality_metrics.py --check --allow-placeholders xstate
+                                                # 冻结模块的占位词不计入总数（D2：xstate 冻结后待 E51 移除）
 
 --check 用的是 20261106 计划的最终目标，当前必然失败；它的用途是"把目标接进 nightly 时
 不需要再改脚本"，以及本地判断某个批次有没有实质推进。日常门禁（ci.sh）只跑报表模式。
@@ -195,6 +197,10 @@ def report(data):
     ]
     for name, cur, target in rows:
         print(f"| {name} | {cur} | {target} | {'✅' if cur <= target else '❌'} |")
+    if "placeholders_allowed" in data:
+        parts = "、".join(f"{m} {n}" for m, n in data["placeholders_allowed"].items())
+        print(f"\n> 占位关键词豁免（冻结模块，不计入目标）：{parts}；有效总数 "
+              f"{data['placeholders_effective']} / {TARGETS['placeholders']}")
     print(f"| @Deprecated（处） | {data['deprecated']} | 每处带 since/移除版本 | — |")
     print(f"| 含 sleep 的测试文件（个） | {data['test_sleep_files']} | — | — |")
     print("\n按模块：\n")
@@ -211,6 +217,10 @@ def main():
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--dead", action="store_true", help="列出零引用包")
     parser.add_argument("--check", action="store_true", help="按计划最终目标判定")
+    parser.add_argument(
+        "--allow-placeholders", default="",
+        help="从占位关键词总数与 --check 中豁免的模块（逗号分隔）；用于已冻结的 experimental 模块"
+             "（如 xstate：D2 冻结后按 E51 到期移除，占位词不再计入总目标）")
     args = parser.parse_args()
 
     if not os.path.isdir("modules"):
@@ -218,6 +228,15 @@ def main():
         return 2
 
     data = collect()
+    # 豁免模块的占位词不计入总数与 --check（冻结模块的占位是"待 E51 删除"的已知存量，
+    # 不应污染其余模块的达标判定；按模块表仍如实列出，避免掩盖问题）
+    allow = {m.strip() for m in args.allow_placeholders.split(",") if m.strip()}
+    if allow:
+        data["placeholders_allowed"] = {
+            m: data["placeholders_by_module"].get(m, 0)
+            for m in sorted(allow) if m in data["placeholders_by_module"]
+        }
+        data["placeholders_effective"] = data["placeholders"] - sum(data["placeholders_allowed"].values())
     data["test_sleep_top"] = [(p, n) for p, n in data.get("test_sleep_top", [])]
 
     if args.json:
@@ -232,11 +251,13 @@ def main():
                 print(f"| {item['package']} | {item['lines']} | {item['files']} |")
 
     if args.check:
+        # 有豁免时以 effective 计；无豁免时与旧行为一致（raw 总数）
+        placeholders = data.get("placeholders_effective", data["placeholders"])
         failed = []
         if data["lib_lines"] > TARGETS["lib_lines"]:
             failed.append(f"生产代码 {data['lib_lines']} > {TARGETS['lib_lines']}")
-        if data["placeholders"] > TARGETS["placeholders"]:
-            failed.append(f"占位关键词 {data['placeholders']} > {TARGETS['placeholders']}")
+        if placeholders > TARGETS["placeholders"]:
+            failed.append(f"占位关键词 {placeholders} > {TARGETS['placeholders']}")
         if data["test_sleeps"] > TARGETS["test_sleeps"]:
             failed.append(f"测试 sleep {data['test_sleeps']} > {TARGETS['test_sleeps']}")
         if len(data["dead_packages"]) > TARGETS["dead_packages"]:

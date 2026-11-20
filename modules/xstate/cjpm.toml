@@ -1,7 +1,7 @@
 [package]
 name = "cactor_xstate"
 version = "1.2.1"
-description = "状态机（XState 风格）"
+description = "状态机（XState 风格，实验性、已冻结：新代码请用 @StateMachine，按 E51 到期移除）"
 cjc-version = "1.2.0"
 license = ["MIT"]
 repository = "https://gitcode.com/Cangjie-SIG/cactor.git"
