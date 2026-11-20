@@ -24,6 +24,7 @@ import cactor_foundation.hashing.{sha256, toHex}
 import cactor_foundation.logging.{Logging}
 import cactor_persistence.{DurableStateStore}
 import cactor_platform.durable.*
+import cactor_platform.auth.*
 import cactor_cluster.membership.{ClusterReceptionist}
 
 /** 入站载荷 → 会话消息。使用方可换成自己的协议编解码，Edge 不规定业务消息类型 */
@@ -124,10 +125,11 @@ public enum EdgeConnectResult {
     | Unauthorized(Int64, String)
 }
 
-/** 入站投递结果：找不到会话是明确的 NoRoute，调用方据此回 404（而不是静默吞掉） */
+/** 入站投递结果：找不到会话是明确的 NoRoute，越权是明确的 Forbidden（都不是静默丢弃） */
 public enum EdgeDeliverResult {
     | Delivered
     | NoRoute(String)
+    | Forbidden(String)
 }
 
 /**
@@ -142,12 +144,16 @@ public class EdgeConnection {
     private let stream: DurableStream
     private let lock = Mutex()
     private var lastAckValue: Int64
+    // 开启 AuthGate 时携带的已校验令牌；投递时再按目标 Actor 的真实路径授权
+    private let accessToken: Option<ScopedToken>
 
-    init(router: EdgeRouter, sessionId: String, stream: DurableStream, lastAck: Int64) {
+    init(router: EdgeRouter, sessionId: String, stream: DurableStream, lastAck: Int64,
+        accessToken: Option<ScopedToken>) {
         this.router = router
         this.sessionIdValue = sessionId
         this.stream = stream
         this.lastAckValue = lastAck
+        this.accessToken = accessToken
     }
 
     public prop sessionId: String {
@@ -161,9 +167,9 @@ public class EdgeConnection {
         }
     }
 
-    /** 入站：解析会话 Actor 并投递；解析失败返回 NoRoute */
+    /** 入站：解析会话 Actor 并投递；未登记返回 NoRoute，越权返回 Forbidden */
     public func deliver(payload: String): EdgeDeliverResult {
-        router.deliver(sessionIdValue, payload)
+        router.deliver(sessionIdValue, payload, accessToken)
     }
 
     /**
@@ -249,10 +255,13 @@ public class EdgeRouter {
     private let lock = Mutex()
     private let streams = HashMap<String, DurableStream>()
     private let sinks = HashMap<String, ActorRef>()
+    // 可选：开启后握手必须带 access token，投递按目标 Actor 路径再次授权（P6/G1）
+    private let auth: Option<AuthGate>
 
     public init(system: CActorSystem, store: DurableStateStore, resolver: EdgeActorResolver, secret: String,
         messages!: EdgeMessageFactory = StringEdgeMessages(),
-        replies!: EdgeReplyEncoder = StringEdgeReplies(), streamTtlSeconds!: Int64 = 0) {
+        replies!: EdgeReplyEncoder = StringEdgeReplies(), streamTtlSeconds!: Int64 = 0,
+        auth!: Option<AuthGate> = None) {
         if (secret.isEmpty()) {
             throw IllegalArgumentException("Edge 恢复令牌密钥不能为空")
         }
@@ -264,6 +273,7 @@ public class EdgeRouter {
         this.messages = messages
         this.replies = replies
         this.streamTtl = streamTtlSeconds
+        this.auth = auth
     }
 
     /** 会话的出站流；同一条流在本路由器内共享一个实例（append 串行化） */
@@ -281,9 +291,32 @@ public class EdgeRouter {
         }
     }
 
-    /** 建立连接；带令牌时校验会话、签名与有效期，并从 lastAck + 1 续读 */
-    public func connect(sessionId: String, resumeToken!: Option<String> = None): EdgeConnectResult {
+    /**
+     * 建立连接：先校验访问令牌（开启 AuthGate 时），再校验恢复令牌并从 lastAck + 1 续读。
+     * 访问令牌的路径授权若在握手时就能解析到目标 Actor 则立即检查，否则留到 deliver。
+     */
+    public func connect(sessionId: String, resumeToken!: Option<String> = None,
+        accessToken!: Option<String> = None): EdgeConnectResult {
         validateSessionId(sessionId)
+        var scoped: Option<ScopedToken> = None
+        match (auth) {
+            case Some(gate) =>
+                let decision = gate.authenticate(accessToken)
+                match (decision) {
+                    case Allowed(t) =>
+                        match (resolver.resolve(sessionId)) {
+                            case Some(ref) =>
+                                if (!gate.authorizeToken(t, ref.path.toString(), AccessOp.Call)) {
+                                    return EdgeConnectResult.Unauthorized(403, "访问令牌无权访问该会话")
+                                }
+                            // 会话尚未登记（或登记未传播）：保留令牌，投递时按真实路径再判
+                            case None => ()
+                        }
+                        scoped = Some(t)
+                    case Rejected(status, reason) => return EdgeConnectResult.Unauthorized(status, reason)
+                }
+            case None => ()
+        }
         var lastAck: Int64 = 0
         match (resumeToken) {
             case Some(tok) =>
@@ -300,7 +333,7 @@ public class EdgeRouter {
                 }
             case None => ()
         }
-        EdgeConnectResult.Connected(EdgeConnection(this, sessionId, streamFor(sessionId), lastAck))
+        EdgeConnectResult.Connected(EdgeConnection(this, sessionId, streamFor(sessionId), lastAck, scoped))
     }
 
     /** 解析当前会话 Actor（每次投递都重新解析：分片/实例变化后连接自动跟随） */
@@ -325,9 +358,22 @@ public class EdgeRouter {
         registry.exists(edgeStreamPath(sessionId))
     }
 
-    func deliver(sessionId: String, payload: String): EdgeDeliverResult {
+    func deliver(sessionId: String, payload: String, token: Option<ScopedToken>): EdgeDeliverResult {
         match (resolveActor(sessionId)) {
             case Some(ref) =>
+                // 授权按目标 Actor 的真实路径判断：会话迁移后旧前缀令牌不能顺手越权
+                match (auth) {
+                    case Some(gate) =>
+                        let targetPath = ref.path.toString()
+                        let allowed = match (token) {
+                            case Some(t) => gate.authorizeToken(t, targetPath, AccessOp.Call)
+                            case None => false
+                        }
+                        if (!allowed) {
+                            return EdgeDeliverResult.Forbidden(targetPath)
+                        }
+                    case None => ()
+                }
                 ref.tell(messages.inbound(sessionId, payload), sinkFor(sessionId))
                 EdgeDeliverResult.Delivered
             case None => EdgeDeliverResult.NoRoute(sessionId)

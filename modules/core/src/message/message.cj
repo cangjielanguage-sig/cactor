@@ -184,6 +184,39 @@ public struct TerminatedMessage <: SystemMessage {
 }
 
 /**
+ * 远程投递的追踪包装（仅用于本地投递，不参与序列化）。
+ *
+ * 远程接收端解析出 W3C `traceparent` 后，把它随消息一起放进收件 Actor 的邮箱；
+ * ActorCell 在调用 receive 之前拆包并按 traceparent 建立 MDC 作用域，
+ * 于是接收侧日志带与发送侧相同的 traceId。用户 Actor 永远看不到这层包装。
+ */
+public class TracedMessage <: Message {
+    public let payload: Message
+    public let traceParent: String
+
+    public init(payload: Message, traceParent: String) {
+        this.payload = payload
+        this.traceParent = traceParent
+    }
+
+    public func messageType(): String {
+        payload.messageType()
+    }
+
+    public func priority(): Int32 {
+        payload.priority()
+    }
+
+    public func messageId(): String {
+        payload.messageId()
+    }
+
+    public func timestamp(): Int64 {
+        payload.timestamp()
+    }
+}
+
+/**
  * 字符串消息
  * 用于传递简单的字符串内容
  */

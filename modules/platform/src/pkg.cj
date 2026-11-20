@@ -8,6 +8,7 @@
  *   durable   Durable Streams：游标续读、长轮询、fork、TTL（P4/G3）
  *   edge      无状态接入层：连接 ↔ 集群 Actor、断线按恢复令牌续传（P3/F4）
  *   mcp       MCP server：tools/list、tools/call 与显式错误映射（P5/AR7）
+ *   auth      按 actor 授权的 Scoped 令牌与 AuthGate（P6/G1）
  *
  * Agent 语义（LLM 客户端、agent loop、工具定义、提示词、记忆）由 ~/pix/pic 实现，
  * CActor 不提供这些能力，也不反向依赖 pic。

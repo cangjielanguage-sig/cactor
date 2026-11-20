@@ -22,8 +22,9 @@ import std.time.*
 import std.convert.*
 import std.fs.{File, exists}
 import cactor_core.actor.*
-import cactor_core.message.{Message, MessageResult, AutoReceivedMessage}
+import cactor_core.message.{Message, MessageResult, AutoReceivedMessage, TracedMessage}
 import cactor_foundation.logging.{Logger, Logging, LogLevel}
+import cactor_foundation.monitoring.{TraceContext, continueTrace, withTraceMdc}
 
 let cellLog = Logging.logger("cactor.cell")
 
@@ -1537,16 +1538,26 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     // ---------------- 用户消息处理 ----------------
 
     private func invoke(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Unit {
-        currentMessage = Some(message)
+        // 远程投递携带的追踪上下文：先拆包，控制消息的语义必须作用在真实消息上，
+        // 用户 Actor 也永远看不到 TracedMessage 这层包装。
+        var carried = message
+        var trace: Option<TraceContext> = None<TraceContext>
+        match (message) {
+            case tm: TracedMessage =>
+                carried = tm.payload
+                trace = continueTrace(tm.traceParent)
+            case _ => ()
+        }
+        currentMessage = Some(carried)
         currentSender = sender
         currentSenderRef = senderRef
-        var payload = message
+        var payload = carried
         // 控制消息按具体类匹配，不先做 `message is AutoReceivedMessage`：
         // 实测仓颉判断"别的包里定义的类是否实现某接口"（结果为否时）单线程约 70ns，
         // 4 个工作线程并发时每次约 0.8µs CPU、1µs 以上墙钟，线程之间互相阻塞（推测运行时要查全局的类型扩展信息）。
         // 用户消息都定义在别的包，每条消息一次这样的检查曾让 4 线程的吞吐低于单线程；
         // 按具体类匹配不争用，5 个合计约 30ns
-        match (message) {
+        match (payload) {
             case te: TimerEnvelope =>
                 if (!timersImpl().accept(te)) {
                     clearCurrent()
@@ -1595,11 +1606,19 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 return
             case _ => ()
         }
+        // 闭包只捕获不可变快照：仓颉不允许捕获局部 var 的闭包逃逸（这里传给 withTraceMdc）
+        let finalPayload = payload
         try {
-            let result = if (behaviors().size > 0) {
-                behaviors()[behaviors().size - 1](payload, contextImpl())
-            } else {
-                actor.receive(payload, contextImpl())
+            let runReceive = { =>
+                if (behaviors().size > 0) {
+                    behaviors()[behaviors().size - 1](finalPayload, contextImpl())
+                } else {
+                    actor.receive(finalPayload, contextImpl())
+                }
+            }
+            let result = match (trace) {
+                case Some(ctx) => withTraceMdc(ctx, runReceive)
+                case None => runReceive()
             }
             match (result) {
                 case MessageResult.Handled => ()

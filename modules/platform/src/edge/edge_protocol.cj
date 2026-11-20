@@ -22,6 +22,7 @@ import cactor_platform.durable.{StreamRecord}
 public let MAX_SSE_RESIDENCE: Duration = Duration.second * 60
 
 public let HEADER_RESUME_TOKEN: String = "edge-resume-token"
+public let HEADER_ACCESS_TOKEN: String = "edge-access-token"
 public let HEADER_SESSION_ID: String = "edge-session-id"
 public let HEADER_LAST_ACK: String = "edge-last-ack"
 public let HEADER_EDGE_NEXT_OFFSET: String = "edge-next-offset"
@@ -141,7 +142,8 @@ public class EdgeGateway {
             return EdgeUpgradeResult.Rejected(404, "missing session id")
         }
         let token = request.headers.get(HEADER_RESUME_TOKEN)
-        match (router.connect(sessionId, resumeToken: token)) {
+        let accessToken = request.headers.get(HEADER_ACCESS_TOKEN)
+        match (router.connect(sessionId, resumeToken: token, accessToken: accessToken)) {
             case Connected(conn) =>
                 let headers = HashMap<String, String>()
                 headers[HEADER_SESSION_ID] = sessionId

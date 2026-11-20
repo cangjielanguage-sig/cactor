@@ -59,6 +59,7 @@ func expectDelivered(result: EdgeDeliverResult): Unit {
     match (result) {
         case Delivered => ()
         case NoRoute(sid) => @Fail("会话 ${sid} 应当可路由")
+        case Forbidden(path) => @Fail("会话 ${path} 不应被拒绝")
     }
 }
 

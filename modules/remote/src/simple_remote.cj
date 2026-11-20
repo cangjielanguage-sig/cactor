@@ -21,6 +21,10 @@ let log_simple_remote: Logger = Logging.logger("cactor_remote.simple_remote")
 // 线格式不兼容往往成批出现（混合版本期间每条消息都会撞上）：每 5 分钟逐条记前 10 条
 let wireIncompatibleLog: LogRateLimiter = LogRateLimiter(10, Duration.minute * 5)
 
+// 远程接收线程的当前 traceparent（P7/G2）：接收分发与本地投递在同一线程同步完成，
+// 用线程局部把它交给 deliverLocal，避免改动公开的 registerHandler 签名。
+let RECEIVED_TRACE: ThreadLocal<String> = ThreadLocal<String>()
+
 /**
  * 远程消息发送器
  */
@@ -224,7 +228,13 @@ public class SimpleRemoteReceiver {
                 return
             }
         }
-        dispatch(networkMessage.targetActor, networkMessage.message, networkMessage.sender)
+        // 线程局部只覆盖本次同步分发；handler 内部（deliverLocal）据此给消息加上追踪包装
+        RECEIVED_TRACE.set(networkMessage.traceParent)
+        try {
+            dispatch(networkMessage.targetActor, networkMessage.message, networkMessage.sender)
+        } finally {
+            RECEIVED_TRACE.set(None<String>)
+        }
     }
 
     /** 读不懂的帧：不投递、单独计数、限速告警，并交给死信监听（帧本身无法还原成消息） */

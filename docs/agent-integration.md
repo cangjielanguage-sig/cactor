@@ -124,7 +124,8 @@ match (router.connect("user-42")) {
 }
 ```
 
-- 握手：`GET /v1/edge/{sessionId}`，头 `edge-resume-token`；
+- 握手：`GET /v1/edge/{sessionId}`，头 `edge-resume-token`（续读）与可选的
+  `edge-access-token`（按 actor 授权，见 §5.1）；
   成功头 `edge-session-id` / `edge-last-ack` / `edge-next-offset` / `edge-resume-token`；
   过期 401、令牌与会话不匹配或签名不符 403、无会话 404、非 GET 405。
 - SSE：`EdgeSse` 编码，`id:` 是 offset，多行 `data:`；单连接 60 秒驻留上限，
@@ -138,6 +139,24 @@ match (router.connect("user-42")) {
 
 会话登记的约定：会话 Actor 启动时用 `ClusterReceptionist.register("edge-session-<id>", ref)`
 登记（`ReceptionistEdgeResolver` 默认前缀 `edge-session`）。
+
+### 5.1 按 actor 授权（Scoped 令牌）
+
+多租户下客户端 A 只能碰自己的会话：签发一个只覆盖该 actor 路径的令牌，Edge 握手时校验。
+
+```cangjie
+let token = ScopedTokenCodec.issue("shared-secret", "alice", "/user/session-a", ["call"],
+    ttlMillis: 3600_000, nowMillis: nowMillis())
+let router = EdgeRouter(system, store, resolver, "edge-secret", auth: Some(AuthGate("shared-secret")))
+// 客户端握手头：edge-access-token: <token>
+```
+
+- 缺失/过期/签名非法 → 401；路径或 scope 不匹配 → 403（`EdgeDeliverResult.Forbidden`）；
+- 路径按边界匹配：`/user/session-a` 覆盖其子路径，不覆盖 `/user/session-ab`；
+- 默认不配置 `auth` 时行为与之前完全一致；密钥可复用远程的 secureCookie。
+
+类型：`cactor_platform.auth.ScopedTokenCodec`、`cactor_platform.auth.ScopedToken`、
+`cactor_platform.auth.AuthGate`、`cactor_platform.auth.AccessOp`、`cactor_platform.auth.TokenAuthorizer`。
 
 ## 6. Durable Streams：可续读、可 fork 的事件流
 

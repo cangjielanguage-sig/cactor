@@ -1,5 +1,39 @@
 # CActor 公开 API 快照：modules/platform（tools/api_snapshot.py 生成，勿手改）
 # 有意修改公开 API 后执行 python3 tools/api_snapshot.py --update，并在 CHANGELOG 记录
+cactor_platform.auth :: AccessOp.| Call
+cactor_platform.auth :: AccessOp.| Read
+cactor_platform.auth :: AccessOp.| Write
+cactor_platform.auth :: AuthDecision.| Allowed(ScopedToken)
+cactor_platform.auth :: AuthDecision.| Rejected(Int64, String)
+cactor_platform.auth :: AuthGate.public func authenticate(tokenText: Option<String>): AuthDecision
+cactor_platform.auth :: AuthGate.public func authorizeToken(token: ScopedToken, targetPath: String, op: AccessOp): Bool
+cactor_platform.auth :: AuthGate.public func check(tokenText: Option<String>, targetPath: String, op: AccessOp): AuthDecision
+cactor_platform.auth :: AuthGate.public init(secret: String, authorizer!: TokenAuthorizer = ScopedTokenAuthorizer())
+cactor_platform.auth :: ScopedToken.public func allows(op: AccessOp): Bool
+cactor_platform.auth :: ScopedToken.public func covers(targetPath: String): Bool
+cactor_platform.auth :: ScopedToken.public func expired(nowMillis: Int64): Bool
+cactor_platform.auth :: ScopedToken.public init(subject: String, actorPath: String, scopes: Array<String>, expiresAtMillis: Int64)
+cactor_platform.auth :: ScopedToken.public let actorPath: String
+cactor_platform.auth :: ScopedToken.public let expiresAtMillis: Int64
+cactor_platform.auth :: ScopedToken.public let scopes: Array<String>
+cactor_platform.auth :: ScopedToken.public let subject: String
+cactor_platform.auth :: ScopedTokenAuthorizer.public func authorize(token: ScopedToken, targetPath: String, op: AccessOp): Bool
+cactor_platform.auth :: ScopedTokenAuthorizer.public init()
+cactor_platform.auth :: ScopedTokenCodec.public static func issue(secret: String, subject: String, actorPath: String, scopes: Array<String>, ttlMillis!: Int64, nowMillis!: Int64): String
+cactor_platform.auth :: ScopedTokenCodec.public static func verify(secret: String, token: String, nowMillis!: Int64): ScopedTokenResult
+cactor_platform.auth :: ScopedTokenResult.| Expired(ScopedToken)
+cactor_platform.auth :: ScopedTokenResult.| Invalid(String)
+cactor_platform.auth :: ScopedTokenResult.| Valid(ScopedToken)
+cactor_platform.auth :: TokenAuthorizer.func authorize(token: ScopedToken, targetPath: String, op: AccessOp): Bool
+cactor_platform.auth :: public class AuthGate
+cactor_platform.auth :: public class ScopedToken
+cactor_platform.auth :: public class ScopedTokenAuthorizer <: TokenAuthorizer
+cactor_platform.auth :: public enum AccessOp
+cactor_platform.auth :: public enum AuthDecision
+cactor_platform.auth :: public enum ScopedTokenResult
+cactor_platform.auth :: public func accessOpName(op: AccessOp): String
+cactor_platform.auth :: public interface TokenAuthorizer
+cactor_platform.auth :: public struct ScopedTokenCodec
 cactor_platform.durable :: DurableRequest.public init(method: String, path: String, headers!: HashMap<String, String>= HashMap<String, String>(), body!: String = "")
 cactor_platform.durable :: DurableRequest.public let body: String
 cactor_platform.durable :: DurableRequest.public let headers: HashMap<String, String>
@@ -70,6 +104,7 @@ cactor_platform.edge :: EdgeConnection.public func recoveryToken(ttl!: Duration 
 cactor_platform.edge :: EdgeConnection.public func streamPath(): String
 cactor_platform.edge :: EdgeConnection.public prop sessionId: String
 cactor_platform.edge :: EdgeDeliverResult.| Delivered
+cactor_platform.edge :: EdgeDeliverResult.| Forbidden(String)
 cactor_platform.edge :: EdgeDeliverResult.| NoRoute(String)
 cactor_platform.edge :: EdgeGateway.public func upgrade(request: EdgeRequest): EdgeUpgradeResult
 cactor_platform.edge :: EdgeGateway.public init(router: EdgeRouter, basePath!: String = "")
@@ -81,13 +116,13 @@ cactor_platform.edge :: EdgeRequest.public init(method: String, path: String, he
 cactor_platform.edge :: EdgeRequest.public let headers: HashMap<String, String>
 cactor_platform.edge :: EdgeRequest.public let method: String
 cactor_platform.edge :: EdgeRequest.public let path: String
-cactor_platform.edge :: EdgeRouter.public func connect(sessionId: String, resumeToken!: Option<String>= None): EdgeConnectResult
+cactor_platform.edge :: EdgeRouter.public func connect(sessionId: String, resumeToken!: Option<String>= None, accessToken!: Option<String>= None): EdgeConnectResult
 cactor_platform.edge :: EdgeRouter.public func hasStream(sessionId: String): Bool
 cactor_platform.edge :: EdgeRouter.public func issueRecoveryToken(sessionId: String, lastAck: Int64, ttl!: Duration = DEFAULT_EDGE_TOKEN_TTL): String
 cactor_platform.edge :: EdgeRouter.public func publish(sessionId: String, payload: String, producerId!: String = ""): Int64
 cactor_platform.edge :: EdgeRouter.public func resolveActor(sessionId: String): Option<ActorRef>
 cactor_platform.edge :: EdgeRouter.public func streamFor(sessionId: String): DurableStream
-cactor_platform.edge :: EdgeRouter.public init(system: CActorSystem, store: DurableStateStore, resolver: EdgeActorResolver, secret: String, messages!: EdgeMessageFactory = StringEdgeMessages(), replies!: EdgeReplyEncoder = StringEdgeReplies(), streamTtlSeconds!: Int64 = 0)
+cactor_platform.edge :: EdgeRouter.public init(system: CActorSystem, store: DurableStateStore, resolver: EdgeActorResolver, secret: String, messages!: EdgeMessageFactory = StringEdgeMessages(), replies!: EdgeReplyEncoder = StringEdgeReplies(), streamTtlSeconds!: Int64 = 0, auth!: Option<AuthGate>= None)
 cactor_platform.edge :: EdgeSse.public static func encode(records: Array<StreamRecord>): String
 cactor_platform.edge :: EdgeSse.public static func keepAlive(): String
 cactor_platform.edge :: EdgeSse.public static func shouldRecycle(connectedAt: MonoTime, now!: MonoTime = MonoTime.now()): Bool
@@ -135,6 +170,7 @@ cactor_platform.edge :: public interface EdgeMessageFactory
 cactor_platform.edge :: public interface EdgeReplyEncoder
 cactor_platform.edge :: public let DEFAULT_EDGE_TOKEN_TTL: Duration
 cactor_platform.edge :: public let EDGE_TOKEN_VERSION: String
+cactor_platform.edge :: public let HEADER_ACCESS_TOKEN: String
 cactor_platform.edge :: public let HEADER_EDGE_NEXT_OFFSET: String
 cactor_platform.edge :: public let HEADER_LAST_ACK: String
 cactor_platform.edge :: public let HEADER_RESUME_TOKEN: String

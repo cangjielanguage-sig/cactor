@@ -7,6 +7,30 @@
 
 ## [未发布]
 
+### ✨ 新增：Scoped 授权与 trace 跨节点传播（AR8：P6/G1 + P7/G2）
+
+**按 actor 授权（`cactor_platform/auth`）**
+
+- `ScopedToken`（subject / actorPath / scopes / expiresAt）+ 紧凑 HMAC 令牌
+  `scim-v1|hex(subject)|hex(actorPath)|hex(scopes)|exp|hmac`，签名复用 `foundation.hashing`，
+  常数时间比较；密钥可复用远程的 `secureCookie`；
+- `TokenAuthorizer` 可插拔，默认实现按路径前缀（带边界）+ scope（`*` 全允许）判断；
+- `AuthGate.authenticate/check` 区分 401（缺失/过期/签名非法）与 403（路径或 scope 不匹配）；
+- Edge 可选 `auth: Some(AuthGate(...))`：握手读 `edge-access-token`；能解析到 Actor 时立即按真实
+  路径授权，否则投递时再判并返回 `EdgeDeliverResult.Forbidden`；默认不开启时行为不变；
+- 测试 `ScopedTokenTest` 4/4（只允许自己的 actor、过期 401、篡改拒绝、Edge 401/403/合法投递、网关头）。
+
+**trace 跨节点传播（`core` / `remote` / `runtime` / `foundation`）**
+
+- `NetworkMessage` 帧尾可选 W3C `traceparent` 块：发送线程 MDC 有 traceId/spanId 时才写；
+  旧读者忽略尾部、新读者读不到按无追踪处理，**不升线协议版本**；
+- 接收侧用 `TracedMessage`（仅本地投递、不序列化）把 traceparent 带进邮箱；
+  `ActorCell` 拆包后用 `continueTrace` + `withTraceMdc` 在 `receive` 期间续接本地子 span；
+- 测试 `RemoteTraceTest.traceIdPropagatesAcrossNodes`（B 侧 Actor 的 MDC traceId 与 A 侧一致，
+  无追踪时不产生包装）；`WireCompatTest` 10/10 保持通过；
+- OTel 导出与集群指标沿用既有实现（`BatchSpanExporter`/`toOtlpJson`/`ClusterMetrics`，
+  `SpanExporterTest` 与 `ClusterMetricsTest` 覆盖失败不影响业务、集群指标齐全）。
+
 ### ✨ 新增：MCP server 与 Agent 接入文档（AR7：P5 / G4）
 
 `cactor_platform/mcp` 让 pic 这类已有 MCP client 的运行时把 CActor 里的 actor、实体、流当工具调用。

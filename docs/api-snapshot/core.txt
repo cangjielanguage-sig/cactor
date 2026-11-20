@@ -584,11 +584,13 @@ cactor_core.message :: MessageSerializer.public init()
 cactor_core.message :: MessageSerializer.public static func requiredCapabilities(message: Message): UInt64
 cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>)
 cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64)
+cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64, traceParent: Option<String>)
 cactor_core.message :: NetworkMessage.public let message: Message
 cactor_core.message :: NetworkMessage.public let messageId: String
 cactor_core.message :: NetworkMessage.public let sender: Option<String>
 cactor_core.message :: NetworkMessage.public let targetActor: String
 cactor_core.message :: NetworkMessage.public let timestamp: Int64
+cactor_core.message :: NetworkMessage.public let traceParent: Option<String>
 cactor_core.message :: NetworkMessageException.public init(message: String)
 cactor_core.message :: NetworkMessageSerializer.public func deserialize(data: Array<UInt8>): NetworkMessage
 cactor_core.message :: NetworkMessageSerializer.public func serialize(networkMessage: NetworkMessage): Array<UInt8>
@@ -635,6 +637,13 @@ cactor_core.message :: TerminatedMessage.public func getActor(): String
 cactor_core.message :: TerminatedMessage.public func getReason(): String
 cactor_core.message :: TerminatedMessage.public func messageType(): String
 cactor_core.message :: TerminatedMessage.public init(actor: String, reason: String)
+cactor_core.message :: TracedMessage.public func messageId(): String
+cactor_core.message :: TracedMessage.public func messageType(): String
+cactor_core.message :: TracedMessage.public func priority(): Int32
+cactor_core.message :: TracedMessage.public func timestamp(): Int64
+cactor_core.message :: TracedMessage.public init(payload: Message, traceParent: String)
+cactor_core.message :: TracedMessage.public let payload: Message
+cactor_core.message :: TracedMessage.public let traceParent: String
 cactor_core.message :: UnsupportedWireFormatException.public init(messageType: String, message: String)
 cactor_core.message :: UnsupportedWireFormatException.public init(messageType: String, message: String, targetActor: Option<String>, senderPath: Option<String>)
 cactor_core.message :: UnsupportedWireFormatException.public let messageType: String
@@ -691,6 +700,7 @@ cactor_core.message :: public class NetworkMessageSerializer
 cactor_core.message :: public class NetworkMessageTransport
 cactor_core.message :: public class NetworkMessageTransportFactory
 cactor_core.message :: public class RemoteMessageSender
+cactor_core.message :: public class TracedMessage <: Message
 cactor_core.message :: public class UnsupportedWireFormatException <: DeserializationException
 cactor_core.message :: public class WireIncompatibleException <: SerializationException
 cactor_core.message :: public class WireProtocol

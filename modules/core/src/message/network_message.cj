@@ -10,7 +10,7 @@ import std.sync.*
 import std.time.*
 import cactor_foundation.network.{NetworkTransport, TcpTransport, UdpTransport, NetworkAddress}
 import cactor_foundation.serialization.SerializationManager
-import cactor_foundation.logging.{Logger, Logging}
+import cactor_foundation.logging.{Logger, Logging, Mdc}
 
 let log_network_message: Logger = Logging.logger("cactor_core.message.network_message")
 
@@ -24,18 +24,39 @@ public struct NetworkMessage {
     public let sender: Option<String>
     public let messageId: String
     public let timestamp: Int64
+    // W3C traceparent（P7/G2）：发送线程的 MDC 里有 traceId/spanId 时自动附带，接收端据此续接
+    public let traceParent: Option<String>
 
     public init(targetActor: String, message: Message, sender: Option<String>) {
-        this(targetActor, message, sender, NetworkMessage.generateMessageId(), NetworkMessage.getCurrentTimeNanos())
+        this(targetActor, message, sender, NetworkMessage.generateMessageId(), NetworkMessage.getCurrentTimeNanos(),
+            NetworkMessage.currentTraceParent())
     }
 
     /** 反序列化时使用：保留发送方的消息 ID 与时间戳 */
     public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64) {
+        this(targetActor, message, sender, messageId, timestamp, NetworkMessage.currentTraceParent())
+    }
+
+    public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64,
+        traceParent: Option<String>) {
         this.targetActor = targetActor
         this.message = message
         this.sender = sender
         this.messageId = messageId
         this.timestamp = timestamp
+        this.traceParent = traceParent
+    }
+
+    /** 当前线程 MDC 里的追踪上下文 → W3C traceparent；没有追踪时返回 None（线上不留空块） */
+    static func currentTraceParent(): Option<String> {
+        let traceId = Mdc.get("traceId")
+        let spanId = Mdc.get("spanId")
+        if (let Some(t) <- traceId && let Some(s) <- spanId) {
+            if (!t.isEmpty() && !s.isEmpty()) {
+                return Some<String>("00-${t}-${s}-01")
+            }
+        }
+        None<String>
     }
 
     private static let idSequence: AtomicInt64 = AtomicInt64(0)
@@ -111,7 +132,19 @@ public class NetworkMessageSerializer {
         for (byte in messageBytes) {
             result.add(byte)
         }
-        
+
+        // 追踪扩展块（可选，放在帧尾）：老读者读完消息内容就停，忽略尾部；
+        // 新读者在没有该块时按"无追踪"处理，因此不需要升线协议版本。
+        match (networkMessage.traceParent) {
+            case Some(tp) =>
+                let tpBytes = serializationManager.serializeString(tp)
+                writeInt32(result, Int32(tpBytes.size))
+                for (byte in tpBytes) {
+                    result.add(byte)
+                }
+            case None => ()
+        }
+
         result.toArray()
     }
 
@@ -132,13 +165,23 @@ public class NetworkMessageSerializer {
         }
         let timestamp = serializationManager.deserializeInt(data.slice(offset, 8))
         offset += 8
+        let msgLen = Int64(readInt32(data, offset))
         let message = try {
             messageSerializer.deserialize(readBlock(data, offset))
         } catch (e: UnsupportedWireFormatException) {
             // 补上外层已读出的目标与发送方：远程层据此通知死信监听，运维能知道是谁发给谁的帧读不懂
             throw UnsupportedWireFormatException(e.messageType, e.message, Some(targetActor), sender)
         }
-        NetworkMessage(targetActor, message, sender, messageId, timestamp)
+        offset += 4 + msgLen
+        // 帧尾可选追踪块：没有（旧版本发送方）就按无追踪处理；长度越界时同样按无追踪处理
+        var traceParent: Option<String> = None<String>
+        if (data.size >= offset + 4) {
+            let len = Int64(readInt32(data, offset))
+            if (len > 0 && data.size >= offset + 4 + len) {
+                traceParent = Some<String>(serializationManager.deserializeString(data.slice(offset + 4, len)))
+            }
+        }
+        NetworkMessage(targetActor, message, sender, messageId, timestamp, traceParent)
     }
 
     /** 读取 offset 处的 [4 字节长度 + 数据] 块，越界时抛出异常 */

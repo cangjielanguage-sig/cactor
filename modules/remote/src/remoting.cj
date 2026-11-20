@@ -1126,13 +1126,18 @@ public class RemotingCore {
 
     /** 投递给本地 Actor：远程发送方转换为 RemoteActorRef，使 reply 经网络送回 */
     func deliverLocal(ref: ActorRef, message: Message, from: Option<String>): Unit {
+        // 帧里带了 traceparent 就随消息一起进邮箱，ActorCell 会在 receive 期间建立 MDC 作用域
+        let delivered = match (RECEIVED_TRACE.get()) {
+            case Some(tp) => TracedMessage(message, tp)
+            case None => message
+        }
         match (from) {
             case Some(f) =>
                 match (parseRemoteSender(f)) {
-                    case Some((addr, name)) => ref.tell(message, RemoteActorRef(manager(), addr, name))
-                    case None => ref.tell(message, from)
+                    case Some((addr, name)) => ref.tell(delivered, RemoteActorRef(manager(), addr, name))
+                    case None => ref.tell(delivered, from)
                 }
-            case None => ref.tell(message)
+            case None => ref.tell(delivered)
         }
     }
 
