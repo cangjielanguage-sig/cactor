@@ -76,7 +76,7 @@ let INLINE_STOP_LIMIT: Int64 = envInt("CACTOR_INLINE_STOP_LIMIT", 4096, 0)
 
 // BATCH_BIT（R15）：父 Actor 正在"合批停止"子树。此前是父的懒分配 Option<AtomicInt64> 字段，
 // 子 Actor 在自己的线程里读它，与父的首次写入并发——多字 Option 可能读到撕裂值。
-// 改为父调度字上的一位：父先写好计数（stoppingChildrenValue），再 fetchOr 置位发布；子看到该位后才读计数。
+// 先由父在 CellExtras 里写好计数，再 fetchOr 置位发布；子看到该位后才读计数。
 let BATCH_BIT: Int64 = 32
 let BATCH_CLEAR_MASK: Int64 = -33
 // CHILDREN_BIT（R8）：子 Actor 表已分配。lookup / liveCells 在别的线程读子表，先看到该位再读字段（同 SYS_BIT 的发布方式）
@@ -302,6 +302,27 @@ class ChildTable {
     // 重启等待旧子 Actor 终止期间保存重启原因（只在父线程访问）。放在这里而不是 Cell 上：
     // 只有有子 Actor 的 Actor 才会进入等待，叶 Actor 不为它多付一个字段
     var recreateCause: Option<Exception> = None<Exception>
+    // 匿名子 Actor 的序号：只由父线程写。放在子表里，叶 Actor 不再为它多占 8 字节
+    var anonymousSeq: Int64 = 0
+}
+
+/**
+ * Cell 的冷字段（P2/A4）：stash、become、watch、定时器、接收超时、停止合批计数
+ * 只在少数 Actor 上出现，却各有 32 字节的 `Option` 槽位常驻在 Cell 里。把它们收进一个按需分配的
+ * 小对象后，叶 Actor 只多付一个指针（32 B），而不是 8 个槽位（256 B）。
+ *
+ * 线程域：除 `stoppingChildCount` 外都只在 Cell 线程内访问；`stoppingChildCount` 由父在置
+ * BATCH_BIT 前写入（seq_cst），子看到该位后才读，与原字段的发布方式一致。
+ */
+class CellExtras {
+    var watchersValue: Option<ArrayList<SimpleUserActorRef>> = None<ArrayList<SimpleUserActorRef>>
+    var watchingValue: Option<WatchingState> = None<WatchingState>
+    var behaviorsValue: Option<ArrayList<Receive>> = None<ArrayList<Receive>>
+    var stashBufferValue: Option<ArrayList<Envelope>> = None<ArrayList<Envelope>>
+    var unstashedValue: Option<ArrayList<Envelope>> = None<ArrayList<Envelope>>
+    var timeoutStateValue: Option<ReceiveTimeoutState> = None<ReceiveTimeoutState>
+    var cellTimersValue: Option<CellTimers> = None<CellTimers>
+    var stoppingChildCount: Option<AtomicInt64> = None<AtomicInt64>
 }
 
 /**
@@ -870,31 +891,25 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     //   而绝大多数 Actor 从不使用它们）
     // 子 Actor 表（R8）：只有父线程写，写时持表锁；lookup / liveCells 从别的线程持表锁读。首次分配后经 CHILDREN_BIT 发布
     private var childTableValue: Option<ChildTable> = None<ChildTable>
-    private var anonymousSeq: Int64 = 0
+    // 冷字段容器（P2/A4）：叶 Actor 只有这一个 32 字节的槽位，用到 watch/stash/become/定时器/
+    // 接收超时/停止合批时才分配 CellExtras（见类头注释）
+    private var extrasValue: Option<CellExtras> = None<CellExtras>
+    private var unstashIndex: Int64 = 0
     // 停止合批（P5-2）：父进入"停止整棵子树"时把子数记入 stoppingChildren 并置 BATCH_BIT；
     // 每个子终止恰好把计数减 1，减到 0 的那一方让父收尾。这样百万子 Actor 不必各发一条
     // SysChildTerminated 在父的 sysHead 上做百万次 CAS 争用与百万次 childMap.remove。
-    // 懒分配：只有真正进入"停止有子 Actor 的子树"时才创建计数对象，叶 Actor（绝大多数）不为它付费。
+    // 计数在 CellExtras 里懒分配，只有真正进入"停止有子 Actor 的子树"时才创建。
     // 只有父写一次（置 BATCH_BIT 之前）；子看到 BATCH_BIT 之后才读
-    private var stoppingChildrenValue: Option<AtomicInt64> = None<AtomicInt64>
     private prop stoppingChildren: AtomicInt64 {
-        get() { stoppingChildrenValue.getOrThrow() }
+        get() { extras().stoppingChildCount.getOrThrow() }
     }
     /** 子侧读父的合批标志：只读原子调度字（R15） */
     private func batchStopping(): Bool {
         (schedState.load() & BATCH_BIT) != 0
     }
-    private var watchersValue: Option<ArrayList<SimpleUserActorRef>> = None<ArrayList<SimpleUserActorRef>>
-    private var watchingValue: Option<WatchingState> = None<WatchingState>
-    private var behaviorsValue: Option<ArrayList<Receive>> = None<ArrayList<Receive>>
-    private var stashBufferValue: Option<ArrayList<Envelope>> = None<ArrayList<Envelope>>
-    private var unstashedValue: Option<ArrayList<Envelope>> = None<ArrayList<Envelope>>
-    private var unstashIndex: Int64 = 0
     private var currentMessage: Option<Message> = None<Message>
     private var currentSender: Option<String> = None<String>
     private var currentSenderRef: Option<ActorRef> = None<ActorRef>
-    private var timeoutStateValue: Option<ReceiveTimeoutState> = None<ReceiveTimeoutState>
-    private var cellTimersValue: Option<CellTimers> = None<CellTimers>
     private var contextValue: Option<CellContext> = None<CellContext>
 
 
@@ -955,26 +970,44 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         childTableValue
     }
 
+    /** 冷字段容器：用到才分配（见 CellExtras 类头注释） */
+    private func extras(): CellExtras {
+        match (extrasValue) {
+            case Some(e) => e
+            case None =>
+                let e = CellExtras()
+                extrasValue = Some(e)
+                e
+        }
+    }
+
     private func watchers(): ArrayList<SimpleUserActorRef> {
-        match (watchersValue) {
-            case Some(l) => l
+        match (extrasValue) {
+            case Some(e) => match (e.watchersValue) {
+                case Some(l) => l
+                case None => EMPTY_WATCHERS
+            }
             case None => EMPTY_WATCHERS
         }
     }
 
     private func watchersMut(): ArrayList<SimpleUserActorRef> {
-        match (watchersValue) {
+        let e = extras()
+        match (e.watchersValue) {
             case Some(l) => l
             case None =>
                 let l = ArrayList<SimpleUserActorRef>(0)
-                watchersValue = Some(l)
+                e.watchersValue = Some(l)
                 l
         }
     }
 
     private func watching(): HashMap<String, SimpleUserActorRef> {
-        match (watchingValue) {
-            case Some(w) => w.targets
+        match (extrasValue) {
+            case Some(e) => match (e.watchingValue) {
+                case Some(w) => w.targets
+                case None => EMPTY_WATCHING
+            }
             case None => EMPTY_WATCHING
         }
     }
@@ -984,62 +1017,75 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     private func watchState(): WatchingState {
-        match (watchingValue) {
+        let e = extras()
+        match (e.watchingValue) {
             case Some(w) => w
             case None =>
                 let w = WatchingState()
-                watchingValue = Some(w)
+                e.watchingValue = Some(w)
                 w
         }
     }
 
     private func behaviors(): ArrayList<Receive> {
-        match (behaviorsValue) {
-            case Some(l) => l
+        match (extrasValue) {
+            case Some(e) => match (e.behaviorsValue) {
+                case Some(l) => l
+                case None => EMPTY_BEHAVIORS
+            }
             case None => EMPTY_BEHAVIORS
         }
     }
 
     private func behaviorsMut(): ArrayList<Receive> {
-        match (behaviorsValue) {
+        let e = extras()
+        match (e.behaviorsValue) {
             case Some(l) => l
             case None =>
                 let l = ArrayList<Receive>(0)
-                behaviorsValue = Some(l)
+                e.behaviorsValue = Some(l)
                 l
         }
     }
 
     private func stashBuffer(): ArrayList<Envelope> {
-        match (stashBufferValue) {
-            case Some(l) => l
+        match (extrasValue) {
+            case Some(e) => match (e.stashBufferValue) {
+                case Some(l) => l
+                case None => EMPTY_STASH
+            }
             case None => EMPTY_STASH
         }
     }
 
     private func stashBufferMut(): ArrayList<Envelope> {
-        match (stashBufferValue) {
+        let e = extras()
+        match (e.stashBufferValue) {
             case Some(l) => l
             case None =>
                 let l = ArrayList<Envelope>(0)
-                stashBufferValue = Some(l)
+                e.stashBufferValue = Some(l)
                 l
         }
     }
 
     private func unstashed(): ArrayList<Envelope> {
-        match (unstashedValue) {
-            case Some(l) => l
+        match (extrasValue) {
+            case Some(e) => match (e.unstashedValue) {
+                case Some(l) => l
+                case None => EMPTY_UNSTASHED
+            }
             case None => EMPTY_UNSTASHED
         }
     }
 
     private func unstashedMut(): ArrayList<Envelope> {
-        match (unstashedValue) {
+        let e = extras()
+        match (e.unstashedValue) {
             case Some(l) => l
             case None =>
                 let l = ArrayList<Envelope>(0)
-                unstashedValue = Some(l)
+                e.unstashedValue = Some(l)
                 l
         }
     }
@@ -1488,7 +1534,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 let env = unstashed()[unstashIndex]
                 unstashIndex++
                 if (unstashIndex >= unstashed().size) {
-                    unstashedValue = Some(ArrayList<Envelope>(0))
+                    extras().unstashedValue = Some(ArrayList<Envelope>(0))
                     unstashIndex = 0
                 }
                 invoke(env.message, env.sender, env.senderRef)
@@ -1585,9 +1631,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
                 // DeathWatch 产生的 Terminated：入队后已 unwatch 的丢弃；watchWith 的换成自定义消息（与 Akka receivedTerminated 相同）。
                 // 远程 watch 投递的 Terminated 目标不是本地 Cell，原样交给 receive
                 if (let Some(dead) <- (t.actor as SimpleUserActorRef)) {
-                    let entry: Option<Option<Message>> = match (watchingValue) {
-                        case Some(w) => w.takeQueued(dead)
-                        case None => None
+                    let entry: Option<Option<Message>> = match (extrasValue) {
+                        case Some(e) => match (e.watchingValue) {
+                            case Some(w) => w.takeQueued(dead)
+                            case None => None<Option<Message>>
+                        }
+                        case None => None<Option<Message>>
                     }
                     match (entry) {
                         case Some(Some(custom)) =>
@@ -1643,12 +1692,15 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             handleFailure(ActorErrorException(fullPath(), e))
         }
         processedCount.fetchAdd(1)
-        match (timeoutStateValue) {
-            case Some(t) =>
-                if (t.value > Duration.Zero && !(payload is NotInfluenceReceiveTimeout)) {
-                    // 用系统调度器的时钟（E52）：虚拟时钟下空闲时长按虚拟时间计算
-                    t.lastActivity = guardian.scheduler().monotonicNow()
-                }
+        match (extrasValue) {
+            case Some(e) => match (e.timeoutStateValue) {
+                case Some(t) =>
+                    if (t.value > Duration.Zero && !(payload is NotInfluenceReceiveTimeout)) {
+                        // 用系统调度器的时钟（E52）：虚拟时钟下空闲时长按虚拟时间计算
+                        t.lastActivity = guardian.scheduler().monotonicNow()
+                    }
+                case None => ()
+            }
             case None => ()
         }
         clearCurrent()
@@ -2064,8 +2116,13 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             return
         }
         state = STATE_TERMINATING
-        if (let Some(t) <- cellTimersValue) {
-            t.cancelAll()
+        // 没有定时器的 Actor（绝大多数）不因停止而分配冷字段容器
+        match (extrasValue) {
+            case Some(e) => match (e.cellTimersValue) {
+                case Some(t) => t.cancelAll()
+                case None => ()
+            }
+            case None => ()
         }
         cancelReceiveTimeoutInternal()
         try {
@@ -2078,8 +2135,9 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
         } else {
             // 启动"子 Actor 全部终止"的计数（P5-2）：每个子终止时递减，
             // 减到 0 的最后一个子发一条汇总消息，而不是每子一条
-            if (stoppingChildrenValue.isNone()) {
-                stoppingChildrenValue = Some(AtomicInt64(0))
+            let e = extras()
+            if (e.stoppingChildCount.isNone()) {
+                e.stoppingChildCount = Some(AtomicInt64(0))
             }
             // 发布顺序：先写计数，再置 BATCH_BIT（seq_cst RMW）；子看到该位后读计数，能看到上面的写
             stoppingChildren.store(childMap().size)
@@ -2209,11 +2267,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     // ---------------- 接收超时 ----------------
 
     private func timeoutState(): ReceiveTimeoutState {
-        match (timeoutStateValue) {
+        let e = extras()
+        match (e.timeoutStateValue) {
             case Some(s) => s
             case None =>
                 let s = ReceiveTimeoutState()
-                timeoutStateValue = Some(s)
+                e.timeoutStateValue = Some(s)
                 s
         }
     }
@@ -2230,15 +2289,18 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     func cancelReceiveTimeoutInternal(): Unit {
-        match (timeoutStateValue) {
-            case Some(s) =>
-                // 不清空 timeoutStateValue：generation 必须单调，否则在途的旧超时消息可能与新状态同代次
-                s.generation++
-                s.value = Duration.Zero
-                if (let Some(t) <- s.timer) {
-                    t.cancel()
-                }
-                s.timer = None<ScheduledTask>
+        match (extrasValue) {
+            case Some(e) => match (e.timeoutStateValue) {
+                case Some(s) =>
+                    // 不清空 timeoutStateValue：generation 必须单调，否则在途的旧超时消息可能与新状态同代次
+                    s.generation++
+                    s.value = Duration.Zero
+                    if (let Some(t) <- s.timer) {
+                        t.cancel()
+                    }
+                    s.timer = None<ScheduledTask>
+                case None => ()
+            }
             case None => ()
         }
     }
@@ -2251,8 +2313,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     private func onReceiveTimeoutCheck(generation: Int64): Unit {
-        let s = match (timeoutStateValue) {
-            case Some(v) => v
+        let s = match (extrasValue) {
+            case Some(e) => match (e.timeoutStateValue) {
+                case Some(v) => v
+                case None => return
+            }
             case None => return
         }
         if (generation != s.generation || s.value <= Duration.Zero || state != STATE_RUNNING) {
@@ -2291,11 +2356,12 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     func timersImpl(): CellTimers {
-        match (cellTimersValue) {
+        let e = extras()
+        match (e.cellTimersValue) {
             case Some(t) => t
             case None =>
                 let t = CellTimers(this)
-                cellTimersValue = Some(t)
+                e.cellTimersValue = Some(t)
                 t
         }
     }
@@ -2346,8 +2412,10 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     func spawnAnonymousChild(creator: () -> Actor): ActorRef {
-        anonymousSeq++
-        spawnChild(PropsFactory.create<Actor>(creator), "$${anonymousSeq}")
+        // 序号放在子表里：spawnChild 本来也要分配子表，叶 Actor 不再为这个字段买单
+        let table = childTable()
+        table.anonymousSeq++
+        spawnChild(PropsFactory.create<Actor>(creator), "$${table.anonymousSeq}")
     }
 
     /** 子 Actor 快照；可从任意线程调用（R8：此前跨线程无锁遍历父的 HashMap，与父的增删并发） */
@@ -2432,8 +2500,11 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
     }
 
     private func unwatchTarget(target: SimpleUserActorRef): Unit {
-        let ws = match (watchingValue) {
-            case Some(w) => w
+        let ws = match (extrasValue) {
+            case Some(e) => match (e.watchingValue) {
+                case Some(w) => w
+                case None => return
+            }
             case None => return
         }
         match (ws.targets.get(target.fullPath())) {
@@ -2497,7 +2568,7 @@ public class SimpleUserActorRef <: RunLink & ActorRef {
             unstashIndex++
         }
         stashBufferMut().clear()
-        unstashedValue = Some(merged)
+        extras().unstashedValue = Some(merged)
         unstashIndex = 0
     }
 

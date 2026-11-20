@@ -7,6 +7,17 @@
 
 ## [未发布]
 
+### ⚡ 性能：Actor Cell 冷字段容器（AR2 / A4 阶段性）
+
+- `SimpleUserActorRef` 原先为 watch / become / stash / unstash / 接收超时 / 定时器 / 停止合批计数
+  各保留一个 `Option` 槽位，绝大多数叶 Actor 永远用不到。现收进按需分配的 `CellExtras`：
+  叶 Actor 只多付一个指针，用到相关能力时才创建；匿名子 Actor 序号移入 `ChildTable`。
+- 线程域不变：`stoppingChildCount` 仍由父在置 `BATCH_BIT` 前写入，子看到该位后才读；
+  watch/stash/become/定时器仍只在 Cell 线程访问。
+- 实测（`scale_test 200000 child`）：每 Actor 存活堆 1,118 → **1,086 B**（目标 ≤900 B，仍未达成）。
+  对照 `top` 模式 1,856 B；`soak_test 20` 静止 Cell 201→201、堆 21MB→18MB、零丢失。
+- 全量 1003/1003 通过。
+
 ### ✨ 新增：Party / Matchmaker / 共享 KV（AR9：F2 / F3 / F6）
 
 - `cactor_platform/party`：`PartyHost` + `PartyMember`。成员表、加入幂等、上限明确拒绝
