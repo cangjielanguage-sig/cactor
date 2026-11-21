@@ -30,7 +30,10 @@ import cactor_core.message.{Message, MessageResult, MessageSerializer, MessageCo
 import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.logging.{Logging}
 import cactor_remote.{SimpleRemoteManager}
-import cactor_core.typed.{TypedPromise, TypedPromises, AskOutcome}
+import cactor_core.typed.{AskOutcome, TypedActorRef, TypedAsk, TypedBehavior, TypedBehaviors, TypedPromise, TypedPromises}
+import cactor_persistence.{DurableStateStore}
+import cactor_persistence.reminders.{DurableReminders, ReminderCommand, ReminderDefinition}
+import cactor_persistence.typed.{PersistenceId}
 
 /** Grain 的激活上下文 */
 public class GrainContext {
@@ -89,6 +92,12 @@ public interface Grain {
 
     /** 从存储读回的状态恢复；只在配置了 GrainStorage 且读到状态时调用 */
     func decodeState(state: String): Unit {}
+
+    /**
+     * 提醒到期（对标 Orleans Grain reminder）：注册时给的 key 与 payload。
+     * 框架在回调返回后确认提醒；进程在处理与确认之间崩溃会重发（至少一次），业务需按 key 幂等。
+     */
+    func onReminder(key: String, payload: String): Unit {}
 }
 
 /**
@@ -148,6 +157,88 @@ class GrainReply <: Message {
 
     public func messageType(): String {
         "cactor.GrainReply"
+    }
+}
+
+/** 提醒投递（内部消息）：经分片路由到当前激活，处理完把 ack 回送到注册提醒的节点 */
+class GrainReminder <: Message {
+    let grainId: String
+    let key: String
+    let payload: String
+    let generation: Int64
+    let dueAtMillis: Int64
+    let ackAddress: String
+    let ackHandler: String
+
+    init(grainId: String, key: String, payload: String, generation: Int64, dueAtMillis: Int64,
+        ackAddress: String, ackHandler: String) {
+        this.grainId = grainId
+        this.key = key
+        this.payload = payload
+        this.generation = generation
+        this.dueAtMillis = dueAtMillis
+        this.ackAddress = ackAddress
+        this.ackHandler = ackHandler
+    }
+
+    public func messageType(): String {
+        "cactor.GrainReminder"
+    }
+}
+
+class GrainReminderAck <: Message {
+    let grainId: String
+    let key: String
+    let generation: Int64
+    let dueAtMillis: Int64
+
+    init(grainId: String, key: String, generation: Int64, dueAtMillis: Int64) {
+        this.grainId = grainId
+        this.key = key
+        this.generation = generation
+        this.dueAtMillis = dueAtMillis
+    }
+
+    public func messageType(): String {
+        "cactor.GrainReminderAck"
+    }
+}
+
+class GrainReminderCodec <: MessageCodec {
+    public func encode(message: Message): Array<UInt8> {
+        let r = (message as GrainReminder).getOrThrow()
+        let w = MessageFieldWriter()
+        w.writeString(r.grainId)
+        w.writeString(r.key)
+        w.writeString(r.payload)
+        w.writeInt64(r.generation)
+        w.writeInt64(r.dueAtMillis)
+        w.writeString(r.ackAddress)
+        w.writeString(r.ackHandler)
+        w.toArray()
+    }
+
+    public func decode(payload: Array<UInt8>): Message {
+        let r = MessageFieldReader(payload)
+        GrainReminder(r.readString(), r.readString(), r.readString(), r.readInt64(), r.readInt64(),
+            r.readString(), r.readString())
+    }
+}
+
+class GrainReminderAckCodec <: MessageCodec {
+    public func encode(message: Message): Array<UInt8> {
+        let r = (message as GrainReminderAck).getOrThrow()
+        let w = MessageFieldWriter()
+        w.writeString(r.grainId)
+        w.writeString(r.key)
+        w.writeInt64(r.generation)
+        w.writeInt64(r.dueAtMillis)
+        w.toArray()
+    }
+
+    public func decode(payload: Array<UInt8>): Message {
+        let r = MessageFieldReader(payload)
+        GrainReminderAck(r.readString(), r.readString(), r.readInt64(), r.readInt64())
     }
 }
 
@@ -320,6 +411,7 @@ class GrainHost <: Actor {
                 } else {
                     startCall(c, context)
                 }
+            case r: GrainReminder => handleReminder(r)
             case d: GrainTurnDone =>
                 inFlight--
                 finishCall(d.call, d.outcome)
@@ -332,6 +424,16 @@ class GrainHost <: Actor {
             case _ => ()
         }
         MessageResult.Handled
+    }
+
+    private func handleReminder(r: GrainReminder): Unit {
+        grain.onReminder(r.key, r.payload)
+        try {
+            remote.sendMessage(NetworkAddress.parse(r.ackAddress), r.ackHandler,
+                GrainReminderAck(r.grainId, r.key, r.generation, r.dueAtMillis))
+        } catch (_: Exception) {
+            // ack 丢失时提醒会重发（至少一次）
+        }
     }
 
     private func startCall(c: GrainCall, context: ActorContext): Unit {
@@ -420,11 +522,28 @@ public class Grains {
     private let nextId = AtomicInt64(0)
     private let grainStats = GrainStats()
     private let log = Logging.logger("cactor.cluster.grains")
+    private let system: CActorSystem
+    private var reminderStore: Option<DurableStateStore> = None<DurableStateStore>
+    private var reminderPoll: Duration = Duration.second
+    private let ackSink: TypedActorRef<Bool>
+    private let ackHandler: String
+    private let remindersLock = Mutex()
+    private let reminders = HashMap<String, TypedActorRef<ReminderCommand> >()
 
     public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String,
         factory: (String) -> Grain, idleTimeout: Duration,
         storage!: Option<GrainStorage> = None<GrainStorage>) {
         this(cluster, system, remote, kind, factory, idleTimeout, 64, storage: storage)
+    }
+
+    /** 配置 Grain 提醒的持久存储与轮询间隔；不调用时 registerReminder 明确失败。 */
+    public func withReminders(store: DurableStateStore, pollInterval!: Duration = Duration.second): Grains {
+        if (pollInterval <= Duration.Zero) {
+            throw IllegalArgumentException("提醒轮询间隔必须大于零")
+        }
+        this.reminderStore = Some<DurableStateStore>(store)
+        this.reminderPoll = pollInterval
+        this
     }
 
     /**
@@ -436,8 +555,12 @@ public class Grains {
         storage!: Option<GrainStorage> = None<GrainStorage>) {
         MessageCodecRegistry.register("cactor.GrainCall", GrainCallCodec())
         MessageCodecRegistry.register("cactor.GrainReply", GrainReplyCodec())
+        MessageCodecRegistry.register("cactor.GrainReminder", GrainReminderCodec())
+        MessageCodecRegistry.register("cactor.GrainReminderAck", GrainReminderAckCodec())
         this.kind = kind
+        this.system = system
         this.remote = remote
+        this.ackHandler = "grain-reminder-ack-${kind}"
         this.selfNode = cluster.selfAddress
         let node = cluster.selfAddress
         let ep = grainReplyEndpoint(node, remote.selfUid())
@@ -454,6 +577,25 @@ public class Grains {
         remote.registerHandler(grainReplyHandler(kind, remote.selfUid().toString()), { m: Message =>
             if (let Some(r) <- (m as GrainReply)) {
                 rt.onReply(r)
+            }
+        })
+        let ackRef = system.typed().actorOf(
+            TypedBehaviors.receiveMessage<Bool>({ _ => TypedBehaviors.same<Bool>() }),
+            "grain-reminder-ack-sink-${kind}")
+        this.ackSink = ackRef
+        let store = reminders
+        let guard = remindersLock
+        let sink = ackRef
+        remote.registerHandler(this.ackHandler, { m: Message =>
+            if (let Some(a) <- (m as GrainReminderAck)) {
+                let target = synchronized(guard) {
+                    store.get(a.grainId)
+                }
+                match (target) {
+                    case Some(r) =>
+                        r.tell(ReminderCommand.Acknowledge(a.key, a.generation, a.dueAtMillis, sink))
+                    case None => ()
+                }
             }
         })
     }
@@ -521,6 +663,60 @@ public class Grains {
     public func stats(): (Int64, Int64, Int64, Int64) {
         synchronized(grainStats.lock) {
             (grainStats.activations, grainStats.deactivations, grainStats.calls, router.lateReplies.load())
+        }
+    }
+
+    /**
+     * 注册一次性提醒：到期后投递到该标识的当前激活并调用 Grain.onReminder；
+     * 回调返回后自动确认（处理与确认之间崩溃会重发，至少一次）。需要先 withReminders。
+     */
+    public func registerReminder(id: String, key: String, delay: Duration, payload!: String = ""): Int64 {
+        if (delay <= Duration.Zero) {
+            throw IllegalArgumentException("提醒延迟必须大于零")
+        }
+        let store = match (reminderStore) {
+            case Some(s) => s
+            case None => throw IllegalStateException("未配置 reminderStore，无法注册 Grain 提醒")
+        }
+        let ref = reminderActor(id, store)
+        let due = DateTime.now().toUnixTimeStamp().toMilliseconds() + delay.toMilliseconds()
+        let timeout = Duration.second * 10
+        TypedAsk.ask<ReminderCommand, Int64>(ref,
+            { r => ReminderCommand.Register(ReminderDefinition(key, payload, due), r) }, timeout).get(timeout)
+    }
+
+    /** 取消该标识上指定 key 的提醒；不存在返回 false */
+    public func cancelReminder(id: String, key: String): Bool {
+        let target = synchronized(remindersLock) {
+            reminders.get(id)
+        }
+        match (target) {
+            case Some(r) =>
+                let timeout = Duration.second * 10
+                TypedAsk.ask<ReminderCommand, Bool>(r, { reply => ReminderCommand.Remove(key, reply) }, timeout)
+                    .get(timeout)
+            case None => false
+        }
+    }
+
+    private func reminderActor(id: String, store: DurableStateStore): TypedActorRef<ReminderCommand> {
+        synchronized(remindersLock) {
+            match (reminders.get(id)) {
+                case Some(r) => r
+                case None =>
+                    let shard = sharding
+                    let rem = remote
+                    let ep = rem.getLocalAddress().toString()
+                    let ack = ackHandler
+                    let behavior = DurableReminders.behavior(PersistenceId.of("grain-reminder-${kind}", id), store,
+                        { d =>
+                            shard.tell(id, GrainReminder(id, d.definition.name, d.definition.payload, d.generation,
+                                d.definition.dueAtMillis, ep, ack))
+                        }, pollInterval: reminderPoll)
+                    let ref = system.typed().actorOf(behavior, "grain-reminders-${kind}-${id}")
+                    reminders[id] = ref
+                    ref
+            }
         }
     }
 

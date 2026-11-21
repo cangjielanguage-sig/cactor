@@ -37,6 +37,7 @@ import cactor_core.message.{Message, MessageResult, MessageSerializer, MessageCo
 import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.logging.{Logging}
 import cactor_remote.{SimpleRemoteManager}
+import cactor_persistence.{DurableStateStore}
 import cactor_cluster.ddata.{Replicator, FieldWriter, FieldReader}
 import cactor_foundation.detector.{monotonicMillis}
 import cactor_core.typed.{TypedPromise}
@@ -313,6 +314,8 @@ public class ShardingSettings {
     public let leaseRetryMax: Duration
     /** 分片分配策略（默认 rendezvous；见 ShardAllocationStrategy） */
     public let allocation: ShardAllocationStrategy
+    // 协调状态存储（差距 4.4）：放置覆盖（手动再平衡）落盘，区域重启后继续生效
+    private var store: Option<DurableStateStore> = None<DurableStateStore>
 
     public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
         rebalance!: RebalancePolicy = RebalancePolicy(),
@@ -402,6 +405,20 @@ public class ShardingSettings {
     /** 租约获取失败后的指数退避区间（默认 200 ms ~ 5 s，对标 Akka lease-retry-interval） */
     public func withLeaseRetry(min: Duration, max: Duration): ShardingSettings {
         make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, min, max, allocation)
+    }
+
+    /**
+     * 启用分片协调状态持久化（差距 4.4）：目前持久化"放置覆盖"（手动 rebalance 的 分片->地址），
+     * 区域重启后仍按覆盖分配。采用可变设置而非拷贝：`ShardingSettings.defaults().withStateStore(s)` 后直接传构造器。
+     */
+    public func withStateStore(s: DurableStateStore): ShardingSettings {
+        this.store = Some<DurableStateStore>(s)
+        this
+    }
+
+    /** 协调状态存储（未启用为 None） */
+    public func stateStore(): Option<DurableStateStore> {
+        store
     }
 
     /** 换分片分配策略（差距 4.4 的 SPI；默认 rendezvous） */
@@ -653,6 +670,8 @@ class RegionShared {
     let pendingAcquireMembers = HashSet<String>()
     // 每个分片上当前运行的实体数（供负载报告 / 再平衡决策，E62/E13′ 后续）
     let shardCounts = HashMap<Int64, Int64>()
+    // 持久化的放置覆盖（区域启动时从 store 恢复；也在运行中随手动再平衡更新）
+    let placementOverridesLoaded = HashMap<Int64, String>()
     // ---- 按分片租约（DA4）：区域线程维护、管理端点读取 ----
     let leaseHeldTokens = HashMap<Int64, Int64>()
     // 等租约的分片 -> 开始等待的单调时刻
@@ -865,7 +884,58 @@ class ShardRegionActor <: Actor {
 
     public func onStarted(context: ActorContext): Unit {
         selfRef = Some(context.self)
+        loadPlacementOverrides()
         context.timers.startTimerWithFixedDelay("tick", RegionTick(), Duration.millisecond * 50)
+    }
+
+    private func overrideKey(): String {
+        "shard-overrides-${typeName}"
+    }
+
+    /** 启动时恢复持久化的放置覆盖（差距 4.4）；存储不可用时只记日志，不影响接管 */
+    private func loadPlacementOverrides(): Unit {
+        match (settings.stateStore()) {
+            case Some(store) =>
+                match (store.get(overrideKey())) {
+                    case Some(r) =>
+                        for (line in r.state.split("\n")) {
+                            if (line.isEmpty()) {
+                                continue
+                            }
+                            let parts = line.split("|")
+                            if (parts.size == 2) {
+                                match (Int64.tryParse(parts[0])) {
+                                    case Some(sh) =>
+                                        placementOverrides[sh] = parts[1]
+                                        synchronized(shared.lock) {
+                                            shared.placementOverridesLoaded[sh] = parts[1]
+                                        }
+                                    case None => ()
+                                }
+                            }
+                        }
+                        log.info("${selfAddress} 恢复 ${typeName} 分片放置覆盖 ${placementOverrides.size} 条")
+                    case None => ()
+                }
+            case None => ()
+        }
+    }
+
+    /** 放置覆盖变更后落盘（整值写入；失败不阻断再平衡） */
+    private func persistPlacementOverrides(): Unit {
+        match (settings.stateStore()) {
+            case Some(store) =>
+                let sb = StringBuilder()
+                for ((sh, addr) in placementOverrides) {
+                    sb.append("${sh}|${addr}\n")
+                }
+                try {
+                    store.upsert(overrideKey(), store.revisionOf(overrideKey()) + 1, sb.toString())
+                } catch (e: Exception) {
+                    log.warn("${selfAddress} 持久化分片放置覆盖失败：${e}")
+                }
+            case None => ()
+        }
     }
 
     /**
@@ -1040,6 +1110,10 @@ class ShardRegionActor <: Actor {
             case _ => ()
         }
         placementOverrides[rb.shardId] = rb.targetAddress
+        synchronized(shared.lock) {
+            shared.placementOverridesLoaded[rb.shardId] = rb.targetAddress
+        }
+        persistPlacementOverrides()
         // 让出记录作废，按新归属重新判断
         yielded.remove(rb.shardId)
         onOwnershipChanged(context)
@@ -2476,6 +2550,20 @@ public class ClusterSharding {
      */
     public func rebalance(): Unit {
         region.tell(RebalanceEvaluate())
+    }
+
+    /** 已加载的放置覆盖（4.4，观测/测试）：分片 -> 目标地址 */
+    public func loadedOverrideOf(shardId: Int64): Option<String> {
+        synchronized(shared.lock) {
+            shared.placementOverridesLoaded.get(shardId)
+        }
+    }
+
+    /** 已加载的放置覆盖条数 */
+    public func loadedOverrideCount(): Int64 {
+        synchronized(shared.lock) {
+            Int64(shared.placementOverridesLoaded.size)
+        }
     }
 
     public func stop(): Unit {

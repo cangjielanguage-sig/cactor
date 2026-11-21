@@ -7,6 +7,7 @@
 package cactor.api
 
 import cactor_core.actor.{Actor}
+import cactor_core.system.{ActorSystemSettings}
 import cactor_runtime.{CActorRuntimeConfig}
 
 /**
@@ -33,6 +34,13 @@ public struct CActor {
      */
     public static func system(name: String, config: CActorRuntimeConfig): CActorSystem {
         CActorSystemFactory.create(name, config)
+    }
+
+    /**
+     * 由不可变系统设置创建（D1 门面收敛）
+     */
+    public static func system(settings: ActorSystemSettings): CActorSystem {
+        CActorSystemFactory.create(settings)
     }
 
     /**

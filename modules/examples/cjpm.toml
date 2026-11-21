@@ -325,3 +325,30 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.ex43_inference_gateway"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex44_agent_memory"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex45_edge_twin"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex46_live_lakehouse"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex47_grain_reminder"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex48_metrics_endpoint"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex49_shard_state"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex50_trace_chain"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex51_durable_pubsub"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex52_iot_devices"]
+output-type = "executable"

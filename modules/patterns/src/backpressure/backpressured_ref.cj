@@ -65,6 +65,11 @@ extend OfferResult {
         }
     }
 
+    /** 容量（与 limit 同义；F5 要求背压错误统一携带容量） */
+    public func capacity(): Int64 {
+        limit()
+    }
+
     public func toString(): String {
         match (this) {
             case Enqueued => "Enqueued"

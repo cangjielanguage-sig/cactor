@@ -111,6 +111,44 @@ class StoredGrain <: Grain {
     }
 }
 
+/** 提醒探针：记录 onReminder 的次数与最后一次 key */
+class ReminderProbe {
+    let fired = AtomicInt64(0)
+    let lock = Mutex()
+    var lastKey = ""
+    let firedAt = AtomicInt64(0)
+
+    func hit(key: String, at: Int64): Unit {
+        fired.fetchAdd(1)
+        firedAt.store(at)
+        synchronized(lock) {
+            lastKey = key
+        }
+    }
+
+    func key(): String {
+        synchronized(lock) {
+            lastKey
+        }
+    }
+}
+
+class ReminderGrain <: Grain {
+    let probe: ReminderProbe
+
+    init(probe: ReminderProbe) {
+        this.probe = probe
+    }
+
+    public func onCall(request: Message, ctx: GrainContext): Message {
+        StringMessage("ok")
+    }
+
+    public func onReminder(key: String, payload: String): Unit {
+        probe.hit("${key}:${payload}", DateTime.now().toUnixTimeStamp().toMilliseconds())
+    }
+}
+
 func grainsOn(nodes: Array<CNode>, store: Option<DurableStateStore>, events: EventRecorder, idle: Duration): Array<Grains> {
     Array<Grains>(nodes.size, { i =>
         let n = nodes[i]
@@ -315,6 +353,43 @@ public class GrainsTest {
         @Expect(grains.stats()[0], 2)
         grains.stop()
         closeAll(nodes)
+    }
+
+    @TestCase
+    public func testGrainReminderFiresOnceAndPersistsAck(): Unit {
+        let nodes = startCluster(1, "grain-reminder", FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 1) }), true)
+        let n = nodes[0]
+        let store = MemoryDurableStateStore()
+        let probe = ReminderProbe()
+        let grains = Grains(n.cluster, n.kit.system, n.remote, "reminder", { _ => ReminderGrain(probe) },
+            Duration.second * 5).withReminders(store, pollInterval: Duration.millisecond * 50)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => grains.ownerCount() == 1 }), true)
+        @Expect(grains.registerReminder("r1", "tick", Duration.millisecond * 150, payload: "p1"), 1)
+        @Expect(awaitCondition(Duration.second * 10, { => probe.fired.load() == 1 }), true)
+        @Expect(probe.key(), "tick:p1")
+        // 一次性提醒确认后不再触发
+        sleep(Duration.millisecond * 500)
+        @Expect(probe.fired.load(), 1)
+        // 取消未到期的提醒
+        @Expect(grains.registerReminder("r1", "cancel-me", Duration.millisecond * 300), 2)
+        @Expect(grains.cancelReminder("r1", "cancel-me"), true)
+        sleep(Duration.millisecond * 600)
+        @Expect(probe.fired.load(), 1)
+        grains.stop()
+        closeAll(nodes)
+
+        // 重开同一持久存储（新进程/新系统）：已确认的提醒不会再次投递
+        let nodes2 = startCluster(1, "grain-reminder2", FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes2, 1) }), true)
+        let n2 = nodes2[0]
+        let probe2 = ReminderProbe()
+        let reopened = Grains(n2.cluster, n2.kit.system, n2.remote, "reminder", { _ => ReminderGrain(probe2) },
+            Duration.second * 5).withReminders(store, pollInterval: Duration.millisecond * 50)
+        sleep(Duration.millisecond * 500)
+        @Expect(probe2.fired.load(), 0)
+        reopened.stop()
+        closeAll(nodes2)
     }
 
     @TestCase

@@ -20,12 +20,13 @@ import std.time.*
 import std.collection.*
 import cactor.api.{CActorSystem}
 import cactor_core.actor.{Actor, ActorContext, ActorRef, Terminated}
-import cactor_core.message.{Message, MessageResult}
+import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.network.{NetworkAddress}
 import cactor_foundation.logging.{Logging}
 import cactor_remote.{SimpleRemoteManager}
 import cactor_cluster.ddata.{Replicator}
 import cactor_core.typed.{TypedPromise}
+import cactor_persistence.{DurableStateStore, DurableTopic}
 
 /** 让 Replicator 的对等节点跟随集群成员：成员 Up 时加入，被移除或 down 时删除 */
 public class ClusterReplicatorBinding {
@@ -191,6 +192,11 @@ public class DistributedPubSub {
     private let lock = Mutex()
     private let topics = HashMap<String, (ActorRef, TopicState)>()
     private let sent = AtomicInt64(0)
+    // 持久日志（4.8 剩余部分）：显式开启后，publish 同时把文本消息追加进共享存储；
+    // 订阅者离线期间的消息可在重连时按游标回放（DistributedPubSub 本身仍是在线扇出）
+    private var durableStore: Option<DurableStateStore> = None<DurableStateStore>
+    private var durableRetention: Int64 = 0
+    private let durableTopics = HashMap<String, DurableTopic>()
     private let log = Logging.logger("cactor.cluster.pubsub")
 
     public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, replicator: Replicator) {
@@ -282,9 +288,81 @@ public class DistributedPubSub {
         }
     }
 
+    /**
+     * 启用持久日志（差距 4.8 剩余部分）：publish 同时把**文本消息**追加到共享存储。
+     *
+     * 有界范围：`DurableTopic` 只承载字符串，故只有 `StringMessage` 会入日志；
+     * 其他消息类型仍只做在线扇出（不入日志、不静默改写成字符串）。
+     * 实时投递仍由在线扇出完成；持久日志用于订阅者**离线期间**的补齐。
+     * 回放与在线订阅之间可能有重叠，业务按序号/业务键幂等（与至少一次语义一致）。
+     */
+    public func withDurableLog(store: DurableStateStore, retention!: Int64 = 0): DistributedPubSub {
+        if (retention < 0) {
+            throw IllegalArgumentException("保留条数不能为负")
+        }
+        synchronized(lock) {
+            durableStore = Some<DurableStateStore>(store)
+            durableRetention = retention
+        }
+        this
+    }
+
+    private func durableTopicOf(topic: String): Option<DurableTopic> {
+        match (durableStore) {
+            case Some(store) =>
+                synchronized(lock) {
+                    match (durableTopics.get(topic)) {
+                        case Some(dt) => Some<DurableTopic>(dt)
+                        case None =>
+                            let dt = DurableTopic(topic, store, retention: durableRetention)
+                            durableTopics[topic] = dt
+                            Some<DurableTopic>(dt)
+                    }
+                }
+            case None => None<DurableTopic>
+        }
+    }
+
+    private func recordDurable(topic: String, message: Message): Unit {
+        if (durableStore.isNone()) {
+            return
+        }
+        match (message) {
+            case s: StringMessage =>
+                if (let Some(dt) <- durableTopicOf(topic)) {
+                    dt.publish(s.getContent())
+                }
+            case _ => ()
+        }
+    }
+
+    /** 该主题持久日志的最高序号（未开启持久日志或只发过非文本消息时为 0） */
+    public func durableHighestSeq(topic: String): Int64 {
+        match (durableTopicOf(topic)) {
+            case Some(dt) => dt.highestSequenceNr()
+            case None => 0
+        }
+    }
+
+    /**
+     * 回放持久日志里该订阅者游标之后的消息（只回放，不注册在线投递）。
+     * handler 成功返回后推进游标；随后再 `subscribe` 接入实时投递即可完整覆盖离线窗口。
+     * 返回最后一条成功处理的序号。
+     */
+    public func replayDurable(topic: String, name: String, offsets: DurableStateStore,
+        handler: (Int64, String) -> Unit, fromSeq!: Int64 = 0): Int64 {
+        checkTopic(topic)
+        match (durableTopicOf(topic)) {
+            case Some(dt) => dt.replay(name, offsets, handler, fromSeq: fromSeq)
+            case None => throw IllegalStateException("未启用持久日志：先调用 withDurableLog")
+        }
+    }
+
     /** 发给全集群该主题的全部订阅者，返回投递到的节点数（消息需要能被远程序列化） */
     public func publish(topic: String, message: Message): Int64 {
         checkTopic(topic)
+        // 先落日志再扇出：即使扇出过程中本节点失败，离线订阅者重连仍能补齐
+        recordDurable(topic, message)
         var nodes: Int64 = 0
         for (addr in replicator.setElements("pubsub/${topic}")) {
             if (addr == cluster.selfAddress) {

@@ -19,6 +19,8 @@ package cactor
 public import cactor.api.{CActor, CActorSystem, CActorSystemFactory, ActorProps}
 public import cactor.api.public.{CActorFactory, CActorSystemBuilder}
 public import cactor.api.config.{MailboxConfig, DispatcherConfig, SupervisionConfig}
+// D1 门面收敛：不可变系统设置（类型本体在 cactor_core.system）
+public import cactor_core.system.{ActorSystemSettings}
 
 // === DSL 门面（对照 docs/plan/dsl20261030.md §9 P5.1） ===
 // 行为层组合子（Behaviors）、超时/重试组合子（within / retry）、时长字面量（100.millis）

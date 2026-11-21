@@ -218,6 +218,33 @@ public class Mdc {
             current.set(saved)
         }
     }
+
+    /**
+     * 当前线程追踪上下文 → W3C `traceparent`；没有 traceId/spanId 时返回 None。
+     *
+     * 只读一次 ThreadLocal、不构造中间数组：本地发送路径（Actor 之间）逐条消息调用，
+     * 未开启追踪时必须接近零成本。与 `NetworkMessage` 的帧尾扩展共用同一格式。
+     */
+    public static func currentTraceParent(): Option<String> {
+        match (current.get()) {
+            case Some(fields) =>
+                var traceId = ""
+                var spanId = ""
+                for ((k, v) in fields) {
+                    if (k == "traceId") {
+                        traceId = v
+                    } else if (k == "spanId") {
+                        spanId = v
+                    }
+                }
+                if (!traceId.isEmpty() && !spanId.isEmpty()) {
+                    Some<String>("00-${traceId}-${spanId}-01")
+                } else {
+                    None<String>
+                }
+            case None => None<String>
+        }
+    }
 }
 
 /** 日志输出端 */

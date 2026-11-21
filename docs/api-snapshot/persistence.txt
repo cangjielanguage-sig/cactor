@@ -126,6 +126,7 @@ cactor_persistence :: DurableTopic.public func highestSequenceNr(): Int64
 cactor_persistence :: DurableTopic.public func history(fromSeq: Int64): Array<(Int64, String)>
 cactor_persistence :: DurableTopic.public func offsetOf(name: String, offsets: DurableStateStore): Int64
 cactor_persistence :: DurableTopic.public func publish(payload: String): Int64
+cactor_persistence :: DurableTopic.public func replay(name: String, offsets: DurableStateStore, handler: (Int64, String)->Unit, fromSeq!: Int64 = 0): Int64
 cactor_persistence :: DurableTopic.public func subscribe(name: String, offsets: DurableStateStore, handler: (Int64, String)->Unit, fromSeq!: Int64 = 0): DurableSubscription
 cactor_persistence :: DurableTopic.public init(topic: String, store: DurableStateStore, retention!: Int64 = 0)
 cactor_persistence :: DurableTopic.public prop topicName: String

@@ -208,11 +208,11 @@ spawn { app.listen() }
 | 能力 | 判据 | 影响 | 建议 |
 |---|---|---|---|
 | Multi-DC / roles / ClusterClient | 差距 4.1/4.3 | 跨机房、外部进程访问集群 | 先做 `20261117.md` C1–C2 |
-| 分片协调状态持久化 | 差距 4.4 | 全灭重启后分片重排 | 实体用 remember-entities + 事件溯源兜底 |
+| 分片协调状态持久化 | 差距 4.4 | 全灭重启后分片重排 | 显式放置覆盖已落盘（`withStateStore`，ex49）；自动分配全量映射仍缺，实体用 remember-entities + 事件溯源兜底 |
 | DData Map CRDT | 差距 4.6 | 分布式配置只能塞 `LWWRegister` | 用 `ORSet` 自拼或等 C4 |
-| Projection / Durable Subscriber | 差距 4.8/4.12 | 读模型、离线订阅重放 | Projection 已内建（`ex37`）；Durable Subscriber 仍用 `journal_v2` 自行 replay（`ex13`/`ex18`） |
+| Projection / Durable Subscriber | 差距 4.8/4.12 | 读模型、离线订阅重放 | Projection 已内建（`ex37`）；Durable Subscriber 已内建（`DurableTopic` ex41、`DistributedPubSub.withDurableLog` ex51） |
 | GraphDSL / BroadcastHub | 差距 4.8 | 多入多出流编排 | 线性算子 + `async`/`buffer` 组合（`ex12` 展示 SSE 管道与背压） |
-| trace 跨节点 / OTel | 差距 4.10 | 分布式排障只能看日志 | 先做指标统一（C6） |
+| trace 跨节点 / OTel | 差距 4.10 | 分布式排障只能看日志 | 跨节点与本地 Actor 链路均已自动传播（`RemoteTraceTest`/`LocalTraceTest`、ex50）；导出为显式 `SpanExporter`（ex35） |
 | 幂等 / at-least-once 高层 API | 差距 4.13 | 重复投递需自建去重表 | 用 `DurableStateStore` 做去重（`ex02`/`ex03` 已示范） |
 
 ---
@@ -267,6 +267,15 @@ spawn { app.listen() }
 | ex41 | Akka Distributed PubSub durable（差距 4.8） | 离线补齐、重启不重复、游标 8、SSE 历史后实时 |
 | ex42 | Akka multi-agent orchestration / durable workflow | 审批点崩溃续跑、工具幂等、预算失败、trace 根+步骤、SSE 事件 |
 | ex43 | Akka CircuitBreaker / API gateway | 配额 429、故障转移、断路器 open、计费幂等、SSE、Prometheus |
+| ex44 | Akka Projection + EventAdapter upcast | 双读模型、全量重建、幂等写入、变更流离线补齐、租户隔离 |
+| ex45 | Akka Distributed Data CRDT edge sync | 离线写、LWW 墓碑不复活、能力 add-wins、欠账缓冲 |
+| ex46 | Akka Streams / Kafka-style CDC lakehouse | 混合 schema upcast、慢消费者有界丢弃、离线补齐、回填、lag |
+| ex47 | Orleans Grain reminder | 一次触发、不重复、取消、重启后已确认不投递 |
+| ex48 | Prometheus unified endpoint | 运行时+集群+应用同一次渲染，段落无空行，Lou /metrics 一致 |
+| ex49 | Akka Sharding coordinator-state store | 手动覆盖落盘，整集群重启后仍在，无存储时回退 |
+| ex50 | OTel context propagation (in-process) | 三跳 Actor 链共享 traceId、span 不同；无作用域不产生 traceId |
+| ex51 | Akka DistributedPubSub durable subscriber | 离线只进日志、按游标回放、在线扇出与落日志并存 |
+| ex52 | Akka IoT device management sample | 组→设备层级、重复注册拒绝、组内聚合、空组语义 |
 | ex14 | Akka CircuitBreaker / protoactor middleware | 2 次失败后 Open；Open 不调用下游；半开恢复；退避重启后可用 |
 
 复现命令：
@@ -286,7 +295,10 @@ for e in ex01_agent_runtime ex02_tenant_orders ex03_event_backbone ex04_edge_con
          ex33_cluster_metrics ex34_shard_allocation ex35_otlp_export \
          ex36_cluster_client ex37_projection ex38_schema_upcast \
          ex39_grain_storage ex40_at_least_once ex41_durable_subscriber \
-         ex42_agent_swarm ex43_inference_gateway; do
+         ex42_agent_swarm ex43_inference_gateway ex44_agent_memory \
+         ex45_edge_twin ex46_live_lakehouse ex47_grain_reminder \
+         ex48_metrics_endpoint ex49_shard_state ex50_trace_chain \
+         ex51_durable_pubsub ex52_iot_devices; do
   CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.$e || echo "FAIL: $e"
 done
 

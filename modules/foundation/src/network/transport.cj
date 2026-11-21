@@ -228,6 +228,18 @@ public interface NetworkTransport {
     /** 关闭发往该地址的出站连接，下次发送重新连接并握手 */
     func resetOutbound(address: NetworkAddress): Unit {}
 
+    /**
+     * 设置协商后的单帧字节上限（F5，须在 start 之前设置）。
+     * TCP 实现：入站长度头超过该值时先写回 GoAway(FrameTooLarge) 再断开，不把超大负载读进内存；
+     * 出站发送超过该值时抛 IllegalArgumentException。默认实现忽略（测试替身）。
+     */
+    func setMaxFrameBytes(maxBytes: Int64): Unit {}
+
+    /** 因入站帧超过 maxFrameBytes 而回 GoAway 并断开的连接数（F5） */
+    func goAwaySentCount(): Int64 {
+        0
+    }
+
     /** 实际监听地址（绑定端口 0 时返回系统分配的端口） */
     func getLocalAddress(): NetworkAddress
 
@@ -909,6 +921,9 @@ public class TcpTransport <: NetworkTransport {
     private let inboundPeers: ArrayList<(Channel, String)> = ArrayList<(Channel, String)>()
     private var handshake: Option<TransportHandshake> = None<TransportHandshake>
     private var security: Option<TransportSecurity> = None<TransportSecurity>
+    // F5：协商后的单帧上限（入站超限回 GoAway；出站超限抛异常）。默认沿用全局 16 MiB
+    private var maxFrameBytesValue: Int64 = MAX_FRAME_SIZE
+    private let goAwaySent = AtomicInt64(0)
     private let connectTimeout: Duration
     private let limits: TcpTransportLimits
     private let outboundRejections = AtomicInt64(0)
@@ -1029,8 +1044,9 @@ public class TcpTransport <: NetworkTransport {
         if (!isRunning.load()) {
             throw IllegalStateException("TCP 传输未启动")
         }
-        if (data.size > MAX_FRAME_SIZE) {
-            throw IllegalArgumentException("消息过大: ${data.size} 字节，上限 ${MAX_FRAME_SIZE}")
+        let limit = synchronized(mutex) { maxFrameBytesValue }
+        if (data.size > limit) {
+            throw IllegalArgumentException("消息过大: ${data.size} 字节，超过协商上限 ${limit}（FrameTooLarge）")
         }
         let frame = encodeFrame(data)
         // 关联可能恰好因长期连不上而退出：换一个新关联再试一次
@@ -1111,6 +1127,22 @@ public class TcpTransport <: NetworkTransport {
         }
         victims.size
     }
+
+    /** 设置协商后的单帧上限（F5）。须在 start 之前设置；非法值立即抛异常 */
+    public func setMaxFrameBytes(maxBytes: Int64): Unit {
+        if (maxBytes <= 0 || maxBytes > MAX_FRAME_SIZE) {
+            throw IllegalArgumentException("单帧上限须在 1..${MAX_FRAME_SIZE} 之间: ${maxBytes}")
+        }
+        synchronized(mutex) {
+            if (isRunning.load()) {
+                throw IllegalStateException("单帧上限须在 start 之前设置")
+            }
+            maxFrameBytesValue = maxBytes
+        }
+    }
+
+    /** 入站超限而回 GoAway 并断开的连接数（F5） */
+    public func goAwaySentCount(): Int64 { goAwaySent.load() }
 
     public func resetOutbound(address: NetworkAddress): Unit {
         let removed = synchronized(mutex) { outbound.remove(address.toString()) }
@@ -1295,8 +1327,17 @@ public class TcpTransport <: NetworkTransport {
                     break
                 }
                 let len = decodeLength(header)
-                if (len < 0 || len > MAX_FRAME_SIZE) {
-                    log_transport.debug("TCP 收到非法帧长度 ${len}，关闭连接")
+                let inboundLimit = synchronized(mutex) { maxFrameBytesValue }
+                if (len < 0 || len > inboundLimit) {
+                    // F5：超限不是静默断开——先回带原因的 GoAway，再优雅关闭（对端不必等到超时）
+                    goAwaySent.fetchAdd(1)
+                    let reason = "GOAWAY|FrameTooLarge|limit=${inboundLimit}|len=${len}"
+                    try {
+                        client.write(encodeFrame(reason.toArray()))
+                    } catch (_: Exception) {
+                        // 对端已关闭：仍然关闭本连接
+                    }
+                    log_transport.warn("TCP 收到超过协商上限 ${inboundLimit} 的帧长度 ${len}，已回 GoAway(FrameTooLarge) 并关闭连接")
                     break
                 }
                 // 入站在途字节也要预算：每个连接一次可读 16 MB，连接数上限不能替代字节上限

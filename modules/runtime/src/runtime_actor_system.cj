@@ -11,9 +11,9 @@
 package cactor_runtime
 
 import std.time.*
-import cactor_core.actor.{Actor, ActorRef, Props}
+import cactor_core.actor.{Actor, ActorRef, Props, DispatcherMode, dispatcherName}
 import cactor_core.message.{Message}
-import cactor_core.system.{ActorSystem, ActorSelection, SimpleFuture}
+import cactor_core.system.{ActorSystem, ActorSelection, SimpleFuture, ActorSystemSettings}
 import cactor_core.dsl.{AskInbox}
 
 public class RuntimeActorSystem <: ActorSystem {
@@ -29,6 +29,12 @@ public class RuntimeActorSystem <: ActorSystem {
         runtime.start()
     }
 
+    /** 由不可变设置创建并启动（D1：设置 → 系统 → settings() 读回） */
+    public init(settings: ActorSystemSettings) {
+        this.runtime = CActorRuntime(settings)
+        runtime.start()
+    }
+
     /** 包装已有运行时（CActorRuntime.getActorSystem 用），不另起运行时 */
     init(runtime: CActorRuntime) {
         this.runtime = runtime
@@ -38,12 +44,31 @@ public class RuntimeActorSystem <: ActorSystem {
         get() { runtime.getSystemName() }
     }
 
+    /** 创建本系统时使用的设置（读回无丢失） */
+    public func settings(): ActorSystemSettings {
+        runtime.getSettings()
+    }
+
     public func actorOf(props: Props<Actor>, name: String): ActorRef {
-        runtime.actorOf(props, name)
+        runtime.actorOf(effectiveProps(props), name)
     }
 
     public func actorOf(props: Props<Actor>): ActorRef {
-        runtime.actorOf(props)
+        runtime.actorOf(effectiveProps(props))
+    }
+
+    /** 系统级默认调度模式：Props 未显式指定（仍为 "default"）时注入，显式者优先 */
+    private func effectiveProps(props: Props<Actor>): Props<Actor> {
+        let mode = runtime.getSettings().dispatcherMode
+        match (mode) {
+            case DispatcherMode.Affinity => props
+            case _ =>
+                if (props.getDispatcher() == "default") {
+                    props.withDispatcher(dispatcherName(mode))
+                } else {
+                    props
+                }
+        }
     }
 
     public func actorSelection(path: String): ActorSelection {

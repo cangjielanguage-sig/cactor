@@ -190,6 +190,15 @@ cactor_examples.ex40_at_least_once
 cactor_examples.ex41_durable_subscriber
 cactor_examples.ex42_agent_swarm
 cactor_examples.ex43_inference_gateway
+cactor_examples.ex44_agent_memory
+cactor_examples.ex45_edge_twin
+cactor_examples.ex46_live_lakehouse
+cactor_examples.ex47_grain_reminder
+cactor_examples.ex48_metrics_endpoint
+cactor_examples.ex49_shard_state
+cactor_examples.ex50_trace_chain
+cactor_examples.ex51_durable_pubsub
+cactor_examples.ex52_iot_devices
 "
 for ex in $EXAMPLES_SELF_CHECK; do
     CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1

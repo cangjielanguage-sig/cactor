@@ -1,10 +1,11 @@
 /*
- * Copyright (c) 2024. All rights reserved.
- * CActor Runtime - 高性能Actor系统
- * 基于tu.md优化计划的高性能Actor系统实现
- * 从Core层移动到Runtime层
+ * CActor Runtime - 高性能 Actor 系统实现（D1 门面收敛）
+ *
+ * 本类只被 CActorRuntime 使用，随门面收敛降为 internal。Cangjie 的 internal 是包级可见，
+ * 因此从 cactor_runtime.system 移入 cactor_runtime 包，与唯一消费者同包。
+ * 其配置与统计类型仍留在 cactor_runtime.system（属于公开 API）。
  */
-package cactor_runtime.system
+package cactor_runtime
 
 import std.sync.*
 import std.time.*
@@ -13,128 +14,22 @@ import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.*
 import cactor_runtime.context.{PooledActorContextPool, PoolStats}
 import cactor_runtime.actor.{HighPerformanceActor, HighPerformanceActorBehavior, ActorStats}
+import cactor_runtime.system.{HighPerformanceActorSystemConfig, SystemStats, MonitorStats, DispatcherStats}
 import cactor_foundation.logging.{Logger, Logging}
 
-let log_high_performance_actor_system: Logger = Logging.logger("cactor_runtime.system.high_performance_actor_system")
+let log_high_performance_actor_system: Logger = Logging.logger("cactor_runtime.high_performance_actor_system")
 
 // 简化时间函数
-func getCurrentTimeNanos(): Int64 {
+func highPerfCurrentTimeNanos(): Int64 {
     let now = DateTime.now()
     now.toUnixTimeStamp().toMilliseconds() * 1000000
-}
-
-/**
- * 高性能Actor系统配置
- */
-public struct HighPerformanceActorSystemConfig {
-    public let maxActors: Int64                    // 最大Actor数量
-    public let contextPoolSize: Int64              // 上下文池大小
-    public let workerThreads: Int32                // 工作线程数
-    public let mailboxCapacity: Int64              // 邮箱容量
-    public let enableBatchProcessing: Bool         // 启用批处理
-    public let batchSize: Int32                    // 批处理大小
-    public let enableMemoryOptimization: Bool      // 启用内存优化
-    public let enablePerformanceMonitoring: Bool   // 启用性能监控
-    
-    public init(maxActors: Int64, contextPoolSize: Int64, workerThreads: Int32, 
-                mailboxCapacity: Int64, enableBatchProcessing: Bool, batchSize: Int32,
-                enableMemoryOptimization: Bool, enablePerformanceMonitoring: Bool) {
-        this.maxActors = maxActors
-        this.contextPoolSize = contextPoolSize
-        this.workerThreads = workerThreads
-        this.mailboxCapacity = mailboxCapacity
-        this.enableBatchProcessing = enableBatchProcessing
-        this.batchSize = batchSize
-        this.enableMemoryOptimization = enableMemoryOptimization
-        this.enablePerformanceMonitoring = enablePerformanceMonitoring
-    }
-    
-    /**
-     * 默认高性能配置
-     */
-    public static func createDefault(): HighPerformanceActorSystemConfig {
-        HighPerformanceActorSystemConfig(
-            1000000,    // 100万Actor
-            10000,      // 1万上下文池
-            8,          // 8个工作线程
-            1024,       // 1K邮箱容量
-            true,       // 启用批处理
-            32,         // 32消息批处理
-            true,       // 启用内存优化
-            true        // 启用性能监控
-        )
-    }
-    
-    /**
-     * 极限性能配置
-     */
-    public static func createExtreme(): HighPerformanceActorSystemConfig {
-        HighPerformanceActorSystemConfig(
-            10000000,   // 1000万Actor
-            50000,      // 5万上下文池
-            16,         // 16个工作线程
-            2048,       // 2K邮箱容量
-            true,       // 启用批处理
-            64,         // 64消息批处理
-            true,       // 启用内存优化
-            true        // 启用性能监控
-        )
-    }
-
-    /**
-     * 内存优化配置
-     */
-    public static func createMemoryOptimized(): HighPerformanceActorSystemConfig {
-        HighPerformanceActorSystemConfig(
-            500000,     // 50万Actor
-            5000,       // 5千上下文池
-            4,          // 4个工作线程
-            512,        // 512邮箱容量
-            false,      // 禁用批处理（节省内存）
-            16,         // 16消息批处理
-            true,       // 启用内存优化
-            false       // 禁用性能监控（节省内存）
-        )
-    }
-
-    /**
-     * 低延迟配置
-     */
-    public static func createLowLatency(): HighPerformanceActorSystemConfig {
-        HighPerformanceActorSystemConfig(
-            1000000,    // 100万Actor
-            20000,      // 2万上下文池
-            8,          // 8个工作线程
-            1024,       // 1K邮箱容量
-            false,      // 禁用批处理（减少延迟）
-            8,          // 8消息批处理
-            true,       // 启用内存优化
-            true        // 启用性能监控
-        )
-    }
-
-    /**
-     * 高吞吐量配置
-     */
-    public static func createHighThroughput(): HighPerformanceActorSystemConfig {
-        HighPerformanceActorSystemConfig(
-            5000000,    // 500万Actor
-            30000,      // 3万上下文池
-            32,         // 32个工作线程
-            4096,       // 4K邮箱容量
-            true,       // 启用批处理
-            128,        // 128消息批处理
-            true,       // 启用内存优化
-            true        // 启用性能监控
-        )
-    }
 }
 
 /**
  * 高性能Actor系统 - Runtime层实现
  * 实现tu.md中的核心优化：无锁邮箱、对象池化
  */
-public class HighPerformanceActorSystem {
+internal class HighPerformanceActorSystem {
     // 系统配置
     private let config: HighPerformanceActorSystemConfig
 
@@ -148,7 +43,7 @@ public class HighPerformanceActorSystem {
     private let isRunning: AtomicBool
     private let actorCount: AtomicInt64
     private let messageCount: AtomicInt64
-    
+
     public init(config: HighPerformanceActorSystemConfig) {
         this.config = config
         this.actors = HashMap<String, HighPerformanceActor>()
@@ -157,7 +52,7 @@ public class HighPerformanceActorSystem {
         this.actorCount = AtomicInt64(0)
         this.messageCount = AtomicInt64(0)
     }
-    
+
     /**
      * 启动Actor系统
      */
@@ -189,7 +84,7 @@ public class HighPerformanceActorSystem {
             log_high_performance_actor_system.debug("🛑 高性能Actor系统已停止")
         }
     }
-    
+
     /**
      * 创建高性能Actor
      */
@@ -218,7 +113,7 @@ public class HighPerformanceActorSystem {
 
         return Some(HighPerformanceActorRef(actorId, actor, this))
     }
-    
+
     /**
      * 获取Actor引用
      */
@@ -228,7 +123,7 @@ public class HighPerformanceActorSystem {
             case None => None
         }
     }
-    
+
     /**
      * 移除Actor
      */
@@ -247,7 +142,7 @@ public class HighPerformanceActorSystem {
                 return false
         }
     }
-    
+
     /**
      * 高性能消息发送
      */
@@ -261,22 +156,22 @@ public class HighPerformanceActorSystem {
                 return false
         }
     }
-    
+
     /**
      * 批量消息发送
      */
     public func sendMessageBatch(messages: Array<(String, Message)>): Int32 {
         var successCount: Int32 = 0
-        
+
         for ((actorId, message) in messages) {
             if (sendMessage(actorId, message)) {
                 successCount += 1
             }
         }
-        
+
         return successCount
     }
-    
+
     /**
      * 获取系统统计信息
      */
@@ -294,7 +189,7 @@ public class HighPerformanceActorSystem {
             monitorStats
         )
     }
-    
+
     /**
      * 获取配置信息
      */
@@ -306,7 +201,7 @@ public class HighPerformanceActorSystem {
 /**
  * 高性能Actor引用
  */
-public class HighPerformanceActorRef <: ActorRef {
+internal class HighPerformanceActorRef <: ActorRef {
     private let actorId: String
     private let actor: HighPerformanceActor
     private let system: HighPerformanceActorSystem
@@ -368,43 +263,9 @@ public class HighPerformanceActorRef <: ActorRef {
 }
 
 /**
- * 系统统计信息
- */
-public struct SystemStats {
-    public let actorCount: Int64
-    public let messageCount: Int64
-    public let isRunning: Bool
-    public let poolStats: PoolStats
-    public let dispatcherStats: DispatcherStats
-    public let monitorStats: MonitorStats
-
-    public init(actorCount: Int64, messageCount: Int64, isRunning: Bool,
-                poolStats: PoolStats, dispatcherStats: DispatcherStats, monitorStats: MonitorStats) {
-        this.actorCount = actorCount
-        this.messageCount = messageCount
-        this.isRunning = isRunning
-        this.poolStats = poolStats
-        this.dispatcherStats = dispatcherStats
-        this.monitorStats = monitorStats
-    }
-
-    public func printReport(): Unit {
-        println("=== 高性能Actor系统统计 ===")
-        println("Actor数量: ${actorCount}")
-        println("消息总数: ${messageCount}")
-        let statusText = if (isRunning) { "运行中" } else { "已停止" }
-        println("系统状态: ${statusText}")
-        println("对象池利用率: ${poolStats.getUtilization()}%")
-        println("对象池命中率: ${poolStats.getHitRate()}%")
-        println("调度器吞吐量: ${dispatcherStats.getThroughput()} msg/s")
-        println("平均延迟: ${monitorStats.getAverageLatency()}μs")
-    }
-}
-
-/**
  * 系统性能监控器
  */
-public class SystemPerformanceMonitor {
+internal class SystemPerformanceMonitor {
     private let enabled: Bool
     private let startTime: AtomicInt64
     private let actorsCreated: AtomicInt64
@@ -423,7 +284,7 @@ public class SystemPerformanceMonitor {
 
     public func start(): Unit {
         if (enabled) {
-            startTime.store(getCurrentTimeNanos())
+            startTime.store(highPerfCurrentTimeNanos())
             log_high_performance_actor_system.debug("📊 性能监控已启动")
         }
     }
@@ -460,7 +321,7 @@ public class SystemPerformanceMonitor {
 
     public func getStats(): MonitorStats {
         let uptime = if (startTime.load() > 0) {
-            getCurrentTimeNanos() - startTime.load()
+            highPerfCurrentTimeNanos() - startTime.load()
         } else {
             0
         }
@@ -472,59 +333,5 @@ public class SystemPerformanceMonitor {
             messagesFailed.load(),
             uptime
         )
-    }
-}
-
-/**
- * 监控统计信息
- */
-public struct MonitorStats {
-    public let actorsCreated: Int64
-    public let actorsDestroyed: Int64
-    public let messagesSent: Int64
-    public let messagesFailed: Int64
-    public let uptime: Int64
-
-    public init(actorsCreated: Int64, actorsDestroyed: Int64, messagesSent: Int64, messagesFailed: Int64, uptime: Int64) {
-        this.actorsCreated = actorsCreated
-        this.actorsDestroyed = actorsDestroyed
-        this.messagesSent = messagesSent
-        this.messagesFailed = messagesFailed
-        this.uptime = uptime
-    }
-
-    public func getSuccessRate(): Float64 {
-        let total = messagesSent + messagesFailed
-        if (total == 0) {
-            return 100.0
-        }
-        return Float64(messagesSent) / Float64(total) * 100.0
-    }
-
-    public func getAverageLatency(): Float64 {
-        // 简化实现，实际应该收集延迟数据
-        return 0.5  // 假设0.5μs平均延迟
-    }
-
-    public func getUptimeInSeconds(): Float64 {
-        Float64(uptime) / 1000000000.0
-    }
-}
-
-/**
- * 调度器统计信息占位符
- */
-public struct DispatcherStats {
-    public let processedMessages: Int64
-    public let averageLatency: Float64
-
-    public init(processedMessages: Int64, averageLatency: Float64) {
-        this.processedMessages = processedMessages
-        this.averageLatency = averageLatency
-    }
-
-    public func getThroughput(): Float64 {
-        // 简化实现
-        return Float64(processedMessages)
     }
 }

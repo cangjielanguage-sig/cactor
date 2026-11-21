@@ -33,9 +33,26 @@ public class WireProtocol {
     public static let CAP_NONE: UInt64 = 0
     /** 能读 TypedPayloadBox codec v3：版本头为 3 的类型化信封，含 kind 3（带协议标记的嵌套消息） */
     public static let CAP_TYPED_CODEC_V3: UInt64 = 1
+    /**
+     * 能读短类型 id 帧（B2）：帧内用 u16 代替消息类型全名。
+     * 发送方按对端握手里宣告的"id → 类型名"表编码；没有宣告该能力时继续写全名，旧对端不受影响。
+     */
+    public static let CAP_SHORT_TYPE_ID: UInt64 = 2
+    /** 能解压压缩帧（B3）：负载达到阈值时用 deflate 压缩，帧首为压缩标记 */
+    public static let CAP_COMPRESSION: UInt64 = 4
+    /** 能接收分片大消息（B3）：超过协商帧上限的消息按片发送，接收端重组 */
+    public static let CAP_CHUNKING: UInt64 = 8
+    /** 握手里协商单帧字节上限（F5，扩展键 mf） */
+    public static let CAP_MAX_FRAME: UInt64 = 16
+    /** 支持带原因的 GoAway 帧（F5） */
+    public static let CAP_GOAWAY: UInt64 = 32
+    /** 背压错误携带容量（F5，cactor_patterns.backpressure.OfferResult 已携带在途/上限） */
+    public static let CAP_BACKPRESSURE_METADATA: UInt64 = 64
 
     /** 本版本能读的全部能力（握手时默认宣告） */
-    public static let LOCAL_CAPABILITIES: UInt64 = 1
+    public static let LOCAL_CAPABILITIES: UInt64 =
+        CAP_TYPED_CODEC_V3 | CAP_SHORT_TYPE_ID | CAP_COMPRESSION | CAP_CHUNKING | CAP_MAX_FRAME |
+        CAP_GOAWAY | CAP_BACKPRESSURE_METADATA
 
     /** caps 是否具备 required 的全部位 */
     public static func supports(caps: UInt64, required: UInt64): Bool {
@@ -51,7 +68,23 @@ public class WireProtocol {
         for (i in 0..64) {
             let bit = UInt64(1) << UInt64(i)
             if ((caps & bit) != 0) {
-                let name = if (bit == CAP_TYPED_CODEC_V3) { "typed-codec-v3" } else { "bit${i}" }
+                let name = if (bit == CAP_TYPED_CODEC_V3) {
+                    "typed-codec-v3"
+                } else if (bit == CAP_SHORT_TYPE_ID) {
+                    "short-type-id"
+                } else if (bit == CAP_COMPRESSION) {
+                    "compression"
+                } else if (bit == CAP_CHUNKING) {
+                    "chunking"
+                } else if (bit == CAP_MAX_FRAME) {
+                    "max-frame"
+                } else if (bit == CAP_GOAWAY) {
+                    "goaway"
+                } else if (bit == CAP_BACKPRESSURE_METADATA) {
+                    "backpressure-metadata"
+                } else {
+                    "bit${i}"
+                }
                 out = if (out.isEmpty()) { name } else { "${out},${name}" }
             }
         }

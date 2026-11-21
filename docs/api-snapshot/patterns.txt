@@ -97,6 +97,7 @@ cactor_patterns.backpressure :: BackpressuredRef.public init(target: ActorRef, l
 cactor_patterns.backpressure :: OfferResult.| Backpressured(Int64, Int64)
 cactor_patterns.backpressure :: OfferResult.| Closed
 cactor_patterns.backpressure :: OfferResult.| Enqueued
+cactor_patterns.backpressure :: extend OfferResult.public func capacity(): Int64
 cactor_patterns.backpressure :: extend OfferResult.public func inFlight(): Int64
 cactor_patterns.backpressure :: extend OfferResult.public func isBackpressured(): Bool
 cactor_patterns.backpressure :: extend OfferResult.public func isClosed(): Bool

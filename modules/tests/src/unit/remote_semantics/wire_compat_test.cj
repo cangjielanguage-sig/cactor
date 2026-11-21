@@ -272,6 +272,42 @@ public class WireCompatTest {
         @Expect(target, "sink")
     }
 
+    // ---------------- B2：短类型 id ----------------
+
+    /** 新 ↔ 新：按对端宣告的类型表写 u16 id，帧更短且解码无损；新 → 旧仍写完整类型名 */
+    @TestCase
+    public func shortTypeIdsAreNegotiatedAndLegacyStillGetsFullNames(): Unit {
+        let ser = MessageSerializer()
+        // 新节点把本节点的 id → 类型名表转成对端要用的 类型名 → id 表
+        let peerTable = HashMap<String, UInt16>()
+        for ((id, name) in MessageCodecRegistry.typeTable()) {
+            peerTable[name] = id
+        }
+        @Expect(peerTable.contains("StringMessage"), true)
+        let full = ser.serialize(StringMessage("short-id-payload"))
+        let short = ser.serialize(StringMessage("short-id-payload"), WireProtocol.LOCAL_CAPABILITIES,
+            Some(peerTable))
+        // 短 id 帧以 -2 标记开头，且确实更短（类型名越短差别越小，这里用常见内置类型验证）
+        @Expect(((Int32(short[0]) << 24) | (Int32(short[1]) << 16) | (Int32(short[2]) << 8) | Int32(short[3])), -2)
+        @Expect(short.size < full.size, true)
+        @Expect(((ser.deserialize(short) as StringMessage).getOrThrow()).getContent(), "short-id-payload")
+        // 旧对端：不给类型表、能力保守 → 仍是"长度 + 完整类型名"
+        let legacy = ser.serialize(StringMessage("short-id-payload"), WireProtocol.CAP_NONE,
+            None<HashMap<String, UInt16>>)
+        @Expect(((Int32(legacy[0]) << 24) | (Int32(legacy[1]) << 16) | (Int32(legacy[2]) << 8) | Int32(legacy[3])), 14)
+        @Expect(String.fromUtf8(legacy[4..18]), "StringMessage")
+        @Expect(((ser.deserialize(legacy) as StringMessage).getOrThrow()).getContent(), "short-id-payload")
+        // 未知短 id：明确报"读不懂"，不是数据损坏
+        let bogus = ArrayList<UInt8>()
+        bogus.add(all: [255u8, 255u8, 255u8, 254u8, 0xFFu8, 0xFFu8])
+        try {
+            ser.deserialize(bogus.toArray())
+            @Expect(false, true)
+        } catch (e: UnsupportedWireFormatException) {
+            @Expect(e.message.contains("短类型 id"), true)
+        }
+    }
+
     // ---------------- 握手：扩展对旧解析器透明 ----------------
 
     @TestCase
@@ -283,7 +319,9 @@ public class WireCompatTest {
                 // 新 HELLO：能力扩展追加在第 5 段末尾，仍是 7 段、版本 "1"，旧解析器（含 MAC 校验）照常通过
                 let hello = String.fromUtf8(nt.hs().hello(NetworkAddress("127.0.0.1", 7102)))
                 @Expect(hello.split("|").size, 7)
-                @Expect(hello.split("|")[5], "127.0.0.1:7102;wp=2;wc=1")
+                @Expect(hello.split("|")[5].startsWith("127.0.0.1:7102;wp=2;wc=7f"), true)
+                @Expect(hello.split("|")[5].contains(";mf=65536"), true)
+                @Expect(hello.split("|")[5].contains(";wt="), true)
                 @Expect(legacyParserAccepts(hello, cookie), true)
                 // 旧节点（模拟）接受新 HELLO，回旧格式 ACK：第 5 段只有回显的 mac
                 let ack = ot.hs().accept(hello.toArray()).getOrThrow()[0]
@@ -315,11 +353,11 @@ public class WireCompatTest {
                 try {
                     let h2 = nt.hs().hello(NetworkAddress("127.0.0.1", 7104))
                     let a2 = nt2.hs().accept(h2).getOrThrow()[0]
-                    @Expect(String.fromUtf8(a2).split("|")[5].contains(";wp=2;wc=1"), true)
+                    @Expect(String.fromUtf8(a2).split("|")[5].contains(";wp=2;wc=7f"), true)
                     @Expect(nt.hs().confirm(NetworkAddress("127.0.0.1", 7104), a2), true)
                     let p2 = n.peerWireProfile(NetworkAddress("127.0.0.1", 7104)).getOrThrow()
                     @Expect(p2.negotiated, true)
-                    @Expect(p2.capabilities, WireProtocol.CAP_TYPED_CODEC_V3)
+                    @Expect(WireProtocol.supports(p2.capabilities, WireProtocol.CAP_TYPED_CODEC_V3), true)
                     @Expect(n2.peerWireProfile(NetworkAddress("127.0.0.1", 7101)).getOrThrow().negotiated, true)
                 } finally { n2.stop() }
             } finally {
@@ -367,7 +405,7 @@ public class WireCompatTest {
             ref.tell(TypedPayloadBox(StringMessage("hello")))
             @Expect(sink.rec.await("hello@-", T5S), true)
             @Expect(awaitCondition(T5S, { => a.peerWireProfile(b.getLocalAddress()).isSome() }), true)
-            @Expect(a.peerWireProfile(b.getLocalAddress()).getOrThrow().capabilities, WireProtocol.CAP_TYPED_CODEC_V3)
+            @Expect(a.peerWireProfile(b.getLocalAddress()).getOrThrow().capabilities, WireProtocol.LOCAL_CAPABILITIES)
             ref.tell(TypedPayloadBox(StringMessage("tagged"), typeTag: TAG))
             @Expect(sink.rec.await("tagged@tests.da6.Echo.v1", T5S), true)
             @Expect(a.wireIncompatibleSent(), 0)

@@ -6,7 +6,7 @@
 package cactor.api.public
 
 import cactor_core.actor.{Actor, Props, PropsFactory}
-import cactor_core.system.{ActorSystem}
+import cactor_core.system.{ActorSystem, ActorSystemSettings}
 import cactor_runtime.{RuntimeActorSystem}
 
 /**
@@ -45,6 +45,16 @@ public struct CActorFactory {
     public static func createSystem(name: String): ActorSystem {
         // E29：此前恒抛 "Not implemented yet"。现在返回以真实运行时实现的系统
         RuntimeActorSystem(name)
+    }
+
+    /**
+     * 由不可变系统设置创建（D1 门面收敛）
+     *
+     * @param settings 系统设置（名称、调度模式、预算、默认邮箱、扩展点）
+     * @return 由真实运行时支撑的 Actor 系统
+     */
+    public static func createSystem(settings: ActorSystemSettings): ActorSystem {
+        RuntimeActorSystem(settings)
     }
 
     /**

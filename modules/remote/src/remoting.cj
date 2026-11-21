@@ -676,7 +676,7 @@ class RemoteHandshake <: TransportHandshake {
         if (!core.admitPeer(addr, uid, inbound: true)) {
             return core.rejectHandshake("${addr}#${uid} 已被隔离或对端状态容量已满")
         }
-        core.recordPeerWire(addr, uid, wire.advertised)
+        core.recordPeerWire(addr, uid, wire)
         // 只对宣告了能力的连接方回带扩展的 ACK：旧连接方在有密钥时逐字比较回显的 mac
         let echoed = if (wire.advertised.isSome()) { "${mac}${core.wireHandshakeExtension()}" } else { mac }
         let reply = "${HELLO_ACK_KIND}|${HANDSHAKE_VERSION}|${core.selfAddressText()}|${core.selfUid()}|${wallMillis()}|${echoed}"
@@ -707,7 +707,7 @@ class RemoteHandshake <: TransportHandshake {
             core.rejectHandshake("${peer.toString()}#${uid} 已被隔离或对端状态容量已满") |> ignoreRejected
             return false
         }
-        core.recordPeerWire(peer.toString(), uid, wire.advertised)
+        core.recordPeerWire(peer.toString(), uid, wire)
         true
     }
 }
@@ -726,8 +726,8 @@ func quarantineKey(addr: String, uid: UInt64): String {
  * 远程层的状态与后台任务（每个 SimpleRemoteManager 一个）
  */
 public class RemotingCore {
-    private let sender: SimpleRemoteSender
-    private let receiver: SimpleRemoteReceiver
+    let sender: SimpleRemoteSender
+    let receiver: SimpleRemoteReceiver
     private var managerValue: Option<SimpleRemoteManager> = None<SimpleRemoteManager>
     private var settings: RemotingSettings = RemotingSettings.defaults()
     private let lock = Mutex()
@@ -795,19 +795,27 @@ public class RemotingCore {
     let wireIncompatibleSent = AtomicInt64(0)
     let wireProtocolRejected = AtomicInt64(0)
     var wireListener: Option<(WireIncompatibleEvent) -> Unit> = None<(WireIncompatibleEvent) -> Unit>
+    // F5：GoAway 收发与超限帧计数；lastGoAway 供诊断与测试断言原因
+    let goAwaySent = AtomicInt64(0)
+    let goAwayReceived = AtomicInt64(0)
+    var lastGoAwayValue: Option<GoAwayInfo> = None<GoAwayInfo>
 
     init(sender: SimpleRemoteSender, receiver: SimpleRemoteReceiver) {
         this.sender = sender
         this.receiver = receiver
         this.incarnation = Random().nextUInt64()
         MessageCodecRegistry.register("cactor.ReliableEnvelope", ReliableEnvelopeCodec())
+        registerWireCodecs()
     }
 
     func attach(manager: SimpleRemoteManager): Unit {
         managerValue = Some(manager)
         let me = this
         receiver.setInterceptor({ nm => me.intercept(nm) })
-        sender.setWireGate(WireGate({ a => me.wireCapabilitiesOf(a) }, { a, t, m, e => me.onWireIncompatible(a, t, m, e) }))
+        receiver.setOversizeHandler({ size, source => me.onOversizeFrame(size, source) })
+        receiver.setMaxInboundFrame(wireSettings.maxFrameBytes)
+        sender.setWireGate(WireGate({ a => me.wireCapabilitiesOf(a) }, { a => me.wireTypeTableOf(a) },
+            { a => me.wireMaxFrameOf(a) }, { a, t, m, e => me.onWireIncompatible(a, t, m, e) }))
         receiver.registerHandler(SYS_NAME, { m: Message, _: Option<String> => me.onSystemMessage(m) })
     }
 
@@ -1995,6 +2003,14 @@ public class RemotingCore {
                 if (let Some(n) <- Int64.tryParse(parts[2])) {
                     onAck(parts[1], n, if (parts.size >= 4) { UInt64.tryParse(parts[3]) } else { None<UInt64> })
                 }
+            case "GOAWAY" =>
+                match (parseGoAway(text)) {
+                    case Some(info) =>
+                        goAwayReceived.fetchAdd(1)
+                        lastGoAwayValue = Some(info)
+                        log_remoting.warn("收到对端 GoAway：${info}")
+                    case None => log_remoting.debug("非法的 GoAway 控制消息: ${text}")
+                }
             case _ => log_remoting.debug("未知的远程控制消息: ${text}")
         }
     }
@@ -2121,5 +2137,37 @@ extend SimpleRemoteManager {
     /** 全节点可靠消息预算占用：节点级计数与通道实际保留量，两者应相等 */
     public func reliableBudgetUsage(): ReliableBudgetUsage {
         core.budgetUsage()
+    }
+
+    // ---------------- F5 / B3 线协议诊断 ----------------
+
+    /** 最近一次收到的 GoAway（带原因）；未收到时为 None */
+    public func lastGoAway(): Option<GoAwayInfo> {
+        core.lastGoAwayValue
+    }
+
+    /** 本节点发出的 GoAway 数（入站超限） */
+    public func goAwaySentCount(): Int64 {
+        core.goAwaySent.load() + transportInternal().goAwaySentCount()
+    }
+
+    /** 本节点收到的 GoAway 数 */
+    public func goAwayReceivedCount(): Int64 {
+        core.goAwayReceived.load()
+    }
+
+    /** 入站超限帧数（接收器侧；TCP 上限在传输层就被拦下的不计入） */
+    public func oversizeFrameCount(): Int64 {
+        getReceiver().getOversizeFrameCount()
+    }
+
+    /** 解压过的入站帧数 */
+    public func compressedFrameCount(): Int64 {
+        getReceiver().getCompressedFrameCount()
+    }
+
+    /** 重组完成的大消息数 */
+    public func reassembledFrameCount(): Int64 {
+        getReceiver().getReassembledFrameCount()
     }
 }

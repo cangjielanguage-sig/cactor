@@ -282,6 +282,8 @@ cactor_cluster.membership :: ClusterSharding.public func busiestShards(n: Int64)
 cactor_cluster.membership :: ClusterSharding.public func entityLease(entityId: String): Option<Lease>
 cactor_cluster.membership :: ClusterSharding.public func fencingToken(entityId: String): Option<Int64>
 cactor_cluster.membership :: ClusterSharding.public func leaseStatus(): ShardLeaseStatus
+cactor_cluster.membership :: ClusterSharding.public func loadedOverrideCount(): Int64
+cactor_cluster.membership :: ClusterSharding.public func loadedOverrideOf(shardId: Int64): Option<String>
 cactor_cluster.membership :: ClusterSharding.public func localEntityCount(): Int64
 cactor_cluster.membership :: ClusterSharding.public func localEntityIds(): Array<String>
 cactor_cluster.membership :: ClusterSharding.public func ownerCount(): Int64
@@ -334,12 +336,15 @@ cactor_cluster.membership :: ClusterSnapshot.public let converged: Bool
 cactor_cluster.membership :: ClusterSnapshot.public let leader: Option<String>
 cactor_cluster.membership :: ClusterSnapshot.public let members: Array<Member>
 cactor_cluster.membership :: ClusterSnapshot.public let unreachable: Array<String>
+cactor_cluster.membership :: DistributedPubSub.public func durableHighestSeq(topic: String): Int64
 cactor_cluster.membership :: DistributedPubSub.public func localSubscriberCount(topic: String): Int64
 cactor_cluster.membership :: DistributedPubSub.public func publish(topic: String, message: Message): Int64
+cactor_cluster.membership :: DistributedPubSub.public func replayDurable(topic: String, name: String, offsets: DurableStateStore, handler: (Int64, String)->Unit, fromSeq!: Int64 = 0): Int64
 cactor_cluster.membership :: DistributedPubSub.public func subscribe(topic: String, subscriber: ActorRef): Unit
 cactor_cluster.membership :: DistributedPubSub.public func subscribeAsync(topic: String, subscriber: ActorRef): TypedPromise<Unit>
 cactor_cluster.membership :: DistributedPubSub.public func subscriberNodes(topic: String): Array<String>
 cactor_cluster.membership :: DistributedPubSub.public func unsubscribe(topic: String, subscriber: ActorRef): Unit
+cactor_cluster.membership :: DistributedPubSub.public func withDurableLog(store: DurableStateStore, retention!: Int64 = 0): DistributedPubSub
 cactor_cluster.membership :: DistributedPubSub.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, replicator: Replicator)
 cactor_cluster.membership :: DowningProvider.func decide(members: Array<Member>, unreachable: HashSet<String>, indirect: HashSet<String>): SbrDecision
 cactor_cluster.membership :: DowningProvider.func stableAfter(): Option<Duration>
@@ -358,6 +363,7 @@ cactor_cluster.membership :: Grain.func onActivate(ctx: GrainContext): Unit
 cactor_cluster.membership :: Grain.func onCall(request: Message, ctx: GrainContext): Message
 cactor_cluster.membership :: Grain.func onCallAsync(request: Message, ctx: GrainContext): TypedPromise<Message>
 cactor_cluster.membership :: Grain.func onDeactivate(ctx: GrainContext): Unit
+cactor_cluster.membership :: Grain.func onReminder(key: String, payload: String): Unit
 cactor_cluster.membership :: Grain.func reentrant(): Bool
 cactor_cluster.membership :: GrainCallException.public init(message: String)
 cactor_cluster.membership :: GrainContext.public let id: String
@@ -370,10 +376,13 @@ cactor_cluster.membership :: GrainTimeoutException.public init(message: String)
 cactor_cluster.membership :: Grains.public func activeIds(): Array<String>
 cactor_cluster.membership :: Grains.public func call(id: String, request: Message, timeout: Duration): Message
 cactor_cluster.membership :: Grains.public func callAsync(id: String, request: Message, timeout: Duration): TypedPromise<Message>
+cactor_cluster.membership :: Grains.public func cancelReminder(id: String, key: String): Bool
 cactor_cluster.membership :: Grains.public func ownerCount(): Int64
+cactor_cluster.membership :: Grains.public func registerReminder(id: String, key: String, delay: Duration, payload!: String = ""): Int64
 cactor_cluster.membership :: Grains.public func stats(): (Int64, Int64, Int64, Int64)
 cactor_cluster.membership :: Grains.public func stop(): Unit
 cactor_cluster.membership :: Grains.public func tell(id: String, message: Message): Unit
+cactor_cluster.membership :: Grains.public func withReminders(store: DurableStateStore, pollInterval!: Duration = Duration.second): Grains
 cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration, numberOfShards: Int64, storage!: Option<GrainStorage>= None<GrainStorage>)
 cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration, storage!: Option<GrainStorage>= None<GrainStorage>)
 cactor_cluster.membership :: Grains.public let kind: String
@@ -474,6 +483,7 @@ cactor_cluster.membership :: ShardingEnvelope.public func messageType(): String
 cactor_cluster.membership :: ShardingEnvelope.public init(entityId: String, payload: Message)
 cactor_cluster.membership :: ShardingEnvelope.public let entityId: String
 cactor_cluster.membership :: ShardingEnvelope.public let payload: Message
+cactor_cluster.membership :: ShardingSettings.public func stateStore(): Option<DurableStateStore>
 cactor_cluster.membership :: ShardingSettings.public func withAcquireWarnAfter(after: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withAllocationStrategy(strategy: ShardAllocationStrategy): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withBufferSize(size: Int64): ShardingSettings
@@ -482,6 +492,7 @@ cactor_cluster.membership :: ShardingSettings.public func withLease(leases: Shar
 cactor_cluster.membership :: ShardingSettings.public func withLeaseRetry(min: Duration, max: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withPassivation(idle: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withRebalance(policy: RebalancePolicy): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withStateStore(s: DurableStateStore): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withoutLease(): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10, lease!: Option<ShardLeases>= None<ShardLeases>, leaseRetryMin!: Duration = Duration.millisecond * 200, leaseRetryMax!: Duration = Duration.second * 5, allocation!: ShardAllocationStrategy = RendezvousAllocation())
 cactor_cluster.membership :: ShardingSettings.public let acquireWarnAfter: Duration
@@ -552,6 +563,11 @@ cactor_cluster.membership :: public struct ClusterSingletonSettings
 cactor_cluster.membership :: public struct RebalancePolicy <: ToString
 cactor_cluster.membership :: public struct ShardLeaseStatus <: ToString
 cactor_cluster.membership :: public struct ShardMove <: ToString
+cactor_cluster.monitoring :: MetricsExporter.public func addCluster(metrics: ClusterMetrics): MetricsExporter
+cactor_cluster.monitoring :: MetricsExporter.public func addProvider(name: String, render: ()->String): MetricsExporter
+cactor_cluster.monitoring :: MetricsExporter.public func renderPrometheus(perActor!: Bool = false): String
+cactor_cluster.monitoring :: MetricsExporter.public init(system: CActorSystem)
+cactor_cluster.monitoring :: public class MetricsExporter
 cactor_cluster.ops :: public func attachClusterRoutes(mgmt: ManagementServer, cluster: Cluster, sharding!: Option<ClusterSharding>= None<ClusterSharding>, singletons!: Array<ClusterSingleton>= Array<ClusterSingleton>()): ManagementServer
 cactor_cluster.ops :: public func attachFaultInjectionRoutes(mgmt: ManagementServer, transport: BlackholeTransport, allowAll!: Bool = true): ManagementServer
 cactor_cluster.ops :: public func clusterStatusJson(cluster: Cluster): String

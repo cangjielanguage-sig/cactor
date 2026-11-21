@@ -23,7 +23,7 @@ import std.convert.*
 import std.fs.{File, exists}
 import cactor_core.actor.*
 import cactor_core.message.{Message, MessageResult, AutoReceivedMessage, TracedMessage}
-import cactor_foundation.logging.{Logger, Logging, LogLevel}
+import cactor_foundation.logging.{Logger, Logging, LogLevel, Mdc}
 import cactor_foundation.monitoring.{TraceContext, continueTrace, withTraceMdc}
 
 let cellLog = Logging.logger("cactor.cell")
@@ -887,14 +887,21 @@ public class SimpleUserActorRef <: RunLink & ActorRef & ActorContext {
             }
             return
         }
+        // 追踪作用域内批量发送：每条都续接同一 traceparent（接收方各自生成子 span）。
+        // 无追踪时不构造新数组，保持批量路径的原开销。
+        var batch = messages
+        match (Mdc.currentTraceParent()) {
+            case Some(tp) => batch = Array<Message>(messages.size, { i => tracedIfNeeded(messages[i], tp) })
+            case None => ()
+        }
         if ((schedState.load() & TERM_BIT) != 0) {
-            for (m in messages) {
+            for (m in batch) {
                 deadLetter(m)
             }
             return
         }
-        if (!mboxAddBatch(messages)) {
-            for (m in messages) {
+        if (!mboxAddBatch(batch)) {
+            for (m in batch) {
                 deadLetter(m)
             }
             return
@@ -902,35 +909,62 @@ public class SimpleUserActorRef <: RunLink & ActorRef & ActorContext {
         trySchedule()
     }
 
+    /**
+     * 本地投递的追踪续接（4.10 剩余部分）。
+     *
+     * 发送线程处于追踪作用域（`Mdc` 里有 traceId/spanId）时，把消息包一层 [TracedMessage]；
+     * 接收方 [invoke] 在调用 receive 前拆包、续接出本地子 span 并建立 MDC 作用域。
+     * 语义与远程帧尾的 traceparent 完全一致，用户 Actor 看不到这层包装。
+     * 未开启追踪时只多一次 ThreadLocal 读，不分配对象。
+     */
+    private static func tracedIfNeeded(message: Message, traceParent: String): Message {
+        match (message) {
+            case _: TracedMessage => message
+            case _ => TracedMessage(message, traceParent)
+        }
+    }
+
+    private func wrapTrace(message: Message): Message {
+        match (message) {
+            case _: TracedMessage => message
+            case _ =>
+                match (Mdc.currentTraceParent()) {
+                    case Some(tp) => TracedMessage(message, tp)
+                    case None => message
+                }
+        }
+    }
+
     private func enqueue(message: Message, sender: Option<String>, senderRef: Option<ActorRef>): Unit {
         if ((schedState.load() & TERM_BIT) != 0) {
             deadLetter(message)
             return
         }
+        let message0 = wrapTrace(message)
         if (mailboxKind == MAILBOX_UNBOUNDED) {
             // 邮箱已关闭（Actor 正在停止）：入队被拒绝，计为死信而不是滞留在邮箱里
-            if (!mboxAdd(message, sender, senderRef)) {
-                deadLetter(message)
+            if (!mboxAdd(message0, sender, senderRef)) {
+                deadLetter(message0)
                 return
             }
         } else if (mailboxKind == MAILBOX_BOUNDED) {
             let slots = boundedSlots
             if (!reserveSlot()) {
-                deadLetter(message)
+                deadLetter(message0)
                 match (slots.overflow) {
                     case MailboxOverflow.Fail => throw MailboxFullException("Actor ${fullPath()} 的邮箱已满（容量 ${slots.capacity}）")
                     case _ => ()
                 }
                 return
             }
-            if (!mboxAdd(message, sender, senderRef)) {
+            if (!mboxAdd(message0, sender, senderRef)) {
                 slots.count.fetchAdd(-1)
-                deadLetter(message)
+                deadLetter(message0)
                 return
             }
         } else {
-            if (!priorityMailbox.add(message, sender, senderRef)) {
-                deadLetter(message)
+            if (!priorityMailbox.add(message0, sender, senderRef)) {
+                deadLetter(message0)
                 return
             }
         }

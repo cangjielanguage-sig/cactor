@@ -27,9 +27,42 @@ import std.collection.*
 import cactor_foundation.detector.{monotonicMillis}
 
 /** 租约操作失败（后端不可达、记录损坏等）或失去租约的原因 */
-public class LeaseException <: Exception {
+public open class LeaseException <: Exception {
     public init(message: String) {
         super(message)
+    }
+}
+
+/**
+ * 失去租约的原因（DA4 / F5）。与持久化的 fencing 失败分开：
+ * - Expired：本地有效期已过（停顿、线程饥饿、续约在原有效期之后才完成）；
+ * - Revoked：后端主动撤销或确认已由他人持有；
+ * - Backend：后端不可达且到期前未能恢复。
+ * 过期（Expired）说明"这段时间可能已有人接手"，调用方必须停止实例；
+ * 被存储按 fencing token 拒绝旧写入（cactor_persistence.StaleFencingTokenException）是另一类事件，
+ * 两者在指标与日志上必须可区分，不能都归成"租约出错"。
+ */
+public enum LeaseLostReason <: ToString {
+    | Expired
+    | Revoked
+    | Backend
+
+    public func toString(): String {
+        match (this) {
+            case Expired => "expired"
+            case Revoked => "revoked"
+            case Backend => "backend"
+        }
+    }
+}
+
+/** 失去租约（带原因）；仍是 LeaseException 的子类，旧调用方的 catch 不受影响 */
+public class LeaseLostException <: LeaseException {
+    public let reason: LeaseLostReason
+
+    public init(reason: LeaseLostReason, message: String) {
+        super(message)
+        this.reason = reason
     }
 }
 
@@ -135,6 +168,8 @@ public abstract class AbstractLease <: Lease {
     // 每次获取 / 释放 / 失去都加一：旧的心跳线程据此退出，旧 token 的迟到信号据此忽略
     private var epoch: Int64 = 0
     private let lostTotal = AtomicInt64(0)
+    private let expiredTotal = AtomicInt64(0)
+    private let revokedTotal = AtomicInt64(0)
 
     protected init(settings: LeaseSettings, clock: () -> Int64) {
         this.leaseSettings = settings
@@ -228,6 +263,16 @@ public abstract class AbstractLease <: Lease {
         lostTotal.load()
     }
 
+    /** 因本地有效期跨过（停顿/续约迟到）而失去的次数：与 fencing 拒绝分开计数 */
+    public func expiredCount(): Int64 {
+        expiredTotal.load()
+    }
+
+    /** 因后端撤销/确认已被他人持有而失去的次数 */
+    public func revokedCount(): Int64 {
+        revokedTotal.load()
+    }
+
     private func holdsLocked(): Bool {
         token.isSome() && clock() < validUntil
     }
@@ -252,6 +297,15 @@ public abstract class AbstractLease <: Lease {
             c
         }
         lostTotal.fetchAdd(1)
+        match (reason) {
+            case e: LeaseLostException =>
+                match (e.reason) {
+                    case LeaseLostReason.Expired => expiredTotal.fetchAdd(1)
+                    case LeaseLostReason.Revoked => revokedTotal.fetchAdd(1)
+                    case _ => ()
+                }
+            case _ => ()
+        }
         if (let Some(f) <- cb) {
             try {
                 f(Some(reason))
@@ -271,7 +325,8 @@ public abstract class AbstractLease <: Lease {
             let start = clock()
             if (start >= deadline) {
                 // 线程被饿死或进程停顿跨过了有效期：期间可能已有人接手，不能再续
-                lose(myEpoch, LeaseException("租约 ${leaseSettings.leaseName} 在续约前已过本地有效期（停顿或线程饥饿）"))
+                lose(myEpoch, LeaseLostException(LeaseLostReason.Expired,
+                    "租约 ${leaseSettings.leaseName} 在续约前已过本地有效期（停顿或线程饥饿）"))
                 return
             }
             var renewed = false
@@ -292,15 +347,17 @@ public abstract class AbstractLease <: Lease {
             }
             if (renewed) {
                 // 续约在原有效期之后才完成：后端可能在此之前已判定过期并被他人获取
-                lose(myEpoch, LeaseException("租约 ${leaseSettings.leaseName} 的续约在原有效期之后才完成"))
+                lose(myEpoch, LeaseLostException(LeaseLostReason.Expired,
+                    "租约 ${leaseSettings.leaseName} 的续约在原有效期之后才完成"))
                 return
             }
             match (failure) {
                 case None =>
-                    lose(myEpoch, LeaseException("租约 ${leaseSettings.leaseName} 已被他人持有或记录已不存在"))
+                    lose(myEpoch, LeaseLostException(LeaseLostReason.Revoked,
+                        "租约 ${leaseSettings.leaseName} 已被他人持有或记录已不存在"))
                     return
                 case Some(e) where done >= deadline =>
-                    lose(myEpoch, e)
+                    lose(myEpoch, LeaseLostException(LeaseLostReason.Backend, e.message))
                     return
                 case Some(_) => () // 暂时性故障：有效期内下一次心跳再试
             }
@@ -483,6 +540,6 @@ public class InMemoryLease <: AbstractLease {
     }
 
     func notifyRevoked(token: Int64): Unit {
-        signalLost(token, LeaseException("租约 ${settings.leaseName} 被存储撤销"))
+        signalLost(token, LeaseLostException(LeaseLostReason.Revoked, "租约 ${settings.leaseName} 被存储撤销"))
     }
 }

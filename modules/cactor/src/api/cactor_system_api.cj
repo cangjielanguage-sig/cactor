@@ -6,9 +6,10 @@
  */
 package cactor.api
 
-import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory, ActorScheduler}
+import cactor_core.actor.{Actor, ActorRef, Props, PropsFactory, ActorScheduler, DispatcherMode, dispatcherName}
 import cactor_core.config.{MailboxConfig as CoreMailboxConfig, DispatcherConfig as CoreDispatcherConfig, SupervisionConfig as CoreSupervisionConfig}
 import cactor_core.typed.{TypedBehavior, TypedBehaviors, TypedActorRef, TypedActorSelection, TypedActorContext, ClassicTypedRef, TypedProps, TypedHooks, TypedSignal, NOT_MATCHED}
+import cactor_core.system.{ActorSystemSettings}
 import std.sync.{Mutex}
 import cactor_runtime.wrappers.{TypedActorRefWrapper, MessageBridge}
 import cactor_runtime.{CActorRuntime, CActorRuntimeConfig}
@@ -38,12 +39,40 @@ public class CActorSystem {
     }
 
     /**
+     * 由不可变系统设置创建（D1 门面收敛）：设置统一决定名称、默认调度模式、预算与默认邮箱，
+     * 并作为插件 / AI 能力扩展点的宿主。
+     */
+    public init(settings: ActorSystemSettings) {
+        this.runtime = CActorRuntime(settings)
+        runtime.start()
+    }
+
+    /** 本系统创建时使用的设置（配置 → 系统 → 读回无丢失） */
+    public func settings(): ActorSystemSettings {
+        runtime.getSettings()
+    }
+
+    /** 系统级默认调度模式：Props 未显式指定（仍为 "default"）时注入，显式者优先 */
+    private func effectiveProps(props: Props<Actor>): Props<Actor> {
+        let mode = settings().dispatcherMode
+        match (mode) {
+            case DispatcherMode.Affinity => props
+            case _ =>
+                if (props.getDispatcher() == "default") {
+                    props.withDispatcher(dispatcherName(mode))
+                } else {
+                    props
+                }
+        }
+    }
+
+    /**
      * 创建Actor - 参考Akka的actorOf方法
      * 使用类型擦除来处理泛型问题
      */
     public func actorOf(creator: () -> Actor, name: String): ActorRef {
         let props = PropsFactory.create(creator)
-        runtime.actorOf(props, name)
+        runtime.actorOf(effectiveProps(props), name)
     }
 
     /**
@@ -51,7 +80,7 @@ public class CActorSystem {
      */
     public func actorOf(creator: () -> Actor): ActorRef {
         let props = PropsFactory.create(creator)
-        runtime.actorOf(props)
+        runtime.actorOf(effectiveProps(props))
     }
 
     /**
@@ -74,14 +103,14 @@ public class CActorSystem {
      * 使用Props创建Actor - 支持完整配置传递（类似Akka）
      */
     public func actorOf(props: Props<Actor>, name: String): ActorRef {
-        runtime.actorOf(props, name)
+        runtime.actorOf(effectiveProps(props), name)
     }
 
     /**
      * 使用Props创建Actor（自动命名）- 支持完整配置传递
      */
     public func actorOf(props: Props<Actor>): ActorRef {
-        runtime.actorOf(props)
+        runtime.actorOf(effectiveProps(props))
     }
 
     /**
@@ -89,7 +118,7 @@ public class CActorSystem {
      */
     public func actorOfWithMailbox(creator: () -> Actor, name: String, mailboxConfig: CoreMailboxConfig): ActorRef {
         let props = PropsFactory.create(creator).withMailbox(mailboxConfig.name)
-        runtime.actorOf(props, name)
+        runtime.actorOf(effectiveProps(props), name)
     }
 
     /**
@@ -335,13 +364,13 @@ public class CActorSystem {
     }
 
     /**
-     * 获取系统启动时间
+     * 获取系统启动时间（Unix 毫秒）
      *
-     * @return 启动时间戳
+     * D1：收敛为唯一入口，返回运行时记录的真实启动时刻（此前返回调用时的当前时间）。
+     * 未启动/已停止时返回 0。
      */
     public func getStartTime(): Int64 {
-        // 简化实现：返回当前时间
-        DateTime.now().toUnixTimeStamp().toMilliseconds()
+        runtime.startTimeMillis()
     }
 
     // ========== Actor交互支持 ==========
@@ -414,5 +443,12 @@ public struct CActorSystemFactory {
      */
     public static func create(name: String, config: CActorRuntimeConfig): CActorSystem {
         CActorSystem(name, config)
+    }
+
+    /**
+     * 由不可变系统设置创建（D1）
+     */
+    public static func create(settings: ActorSystemSettings): CActorSystem {
+        CActorSystem(settings)
     }
 }

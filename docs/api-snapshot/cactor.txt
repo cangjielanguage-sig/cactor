@@ -14,6 +14,7 @@ cactor.api :: CActor.public static func props(creator: ()->Actor): ActorProps
 cactor.api :: CActor.public static func system(): CActorSystem
 cactor.api :: CActor.public static func system(name: String): CActorSystem
 cactor.api :: CActor.public static func system(name: String, config: CActorRuntimeConfig): CActorSystem
+cactor.api :: CActor.public static func system(settings: ActorSystemSettings): CActorSystem
 cactor.api :: CActorSystem.public func actorBudgetUsage(): ActorBudgetUsage
 cactor.api :: CActorSystem.public func actorOf(actorProps: ActorProps): ActorRef
 cactor.api :: CActorSystem.public func actorOf(actorProps: ActorProps, name: String): ActorRef
@@ -36,6 +37,7 @@ cactor.api :: CActorSystem.public func metricsText(perActor: Bool): String
 cactor.api :: CActorSystem.public func metricsText(perActor: Bool, maxActorSeries: Int64): String
 cactor.api :: CActorSystem.public func publishDeadLetter(message: Message, recipient: String): Unit
 cactor.api :: CActorSystem.public func scheduler(): ActorScheduler
+cactor.api :: CActorSystem.public func settings(): ActorSystemSettings
 cactor.api :: CActorSystem.public func stop(actorRef: ActorRef): Unit
 cactor.api :: CActorSystem.public func subscribeDeadLetters(listener: (Message, String)->Unit): Unit
 cactor.api :: CActorSystem.public func terminate(): Unit
@@ -49,9 +51,11 @@ cactor.api :: CActorSystem.public func unwrapTypedActor<T>(typedActorRef: TypedA
 cactor.api :: CActorSystem.public func wrapAsTypedActor<T>(actorRef: ActorRef, name: String): TypedActorRef<T>
 cactor.api :: CActorSystem.public init(name: String)
 cactor.api :: CActorSystem.public init(name: String, config: CActorRuntimeConfig)
+cactor.api :: CActorSystem.public init(settings: ActorSystemSettings)
 cactor.api :: CActorSystemFactory.public static func create(): CActorSystem
 cactor.api :: CActorSystemFactory.public static func create(name: String): CActorSystem
 cactor.api :: CActorSystemFactory.public static func create(name: String, config: CActorRuntimeConfig): CActorSystem
+cactor.api :: CActorSystemFactory.public static func create(settings: ActorSystemSettings): CActorSystem
 cactor.api :: Dispatcher.public static func default(): DispatcherConfig
 cactor.api :: Dispatcher.public static func threadPool(): DispatcherConfig
 cactor.api :: Dispatcher.public static func threadPool(size: Int32): DispatcherConfig
@@ -156,6 +160,7 @@ cactor.api.extensions :: public struct PropsExtensions
 cactor.api.public :: CActorFactory.public static func createProps<T>(creator: ()->T): Props<T>where T <: Actor
 cactor.api.public :: CActorFactory.public static func createSystem(): ActorSystem
 cactor.api.public :: CActorFactory.public static func createSystem(name: String): ActorSystem
+cactor.api.public :: CActorFactory.public static func createSystem(settings: ActorSystemSettings): ActorSystem
 cactor.api.public :: CActorSystemBuilder.public func build(): ActorSystem
 cactor.api.public :: CActorSystemBuilder.public func withDispatcher(dispatcher: String): CActorSystemBuilder
 cactor.api.public :: CActorSystemBuilder.public func withMailbox(mailbox: String): CActorSystemBuilder

@@ -117,6 +117,32 @@ public class DurableTopic {
     }
 
     /**
+     * 只回放历史（不注册实时投递）：把游标之后的消息按序号交给 handler，成功一条推进一条。
+     * 供"在线扇出 + 持久补齐"组合使用（例如 DistributedPubSub）：回放与随后的在线订阅之间
+     * 可能有重叠，业务应按序号/业务键幂等。返回最后一条成功处理的序号（没有则为起始游标）。
+     */
+    public func replay(name: String, offsets: DurableStateStore, handler: (Int64, String) -> Unit,
+        fromSeq!: Int64 = 0): Int64 {
+        if (name.isEmpty()) {
+            throw IllegalArgumentException("订阅者名称不能为空")
+        }
+        synchronized(lock) {
+            let start = if (fromSeq > 0) { fromSeq } else { offsetOf(name, offsets) + 1 }
+            var last = start - 1
+            for ((seq, payload) in history(start)) {
+                try {
+                    handler(seq, payload)
+                    saveOffset(name, offsets, seq)
+                    last = seq
+                } catch (_: Exception) {
+                    break
+                }
+            }
+            last
+        }
+    }
+
+    /**
      * 持久订阅：fromSeq > 0 时从该序号开始，否则从已保存游标的下一条开始（首次为 1）。
      * 先补齐历史再接实时；handler 抛异常时该条不推进游标，断开后重连会重放。
      */

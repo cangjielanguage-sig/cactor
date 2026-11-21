@@ -26,37 +26,47 @@ public struct NetworkMessage {
     public let timestamp: Int64
     // W3C traceparent（P7/G2）：发送线程的 MDC 里有 traceId/spanId 时自动附带，接收端据此续接
     public let traceParent: Option<String>
+    /**
+     * 发送方节点地址（F5）：接收端在帧超限时据此回 GoAway 并断开那条入站连接。
+     * 作为帧尾可选块传输，旧读者读完消息内容就停，完全不受影响。
+     */
+    public let sourceAddress: Option<String>
 
     public init(targetActor: String, message: Message, sender: Option<String>) {
         this(targetActor, message, sender, NetworkMessage.generateMessageId(), NetworkMessage.getCurrentTimeNanos(),
-            NetworkMessage.currentTraceParent())
+            NetworkMessage.currentTraceParent(), None<String>)
+    }
+
+    /** 发送方节点带来源地址（F5：接收端超限时据此回 GoAway） */
+    public init(targetActor: String, message: Message, sender: Option<String>, sourceAddress!: Option<String>) {
+        this(targetActor, message, sender, NetworkMessage.generateMessageId(), NetworkMessage.getCurrentTimeNanos(),
+            NetworkMessage.currentTraceParent(), sourceAddress)
     }
 
     /** 反序列化时使用：保留发送方的消息 ID 与时间戳 */
     public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64) {
-        this(targetActor, message, sender, messageId, timestamp, NetworkMessage.currentTraceParent())
+        this(targetActor, message, sender, messageId, timestamp, NetworkMessage.currentTraceParent(), None<String>)
     }
 
     public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64,
         traceParent: Option<String>) {
+        this(targetActor, message, sender, messageId, timestamp, traceParent, None<String>)
+    }
+
+    public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64,
+        traceParent: Option<String>, sourceAddress: Option<String>) {
         this.targetActor = targetActor
         this.message = message
         this.sender = sender
         this.messageId = messageId
         this.timestamp = timestamp
         this.traceParent = traceParent
+        this.sourceAddress = sourceAddress
     }
 
     /** 当前线程 MDC 里的追踪上下文 → W3C traceparent；没有追踪时返回 None（线上不留空块） */
     static func currentTraceParent(): Option<String> {
-        let traceId = Mdc.get("traceId")
-        let spanId = Mdc.get("spanId")
-        if (let Some(t) <- traceId && let Some(s) <- spanId) {
-            if (!t.isEmpty() && !s.isEmpty()) {
-                return Some<String>("00-${t}-${s}-01")
-            }
-        }
-        None<String>
+        Mdc.currentTraceParent()
     }
 
     private static let idSequence: AtomicInt64 = AtomicInt64(0)
@@ -92,60 +102,61 @@ public class NetworkMessageSerializer {
 
     /** 按对端能力序列化（DA6）；对端读不了且无法降级时抛 WireIncompatibleException */
     public func serialize(networkMessage: NetworkMessage, peerCapabilities: UInt64): Array<UInt8> {
-        let result = ArrayList<UInt8>()
-        
-        // 序列化目标Actor
-        let targetBytes = serializationManager.serializeString(networkMessage.targetActor)
-        writeInt32(result, Int32(targetBytes.size))
-        // 替代appendAll：逐个添加字节
-        for (byte in targetBytes) {
-            result.add(byte)
-        }
+        serialize(networkMessage, peerCapabilities, None<HashMap<String, UInt16>>)
+    }
 
-        // 序列化发送者
-        let senderStr = match (networkMessage.sender) {
-            case Some(s) => s
-            case None => ""
-        }
-        let senderBytes = serializationManager.serializeString(senderStr)
-        writeInt32(result, Int32(senderBytes.size))
-        for (byte in senderBytes) {
-            result.add(byte)
-        }
+    /** 按对端能力与短类型 id 表序列化（B2）；peerTypeIds 为空时写类型全名 */
+    public func serialize(networkMessage: NetworkMessage, peerCapabilities: UInt64,
+        peerTypeIds: Option<HashMap<String, UInt16>>): Array<UInt8> {
+        let (result, fresh) = acquireFrameBuffer()
+        try {
+            // 序列化目标Actor
+            let targetBytes = serializationManager.serializeString(networkMessage.targetActor)
+            result.writeInt32(Int32(targetBytes.size))
+            result.addAll(targetBytes)
 
-        // 序列化消息ID
-        let messageIdBytes = serializationManager.serializeString(networkMessage.messageId)
-        writeInt32(result, Int32(messageIdBytes.size))
-        for (byte in messageIdBytes) {
-            result.add(byte)
-        }
+            // 序列化发送者
+            let senderStr = match (networkMessage.sender) {
+                case Some(s) => s
+                case None => ""
+            }
+            let senderBytes = serializationManager.serializeString(senderStr)
+            result.writeInt32(Int32(senderBytes.size))
+            result.addAll(senderBytes)
 
-        // 序列化时间戳
-        let timestampBytes = serializationManager.serializeInt(networkMessage.timestamp)
-        for (byte in timestampBytes) {
-            result.add(byte)
-        }
+            // 序列化消息ID
+            let messageIdBytes = serializationManager.serializeString(networkMessage.messageId)
+            result.writeInt32(Int32(messageIdBytes.size))
+            result.addAll(messageIdBytes)
 
-        // 序列化消息内容
-        let messageBytes = messageSerializer.serialize(networkMessage.message, peerCapabilities)
-        writeInt32(result, Int32(messageBytes.size))
-        for (byte in messageBytes) {
-            result.add(byte)
-        }
+            // 序列化时间戳
+            result.addAll(serializationManager.serializeInt(networkMessage.timestamp))
 
-        // 追踪扩展块（可选，放在帧尾）：老读者读完消息内容就停，忽略尾部；
-        // 新读者在没有该块时按"无追踪"处理，因此不需要升线协议版本。
-        match (networkMessage.traceParent) {
-            case Some(tp) =>
-                let tpBytes = serializationManager.serializeString(tp)
-                writeInt32(result, Int32(tpBytes.size))
-                for (byte in tpBytes) {
-                    result.add(byte)
-                }
+            // 序列化消息内容
+            let messageBytes = messageSerializer.serialize(networkMessage.message, peerCapabilities, peerTypeIds)
+            result.writeInt32(Int32(messageBytes.size))
+            result.addAll(messageBytes)
+
+            // 帧尾扩展块（可选）：老读者读完消息内容就停，忽略尾部。
+            // 新格式的块带 1 字节标签（1 = traceparent，2 = 发送方地址），旧格式的单个无标签块按 traceparent 读。
+            writeTaggedBlock(result, 1, networkMessage.traceParent)
+            writeTaggedBlock(result, 2, networkMessage.sourceAddress)
+
+            result.toArray()
+        } finally {
+            releaseFrameBuffer(fresh)
+        }
+    }
+
+    private func writeTaggedBlock(buffer: ReusableByteBuffer, tag: UInt8, value: Option<String>): Unit {
+        match (value) {
+            case Some(text) =>
+                let bytes = serializationManager.serializeString(text)
+                buffer.writeInt32(Int32(bytes.size) + 1)
+                buffer.add(tag)
+                buffer.addAll(bytes)
             case None => ()
         }
-
-        result.toArray()
     }
 
     /**
@@ -173,15 +184,35 @@ public class NetworkMessageSerializer {
             throw UnsupportedWireFormatException(e.messageType, e.message, Some(targetActor), sender)
         }
         offset += 4 + msgLen
-        // 帧尾可选追踪块：没有（旧版本发送方）就按无追踪处理；长度越界时同样按无追踪处理
+        // 帧尾可选扩展块：没有（旧版本发送方）就按无扩展处理；长度越界时同样按无扩展处理。
+        // 旧格式只有一个无标签块（traceparent）；新格式每块首字节是标签。
         var traceParent: Option<String> = None<String>
-        if (data.size >= offset + 4) {
+        var sourceAddress: Option<String> = None<String>
+        var firstBlock = true
+        while (data.size >= offset + 4) {
             let len = Int64(readInt32(data, offset))
-            if (len > 0 && data.size >= offset + 4 + len) {
-                traceParent = Some<String>(serializationManager.deserializeString(data.slice(offset + 4, len)))
+            if (len < 0 || data.size < offset + 4 + len) {
+                break
             }
+            let block = data.slice(offset + 4, len)
+            if (firstBlock && (block.isEmpty() || (block[0] != 1u8 && block[0] != 2u8))) {
+                // 旧格式：整块就是 traceparent
+                if (len > 0) {
+                    traceParent = Some<String>(serializationManager.deserializeString(block))
+                }
+            } else if (block.size > 0) {
+                let tag = block[0]
+                let content = block[1..]
+                if (tag == 1u8) {
+                    traceParent = Some<String>(serializationManager.deserializeString(content))
+                } else if (tag == 2u8) {
+                    sourceAddress = Some<String>(serializationManager.deserializeString(content))
+                }
+            }
+            offset += 4 + len
+            firstBlock = false
         }
-        NetworkMessage(targetActor, message, sender, messageId, timestamp, traceParent)
+        NetworkMessage(targetActor, message, sender, messageId, timestamp, traceParent, sourceAddress)
     }
 
     /** 读取 offset 处的 [4 字节长度 + 数据] 块，越界时抛出异常 */

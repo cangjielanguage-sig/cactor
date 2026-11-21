@@ -10,14 +10,13 @@ import std.time.*
 import cactor_foundation.logging.{Logging}
 import cactor_core.actor.{Actor, ActorRef, Props, ActorSystemView, PoisonPill, isAffinityWorkerThread, ActorScheduler, RealTimeScheduler}
 import cactor_core.message.{Message}
-import cactor_core.system.{ActorSystem}
+import cactor_core.system.{ActorSystem, ActorSystemSettings}
 import cactor_runtime.guardian.{RuntimeSystemGuardian, RuntimeUserGuardian, SimpleUserActorRef, isActorThread}
-import cactor_runtime.system.{HighPerformanceActorSystem, HighPerformanceActorSystemConfig, SystemStats}
+import cactor_runtime.system.{HighPerformanceActorSystemConfig, SystemStats}
 // 高级邮箱/调度器工厂链（dispatcher.factory / mailbox.factory 及其下游）已删除：
 // 它们只被 CActorRuntime 存成字段 + 两个零调用方的 getter，从未参与调度。
 // 真实的邮箱与调度由 core 的 ActorCellDispatcher + runtime 的 mailbox_factory 承担。
 import cactor_runtime.mailbox.{MailboxFactory as RuntimeMailboxFactory}
-import cactor_runtime.system.{SimpleActorSystem}
 import cactor_runtime.mailbox.{MailboxFactory, MailboxConfig as RuntimeMailboxConfig}
 import cactor_core.guardian.{GuardianStats}
 import cactor_core.config.{MailboxConfig, DispatcherConfig}
@@ -72,10 +71,22 @@ public class CActorRuntime {
 
     // 配置
     private let config: CActorRuntimeConfig
+    // 门面收敛（D1）：系统级设置的保存副本，供 settings() 读回
+    private let actorSettings: ActorSystemSettings
 
     public init(systemName: String, config: CActorRuntimeConfig) {
+        this(systemName, config, settingsFromRuntimeConfig(systemName, config))
+    }
+
+    /** 由不可变设置创建运行时（门面 / RuntimeActorSystem 的 settings 入口） */
+    public init(settings: ActorSystemSettings) {
+        this(settings.name, runtimeConfigFromSettings(settings), settings)
+    }
+
+    private init(systemName: String, config: CActorRuntimeConfig, settings: ActorSystemSettings) {
         this.systemName = systemName
         this.config = config
+        this.actorSettings = settings
 
         // 创建基础ActorSystem
         this.actorSystem = SimpleActorSystem(systemName)
@@ -129,6 +140,9 @@ public class CActorRuntime {
 
             // 注册 CoordinatedShutdown 阶段任务（只注册一次）
             registerCoordinatedShutdownTasks()
+
+            // D1 扩展点：作为插件 / AI 接入的宿主，启动时实例化并初始化
+            initializeExtensions()
 
             runtimeLog.info("CActorRuntime 启动: 系统=${systemName}，配置=${config.getDescription()}")
         }
@@ -341,9 +355,9 @@ public class CActorRuntime {
     }
 
     /**
-     * 获取高性能系统
+     * 获取高性能系统（门面收敛后降为模块内可见，不再属于公开 API）
      */
-    public func getHighPerformanceSystem(): HighPerformanceActorSystem {
+    internal func getHighPerformanceSystem(): HighPerformanceActorSystem {
         highPerformanceSystem
     }
 
@@ -373,6 +387,36 @@ public class CActorRuntime {
      */
     public func getConfig(): CActorRuntimeConfig {
         config
+    }
+
+    /** 本系统的不可变设置（创建时保存的副本；配置 → 系统 → 读回无丢失） */
+    public func getSettings(): ActorSystemSettings {
+        actorSettings
+    }
+
+    /** 系统启动时刻（Unix 毫秒）；尚未启动时为 0 */
+    public func startTimeMillis(): Int64 {
+        let started = startTime.load()
+        if (started > 0) {
+            started / 1_000_000
+        } else {
+            0
+        }
+    }
+
+    /** 启动 D1 扩展点：每个工厂实例化一次并 initialize；单个扩展失败不影响系统启动 */
+    private func initializeExtensions(): Unit {
+        for (name in actorSettings.extensionNames()) {
+            match (actorSettings.extensionFactory(name)) {
+                case Some(factory) =>
+                    try {
+                        factory().initialize(RuntimeActorSystem(this))
+                    } catch (e: Exception) {
+                        runtimeLog.warn("扩展初始化失败: ${name}: ${e.message}")
+                    }
+                case None => ()
+            }
+        }
     }
 
     /** 本系统的调度器（E52） */
@@ -692,6 +736,31 @@ public struct CActorRuntimeStats {
     public func getUptimeInSeconds(): Float64 {
         Float64(uptime) / 1000000000.0
     }
+}
+
+/** 由运行时配置推导不可变设置（保留上限、预算与邮箱名；调度模式在旧配置中无对应，按默认 Affinity） */
+internal func settingsFromRuntimeConfig(systemName: String, config: CActorRuntimeConfig): ActorSystemSettings {
+    ActorSystemSettings.default(systemName)
+        .withMaxActors(config.maxActors)
+        .withActorMemoryBudget(config.actorMemoryBudgetBytes)
+        .withDefaultMailbox(config.mailboxConfig.name)
+}
+
+/** 由不可变设置构造运行时配置（预算走 C1；邮箱按名称选择无界 / 有界默认容量） */
+internal func runtimeConfigFromSettings(settings: ActorSystemSettings): CActorRuntimeConfig {
+    var mailbox = MailboxConfig.createUnbounded()
+    if (settings.defaultMailbox == "bounded") {
+        mailbox = MailboxConfig.createBounded(10000)
+    }
+    CActorRuntimeConfig(
+        mailbox,
+        DispatcherConfig.createThreadPool(),
+        HighPerformanceActorSystemConfig.createDefault(),
+        true,
+        false,
+        maxActors: settings.maxActors,
+        actorMemoryBudgetBytes: settings.actorMemoryBudgetBytes
+    )
 }
 
 /** Actor 中 context.system() 的运行时实现 */

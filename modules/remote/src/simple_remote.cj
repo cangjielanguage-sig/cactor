@@ -12,7 +12,7 @@ import std.collection.*
 import std.sync.*
 import cactor_core.actor.{ActorRef, ActorPath}
 import cactor_core.message.{Message, NetworkMessage, NetworkMessageSerializer, WireIncompatibleException,
-    UnsupportedWireFormatException}
+    UnsupportedWireFormatException, WireProtocol, DeserializationException}
 import cactor_core.typed.{TypedActorRef, ClassicTypedRef, ensureTypedPayloadCodecRegistered, PromiseActorRef}
 import cactor_foundation.network.{NetworkTransport, NetworkAddress, TransportFactory, TransportProtocol}
 import cactor_foundation.logging.{Logger, Logging, LogRateLimiter}
@@ -34,6 +34,8 @@ public class SimpleRemoteSender {
     private let networkMessageSerializer: NetworkMessageSerializer
     private let isStarted: AtomicBool
     private let sentCount: AtomicInt64
+    // 分片消息 id 序号（与发送方地址组合即为全局唯一）
+    private let chunkSeq: AtomicInt64 = AtomicInt64(0)
     // 线协议能力门禁（DA6）：由远程层装上；没有时按本节点全部能力编码（旧行为）
     private var wireGate: Option<WireGate> = None<WireGate>
 
@@ -75,8 +77,9 @@ public class SimpleRemoteSender {
         if (!isStarted.load()) {
             throw IllegalStateException("发送器未启动")
         }
-        let networkMessage = NetworkMessage(targetActor, message, sender)
-        transport.send(targetAddress, encodeFor(targetAddress, networkMessage))
+        let networkMessage = NetworkMessage(targetActor, message, sender,
+            sourceAddress: Some(transport.getLocalAddress().toString()))
+        transmit(targetAddress, networkMessage, false)
         sentCount.fetchAdd(1)
     }
 
@@ -91,17 +94,85 @@ public class SimpleRemoteSender {
         }
     }
 
-    /** 按对端能力编码；对端读不了且无法降级时由门禁计数、告警、通知监听，再把异常抛给调用方（不算发送成功） */
-    private func encodeFor(targetAddress: NetworkAddress, networkMessage: NetworkMessage): Array<UInt8> {
+    /**
+     * 编码并发送：协商了短类型 id / 压缩时按对端能力编码；
+     * 超过协商帧上限时若对端支持分片则分片发送，否则明确抛 FrameTooLargeException（不静默丢弃）。
+     */
+    private func transmit(targetAddress: NetworkAddress, networkMessage: NetworkMessage, priority: Bool): Unit {
+        var caps = WireProtocol.LOCAL_CAPABILITIES
+        var maxFrame = 16 * 1024 * 1024
+        var table: Option<HashMap<String, UInt16>> = None<HashMap<String, UInt16>>
         match (wireGate) {
             case Some(g) =>
-                try {
-                    networkMessageSerializer.serialize(networkMessage, g.capabilitiesOf(targetAddress))
-                } catch (e: WireIncompatibleException) {
-                    g.onIncompatible(targetAddress, networkMessage.targetActor, networkMessage.message, e)
-                    throw e
-                }
-            case None => networkMessageSerializer.serialize(networkMessage)
+                caps = g.capabilitiesOf(targetAddress)
+                maxFrame = g.maxFrameOf(targetAddress)
+                table = g.typeTableOf(targetAddress)
+            case None => ()
+        }
+        let encoded = try {
+            networkMessageSerializer.serialize(networkMessage, caps, table)
+        } catch (e: WireIncompatibleException) {
+            match (wireGate) {
+                case Some(g) => g.onIncompatible(targetAddress, networkMessage.targetActor, networkMessage.message, e)
+                case None => ()
+            }
+            throw e
+        }
+        // B3：达到阈值且对端能解压才压缩；压缩后不划算就发原文
+        var data = encoded
+        if (WireProtocol.supports(caps, WireProtocol.CAP_COMPRESSION) && encoded.size >= COMPRESSION_THRESHOLD) {
+            let compressed = compressFrame(encoded)
+            if (compressed.size < encoded.size) {
+                data = compressed
+            }
+        }
+        if (data.size <= maxFrame) {
+            if (priority) {
+                transport.sendPriority(targetAddress, data)
+            } else {
+                transport.send(targetAddress, data)
+            }
+            return
+        }
+        // 超过协商上限：对端支持分片就分片，否则明确失败（旧对端知道原因）
+        if (!WireProtocol.supports(caps, WireProtocol.CAP_CHUNKING)) {
+            throw FrameTooLargeException(data.size, maxFrame)
+        }
+        sendChunked(targetAddress, data, maxFrame, caps, table, priority)
+    }
+
+    /** 把已编码帧切片发送：每片是一个普通 NetworkMessage，目标为内部入口 $chunk */
+    private func sendChunked(targetAddress: NetworkAddress, data: Array<UInt8>, maxFrame: Int64,
+        caps: UInt64, table: Option<HashMap<String, UInt16>>, priority: Bool): Unit {
+        let chunkSize = if (maxFrame > CHUNK_OVERHEAD_RESERVE + 256) { maxFrame - CHUNK_OVERHEAD_RESERVE } else { maxFrame / 2 }
+        if (chunkSize < 64) {
+            throw FrameTooLargeException(data.size, maxFrame)
+        }
+        let total = (data.size + chunkSize - 1) / chunkSize
+        if (total <= 0 || total > 4096) {
+            throw FrameTooLargeException(data.size, maxFrame)
+        }
+        let id = "${transport.getLocalAddress().toString()}#${chunkSeq.fetchAdd(1)}"
+        let target = CHUNK_TARGET
+        var index: Int64 = 0
+        var offset: Int64 = 0
+        while (offset < data.size) {
+            let n = if (offset + chunkSize > data.size) { data.size - offset } else { chunkSize }
+            let piece = data.slice(offset, n)
+            let chunk = ChunkedPayload(id, index, total, target, piece)
+            let nm = NetworkMessage(target, chunk, None<String>,
+                sourceAddress: Some(transport.getLocalAddress().toString()))
+            let bytes = networkMessageSerializer.serialize(nm, caps, table)
+            if (bytes.size > maxFrame) {
+                throw FrameTooLargeException(bytes.size, maxFrame)
+            }
+            if (priority) {
+                transport.sendPriority(targetAddress, bytes)
+            } else {
+                transport.send(targetAddress, bytes)
+            }
+            offset += n
+            index++
         }
     }
 
@@ -113,8 +184,9 @@ public class SimpleRemoteSender {
         if (!isStarted.load()) {
             throw IllegalStateException("发送器未启动")
         }
-        let networkMessage = NetworkMessage(targetActor, message, None<String>)
-        transport.sendPriority(targetAddress, encodeFor(targetAddress, networkMessage))
+        let networkMessage = NetworkMessage(targetActor, message, None<String>,
+            sourceAddress: Some(transport.getLocalAddress().toString()))
+        transmit(targetAddress, networkMessage, true)
         sentCount.fetchAdd(1)
     }
 
@@ -128,6 +200,45 @@ public class SimpleRemoteSender {
 
     public func getLocalAddress(): NetworkAddress {
         transport.getLocalAddress()
+    }
+}
+
+/**
+ * 大消息分片重组缓冲。按片索引保存，集齐后按序拼回原帧。
+ * 上限由发送端保证（≤4096 片、总长 ≤16 MiB），这里再兜一次，防止恶意对端占满内存。
+ */
+class ChunkBuffer {
+    let total: Int64
+    let parts = HashMap<Int64, Array<UInt8>>()
+    var byteCount: Int64 = 0
+
+    init(total: Int64) {
+        this.total = total
+    }
+
+    /** 收下一片；集齐时返回完整帧 */
+    func add(index: Int64, data: Array<UInt8>): Option<Array<UInt8>> {
+        if (total <= 0 || total > 4096 || index < 0 || index >= total) {
+            throw DeserializationException("非法的分片头 index=${index} total=${total}")
+        }
+        if (!parts.contains(index)) {
+            byteCount += data.size
+            if (byteCount > MAX_DECOMPRESSED_FRAME) {
+                throw DeserializationException("分片重组超过 ${MAX_DECOMPRESSED_FRAME} 字节上限")
+            }
+            parts[index] = data
+        }
+        if (parts.size < total) {
+            return None<Array<UInt8>>
+        }
+        let out = ArrayList<UInt8>()
+        for (i in 0..total) {
+            match (parts.get(i)) {
+                case Some(b) => out.add(all: b)
+                case None => return None<Array<UInt8>>
+            }
+        }
+        Some(out.toArray())
     }
 }
 
@@ -148,6 +259,14 @@ public class SimpleRemoteReceiver {
     private let wireIncompatible: AtomicInt64 = AtomicInt64(0)
     private var wireListener: Option<(WireIncompatibleEvent) -> Unit> = None<(WireIncompatibleEvent) -> Unit>
     private var interceptor: Option<(NetworkMessage) -> Bool> = None<(NetworkMessage) -> Bool>
+    // 协商的入站单帧上限（F5）；TCP 传输在更底层也会按它裁掉超限连接，这里兜住测试替身与其他传输
+    private var maxInboundFrame: Int64 = 16 * 1024 * 1024
+    private var oversizeHandler: Option<(Int64, Option<String>) -> Unit> = None<(Int64, Option<String>) -> Unit>
+    // 大消息分片重组：(来源地址|id) -> 已收到的片
+    private let reassembly = HashMap<String, ChunkBuffer>()
+    private let reassembledFrames = AtomicInt64(0)
+    private let compressedFrames = AtomicInt64(0)
+    private let oversizeFrames = AtomicInt64(0)
 
     public init(localAddress: NetworkAddress, protocol: TransportProtocol) {
         this(TransportFactory.createTransport(protocol, localAddress), true)
@@ -205,6 +324,38 @@ public class SimpleRemoteReceiver {
     }
 
     private func handleReceivedData(data: Array<UInt8>): Unit {
+        processFrame(data, true)
+    }
+
+    /** 解压 → 长度检查 → 反序列化 → 分片重组/分发；分片重组完成后递归进入本函数 */
+    private func processFrame(raw: Array<UInt8>, allowChunks: Bool): Unit {
+        let data = try {
+            if (isCompressedFrame(raw)) {
+                compressedFrames.fetchAdd(1)
+                decompressFrame(raw)
+            } else {
+                raw
+            }
+        } catch (e: Exception) {
+            decodeFailures.fetchAdd(1)
+            log_simple_remote.error("解压远程帧失败: ${e.message}")
+            return
+        }
+        let limit = synchronized(mutex) { maxInboundFrame }
+        if (data.size > limit) {
+            // 先在可解析范围内尽量取出源地址，供 GoAway 回送；取不到也不静默：计数 + 告警
+            let source = try {
+                if (data.size <= MAX_DECOMPRESSED_FRAME) {
+                    networkMessageSerializer.deserialize(data).sourceAddress
+                } else {
+                    None<String>
+                }
+            } catch (_: Exception) {
+                None<String>
+            }
+            onOversizeFrame(data.size, source)
+            return
+        }
         let networkMessage = try {
             networkMessageSerializer.deserialize(data)
         } catch (e: UnsupportedWireFormatException) {
@@ -216,7 +367,18 @@ public class SimpleRemoteReceiver {
             log_simple_remote.error("反序列化网络消息失败: ${e.message}")
             return
         }
+        // 大消息分片：不投递给业务，先按 (来源, id) 重组
+        if (allowChunks) {
+            if (let Some(chunk) <- (networkMessage.message as ChunkedPayload)) {
+                onChunk(networkMessage, chunk)
+                return
+            }
+        }
         receivedCount.fetchAdd(1)
+        deliverDecoded(networkMessage)
+    }
+
+    private func deliverDecoded(networkMessage: NetworkMessage): Unit {
         if (let Some(f) <- synchronized(mutex) { interceptor }) {
             let consumed = try {
                 f(networkMessage)
@@ -235,6 +397,85 @@ public class SimpleRemoteReceiver {
         } finally {
             RECEIVED_TRACE.set(None<String>)
         }
+    }
+
+    /** 收片；集齐后把重组出的原始帧按普通帧处理（不再接受嵌套分片） */
+    private func onChunk(networkMessage: NetworkMessage, chunk: ChunkedPayload): Unit {
+        let source = networkMessage.sourceAddress ?? ""
+        let key = "${source}|${chunk.id}"
+        let complete = synchronized(mutex) {
+            let buf = match (reassembly.get(key)) {
+                case Some(b) => b
+                case None =>
+                    let b = ChunkBuffer(chunk.total)
+                    reassembly[key] = b
+                    b
+            }
+            let ready = try {
+                buf.add(chunk.index, chunk.payload)
+            } catch (e: Exception) {
+                reassembly.remove(key)
+                throw e
+            }
+            if (ready.isSome()) {
+                reassembly.remove(key)
+            }
+            ready
+        }
+        match (complete) {
+            case Some(frame) =>
+                reassembledFrames.fetchAdd(1)
+                processFrame(frame, false)
+            case None => ()
+        }
+    }
+
+    /** 入站帧超过协商上限：计数、告警，并交给远程层回 GoAway（TCP 传输在更底层已先发 GOAWAY 并断开） */
+    private func onOversizeFrame(size: Int64, source: Option<String>) {
+        decodeFailures.fetchAdd(1)
+        oversizeFrames.fetchAdd(1)
+        wireIncompatibleLog.tryLog({ text => log_simple_remote.warn(text) }, { =>
+            "收到超过协商上限的帧：${size} 字节，上限 ${synchronized(mutex) { maxInboundFrame }}；" +
+                "发送方 ${source ?? "?"}，将回 GoAway(FrameTooLarge)"
+        })
+        if (let Some(h) <- synchronized(mutex) { oversizeHandler }) {
+            try {
+                h(size, source)
+            } catch (e: Exception) {
+                log_simple_remote.error("处理超限帧失败: ${e.message}")
+            }
+        }
+    }
+
+    func setMaxInboundFrame(bytes: Int64): Unit {
+        synchronized(mutex) {
+            maxInboundFrame = bytes
+        }
+    }
+
+    func setOversizeHandler(handler: (Int64, Option<String>) -> Unit): Unit {
+        synchronized(mutex) {
+            oversizeHandler = Some(handler)
+        }
+    }
+
+    /** 入站超限帧数（含分片/压缩后超限） */
+    public func getOversizeFrameCount(): Int64 {
+        oversizeFrames.load()
+    }
+
+    /** 解压过的帧数 */
+    public func getCompressedFrameCount(): Int64 {
+        compressedFrames.load()
+    }
+
+    /** 重组完成的大消息数 */
+    public func getReassembledFrameCount(): Int64 {
+        reassembledFrames.load()
+    }
+
+    func closeInboundFrom(peerKey: String): Int64 {
+        transport.closeInboundFrom(peerKey)
     }
 
     /** 读不懂的帧：不投递、单独计数、限速告警，并交给死信监听（帧本身无法还原成消息） */
@@ -384,6 +625,12 @@ public class SimpleRemoteManager {
                 log_simple_remote.info("远程传输加密：${sec.describe()}")
             }
             transport.setHandshake(core.handshake())
+            // F5：协商的帧上限下沉到传输层，入站超限时由传输回 GoAway 并断开
+            try {
+                transport.setMaxFrameBytes(core.currentWireSettings().maxFrameBytes)
+            } catch (_: Exception) {
+                // 测试替身或不支持该设置的传输：远程层仍会用接收器的上限兜住
+            }
             transport.start()
             sender.start()
             receiver.start()

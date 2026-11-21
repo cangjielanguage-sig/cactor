@@ -2,8 +2,12 @@
  * Copyright (c) 2024. All rights reserved.
  * CActor Runtime - 简化的Actor系统实现
  * 基于Runtime层组件的完整Actor系统实现
+ *
+ * D1 门面收敛：本类是 CActorRuntime 内部的占位 ActorSystem（供 Guardian 使用），
+ * 不属于公开门面。Cangjie 的 internal 是包级可见，因此放在 cactor_runtime 包，
+ * 与实际使用者 CActorRuntime 同包。
  */
-package cactor_runtime.system
+package cactor_runtime
 
 import std.sync.*
 import std.collection.concurrent.*
@@ -39,7 +43,7 @@ class CompletedSimpleFuture<T> <: SimpleFuture<T> {
  * Runtime层的Actor系统实现
  * 基于Runtime层组件构建的完整Actor系统
  */
-public class SimpleActorSystem <: ActorSystem {
+internal class SimpleActorSystem <: ActorSystem {
     private let systemName: String
     private let terminated: AtomicBool
     private let actors: ConcurrentHashMap<String, ActorRef>
@@ -136,7 +140,7 @@ public class SimpleActorSystem <: ActorSystem {
 /**
  * Runtime层的ActorRef实现
  */
-public class SimpleActorRef <: ActorRef {
+internal class SimpleActorRef <: ActorRef {
     private let actorName: String
     private let actor: Actor
     private let mailbox: Mailbox
@@ -233,7 +237,7 @@ public class SimpleActorRef <: ActorRef {
 /**
  * Runtime层的ActorContext实现
  */
-public class SimpleActorContext <: ActorContext {
+internal class SimpleActorContext <: ActorContext {
     private let selfRef: ActorRef
     private let currentSender: Option<String>
 
@@ -255,7 +259,7 @@ public class SimpleActorContext <: ActorContext {
 /**
  * Runtime层的Actor选择器实现
  */
-public class SimpleActorSelection <: ActorSelection {
+internal class SimpleActorSelection <: ActorSelection {
     private let path: String
     private let system: SimpleActorSystem
 

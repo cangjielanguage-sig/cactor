@@ -12,8 +12,14 @@ import cactor_core.actor.{ActorRef}
 /**
  * 企业级ActorSystem接口
  * 扩展基础ActorSystem，添加配置、扩展、监控等企业级特性
+ *
+ * D1（门面收敛）：本项目从未提供该接口的实现，实际入口只有 CActorSystem（门面）与
+ * RuntimeActorSystem（runtime）。为消除“7 个 ActorSystem 类型”的歧义，此接口降为 internal
+ * 并标记弃用；原 getStartTime()（另有 typed 侧 startTime()）已移除，启动时间统一由
+ * CActorSystem.getStartTime() 返回系统真实启动时刻。计划 2.0.0 移除。
  */
-public interface EnterpriseActorSystem <: ActorSystem {
+@Deprecated["EnterpriseActorSystem 无实现者，请使用门面 CActorSystem / RuntimeActorSystem；2.0.0 移除", since: "1.2.0"]
+internal interface EnterpriseActorSystem <: ActorSystem {
     /**
      * 获取系统配置
      * @return Actor系统配置
@@ -75,12 +81,6 @@ public interface EnterpriseActorSystem <: ActorSystem {
      * @return 用户Guardian引用
      */
     func getUserGuardian(): ActorRef
-    
-    /**
-     * 获取系统启动时间
-     * @return 启动时间戳
-     */
-    func getStartTime(): DateTime
     
     /**
      * 获取系统运行时长

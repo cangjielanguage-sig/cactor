@@ -7,12 +7,33 @@ cactor_remote :: ActorSelection.public func tell(message: Message): Unit
 cactor_remote :: ActorSelection.public func tell(message: Message, senderPath: Option<String>): Unit
 cactor_remote :: ActorSelection.public prop selectionPattern: String
 cactor_remote :: ActorSelection.public prop targetAddress: NetworkAddress
+cactor_remote :: ChunkedPayload.public func messageType(): String
+cactor_remote :: ChunkedPayload.public init(id: String, index: Int64, total: Int64, target: String, payload: Array<UInt8>)
+cactor_remote :: ChunkedPayload.public let id: String
+cactor_remote :: ChunkedPayload.public let index: Int64
+cactor_remote :: ChunkedPayload.public let payload: Array<UInt8>
+cactor_remote :: ChunkedPayload.public let target: String
+cactor_remote :: ChunkedPayload.public let total: Int64
+cactor_remote :: FrameTooLargeException.public init(size: Int64, maxFrameBytes: Int64)
+cactor_remote :: FrameTooLargeException.public let maxFrameBytes: Int64
+cactor_remote :: FrameTooLargeException.public let size: Int64
+cactor_remote :: GoAwayInfo.public func toString(): String
+cactor_remote :: GoAwayInfo.public init(reason: GoAwayReason, detail: String)
+cactor_remote :: GoAwayInfo.public let detail: String
+cactor_remote :: GoAwayInfo.public let reason: GoAwayReason
+cactor_remote :: GoAwayReason.public func toString(): String
+cactor_remote :: GoAwayReason.public static func parse(text: String): Option<GoAwayReason>
+cactor_remote :: GoAwayReason.| FrameTooLarge
+cactor_remote :: GoAwayReason.| ProtocolError
+cactor_remote :: GoAwayReason.| Shutdown
 cactor_remote :: PeerWireProfile.public func toString(): String
-cactor_remote :: PeerWireProfile.public init(address: String, uid: UInt64, protocolVersion: Int64, capabilities: UInt64, negotiated: Bool)
+cactor_remote :: PeerWireProfile.public init(address: String, uid: UInt64, protocolVersion: Int64, capabilities: UInt64, negotiated: Bool, maxFrameBytes!: Int64 = 0, typeIds!: HashMap<String, UInt16>= HashMap<String, UInt16>())
 cactor_remote :: PeerWireProfile.public let address: String
 cactor_remote :: PeerWireProfile.public let capabilities: UInt64
+cactor_remote :: PeerWireProfile.public let maxFrameBytes: Int64
 cactor_remote :: PeerWireProfile.public let negotiated: Bool
 cactor_remote :: PeerWireProfile.public let protocolVersion: Int64
+cactor_remote :: PeerWireProfile.public let typeIds: HashMap<String, UInt16>
 cactor_remote :: PeerWireProfile.public let uid: UInt64
 cactor_remote :: ReliableBudgetUsage.public init(unacked: Int64, retainedUnacked: Int64, inboundBuffered: Int64, retainedInboundBuffered: Int64, maxTotalUnacked: Int64, maxInboundBuffered: Int64)
 cactor_remote :: ReliableBudgetUsage.public let inboundBuffered: Int64
@@ -116,8 +137,11 @@ cactor_remote :: SimpleRemoteManager.public func unexposeActor(actorName: String
 cactor_remote :: SimpleRemoteManager.public init(localAddress: NetworkAddress, protocol: TransportProtocol)
 cactor_remote :: SimpleRemoteManager.public init(transport: NetworkTransport)
 cactor_remote :: SimpleRemoteReceiver.public func dispatch(targetActor: String, message: Message, sender: Option<String>): Unit
+cactor_remote :: SimpleRemoteReceiver.public func getCompressedFrameCount(): Int64
 cactor_remote :: SimpleRemoteReceiver.public func getDecodeFailures(): Int64
 cactor_remote :: SimpleRemoteReceiver.public func getLocalAddress(): NetworkAddress
+cactor_remote :: SimpleRemoteReceiver.public func getOversizeFrameCount(): Int64
+cactor_remote :: SimpleRemoteReceiver.public func getReassembledFrameCount(): Int64
 cactor_remote :: SimpleRemoteReceiver.public func getReceivedCount(): Int64
 cactor_remote :: SimpleRemoteReceiver.public func getUndeliverableCount(): Int64
 cactor_remote :: SimpleRemoteReceiver.public func getWireIncompatibleCount(): Int64
@@ -155,29 +179,40 @@ cactor_remote :: WireIncompatibleEvent.public let reason: String
 cactor_remote :: WireIncompatibleEvent.public let targetActor: String
 cactor_remote :: WireProtocolSettings.public func advertising(protocolVersion: Int64, capabilities: UInt64): WireProtocolSettings
 cactor_remote :: WireProtocolSettings.public func withLegacyPeerCapabilities(caps: UInt64): WireProtocolSettings
+cactor_remote :: WireProtocolSettings.public func withMaxFrameBytes(bytes: Int64): WireProtocolSettings
 cactor_remote :: WireProtocolSettings.public func withMinPeerProtocol(v: Int64): WireProtocolSettings
-cactor_remote :: WireProtocolSettings.public init(protocolVersion: Int64, capabilities: UInt64, minPeerProtocolVersion: Int64, legacyPeerCapabilities: UInt64, emulateLegacy: Bool)
+cactor_remote :: WireProtocolSettings.public init(protocolVersion: Int64, capabilities: UInt64, minPeerProtocolVersion: Int64, legacyPeerCapabilities: UInt64, emulateLegacy: Bool, maxFrameBytes!: Int64 = 64 * 1024)
 cactor_remote :: WireProtocolSettings.public let capabilities: UInt64
 cactor_remote :: WireProtocolSettings.public let emulateLegacy: Bool
 cactor_remote :: WireProtocolSettings.public let legacyPeerCapabilities: UInt64
+cactor_remote :: WireProtocolSettings.public let maxFrameBytes: Int64
 cactor_remote :: WireProtocolSettings.public let minPeerProtocolVersion: Int64
 cactor_remote :: WireProtocolSettings.public let protocolVersion: Int64
 cactor_remote :: WireProtocolSettings.public static func defaults(): WireProtocolSettings
 cactor_remote :: WireProtocolSettings.public static func legacyEmulation(): WireProtocolSettings
 cactor_remote :: extend SimpleRemoteManager.public func actorSelection(targetAddress: NetworkAddress, path: String): ActorSelection
 cactor_remote :: extend SimpleRemoteManager.public func ask(target: RemoteActorRef, message: Message, timeout: Duration): TypedPromise<Message>
+cactor_remote :: extend SimpleRemoteManager.public func compressedFrameCount(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func configure(settings: RemotingSettings): Unit
 cactor_remote :: extend SimpleRemoteManager.public func configureWire(settings: WireProtocolSettings): Unit
 cactor_remote :: extend SimpleRemoteManager.public func enableRemoteWatch(spawnWatcher: (()->Actor)->ActorRef): Unit
+cactor_remote :: extend SimpleRemoteManager.public func goAwayReceivedCount(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func goAwaySentCount(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func isPeerAdmissionClosed(): Bool
 cactor_remote :: extend SimpleRemoteManager.public func isQuarantined(address: NetworkAddress): Bool
+cactor_remote :: extend SimpleRemoteManager.public func lastGoAway(): Option<GoAwayInfo>
+cactor_remote :: extend SimpleRemoteManager.public func localMaxFrameBytes(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func onWireIncompatible(listener: (WireIncompatibleEvent)->Unit): Unit
+cactor_remote :: extend SimpleRemoteManager.public func oversizeFrameCount(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func peerMaxFrameBytes(address: NetworkAddress): Int64
+cactor_remote :: extend SimpleRemoteManager.public func peerTypeIdCount(address: NetworkAddress): Int64
 cactor_remote :: extend SimpleRemoteManager.public func peerWireProfile(address: NetworkAddress): Option<PeerWireProfile>
 cactor_remote :: extend SimpleRemoteManager.public func pendingAskCount(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func pendingTypedAskCount(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func quarantine(address: NetworkAddress, reason: String): Unit
 cactor_remote :: extend SimpleRemoteManager.public func quarantine(address: NetworkAddress, uid: UInt64, reason: String): Unit
 cactor_remote :: extend SimpleRemoteManager.public func quarantinedCount(): Int64
+cactor_remote :: extend SimpleRemoteManager.public func reassembledFrameCount(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func rejectedConnections(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func rejectedHandshakes(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func reliableBudgetUsage(): ReliableBudgetUsage
@@ -195,6 +230,8 @@ cactor_remote :: extend SimpleRemoteManager.public func wireIncompatibleSent(): 
 cactor_remote :: extend SimpleRemoteManager.public func wireProtocolRejected(): Int64
 cactor_remote :: extend SimpleRemoteManager.public func wireSettings(): WireProtocolSettings
 cactor_remote :: public class ActorSelection
+cactor_remote :: public class ChunkedPayload <: Message
+cactor_remote :: public class FrameTooLargeException <: Exception
 cactor_remote :: public class ReliableEnvelope <: Message
 cactor_remote :: public class RemoteActorRef <: ActorRef
 cactor_remote :: public class RemoteAskCapacityException <: Exception
@@ -206,11 +243,15 @@ cactor_remote :: public class SimpleRemoteManager
 cactor_remote :: public class SimpleRemoteReceiver
 cactor_remote :: public class SimpleRemoteSender
 cactor_remote :: public class WireIncompatibleEvent <: ToString
+cactor_remote :: public enum GoAwayReason <: ToString
 cactor_remote :: public enum WireDirection <: ToString
 cactor_remote :: public func encodeRemoteSender(address: NetworkAddress, name: String): String
 cactor_remote :: public func parseRemoteSender(text: String): Option<(NetworkAddress, String)>
 cactor_remote :: public func selectionGlobMatch(pattern: String, text: String): Bool
+cactor_remote :: public let COMPRESSION_THRESHOLD: Int64
+cactor_remote :: public let MAX_DECOMPRESSED_FRAME: Int64
 cactor_remote :: public let REPLY_ENTRY_IDLE_TTL_MS: Int64
+cactor_remote :: public struct GoAwayInfo <: ToString
 cactor_remote :: public struct PeerWireProfile <: ToString
 cactor_remote :: public struct ReliableBudgetUsage
 cactor_remote :: public struct ReliableChannelStats

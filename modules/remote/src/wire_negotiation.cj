@@ -20,7 +20,9 @@ package cactor_remote
 import std.collection.*
 import std.sync.*
 import std.convert.*
-import cactor_core.message.{Message, WireProtocol, WireIncompatibleException, MessageSerializer}
+import std.math.*
+import cactor_core.message.{Message, WireProtocol, WireIncompatibleException, MessageSerializer,
+    MessageCodecRegistry, StringMessage}
 import cactor_foundation.network.NetworkAddress
 
 /**
@@ -43,9 +45,11 @@ public struct WireProtocolSettings {
      * 只用于混合版本测试与升级演练，生产节点不要打开。
      */
     public let emulateLegacy: Bool
+    /** 本节点声明的单帧字节上限（F5，扩展键 mf）；B3 要求单帧 ≤64 KiB */
+    public let maxFrameBytes: Int64
 
     public init(protocolVersion: Int64, capabilities: UInt64, minPeerProtocolVersion: Int64,
-        legacyPeerCapabilities: UInt64, emulateLegacy: Bool) {
+        legacyPeerCapabilities: UInt64, emulateLegacy: Bool, maxFrameBytes!: Int64 = 64 * 1024) {
         if (protocolVersion < WireProtocol.MIN_SUPPORTED_VERSION) {
             throw IllegalArgumentException("宣告的线协议版本不能低于 ${WireProtocol.MIN_SUPPORTED_VERSION}")
         }
@@ -54,11 +58,15 @@ public struct WireProtocolSettings {
             throw IllegalArgumentException(
                 "最低对端协议版本须在 ${WireProtocol.MIN_SUPPORTED_VERSION}..${WireProtocol.CURRENT_VERSION} 之间")
         }
+        if (maxFrameBytes < 1024) {
+            throw IllegalArgumentException("单帧上限至少 1 KiB：${maxFrameBytes}")
+        }
         this.protocolVersion = protocolVersion
         this.capabilities = capabilities
         this.minPeerProtocolVersion = minPeerProtocolVersion
         this.legacyPeerCapabilities = legacyPeerCapabilities
         this.emulateLegacy = emulateLegacy
+        this.maxFrameBytes = maxFrameBytes
     }
 
     public static func defaults(): WireProtocolSettings {
@@ -74,17 +82,26 @@ public struct WireProtocolSettings {
 
     /** 拒绝协议版本低于 v 的对端 */
     public func withMinPeerProtocol(v: Int64): WireProtocolSettings {
-        WireProtocolSettings(protocolVersion, capabilities, v, legacyPeerCapabilities, emulateLegacy)
+        WireProtocolSettings(protocolVersion, capabilities, v, legacyPeerCapabilities, emulateLegacy,
+            maxFrameBytes: maxFrameBytes)
     }
 
     /** 宣告指定的协议版本与能力（演练"能协商但能力更少"的节点） */
     public func advertising(protocolVersion: Int64, capabilities: UInt64): WireProtocolSettings {
-        WireProtocolSettings(protocolVersion, capabilities, minPeerProtocolVersion, legacyPeerCapabilities, emulateLegacy)
+        WireProtocolSettings(protocolVersion, capabilities, minPeerProtocolVersion, legacyPeerCapabilities,
+            emulateLegacy, maxFrameBytes: maxFrameBytes)
     }
 
     /** 没宣告能力的对端按 caps 编码（确知集群里没有 v1.2.x 节点时可设为 LOCAL_CAPABILITIES） */
     public func withLegacyPeerCapabilities(caps: UInt64): WireProtocolSettings {
-        WireProtocolSettings(protocolVersion, capabilities, minPeerProtocolVersion, caps, emulateLegacy)
+        WireProtocolSettings(protocolVersion, capabilities, minPeerProtocolVersion, caps, emulateLegacy,
+            maxFrameBytes: maxFrameBytes)
+    }
+
+    /** 本节点单帧上限（F5）：发往支持 CAP_MAX_FRAME 的对端时取双方较小值 */
+    public func withMaxFrameBytes(bytes: Int64): WireProtocolSettings {
+        WireProtocolSettings(protocolVersion, capabilities, minPeerProtocolVersion, legacyPeerCapabilities,
+            emulateLegacy, maxFrameBytes: bytes)
     }
 }
 
@@ -100,17 +117,26 @@ public struct PeerWireProfile <: ToString {
     public let capabilities: UInt64
     /** 对端是否在握手里宣告了能力（false = 旧节点） */
     public let negotiated: Bool
+    /** 对端宣告的单帧上限（F5）；旧节点或未宣告时为 0（未知，按本节点上限编码） */
+    public let maxFrameBytes: Int64
+    /** 对端宣告的"类型名 → u16 id"表（B2）；未宣告短 id 时为空 */
+    public let typeIds: HashMap<String, UInt16>
 
-    public init(address: String, uid: UInt64, protocolVersion: Int64, capabilities: UInt64, negotiated: Bool) {
+    public init(address: String, uid: UInt64, protocolVersion: Int64, capabilities: UInt64, negotiated: Bool,
+        maxFrameBytes!: Int64 = 0, typeIds!: HashMap<String, UInt16> = HashMap<String, UInt16>()) {
         this.address = address
         this.uid = uid
         this.protocolVersion = protocolVersion
         this.capabilities = capabilities
         this.negotiated = negotiated
+        this.maxFrameBytes = maxFrameBytes
+        this.typeIds = typeIds
     }
 
     public func toString(): String {
-        "${address}#${uid} protocol=${protocolVersion} caps=${WireProtocol.describe(capabilities)}${if (negotiated) { "" } else { " (legacy)" }}"
+        "${address}#${uid} protocol=${protocolVersion} caps=${WireProtocol.describe(capabilities)}" +
+            "${if (maxFrameBytes > 0) { " maxFrame=${maxFrameBytes}" } else { "" }}" +
+            "${if (negotiated) { "" } else { " (legacy)" }}"
     }
 }
 
@@ -158,28 +184,144 @@ public class WireIncompatibleEvent <: ToString {
 /** 握手扩展的键 */
 const WIRE_EXT_PROTOCOL: String = "wp"
 const WIRE_EXT_CAPABILITIES: String = "wc"
+const WIRE_EXT_MAX_FRAME: String = "mf"
+const WIRE_EXT_TYPE_IDS: String = "wt"
 
-/** 握手字段末尾追加的能力扩展 */
-func wireExtension(protocolVersion: Int64, capabilities: UInt64): String {
-    ";${WIRE_EXT_PROTOCOL}=${protocolVersion};${WIRE_EXT_CAPABILITIES}=${formatHexU64(capabilities)}"
+/** 握手扩展里类型表的长度上限：握手帧总上限 4 KiB，留够地址与 MAC */
+const WIRE_TYPE_TABLE_MAX_CHARS: Int64 = 2048
+
+/**
+ * 握手字段末尾追加的扩展。新增键对旧解析器是"未知键"（原样参与 MAC 后忽略），
+ * 因此不需要改握手的 7 段格式与版本号："wp" 版本、"wc" 能力、"mf" 单帧上限、"wt" 类型短 id 表。
+ */
+func wireExtension(s: WireProtocolSettings): String {
+    let out = StringBuilder()
+    out.append(";${WIRE_EXT_PROTOCOL}=${s.protocolVersion};${WIRE_EXT_CAPABILITIES}=${formatHexU64(s.capabilities)}")
+    if (WireProtocol.supports(s.capabilities, WireProtocol.CAP_MAX_FRAME)) {
+        out.append(";${WIRE_EXT_MAX_FRAME}=${s.maxFrameBytes}")
+    }
+    if (WireProtocol.supports(s.capabilities, WireProtocol.CAP_SHORT_TYPE_ID)) {
+        let table = encodeTypeTable()
+        if (!table.isEmpty()) {
+            out.append(";${WIRE_EXT_TYPE_IDS}=${table}")
+        }
+    }
+    out.toString()
 }
 
-/** 握手字段的解析结果：原字段、宣告的 (协议版本, 能力位)；扩展格式非法时 valid = false */
+/**
+ * 把本节点类型表编码为 "idhex:namehex,..."。
+ * 类型名用十六进制避免分隔符歧义；总长受 WIRE_TYPE_TABLE_MAX_CHARS 约束，
+ * 放不下的类型只是继续写全名，不影响握手。
+ */
+func encodeTypeTable(): String {
+    let out = StringBuilder()
+    var used: Int64 = 0
+    for ((id, name) in MessageCodecRegistry.typeTable()) {
+        let row = "${formatHexU64(UInt64(id))}:${hexOfBytes(name.toArray())}"
+        let extra = if (used == 0) { Int64(row.size) } else { Int64(row.size) + 1 }
+        if (used + extra > WIRE_TYPE_TABLE_MAX_CHARS) {
+            break
+        }
+        if (used > 0) {
+            out.append(",")
+        }
+        out.append(row)
+        used += extra
+    }
+    out.toString()
+}
+
+func hexOfBytes(bytes: Array<UInt8>): String {
+    let digits = "0123456789abcdef".toArray()
+    let out = ArrayList<UInt8>()
+    for (b in bytes) {
+        out.add(digits[Int64((b >> 4) & 0xF)])
+        out.add(digits[Int64(b & 0xF)])
+    }
+    String.fromUtf8(out.toArray())
+}
+
+func parseHexBytes(text: String): Option<Array<UInt8>> {
+    if (text.size % 2 != 0) {
+        return None<Array<UInt8>>
+    }
+    let out = ArrayList<UInt8>()
+    var i = 0
+    while (i < text.size) {
+        let hi = match (hexDigit(text[i])) {
+            case Some(v) => v
+            case None => return None<Array<UInt8>>
+        }
+        let lo = match (hexDigit(text[i + 1])) {
+            case Some(v) => v
+            case None => return None<Array<UInt8>>
+        }
+        out.add(UInt8((hi << 4) | lo))
+        i += 2
+    }
+    Some(out.toArray())
+}
+
+func hexDigit(b: UInt8): Option<UInt8> {
+    if (b >= 48u8 && b <= 57u8) {
+        Some(UInt8(b - 48u8))
+    } else if (b >= 97u8 && b <= 102u8) {
+        Some(UInt8(b - 87u8))
+    } else if (b >= 65u8 && b <= 70u8) {
+        Some(UInt8(b - 55u8))
+    } else {
+        None<UInt8>
+    }
+}
+
+/** 解析 "idhex:namehex,..."；任何一行非法就跳过该行（发送方会退回全名，不影响其他类型） */
+func parseTypeTable(text: String): HashMap<String, UInt16> {
+    let out = HashMap<String, UInt16>()
+    if (text.isEmpty()) {
+        return out
+    }
+    for (row in text.split(",")) {
+        let kv = row.split(":", 2)
+        if (kv.size != 2) {
+            continue
+        }
+        let id = match (parseHexU64(kv[0])) {
+            case Some(v) where v <= 65535 => UInt16(v)
+            case _ => continue
+        }
+        let nameBytes = match (parseHexBytes(kv[1])) {
+            case Some(b) => b
+            case None => continue
+        }
+        out[String.fromUtf8(nameBytes)] = id
+    }
+    out
+}
+
+/** 握手字段的解析结果：原字段、宣告的 (协议版本, 能力位)、单帧上限与类型表；扩展格式非法时 valid = false */
 struct WireField {
     let base: String
     let advertised: Option<(Int64, UInt64)>
     let valid: Bool
+    let maxFrameBytes: Option<Int64>
+    let typeIds: Option<HashMap<String, UInt16>>
 
-    init(base: String, advertised: Option<(Int64, UInt64)>, valid: Bool) {
+    init(base: String, advertised: Option<(Int64, UInt64)>, valid: Bool,
+        maxFrameBytes!: Option<Int64> = None<Int64>,
+        typeIds!: Option<HashMap<String, UInt16>> = None<HashMap<String, UInt16>>) {
         this.base = base
         this.advertised = advertised
         this.valid = valid
+        this.maxFrameBytes = maxFrameBytes
+        this.typeIds = typeIds
     }
 }
 
 /**
  * 拆出字段末尾的扩展。没有 ";" 就是旧节点的字段（advertised = None）。
- * 未知键忽略（向前兼容）；wp 缺失或不是正整数、wc 不是十六进制视为非法扩展（拒绝握手，不猜）。
+ * 未知键忽略（向前兼容）；wp 缺失或不是正整数、wc 不是十六进制、mf 不是正整数视为非法扩展（拒绝握手，不猜）。
+ * wt 表内部某行非法只跳过该行：短 id 是可选的性能优化，不该因为一条不认识的行让连接握不上手。
  */
 func decodeWireField(field: String): WireField {
     let parts = field.split(";")
@@ -188,6 +330,8 @@ func decodeWireField(field: String): WireField {
     }
     var proto: Option<Int64> = None<Int64>
     var caps: UInt64 = 0
+    var maxFrame: Option<Int64> = None<Int64>
+    var typeIds: Option<HashMap<String, UInt16>> = None<HashMap<String, UInt16>>
     var ok = true
     for (i in 1..parts.size) {
         let kv = parts[i].split("=", 2)
@@ -204,10 +348,18 @@ func decodeWireField(field: String): WireField {
                 case Some(c) => caps = c
                 case None => ok = false
             }
+        } else if (kv[0] == WIRE_EXT_MAX_FRAME) {
+            match (Int64.tryParse(kv[1])) {
+                case Some(v) where v >= 1024 => maxFrame = Some(v)
+                case _ => ok = false
+            }
+        } else if (kv[0] == WIRE_EXT_TYPE_IDS) {
+            typeIds = Some(parseTypeTable(kv[1]))
         }
     }
     match (proto) {
-        case Some(p) where ok && p >= 0 => WireField(parts[0], Some((p, caps)), true)
+        case Some(p) where ok && p >= 0 =>
+            WireField(parts[0], Some((p, caps)), true, maxFrameBytes: maxFrame, typeIds: typeIds)
         case _ => WireField(parts[0], None<(Int64, UInt64)>, false)
     }
 }
@@ -252,11 +404,17 @@ func parseHexU64(text: String): Option<UInt64> {
  */
 class WireGate {
     let capabilitiesOf: (NetworkAddress) -> UInt64
+    let typeTableOf: (NetworkAddress) -> Option<HashMap<String, UInt16>>
+    let maxFrameOf: (NetworkAddress) -> Int64
     let onIncompatible: (NetworkAddress, String, Message, WireIncompatibleException) -> Unit
 
     init(capabilitiesOf: (NetworkAddress) -> UInt64,
+        typeTableOf: (NetworkAddress) -> Option<HashMap<String, UInt16>>,
+        maxFrameOf: (NetworkAddress) -> Int64,
         onIncompatible: (NetworkAddress, String, Message, WireIncompatibleException) -> Unit) {
         this.capabilitiesOf = capabilitiesOf
+        this.typeTableOf = typeTableOf
+        this.maxFrameOf = maxFrameOf
         this.onIncompatible = onIncompatible
     }
 
@@ -280,6 +438,8 @@ extend RemotingCore {
         synchronized(wireLock) {
             wireSettings = s
         }
+        // 入站上限随配置生效（TCP 传输还会在更底层按它裁掉超限连接）
+        receiver.setMaxInboundFrame(s.maxFrameBytes)
     }
 
     func currentWireSettings(): WireProtocolSettings {
@@ -292,7 +452,7 @@ extend RemotingCore {
         if (s.emulateLegacy) {
             ""
         } else {
-            wireExtension(s.protocolVersion, s.capabilities)
+            wireExtension(s)
         }
     }
 
@@ -329,9 +489,11 @@ extend RemotingCore {
     }
 
     /** 握手通过（admitPeer 成功）后登记对端画像；同址新实例覆盖旧画像 */
-    func recordPeerWire(addr: String, uid: UInt64, advertised: Option<(Int64, UInt64)>): Unit {
-        let profile = match (advertised) {
-            case Some((v, c)) => PeerWireProfile(addr, uid, v, c, true)
+    func recordPeerWire(addr: String, uid: UInt64, wire: WireField): Unit {
+        let profile = match (wire.advertised) {
+            case Some((v, c)) => PeerWireProfile(addr, uid, v, c, true,
+                maxFrameBytes: wire.maxFrameBytes ?? 0,
+                typeIds: wire.typeIds ?? HashMap<String, UInt16>())
             case None => PeerWireProfile(addr, uid, WireProtocol.LEGACY_VERSION, WireProtocol.CAP_NONE, false)
         }
         let changed = synchronized(wireLock) {
@@ -339,13 +501,41 @@ extend RemotingCore {
             peerWire[addr] = profile
             match (old) {
                 case Some(o) => o.uid != uid || o.protocolVersion != profile.protocolVersion ||
-                    o.capabilities != profile.capabilities
+                    o.capabilities != profile.capabilities || o.maxFrameBytes != profile.maxFrameBytes ||
+                    o.typeIds.size != profile.typeIds.size
                 case None => true
             }
         }
         if (changed) {
             log_remoting.debug("对端线协议：${profile}")
         }
+    }
+
+    /**
+     * 入站帧超过协商上限（F5）：回 GoAway(FrameTooLarge) 并断开对端的入站连接。
+     * TCP 传输在读到长度头时就会先做同样的事（不把超大负载读进内存），这里覆盖测试替身等其他传输。
+     */
+    func onOversizeFrame(size: Int64, source: Option<String>): Unit {
+        let limit = currentWireSettings().maxFrameBytes
+        goAwaySent.fetchAdd(1)
+        match (source) {
+            case Some(text) =>
+                let detail = "frame ${size} > maxFrameBytes ${limit}"
+                try {
+                    let addr = NetworkAddress.parse(text)
+                    sender.sendControl(addr, SYS_NAME, StringMessage(encodeGoAway(GoAwayReason.FrameTooLarge, detail)))
+                } catch (_: Exception) {
+                    // 源地址不可解析或对端已断开：连接本来就会关闭
+                    ()
+                }
+                let key = match (currentPeerUid(text)) {
+                    case Some(uid) => quarantineKey(text, uid)
+                    case None => text
+                }
+                receiver.closeInboundFrom(key) |> ignoreCount
+            case None => ()
+        }
+        log_remoting.warn("收到超过协商上限的帧（${size} > ${limit}，来源 ${source ?? "?"}）：已回 GoAway(FrameTooLarge) 并断开连接")
     }
 
     /** 当前实例的画像（uid 与最近一次身份不符的旧画像不算） */
@@ -371,6 +561,36 @@ extend RemotingCore {
         match (peerWireProfileOf(address.toString())) {
             case Some(p) where p.negotiated => p.capabilities
             case _ => s.legacyPeerCapabilities
+        }
+    }
+
+    /**
+     * 发往该地址时的单帧上限（F5）：双方都支持 CAP_MAX_FRAME 时取较小值；
+     * 旧对端不宣告该能力，按本节点上限编码（超过就明确失败，不猜对端能收）。
+     */
+    func wireMaxFrameOf(address: NetworkAddress): Int64 {
+        let local = currentWireSettings().maxFrameBytes
+        let s = currentWireSettings()
+        if (s.emulateLegacy) {
+            return local
+        }
+        match (peerWireProfileOf(address.toString())) {
+            case Some(p) where p.negotiated && WireProtocol.supports(p.capabilities, WireProtocol.CAP_MAX_FRAME) &&
+                p.maxFrameBytes > 0 => min(local, p.maxFrameBytes)
+            case _ => local
+        }
+    }
+
+    /** 发往该地址时可用的短类型 id 表（B2）；旧对端或未协商时返回 None（写全名） */
+    func wireTypeTableOf(address: NetworkAddress): Option<HashMap<String, UInt16>> {
+        let s = currentWireSettings()
+        if (s.emulateLegacy) {
+            return None<HashMap<String, UInt16>>
+        }
+        match (peerWireProfileOf(address.toString())) {
+            case Some(p) where p.negotiated && WireProtocol.supports(p.capabilities, WireProtocol.CAP_SHORT_TYPE_ID) =>
+                if (p.typeIds.isEmpty()) { None<HashMap<String, UInt16>> } else { Some(p.typeIds) }
+            case _ => None<HashMap<String, UInt16>>
         }
     }
 
@@ -441,5 +661,23 @@ extend SimpleRemoteManager {
     /** 因线协议版本过低或扩展非法而拒绝的握手数（也计入 rejectedHandshakes） */
     public func wireProtocolRejected(): Int64 {
         core.wireProtocolRejected.load()
+    }
+
+    /** 本节点声明的单帧上限（F5） */
+    public func localMaxFrameBytes(): Int64 {
+        core.currentWireSettings().maxFrameBytes
+    }
+
+    /** 与该地址协商出的单帧上限；旧对端/未握手时为本节点值 */
+    public func peerMaxFrameBytes(address: NetworkAddress): Int64 {
+        core.wireMaxFrameOf(address)
+    }
+
+    /** 与该地址协商出的短类型 id 表大小（B2；0 表示对端不支持或尚未握手） */
+    public func peerTypeIdCount(address: NetworkAddress): Int64 {
+        match (core.wireTypeTableOf(address)) {
+            case Some(t) => t.size
+            case None => 0
+        }
     }
 }

@@ -7,6 +7,103 @@
 
 ## [未发布]
 
+### ✨ 新增：ex52 IoT 设备管理示例（对标 Akka 官方 IoT 示例）
+
+- 类型化 Actor 层级：组长 `ctx.actorOf` 按需创建设备子 Actor，重复注册明确拒绝；
+- 设备上报时把最新读数推给组长，组查询在组长本地同步聚合（数量/最小/最大/均值），
+  不在 receive 里阻塞询问子设备；
+- 空组返回无读数语义；Lou `/register`、`/devices`、`/stats`；
+- 自检覆盖注册、聚合、重复注册、空组与 HTTP 一致性。
+
+### 💥 破坏性变更：D1 门面收敛（ActorSystemSettings / getStartTime / 内部实现降级）
+
+- 新增不可变链式 `ActorSystemSettings`（经 `cactor.api` / 顶层 `cactor` 暴露，类型本体在
+  `cactor_core.system`，因为 runtime 不能反向依赖门面）：字段
+  `name / dispatcherMode / maxActors / actorMemoryBudgetBytes / defaultMailbox`，
+  提供 `default / highThroughput / lowLatency` 三个命名预设与 `withExtension(name, factory)` 扩展点；
+  系统启动时实例化并 `initialize` 已注册扩展；
+- `CActorSystem`、`CActorSystemFactory.create(settings)`、`CActor.system(settings)`、
+  `CActorFactory.createSystem(settings)` 与 `RuntimeActorSystem(settings)` 接受设置，
+  `settings()` 读回无丢失（`settingsRoundTrip` 用例）；
+- `getStartTime()` 收敛为门面唯一入口并返回系统真实启动时刻（此前返回调用时的当前时间）；
+  无实现者的 `EnterpriseActorSystem` 降为 internal 并弃用，其 `getStartTime` 移除；
+- `SimpleActorSystem` / `HighPerformanceActorSystem`（及其引用、监控类）降为 internal，
+  移入 `cactor_runtime` 包；`CActorRuntime.getHighPerformanceSystem()` 不再公开。
+  以上弃用与兼容面计划 2.0.0 移除。
+
+### ✨ 新增：DistributedPubSub 接入持久日志（差距 4.8 剩余部分）
+
+- `DistributedPubSub.withDurableLog(store, retention!)`：`publish` 在在线扇出前把**文本消息**
+  （`StringMessage`）追加到共享 `DurableTopic`；其他消息类型仍只在线投递（不静默改写）；
+- `replayDurable(topic, name, offsets, handler, fromSeq!)`：按订阅者游标回放离线期间的消息；
+- `durableHighestSeq(topic)`：观测与测试；
+- `DurableTopic.replay(...)`：只回放历史、不注册实时投递（供"在线扇出 + 持久补齐"组合）；
+- 示例 `ex51_durable_pubsub`（2 节点离线补齐 + 在线扇出 + Lou）、测试 `PubSubDurableLogTest` 覆盖。
+
+### ✨ 新增：本地 Actor 链路 trace 自动传播（差距 4.10 剩余部分）
+
+- `ActorCell.enqueue` 在发送线程处于追踪作用域（`Mdc` 有 traceId/spanId）时自动把消息包成
+  `TracedMessage`；接收方 `invoke` 续接出本地子 span 并建立 MDC 作用域，语义与远程帧尾一致；
+- `Mdc.currentTraceParent()`：只读一次 ThreadLocal、未开启追踪时不分配对象；
+  `NetworkMessage` 改为复用它（去掉重复实现）；
+- 批量发送只在有追踪时构造包装数组，无追踪保持原开销；
+- 用户 Actor 看不到包装层；未开启追踪时行为不变；
+- 示例 `ex50_trace_chain`（三跳 Actor 链 + Lou）、测试 `LocalTraceTest` 覆盖。
+
+### ✨ 新增：分片协调状态持久化（差距 4.4 剩余部分）
+
+- `ShardingSettings.withStateStore(DurableStateStore)`：区域启动时从存储恢复放置覆盖
+  （手动再平衡的 分片→地址），变更后整值落盘；
+- `ClusterSharding.loadedOverrideOf(shard)` / `loadedOverrideCount()` 供观测与测试；
+- 恢复容错：目标节点已不在集群时覆盖本身仍保留，分配时按成员视图回退到策略计算；
+- 未配置存储时行为完全不变（覆盖仅内存）；
+- 示例 `ex49_shard_state`（2 节点 + Lou，整集群重启后覆盖仍在）、
+  测试 `ShardingStateTest` 覆盖。
+
+### ✨ 新增：统一指标入口 `MetricsExporter`（差距 4.10 的指标合并）
+
+- `MetricsExporter(system)` + `addCluster(metrics)` + `addProvider(name, render)`；
+- `renderPrometheus(perActor!)` 一次返回运行时、集群/远程、应用自定义三段文本；
+- 段间恰好一个换行，空来源不产生空行；不悄悄去重指标名（重名应修正而不是吞掉）；
+- 示例 `ex48_metrics_endpoint`（2 节点 + Lou `/metrics`）、测试 `ClusterMetricsTest` 覆盖。
+
+### ✨ 新增：Grain 提醒（差距 4.7，对标 Orleans Grain reminder）
+
+- `Grains.withReminders(store, pollInterval!)` 配置提醒存储；`registerReminder(id, key, delay)` /
+  `cancelReminder(id, key)`；
+- `Grain.onReminder(key, payload)` 回调；提醒经分片投递到该标识**当前激活**；
+- 处理完成后回送 ack 到注册节点并确认（处理与确认之间崩溃会重发，至少一次）；
+- 已确认提醒持久化，进程重启后不重复触发；
+- 示例 `ex47_grain_reminder`（一次触发、不重复、取消、重启持久化、Lou 端点）、
+  测试 `testGrainReminderFiresOnceAndPersistsAck` 覆盖。
+
+### ✨ 新增：ex46 CDC 到实时数仓（§31 第 5 项真实示例）
+
+- 混合 schema：CdcV1/CdcV2 经 `EventAdapter.upcast` 升级到当前 Cdc；
+- 双 sink：fast 同步应用；slow 容量 5 的有界队列，满则明确丢弃（出版方不被拖慢）；
+- 下游离线后按游标补齐；`rebuild` 从变更历史全量回填；
+- 位点/滞后与队列丢弃可观测；
+- Lou：`/events`、`/models/fast|slow`、`/queue`、`/slow/drain`、`/lag`、`/rebuild`、`/raw`、`/stream`。
+
+### ✨ 新增：ex45 边缘-云数字孪生（§31 第 4 项真实示例）
+
+- 期望配置用 `LWWMap`、能力集合用 `ORMap`，墙钟时间戳跨副本可比；
+- 离线期间本地可写，操作进 `DurableTopic` 缓冲（欠账可观测、持久化）；
+- 重连做双向 CRDT 合并，云端更新的删除墓碑压过边缘旧值（旧值不复活）；
+- 能力集合并集（add-wins）；
+- Lou：`/config`、`/remove`、`/capability`、`/offline`、`/online`、`/device`、`/state`。
+
+### 🧊 xstate 模块冻结（AR10 / D2）
+
+- 按计划 D2 采取"建议 B：冻结"：`cactor_xstate` 保留发布以兼容既有引用，但不再演进，按 E51 在
+  12 个月后（约 2027-11）整体移除；新代码请使用 `@StateMachine` 宏。
+- `tools/quality_metrics.py` 新增 `--allow-placeholders <模块,...>`：冻结模块的占位词从总数与
+  `--check` 中豁免，并在报表/JSON 中单列、不掩盖存量。实测 `--allow-placeholders xstate`：
+  占位关键词 121 → 有效 **85**（xstate 36 处豁免）。
+- README 能力表移除「状态机」行；模块表与 `xstate_demo` 标注「实验性，已冻结，待 E51 移除」；
+  `modules/xstate/cjpm.toml` 描述、`modules/xstate/README.md`、`docs/zh/INTRODUCTION.md`、
+  `docs/zh/package-structure.md` 同步标注。
+
 ### ⚡ 性能：批量捐赠与亲和迁移（AR3 / A2 功能）
 
 - 默认调度器的负载均衡由"逐个捐赠"改为**批量捐赠**：忙线程在有空闲线程举手时，一次最多取出

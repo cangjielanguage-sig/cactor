@@ -18,6 +18,7 @@ import cactor_core.actor.{Actor, ActorContext}
 import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.monitoring.{GaugeMetric}
 import cactor_cluster.membership.{Cluster, ClusterMetrics, ClusterSharding, ClusterSettings}
+import cactor_cluster.monitoring.{MetricsExporter}
 import cactor_cluster.ddata.{Replicator}
 import cactor_testkit.*
 
@@ -96,6 +97,18 @@ public class ClusterMetricsTest {
             let after = metrics.renderPrometheus()
             @Expect(after.contains("cactor_cluster_quarantined 1"), true)
             @Expect(gaugeOf(metrics, "cactor_cluster_quarantined"), 1.0)
+
+            // 4.10 统一入口：运行时 + 集群 + 应用自定义指标一次渲染
+            let exporter = MetricsExporter(nodes[1].kit.system)
+                .addCluster(ClusterMetrics(nodes[1].cluster, nodes[1].remote))
+                .addProvider("gateway", { => "# TYPE cactor_gateway_requests_total counter\ncactor_gateway_requests_total 7" })
+            let unified = exporter.renderPrometheus()
+            @Expect(unified.contains("cactor_actors_live"), true)
+            @Expect(unified.contains("cactor_cluster_members_up"), true)
+            @Expect(unified.contains("# metrics from gateway"), true)
+            @Expect(unified.contains("cactor_gateway_requests_total 7"), true)
+            // 段落之间恰好一个换行：不出现连续空行
+            @Expect(unified.contains("\n\n\n"), false)
         } finally {
             for (r in regions) {
                 r.stop()

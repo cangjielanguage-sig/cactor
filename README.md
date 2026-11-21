@@ -58,7 +58,7 @@ CActor 是仓颉语言的 Actor 模型库，定位为 **AI Agent 的底层运行
 - **枚举即协议**：类型化 Actor 的消息协议就是一个 `enum`，`match` 的穷尽检查在编译期发现漏处理的消息
 - **`@actorReceive`**：编译期根据 `onXxx(msg: T, ctx)` 方法生成按消息类型分派的 `receive`；同一类型写了两个处理方法也在编译期报错
 - **`100.millis`、`3.seconds`**：时间字面量；**`ref << a << b`**：连续发送
-- **声明式描述行为与工作流**：`TypedBehaviors`（`setup` / `receive` / `supervise` / `withTimers` / `withStash` / `intercept` …）描述 Actor 行为，Streams 描述数据流水线，XState 风格状态机描述工作流（XState 目前为实验性）
+- **声明式描述行为与工作流**：`TypedBehaviors`（`setup` / `receive` / `supervise` / `withTimers` / `withStash` / `intercept` …）描述 Actor 行为，Streams 描述数据流水线，`@StateMachine` 宏描述工作流（XState 风格状态机模块已冻结，新代码用 `@StateMachine`）
 
 Agent 只写“做什么”，调度、隔离与容错交给 CActor。
 
@@ -128,7 +128,6 @@ main() {
 | 集群 | gossip 成员协议、脑裂处理、Cluster Singleton、分布式发布订阅、集群分片（钝化、remember-entities）、虚拟 Actor（Grains）、CRDT 与 Replicator（一致性级别、delta 传播、移除节点的 pruning） | 可用，有多节点、网络分区与多进程宕机验证 |
 | 持久化 | 文件事件日志、快照、事件溯源 Actor、持久化状态（乐观并发）、持久化查询、按 URI 选择存储的插件注册表 | 可用 |
 | 流处理 | 背压流（Reactive Streams，E60） | 可用 |
-| 状态机 | XState 风格的状态机 | 实验性 |
 
 ---
 
@@ -413,7 +412,7 @@ cactor → streams / xstate / platform / testkit
 | persistence | `cactor_persistence` | 日志、快照、类型化持久化 |
 | cluster | `cactor_cluster` | 成员协议、分片、单例、服务发现与分布式数据 |
 | testkit | `cactor_testkit` | 运行时探针、同步行为测试与故障测试工具 |
-| xstate | `cactor_xstate` | 状态机 |
+| xstate | `cactor_xstate` | 状态机（实验性，已冻结，待 E51 移除；新代码用 `@StateMachine`） |
 | platform | `cactor_platform` | 平台原语：受监督执行（SupervisedCall）、可睡眠会话（SleepableActor）、按 sessionId 寻址（SessionRegistry）、持久流（DurableStreams）、无状态 Edge 接入（EdgeRouter）、MCP server（McpServer）、按 actor 授权（AuthGate）、Party/Matchmaker/共享 KV |
 | tests | `cactor_tests` | 单元测试与集成测试 |
 | examples | `cactor_examples` | 示例程序 |
@@ -436,20 +435,20 @@ cactor → streams / xstate / platform / testkit
 | [advanced_mailbox_examples](modules/examples/src/advanced_mailbox_examples/main.cj) | 不同 mailbox 实现 |
 | [advanced_dispatcher_examples](modules/examples/src/advanced_dispatcher_examples/main.cj) | 不同 dispatcher 实现 |
 | [streams_demo](modules/examples/src/streams_demo/main.cj) | 背压流 |
-| [xstate_demo](modules/examples/src/xstate_demo) | 状态机（实验性） |
+| [xstate_demo](modules/examples/src/xstate_demo) | 状态机（实验性，已冻结；新代码参考 `dsl_state_machine`） |
 | [dsl_showcase](modules/examples/src/dsl_showcase/main.cj) | DSL 与经典 Actor 的对照示例 |
 | [llm_http_demo](modules/examples/src/llm_http_demo/main.cj) | 本地 HTTP SSE、持久会话恢复续聊、取消停滞读取 |
 | [agent_orchestration_demo](modules/examples/src/agent_orchestration_demo/main.cj) | 多 Agent 编排、重试、取消、持久化与流式进度 |
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
-### 真实应用示例（`ex01`–`ex43`）
+### 真实应用示例（`ex01`–`ex52`）
 
-这四十三个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+这五十二个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
 设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)，
 与 Akka / protoactor-go 官方示例的逐项对照见
 [docs/plan/20261117-porting-akka-protoactor.md](docs/plan/20261117-porting-akka-protoactor.md)。
-HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex43` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
+HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex52` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
 
 | 示例 | 内容 | 压到的能力 |
 |------|------|------|
@@ -496,6 +495,15 @@ HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–
 | [ex41_durable_subscriber](modules/examples/src/ex41_durable_subscriber/main.cj) | 持久订阅（差距 4.8）：离线期间消息不丢、重连按序补齐、游标落盘重启不重复消费、处理失败不推进游标、SSE 先补历史再接实时 | `DurableTopic`、`DurableSubscription`（新增） |
 | [ex42_agent_swarm](modules/examples/src/ex42_agent_swarm/main.cj) | 多 Agent 协作编排（§31 首选）：审批点暂停、崩溃续跑、工具幂等、预算失败、trace 根+步骤 span、SSE 事件回看 | `DurableStateStore`、`DurableTopic`、`AtLeastOnce` 思想、`SpanRecord/toOtlpJson`、Lou |
 | [ex43_inference_gateway](modules/examples/src/ex43_inference_gateway/main.cj) | 多租户推理网关（§31 第 2 项）：配额 429、上游故障转移、断路器打开、计费幂等、SSE 逐 token、Prometheus 指标 | `BasicCircuitBreaker`、`AtLeastOnceDelivery`、`FileDurableStateStore`、Lou |
+| [ex44_agent_memory](modules/examples/src/ex44_agent_memory/main.cj) | Agent 记忆与画像（§31 第 3 项）：v1/v2/当前混合 schema、时间线与画像双读模型、全量重建、幂等写入、变更流离线补齐、租户隔离 | `Projection`、`EventAdapter.upcast`、`DurableTopic`、`IdempotentReceiver`、Lou |
+| [ex45_edge_twin](modules/examples/src/ex45_edge_twin/main.cj) | 边缘-云数字孪生（§31 第 4 项）：离线写、CRDT 双向收敛、墓碑防复活、能力 add-wins、持久化欠账缓冲 | `LWWMap`、`ORMap`、`DurableTopic`、Lou |
+| [ex46_live_lakehouse](modules/examples/src/ex46_live_lakehouse/main.cj) | CDC 到实时数仓（§31 第 5 项）：v1/v2/v3 混合 schema、快慢双 sink、慢消费者有界丢弃、离线补齐、全量回填、位点/滞后 | `DurableTopic`、`EventAdapter.upcast`、Lou |
+| [ex47_grain_reminder](modules/examples/src/ex47_grain_reminder/main.cj) | Grain 提醒（差距 4.7，对标 Orleans reminder）：到期投递到当前激活、一次性确认后不重复、可取消、跨进程持久化 | `Grains.withReminders`、`registerReminder/cancelReminder`、`Grain.onReminder`（新增） |
+| [ex48_metrics_endpoint](modules/examples/src/ex48_metrics_endpoint/main.cj) | 统一指标端点（差距 4.10）：运行时 + 集群 + 应用三段一次渲染，段落无重复换行，Lou `/metrics` 直接输出 | `MetricsExporter`（新增）、`ClusterMetrics`、Lou |
+| [ex49_shard_state](modules/examples/src/ex49_shard_state/main.cj) | 分片协调状态持久化（差距 4.4）：手动再平衡覆盖落盘，整集群重启后仍生效，无存储时不回退 | `ShardingSettings.withStateStore`、`loadedOverrideOf`、Lou |
+| [ex50_trace_chain](modules/examples/src/ex50_trace_chain/main.cj) | 本地 Actor 链路 trace 自动传播（差距 4.10 剩余部分）：三跳共享 traceId、span 各不相同、无作用域不产生 traceId | runtime 自动 `TracedMessage` 包装、`Mdc.currentTraceParent`（新增）、Lou |
+| [ex51_durable_pubsub](modules/examples/src/ex51_durable_pubsub/main.cj) | 持久发布订阅（差距 4.8 剩余部分）：离线只进日志、回放补齐、游标不重复、在线扇出与落日志并存 | `DistributedPubSub.withDurableLog`、`replayDurable`、`DurableTopic.replay`（新增）、Lou |
+| [ex52_iot_devices](modules/examples/src/ex52_iot_devices/main.cj) | IoT 设备管理（对标 Akka 官方 IoT 示例）：组→设备层级、重复注册拒绝、组内读数聚合、空组语义 | 类型化 Actor 层级（`TypedBehaviors.setup` + `ctx.actorOf`）、`TypedAsk`、Lou |
 
 ---
 

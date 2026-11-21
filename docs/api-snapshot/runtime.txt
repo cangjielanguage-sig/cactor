@@ -324,9 +324,9 @@ cactor_runtime :: CActorRuntime.public func getActorRegistry(): SimpleActorRegis
 cactor_runtime :: CActorRuntime.public func getActorSystem(): ActorSystem
 cactor_runtime :: CActorRuntime.public func getConfig(): CActorRuntimeConfig
 cactor_runtime :: CActorRuntime.public func getCoordinatedShutdown(): CoordinatedShutdown
-cactor_runtime :: CActorRuntime.public func getHighPerformanceSystem(): HighPerformanceActorSystem
 cactor_runtime :: CActorRuntime.public func getLifecycleManager(): ActorLifecycleManager
 cactor_runtime :: CActorRuntime.public func getRuntimeStats(): CActorRuntimeStats
+cactor_runtime :: CActorRuntime.public func getSettings(): ActorSystemSettings
 cactor_runtime :: CActorRuntime.public func getSystemGuardian(): RuntimeSystemGuardian
 cactor_runtime :: CActorRuntime.public func getSystemName(): String
 cactor_runtime :: CActorRuntime.public func getUserGuardian(): RuntimeUserGuardian
@@ -339,10 +339,12 @@ cactor_runtime :: CActorRuntime.public func resumeActor(actorRef: ActorRef): Uni
 cactor_runtime :: CActorRuntime.public func scheduler(): ActorScheduler
 cactor_runtime :: CActorRuntime.public func shutdown(): Unit
 cactor_runtime :: CActorRuntime.public func start(): Unit
+cactor_runtime :: CActorRuntime.public func startTimeMillis(): Int64
 cactor_runtime :: CActorRuntime.public func stop(actorRef: ActorRef): Unit
 cactor_runtime :: CActorRuntime.public func stopActor(actorRef: ActorRef): Unit
 cactor_runtime :: CActorRuntime.public func subscribeDeadLetters(listener: (Message, String)->Unit): Unit
 cactor_runtime :: CActorRuntime.public func unhandledCount(): Int64
+cactor_runtime :: CActorRuntime.public init(settings: ActorSystemSettings)
 cactor_runtime :: CActorRuntime.public init(systemName: String, config: CActorRuntimeConfig)
 cactor_runtime :: CActorRuntimeConfig.public func effectiveActorLimit(): Int64
 cactor_runtime :: CActorRuntimeConfig.public func getDescription(): String
@@ -387,9 +389,11 @@ cactor_runtime :: RuntimeActorSystem.public func actorOf(props: Props<Actor>): A
 cactor_runtime :: RuntimeActorSystem.public func actorOf(props: Props<Actor>, name: String): ActorRef
 cactor_runtime :: RuntimeActorSystem.public func actorSelection(path: String): ActorSelection
 cactor_runtime :: RuntimeActorSystem.public func isTerminated(): Bool
+cactor_runtime :: RuntimeActorSystem.public func settings(): ActorSystemSettings
 cactor_runtime :: RuntimeActorSystem.public func terminate(): Unit
 cactor_runtime :: RuntimeActorSystem.public init(name: String)
 cactor_runtime :: RuntimeActorSystem.public init(name: String, config: CActorRuntimeConfig)
+cactor_runtime :: RuntimeActorSystem.public init(settings: ActorSystemSettings)
 cactor_runtime :: RuntimeActorSystem.public prop name: String
 cactor_runtime :: extend CActorRuntime.public func prometheusMetrics(): String
 cactor_runtime :: extend CActorRuntime.public func prometheusMetrics(perActor: Bool): String
@@ -607,25 +611,6 @@ cactor_runtime.system :: DispatcherStats.public func getThroughput(): Float64
 cactor_runtime.system :: DispatcherStats.public init(processedMessages: Int64, averageLatency: Float64)
 cactor_runtime.system :: DispatcherStats.public let averageLatency: Float64
 cactor_runtime.system :: DispatcherStats.public let processedMessages: Int64
-cactor_runtime.system :: HighPerformanceActorRef.public func equals(other: ActorRef): Bool
-cactor_runtime.system :: HighPerformanceActorRef.public func getStateValue(): Int64
-cactor_runtime.system :: HighPerformanceActorRef.public func getStats(): ActorStats
-cactor_runtime.system :: HighPerformanceActorRef.public func hashCode(): Int32
-cactor_runtime.system :: HighPerformanceActorRef.public func processBatch(batchSize: Int32): Int32
-cactor_runtime.system :: HighPerformanceActorRef.public func tell(message: Message): Unit
-cactor_runtime.system :: HighPerformanceActorRef.public func tell(message: Message, sender: Option<String>): Unit
-cactor_runtime.system :: HighPerformanceActorRef.public init(actorId: String, actor: HighPerformanceActor, system: HighPerformanceActorSystem)
-cactor_runtime.system :: HighPerformanceActorRef.public prop path: ActorPath
-cactor_runtime.system :: HighPerformanceActorSystem.public func createActor(actorId: String, behavior: HighPerformanceActorBehavior): Option<HighPerformanceActorRef>
-cactor_runtime.system :: HighPerformanceActorSystem.public func getActor(actorId: String): Option<HighPerformanceActorRef>
-cactor_runtime.system :: HighPerformanceActorSystem.public func getConfig(): HighPerformanceActorSystemConfig
-cactor_runtime.system :: HighPerformanceActorSystem.public func getSystemStats(): SystemStats
-cactor_runtime.system :: HighPerformanceActorSystem.public func removeActor(actorId: String): Bool
-cactor_runtime.system :: HighPerformanceActorSystem.public func sendMessage(actorId: String, message: Message): Bool
-cactor_runtime.system :: HighPerformanceActorSystem.public func sendMessageBatch(messages: Array<(String, Message)>): Int32
-cactor_runtime.system :: HighPerformanceActorSystem.public func shutdown(): Unit
-cactor_runtime.system :: HighPerformanceActorSystem.public func start(): Unit
-cactor_runtime.system :: HighPerformanceActorSystem.public init(config: HighPerformanceActorSystemConfig)
 cactor_runtime.system :: HighPerformanceActorSystemConfig.public init(maxActors: Int64, contextPoolSize: Int64, workerThreads: Int32, mailboxCapacity: Int64, enableBatchProcessing: Bool, batchSize: Int32, enableMemoryOptimization: Bool, enablePerformanceMonitoring: Bool)
 cactor_runtime.system :: HighPerformanceActorSystemConfig.public let batchSize: Int32
 cactor_runtime.system :: HighPerformanceActorSystemConfig.public let contextPoolSize: Int64
@@ -649,39 +634,6 @@ cactor_runtime.system :: MonitorStats.public let actorsDestroyed: Int64
 cactor_runtime.system :: MonitorStats.public let messagesFailed: Int64
 cactor_runtime.system :: MonitorStats.public let messagesSent: Int64
 cactor_runtime.system :: MonitorStats.public let uptime: Int64
-cactor_runtime.system :: SimpleActorContext.public func sender(): Option<String>
-cactor_runtime.system :: SimpleActorContext.public init(self: ActorRef)
-cactor_runtime.system :: SimpleActorContext.public init(self: ActorRef, sender: Option<String>)
-cactor_runtime.system :: SimpleActorRef.public func equals(other: ActorRef): Bool
-cactor_runtime.system :: SimpleActorRef.public func getActor(): Actor
-cactor_runtime.system :: SimpleActorRef.public func getMailbox(): Mailbox
-cactor_runtime.system :: SimpleActorRef.public func getMailboxStats(): String
-cactor_runtime.system :: SimpleActorRef.public func hashCode(): Int32
-cactor_runtime.system :: SimpleActorRef.public func tell(message: Message): Unit
-cactor_runtime.system :: SimpleActorRef.public func tell(message: Message, sender: Option<String>): Unit
-cactor_runtime.system :: SimpleActorRef.public init(name: String, actor: Actor, mailbox: Mailbox, system: SimpleActorSystem)
-cactor_runtime.system :: SimpleActorRef.public prop path: ActorPath
-cactor_runtime.system :: SimpleActorSelection.public func ask(message: Message): SimpleFuture<Message>
-cactor_runtime.system :: SimpleActorSelection.public func resolveOne(): SimpleFuture<ActorRef>
-cactor_runtime.system :: SimpleActorSelection.public func tell(message: Message): Unit
-cactor_runtime.system :: SimpleActorSelection.public init(path: String, system: SimpleActorSystem)
-cactor_runtime.system :: SimpleActorSystem.public func actorOf(props: Props<Actor>): ActorRef
-cactor_runtime.system :: SimpleActorSystem.public func actorOf(props: Props<Actor>, name: String): ActorRef
-cactor_runtime.system :: SimpleActorSystem.public func actorSelection(path: String): ActorSelection
-cactor_runtime.system :: SimpleActorSystem.public func getActor(name: String): Option<ActorRef>
-cactor_runtime.system :: SimpleActorSystem.public func getName(): String
-cactor_runtime.system :: SimpleActorSystem.public func isTerminated(): Bool
-cactor_runtime.system :: SimpleActorSystem.public func terminate(): Unit
-cactor_runtime.system :: SimpleActorSystem.public init(name: String)
-cactor_runtime.system :: SimpleActorSystem.public prop name: String
-cactor_runtime.system :: SystemPerformanceMonitor.public func getStats(): MonitorStats
-cactor_runtime.system :: SystemPerformanceMonitor.public func recordActorCreated(): Unit
-cactor_runtime.system :: SystemPerformanceMonitor.public func recordActorDestroyed(): Unit
-cactor_runtime.system :: SystemPerformanceMonitor.public func recordMessageFailed(): Unit
-cactor_runtime.system :: SystemPerformanceMonitor.public func recordMessageSent(): Unit
-cactor_runtime.system :: SystemPerformanceMonitor.public func start(): Unit
-cactor_runtime.system :: SystemPerformanceMonitor.public func stop(): Unit
-cactor_runtime.system :: SystemPerformanceMonitor.public init(enabled: Bool)
 cactor_runtime.system :: SystemStats.public func printReport(): Unit
 cactor_runtime.system :: SystemStats.public init(actorCount: Int64, messageCount: Int64, isRunning: Bool, poolStats: PoolStats, dispatcherStats: DispatcherStats, monitorStats: MonitorStats)
 cactor_runtime.system :: SystemStats.public let actorCount: Int64
@@ -690,13 +642,6 @@ cactor_runtime.system :: SystemStats.public let isRunning: Bool
 cactor_runtime.system :: SystemStats.public let messageCount: Int64
 cactor_runtime.system :: SystemStats.public let monitorStats: MonitorStats
 cactor_runtime.system :: SystemStats.public let poolStats: PoolStats
-cactor_runtime.system :: public class HighPerformanceActorRef <: ActorRef
-cactor_runtime.system :: public class HighPerformanceActorSystem
-cactor_runtime.system :: public class SimpleActorContext <: ActorContext
-cactor_runtime.system :: public class SimpleActorRef <: ActorRef
-cactor_runtime.system :: public class SimpleActorSelection <: ActorSelection
-cactor_runtime.system :: public class SimpleActorSystem <: ActorSystem
-cactor_runtime.system :: public class SystemPerformanceMonitor
 cactor_runtime.system :: public struct DispatcherStats
 cactor_runtime.system :: public struct HighPerformanceActorSystemConfig
 cactor_runtime.system :: public struct MonitorStats

@@ -253,9 +253,11 @@ cactor_foundation.config :: public struct ConfigValue
 cactor_foundation.config :: public struct GlobalConfigManager
 cactor_foundation.coordination :: AbstractLease.public func acquire(onLost: (Option<Exception>)->Unit): Bool
 cactor_foundation.coordination :: AbstractLease.public func checkLease(): Bool
+cactor_foundation.coordination :: AbstractLease.public func expiredCount(): Int64
 cactor_foundation.coordination :: AbstractLease.public func fencingToken(): Option<Int64>
 cactor_foundation.coordination :: AbstractLease.public func lostCount(): Int64
 cactor_foundation.coordination :: AbstractLease.public func release(): Bool
+cactor_foundation.coordination :: AbstractLease.public func revokedCount(): Int64
 cactor_foundation.coordination :: AbstractLease.public prop settings: LeaseSettings
 cactor_foundation.coordination :: InMemoryLease.public init(store: InMemoryLeaseStore, settings: LeaseSettings)
 cactor_foundation.coordination :: InMemoryLeaseStore.public func deniedCount(name: String): Int64
@@ -274,6 +276,12 @@ cactor_foundation.coordination :: Lease.func fencingToken(): Option<Int64>
 cactor_foundation.coordination :: Lease.func release(): Bool
 cactor_foundation.coordination :: Lease.prop settings: LeaseSettings
 cactor_foundation.coordination :: LeaseException.public init(message: String)
+cactor_foundation.coordination :: LeaseLostException.public init(reason: LeaseLostReason, message: String)
+cactor_foundation.coordination :: LeaseLostException.public let reason: LeaseLostReason
+cactor_foundation.coordination :: LeaseLostReason.public func toString(): String
+cactor_foundation.coordination :: LeaseLostReason.| Backend
+cactor_foundation.coordination :: LeaseLostReason.| Expired
+cactor_foundation.coordination :: LeaseLostReason.| Revoked
 cactor_foundation.coordination :: LeaseSettings.public func validityMillis(): Int64
 cactor_foundation.coordination :: LeaseSettings.public func withClockSkewMargin(d: Duration): LeaseSettings
 cactor_foundation.coordination :: LeaseSettings.public func withHeartbeatInterval(d: Duration): LeaseSettings
@@ -290,8 +298,10 @@ cactor_foundation.coordination :: LeaseSettings.public let ttl: Duration
 cactor_foundation.coordination :: public abstract class AbstractLease <: Lease
 cactor_foundation.coordination :: public class InMemoryLease <: AbstractLease
 cactor_foundation.coordination :: public class InMemoryLeaseStore
-cactor_foundation.coordination :: public class LeaseException <: Exception
+cactor_foundation.coordination :: public class LeaseLostException <: LeaseException
+cactor_foundation.coordination :: public enum LeaseLostReason <: ToString
 cactor_foundation.coordination :: public interface Lease
+cactor_foundation.coordination :: public open class LeaseException <: Exception
 cactor_foundation.coordination :: public struct LeaseSettings
 cactor_foundation.detector :: FailureDetectorRegistry.public func heartbeat(node: String): Unit
 cactor_foundation.detector :: FailureDetectorRegistry.public func isAvailable(node: String): Bool
@@ -380,6 +390,7 @@ cactor_foundation.logging :: Logging.public static func logger(source: String): 
 cactor_foundation.logging :: Logging.public static func setLevel(level: LogLevel): Unit
 cactor_foundation.logging :: Logging.public static func setSink(newSink: LogSink): Unit
 cactor_foundation.logging :: Mdc.public static func clear(): Unit
+cactor_foundation.logging :: Mdc.public static func currentTraceParent(): Option<String>
 cactor_foundation.logging :: Mdc.public static func get(): Array<(String, String)>
 cactor_foundation.logging :: Mdc.public static func get(key: String): Option<String>
 cactor_foundation.logging :: Mdc.public static func put(key: String, value: String): Unit
@@ -846,6 +857,7 @@ cactor_foundation.network :: NetworkPacket.public let sender: Option<String>
 cactor_foundation.network :: NetworkPacket.public let targetAddress: String
 cactor_foundation.network :: NetworkTransport.func closeInboundFrom(peerKey: String): Int64
 cactor_foundation.network :: NetworkTransport.func getLocalAddress(): NetworkAddress
+cactor_foundation.network :: NetworkTransport.func goAwaySentCount(): Int64
 cactor_foundation.network :: NetworkTransport.func isActive(): Bool
 cactor_foundation.network :: NetworkTransport.func rejectedConnectionCount(): Int64
 cactor_foundation.network :: NetworkTransport.func resetOutbound(address: NetworkAddress): Unit
@@ -854,6 +866,7 @@ cactor_foundation.network :: NetworkTransport.func send(address: NetworkAddress,
 cactor_foundation.network :: NetworkTransport.func sendPriority(address: NetworkAddress, data: Array<UInt8>): Unit
 cactor_foundation.network :: NetworkTransport.func setDataHandler(handler: (Array<UInt8>)->Unit): Unit
 cactor_foundation.network :: NetworkTransport.func setHandshake(handshake: TransportHandshake): Unit
+cactor_foundation.network :: NetworkTransport.func setMaxFrameBytes(maxBytes: Int64): Unit
 cactor_foundation.network :: NetworkTransport.func setSecurity(security: TransportSecurity): Unit
 cactor_foundation.network :: NetworkTransport.func start(): Unit
 cactor_foundation.network :: NetworkTransport.func stop(): Unit
@@ -878,6 +891,7 @@ cactor_foundation.network :: TcpTransport.public func getRejectedHandshakes(): I
 cactor_foundation.network :: TcpTransport.public func getSecuredConnections(): Int64
 cactor_foundation.network :: TcpTransport.public func getSendFailures(): Int64
 cactor_foundation.network :: TcpTransport.public func getSocketWrites(): Int64
+cactor_foundation.network :: TcpTransport.public func goAwaySentCount(): Int64
 cactor_foundation.network :: TcpTransport.public func isActive(): Bool
 cactor_foundation.network :: TcpTransport.public func rejectedConnectionCount(): Int64
 cactor_foundation.network :: TcpTransport.public func resetOutbound(address: NetworkAddress): Unit
@@ -886,6 +900,7 @@ cactor_foundation.network :: TcpTransport.public func send(address: NetworkAddre
 cactor_foundation.network :: TcpTransport.public func sendPriority(address: NetworkAddress, data: Array<UInt8>): Unit
 cactor_foundation.network :: TcpTransport.public func setDataHandler(handler: (Array<UInt8>)->Unit): Unit
 cactor_foundation.network :: TcpTransport.public func setHandshake(handshake: TransportHandshake): Unit
+cactor_foundation.network :: TcpTransport.public func setMaxFrameBytes(maxBytes: Int64): Unit
 cactor_foundation.network :: TcpTransport.public func setSecurity(security: TransportSecurity): Unit
 cactor_foundation.network :: TcpTransport.public func start(): Unit
 cactor_foundation.network :: TcpTransport.public func stop(): Unit

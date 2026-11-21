@@ -512,9 +512,12 @@ cactor_core.message :: MessageCodec.func encodeFor(message: Message, peerCapabil
 cactor_core.message :: MessageCodec.func requiredCapabilities(message: Message): UInt64
 cactor_core.message :: MessageCodec.func version(): Int64
 cactor_core.message :: MessageCodecRegistry.public static func get(messageType: String): Option<MessageCodec>
+cactor_core.message :: MessageCodecRegistry.public static func idOf(messageType: String): Option<UInt16>
 cactor_core.message :: MessageCodecRegistry.public static func isRegistered(messageType: String): Bool
+cactor_core.message :: MessageCodecRegistry.public static func nameOfId(id: UInt16): Option<String>
 cactor_core.message :: MessageCodecRegistry.public static func register(messageType: String, codec: MessageCodec): Unit
 cactor_core.message :: MessageCodecRegistry.public static func register(messageType: String, codec: MessageCodec, owner: Object): Unit
+cactor_core.message :: MessageCodecRegistry.public static func typeTable(): Array<(UInt16, String)>
 cactor_core.message :: MessageCodecRegistry.public static func unregister(messageType: String): Unit
 cactor_core.message :: MessageFieldReader.public func isAtEnd(): Bool
 cactor_core.message :: MessageFieldReader.public func readBool(): Bool
@@ -581,14 +584,18 @@ cactor_core.message :: MessageSerializer.public func deserialize(data: Array<UIn
 cactor_core.message :: MessageSerializer.public func getName(): String
 cactor_core.message :: MessageSerializer.public func serialize(message: Message): Array<UInt8>
 cactor_core.message :: MessageSerializer.public func serialize(message: Message, peerCapabilities: UInt64): Array<UInt8>
+cactor_core.message :: MessageSerializer.public func serialize(message: Message, peerCapabilities: UInt64, peerTypeIds: Option<HashMap<String, UInt16>>): Array<UInt8>
 cactor_core.message :: MessageSerializer.public init()
 cactor_core.message :: MessageSerializer.public static func requiredCapabilities(message: Message): UInt64
 cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>)
 cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64)
 cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64, traceParent: Option<String>)
+cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>, messageId: String, timestamp: Int64, traceParent: Option<String>, sourceAddress: Option<String>)
+cactor_core.message :: NetworkMessage.public init(targetActor: String, message: Message, sender: Option<String>, sourceAddress!: Option<String>)
 cactor_core.message :: NetworkMessage.public let message: Message
 cactor_core.message :: NetworkMessage.public let messageId: String
 cactor_core.message :: NetworkMessage.public let sender: Option<String>
+cactor_core.message :: NetworkMessage.public let sourceAddress: Option<String>
 cactor_core.message :: NetworkMessage.public let targetActor: String
 cactor_core.message :: NetworkMessage.public let timestamp: Int64
 cactor_core.message :: NetworkMessage.public let traceParent: Option<String>
@@ -596,6 +603,7 @@ cactor_core.message :: NetworkMessageException.public init(message: String)
 cactor_core.message :: NetworkMessageSerializer.public func deserialize(data: Array<UInt8>): NetworkMessage
 cactor_core.message :: NetworkMessageSerializer.public func serialize(networkMessage: NetworkMessage): Array<UInt8>
 cactor_core.message :: NetworkMessageSerializer.public func serialize(networkMessage: NetworkMessage, peerCapabilities: UInt64): Array<UInt8>
+cactor_core.message :: NetworkMessageSerializer.public func serialize(networkMessage: NetworkMessage, peerCapabilities: UInt64, peerTypeIds: Option<HashMap<String, UInt16>>): Array<UInt8>
 cactor_core.message :: NetworkMessageSerializer.public init()
 cactor_core.message :: NetworkMessageTransport.public func getLocalAddress(): NetworkAddress
 cactor_core.message :: NetworkMessageTransport.public func isActive(): Bool
@@ -656,7 +664,13 @@ cactor_core.message :: WireIncompatibleException.public let messageType: String
 cactor_core.message :: WireIncompatibleException.public let missingCapabilities: UInt64
 cactor_core.message :: WireProtocol.public static func describe(caps: UInt64): String
 cactor_core.message :: WireProtocol.public static func supports(caps: UInt64, required: UInt64): Bool
+cactor_core.message :: WireProtocol.public static let CAP_BACKPRESSURE_METADATA: UInt64
+cactor_core.message :: WireProtocol.public static let CAP_CHUNKING: UInt64
+cactor_core.message :: WireProtocol.public static let CAP_COMPRESSION: UInt64
+cactor_core.message :: WireProtocol.public static let CAP_GOAWAY: UInt64
+cactor_core.message :: WireProtocol.public static let CAP_MAX_FRAME: UInt64
 cactor_core.message :: WireProtocol.public static let CAP_NONE: UInt64
+cactor_core.message :: WireProtocol.public static let CAP_SHORT_TYPE_ID: UInt64
 cactor_core.message :: WireProtocol.public static let CAP_TYPED_CODEC_V3: UInt64
 cactor_core.message :: WireProtocol.public static let CURRENT_VERSION: Int64
 cactor_core.message :: WireProtocol.public static let LEGACY_VERSION: Int64
@@ -927,6 +941,23 @@ cactor_core.system :: ActorSystemMetrics.func getErrorCount(): Int64
 cactor_core.system :: ActorSystemMetrics.func getMailboxSizes(): HashMap<String, Int64>
 cactor_core.system :: ActorSystemMetrics.func getMemoryUsage(): Int64
 cactor_core.system :: ActorSystemMetrics.func getMessageThroughput(): Float64
+cactor_core.system :: ActorSystemSettings.public func extensionFactory(name: String): Option<()->ActorSystemExtension>
+cactor_core.system :: ActorSystemSettings.public func extensionNames(): Array<String>
+cactor_core.system :: ActorSystemSettings.public func withActorMemoryBudget(bytes: Int64): ActorSystemSettings
+cactor_core.system :: ActorSystemSettings.public func withDefaultMailbox(mailbox: String): ActorSystemSettings
+cactor_core.system :: ActorSystemSettings.public func withDispatcherMode(mode: DispatcherMode): ActorSystemSettings
+cactor_core.system :: ActorSystemSettings.public func withExtension(name: String, factory: ()->ActorSystemExtension): ActorSystemSettings
+cactor_core.system :: ActorSystemSettings.public func withMaxActors(n: Int64): ActorSystemSettings
+cactor_core.system :: ActorSystemSettings.public func withName(name: String): ActorSystemSettings
+cactor_core.system :: ActorSystemSettings.public init(name: String)
+cactor_core.system :: ActorSystemSettings.public let actorMemoryBudgetBytes: Int64
+cactor_core.system :: ActorSystemSettings.public let defaultMailbox: String
+cactor_core.system :: ActorSystemSettings.public let dispatcherMode: DispatcherMode
+cactor_core.system :: ActorSystemSettings.public let maxActors: Int64
+cactor_core.system :: ActorSystemSettings.public let name: String
+cactor_core.system :: ActorSystemSettings.public static func default(name: String): ActorSystemSettings
+cactor_core.system :: ActorSystemSettings.public static func highThroughput(name: String): ActorSystemSettings
+cactor_core.system :: ActorSystemSettings.public static func lowLatency(name: String): ActorSystemSettings
 cactor_core.system :: Cancellable.func cancel(): Bool
 cactor_core.system :: Cancellable.func isCancelled(): Bool
 cactor_core.system :: ClusterConfig.public init(enabled: Bool, seedNodes: Array<String>, port: Int32)
@@ -940,18 +971,6 @@ cactor_core.system :: DispatcherConfig.public let dispatcherTypes: HashMap<Strin
 cactor_core.system :: DispatcherConfig.public let parallelism: Int32
 cactor_core.system :: DispatcherConfig.public let throughput: Int32
 cactor_core.system :: DispatcherConfig.public static func default(): DispatcherConfig
-cactor_core.system :: EnterpriseActorSystem.func getConfig(): ActorSystemConfig
-cactor_core.system :: EnterpriseActorSystem.func getEventBus(): EventBus
-cactor_core.system :: EnterpriseActorSystem.func getExtension(extensionName: String): Option<ActorSystemExtension>
-cactor_core.system :: EnterpriseActorSystem.func getMetrics(): ActorSystemMetrics
-cactor_core.system :: EnterpriseActorSystem.func getStartTime(): DateTime
-cactor_core.system :: EnterpriseActorSystem.func getSystemGuardian(): ActorRef
-cactor_core.system :: EnterpriseActorSystem.func getUptime(): Duration
-cactor_core.system :: EnterpriseActorSystem.func getUserGuardian(): ActorRef
-cactor_core.system :: EnterpriseActorSystem.func registerExtension(extension: ActorSystemExtension): Unit
-cactor_core.system :: EnterpriseActorSystem.func terminate(timeout: Duration): SimpleFuture<Unit>
-cactor_core.system :: EnterpriseActorSystem.func updateConfig(config: ActorSystemConfig): Unit
-cactor_core.system :: EnterpriseActorSystem.func whenTerminated(): SimpleFuture<Unit>
 cactor_core.system :: Event.func getEventData(): String
 cactor_core.system :: Event.func getEventType(): String
 cactor_core.system :: Event.func getTimestamp(): DateTime
@@ -987,12 +1006,12 @@ cactor_core.system :: public interface ActorSystem
 cactor_core.system :: public interface ActorSystemExtension
 cactor_core.system :: public interface ActorSystemMetrics
 cactor_core.system :: public interface Cancellable
-cactor_core.system :: public interface EnterpriseActorSystem <: ActorSystem
 cactor_core.system :: public interface Event
 cactor_core.system :: public interface EventBus
 cactor_core.system :: public interface Scheduler
 cactor_core.system :: public interface SimpleFuture<T>
 cactor_core.system :: public struct ActorSystemConfig
+cactor_core.system :: public struct ActorSystemSettings
 cactor_core.system :: public struct ClusterConfig
 cactor_core.system :: public struct DispatcherConfig
 cactor_core.system :: public struct MailboxConfig
