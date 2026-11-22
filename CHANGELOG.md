@@ -7,6 +7,16 @@
 
 ## [未发布]
 
+### ✨ 新增：分片协调状态全量归属持久化（差距 4.4 收尾）
+
+- 区域启动时从 `DurableStateStore` 恢复"分片 -> 宿主"全量映射（`shard-assignments-<type>`）；
+- `ownerOfShard` 优先级：手动覆盖 > 已持久化且仍在视图的宿主 > 分配策略；
+  宿主已离开集群时自动回退，不会卡在失效映射上；
+- 仅集群领导者写回（内容不变则不写），非领导者只读，避免多节点反复覆盖；
+- `ClusterSharding.assignmentKey / loadedAssignmentOf / loadedAssignmentCount` 可观测；
+- 示例 `ex63_shard_assignment`、测试 `ShardingStateTest.persistedAssignmentKeepsHostsAcrossRestart`
+  与 `staleAssignmentFallsBackToAllocation`：9/1 预置严格生效、失效宿主回退。
+
 ### ✨ 新增：ex62 分片角色动态可用性 + 无宿主告警
 
 - `ShardingSettings.withRole` 过滤后若没有任何可托管成员，区域只告警一次（恢复后重置），
@@ -19,7 +29,7 @@
 
 - 新增 `SleepBenchTest`（默认小 N 冒烟、不因负载误判红）与 `tools/sleep_bench.sh`
   （`CACTOR_SLEEP_BENCH_STRICT=1` 严格断言唤醒 p99 ≤10ms）；
-- 共享机器 N=200 实测唤醒 p50≈0.6–1.1ms、p99≈16–21ms，p99 达标需空闲机器复测；
+- 共享机器 N=200 多次实测唤醒 P99≈15–21ms（负载≈34 时 P50≈14ms/P99≈15ms），p99 达标需空闲机器复测；
 - 睡着内存用全局堆差在共享机器上被 GC 保留区/线程栈淹没（小 N 实测 59–100KB/个，非真实占用），
   仅打印参考值；≤200B 目标需分配器级测量或堆分析后再断言。
 

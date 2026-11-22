@@ -382,3 +382,6 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.ex62_shard_role_join"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex63_shard_assignment"]
+output-type = "executable"

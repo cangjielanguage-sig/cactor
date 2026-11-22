@@ -514,6 +514,7 @@ HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–
 | [ex60_graph_balance_zip](modules/examples/src/ex60_graph_balance_zip/main.cj) | 流负载均衡与配对（对标 Akka Balance/Zip）：元素只处理一次且分布均衡、两路按位置配对、长度不等按短侧结束 | `GraphDSL.balance`、`GraphDSL.zip`（新增）、Lou |
 | [ex61_stream_actor_fanout](modules/examples/src/ex61_stream_actor_fanout/main.cj) | 流扇出到 Actor（对标 Akka Sink.actorRef）：一份事件驱动审计/指标/归档三个 Actor，各自状态独立且计数一致 | `GraphDSL.broadcast` + `Sinks.foreach` + 经典 Actor、Lou |
 | [ex62_shard_role_join](modules/examples/src/ex62_shard_role_join/main.cj) | 分片角色的动态可用性：只有网关时消息缓冲不丢，worker 加入后自动排空；网关始终不托管 | `ShardingSettings.withRole`、`ClusterSharding.stats/ownerCount`、无宿主告警（新增）、Lou |
+| [ex63_shard_assignment](modules/examples/src/ex63_shard_assignment/main.cj) | 分片协调状态（全量归属）恢复（差距 4.4 收尾）：预置 10 分片 9/1，两个区域都加载并按存储托管 | `ShardingSettings.withStateStore`、`ClusterSharding.assignmentKey/loadedAssignmentOf`（新增）、Lou |
 
 ---
 

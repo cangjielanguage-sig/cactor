@@ -96,6 +96,70 @@ public class ShardingStateTest {
     }
 
     @TestCase
+    public func persistedAssignmentKeepsHostsAcrossRestart(): Unit {
+        let store = MemoryDurableStateStore()
+        let nodes = startCluster(2, "shard-assign", FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 2) }), true)
+        let n0 = nodes[0].address()
+        let n1 = nodes[1].address()
+        // 预置归属：0..8 给 node0、9 给 node1（与 rendezvous 的分布刻意不同）
+        let sb = StringBuilder()
+        for (sh in 0..9) {
+            sb.append("${sh}|${n0}\n")
+        }
+        sb.append("9|${n1}\n")
+        let key = ClusterSharding.assignmentKey("assigned-counter")
+        store.upsert(key, store.revisionOf(key) + 1, sb.toString())
+
+        let r0 = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "assigned-counter", 10,
+            { id => StateEntity(id) }, stateSettings(store))
+        let r1 = ClusterSharding(nodes[1].cluster, nodes[1].kit.system, nodes[1].remote, "assigned-counter", 10,
+            { id => StateEntity(id) }, stateSettings(store))
+        try {
+            // 两个区域都在启动时恢复了全量归属
+            @Expect(awaitCondition(CLUSTER_WAIT, { =>
+                r0.loadedAssignmentCount() == 10 && r1.loadedAssignmentCount() == 10
+            }), true)
+            @Expect(r0.loadedAssignmentOf(0), Some(n0))
+            @Expect(r0.loadedAssignmentOf(9), Some(n1))
+            @Expect(r1.loadedAssignmentOf(9), Some(n1))
+            // 实际托管按存储里的归属：9 / 1，而不是 rendezvous 的近似均分
+            @Expect(awaitCondition(CLUSTER_WAIT, { =>
+                let (h0, a0, _) = r0.shardStats()
+                let (h1, a1, _) = r1.shardStats()
+                h0 == 9 && h1 == 1 && a0 == 0 && a1 == 0
+            }), true)
+        } finally {
+            r0.stop()
+            r1.stop()
+            closeAll(nodes)
+        }
+    }
+
+    @TestCase
+    public func staleAssignmentFallsBackToAllocation(): Unit {
+        let store = MemoryDurableStateStore()
+        let nodes = startCluster(1, "shard-stale", FAST)
+        @Expect(awaitCondition(CLUSTER_WAIT, { => allUp(nodes, 1) }), true)
+        // 预置一个不存在的宿主：加载成功但托管必须回退到分配策略，不能卡住
+        let key = ClusterSharding.assignmentKey("stale-counter")
+        store.upsert(key, store.revisionOf(key) + 1, "0|127.0.0.1:1\n")
+        let region = ClusterSharding(nodes[0].cluster, nodes[0].kit.system, nodes[0].remote, "stale-counter", 4,
+            { id => StateEntity(id) }, stateSettings(store))
+        try {
+            // 加载过归属（随后领导者会按实际视图重写，所以只断言"加载非空"）
+            @Expect(awaitCondition(CLUSTER_WAIT, { => region.loadedAssignmentCount() >= 1 }), true)
+            @Expect(awaitCondition(CLUSTER_WAIT, { =>
+                let (h, a, _) = region.shardStats()
+                h == 4 && a == 0
+            }), true)
+        } finally {
+            region.stop()
+            closeAll(nodes)
+        }
+    }
+
+    @TestCase
     public func withoutStateStoreOverridesAreOnlyInMemory(): Unit {
         let nodes = startCluster(1, "shard-state-volatile", FAST)
         let n = nodes[0]

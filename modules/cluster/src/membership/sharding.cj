@@ -691,6 +691,8 @@ class RegionShared {
     let shardCounts = HashMap<Int64, Int64>()
     // 持久化的放置覆盖（区域启动时从 store 恢复；也在运行中随手动再平衡更新）
     let placementOverridesLoaded = HashMap<Int64, String>()
+    // 持久化的全量分片归属（协调状态，启动时从 store 恢复；领导者负责写回）
+    let assignmentLoaded = HashMap<Int64, String>()
     // ---- 按分片租约（DA4）：区域线程维护、管理端点读取 ----
     let leaseHeldTokens = HashMap<Int64, Int64>()
     // 等租约的分片 -> 开始等待的单调时刻
@@ -850,6 +852,9 @@ class ShardRegionActor <: Actor {
     let yielded = HashMap<Int64, String>()
     // 手动/自动再平衡的归属覆盖：分片号 -> 拥有者地址（优先于 rendezvous 哈希）
     let placementOverrides = HashMap<Int64, String>()
+    // 全量分片归属（协调状态）：启动时从存储恢复，只有领导者写回；宿主不在视图时回退到分配策略
+    let persistedOwners = HashMap<Int64, String>()
+    var assignmentSignature = ""
     // 其他成员上报的负载：节点地址 -> (分片号 -> 实体数)，以及各报告的时刻（过期即丢弃）
     let peerLoads = HashMap<String, HashMap<Int64, Int64>>()
     let peerLoadAt = HashMap<String, Int64>()
@@ -906,6 +911,7 @@ class ShardRegionActor <: Actor {
     public func onStarted(context: ActorContext): Unit {
         selfRef = Some(context.self)
         loadPlacementOverrides()
+        loadAssignments()
         context.timers.startTimerWithFixedDelay("tick", RegionTick(), Duration.millisecond * 50)
     }
 
@@ -956,6 +962,95 @@ class ShardRegionActor <: Actor {
                     log.warn("${selfAddress} 持久化分片放置覆盖失败：${e}")
                 }
             case None => ()
+        }
+    }
+
+    /** 全量归属的存储键（同一实体类型共享；测试/运维可直接读写） */
+    private func assignmentKey(): String {
+        ClusterSharding.assignmentKey(typeName)
+    }
+
+    /** 启动时恢复全量分片归属；宿主已不在视图的条目在 ownerOfShard 里自然回退到分配策略 */
+    private func loadAssignments(): Unit {
+        match (settings.stateStore()) {
+            case Some(store) =>
+                match (store.get(assignmentKey())) {
+                    case Some(r) =>
+                        for (line in r.state.split("\n")) {
+                            if (line.isEmpty()) {
+                                continue
+                            }
+                            let parts = line.split("|")
+                            if (parts.size == 2) {
+                                match (Int64.tryParse(parts[0])) {
+                                    case Some(sh) =>
+                                        persistedOwners[sh] = parts[1]
+                                        synchronized(shared.lock) {
+                                            shared.assignmentLoaded[sh] = parts[1]
+                                        }
+                                    case None => ()
+                                }
+                            }
+                        }
+                        log.info("${selfAddress} 恢复 ${typeName} 分片归属 ${persistedOwners.size} 条")
+                    case None => ()
+                }
+            case None => ()
+        }
+    }
+
+    /**
+     * 领导者把当前"分片 -> 宿主"整体写回存储（内容不变则不写）。非领导者只读，
+     * 避免同一份映射被多节点反复覆盖；宿主离开后 ownerOfShard 会回退到分配策略，下一次写入即修正。
+     */
+    private func maybePersistAssignments(): Unit {
+        let store = match (settings.stateStore()) {
+            case Some(s) => s
+            case None => return
+        }
+        if (cluster.state().leader != Some(selfAddress)) {
+            return
+        }
+        if (view.isNone()) {
+            return
+        }
+        let sb = StringBuilder()
+        for (sh in 0..numberOfShards) {
+            match (ownerOfShard(sh)) {
+                case Some(a) => sb.append("${sh}|${a}\n")
+                case None => ()
+            }
+        }
+        let payload = sb.toString()
+        if (payload == assignmentSignature) {
+            return
+        }
+        assignmentSignature = payload
+        try {
+            store.upsert(assignmentKey(), store.revisionOf(assignmentKey()) + 1, payload)
+        } catch (e: Exception) {
+            log.warn("${selfAddress} 持久化分片归属失败：${e}")
+            return
+        }
+        persistedOwners.clear()
+        synchronized(shared.lock) {
+            shared.assignmentLoaded.clear()
+        }
+        for (line in payload.split("\n")) {
+            if (line.isEmpty()) {
+                continue
+            }
+            let parts = line.split("|")
+            if (parts.size == 2) {
+                match (Int64.tryParse(parts[0])) {
+                    case Some(sh) =>
+                        persistedOwners[sh] = parts[1]
+                        synchronized(shared.lock) {
+                            shared.assignmentLoaded[sh] = parts[1]
+                        }
+                    case None => ()
+                }
+            }
         }
     }
 
@@ -1108,6 +1203,7 @@ class ShardRegionActor <: Actor {
         rerouteParked(context)
         flushRegionBuffer(context)
         updateShardStats()
+        maybePersistAssignments()
     }
 
     private static func sameMembers(cur: Array<String>, next: Array<String>): Bool {
@@ -1135,7 +1231,13 @@ class ShardRegionActor <: Actor {
                 }
             case None =>
                 match (view) {
-                    case Some(v) => settings.allocation.allocate(sh, v.ups)
+                    case Some(v) =>
+                        let ups = HashSet<String>(v.ups)
+                        match (persistedOwners.get(sh)) {
+                            // 持久化宿主仍在视图里：保留原宿主（Akka sharding-state 语义）
+                            case Some(addr) where ups.contains(addr) => Some(addr)
+                            case _ => settings.allocation.allocate(sh, v.ups)
+                        }
                     case None => None<String>
                 }
         }
@@ -2606,6 +2708,25 @@ public class ClusterSharding {
         synchronized(shared.lock) {
             Int64(shared.placementOverridesLoaded.size)
         }
+    }
+
+    /** 启动时从存储恢复的"分片 -> 宿主"归属（差距 4.4 全量映射） */
+    public func loadedAssignmentOf(shardId: Int64): Option<String> {
+        synchronized(shared.lock) {
+            shared.assignmentLoaded.get(shardId)
+        }
+    }
+
+    /** 已恢复的全量归属条数 */
+    public func loadedAssignmentCount(): Int64 {
+        synchronized(shared.lock) {
+            Int64(shared.assignmentLoaded.size)
+        }
+    }
+
+    /** 全量归属的存储键（与区域内部一致；运维/测试可直接按此键读写） */
+    public static func assignmentKey(typeName: String): String {
+        "shard-assignments-${typeName}"
     }
 
     public func stop(): Unit {

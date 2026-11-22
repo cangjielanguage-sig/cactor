@@ -209,6 +209,7 @@ cactor_examples.ex59_graph_dsl
 cactor_examples.ex60_graph_balance_zip
 cactor_examples.ex61_stream_actor_fanout
 cactor_examples.ex62_shard_role_join
+cactor_examples.ex63_shard_assignment
 "
 for ex in $EXAMPLES_SELF_CHECK; do
     CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1

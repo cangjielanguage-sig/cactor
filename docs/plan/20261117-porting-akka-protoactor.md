@@ -309,7 +309,7 @@ for e in ex01_agent_runtime ex02_tenant_orders ex03_event_backbone ex04_edge_con
          ex51_durable_pubsub ex52_iot_devices ex53_distributed_workers \
          ex54_remember_entities ex55_role_routing ex56_data_center \
          ex57_large_messages ex58_shard_roles ex59_graph_dsl ex60_graph_balance_zip \
-         ex61_stream_actor_fanout; do
+         ex61_stream_actor_fanout ex62_shard_role_join ex63_shard_assignment; do
   CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.$e || echo "FAIL: $e"
 done
 

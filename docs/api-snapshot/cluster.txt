@@ -284,6 +284,8 @@ cactor_cluster.membership :: ClusterSharding.public func busiestShards(n: Int64)
 cactor_cluster.membership :: ClusterSharding.public func entityLease(entityId: String): Option<Lease>
 cactor_cluster.membership :: ClusterSharding.public func fencingToken(entityId: String): Option<Int64>
 cactor_cluster.membership :: ClusterSharding.public func leaseStatus(): ShardLeaseStatus
+cactor_cluster.membership :: ClusterSharding.public func loadedAssignmentCount(): Int64
+cactor_cluster.membership :: ClusterSharding.public func loadedAssignmentOf(shardId: Int64): Option<String>
 cactor_cluster.membership :: ClusterSharding.public func loadedOverrideCount(): Int64
 cactor_cluster.membership :: ClusterSharding.public func loadedOverrideOf(shardId: Int64): Option<String>
 cactor_cluster.membership :: ClusterSharding.public func localEntityCount(): Int64
@@ -304,6 +306,7 @@ cactor_cluster.membership :: ClusterSharding.public init(cluster: Cluster, syste
 cactor_cluster.membership :: ClusterSharding.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, typeName: String, numberOfShards: Int64, entityFactory: (String)->Actor, settings: ShardingSettings)
 cactor_cluster.membership :: ClusterSharding.public let numberOfShards: Int64
 cactor_cluster.membership :: ClusterSharding.public let typeName: String
+cactor_cluster.membership :: ClusterSharding.public static func assignmentKey(typeName: String): String
 cactor_cluster.membership :: ClusterSingleton.public func ask(message: Message, timeout: Duration): TypedPromise<Message>
 cactor_cluster.membership :: ClusterSingleton.public func droppedCount(): Int64
 cactor_cluster.membership :: ClusterSingleton.public func fencingToken(): Option<Int64>
@@ -509,7 +512,7 @@ cactor_cluster.membership :: ShardingSettings.public func withRebalance(policy: 
 cactor_cluster.membership :: ShardingSettings.public func withRole(role: String): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withStateStore(s: DurableStateStore): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withoutLease(): ShardingSettings
-cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10, lease!: Option<ShardLeases>= None<ShardLeases>, leaseRetryMin!: Duration = Duration.millisecond * 200, leaseRetryMax!: Duration = Duration.second * 5, allocation!: ShardAllocationStrategy = RendezvousAllocation(), role!: Option<String>= None<String>)
+cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10, lease!: Option<ShardLeases>= None<ShardLeases>, leaseRetryMin!: Duration = Duration.millisecond * 200, leaseRetryMax!: Duration = Duration.second * 5, allocation!: ShardAllocationStrategy = RendezvousAllocation(), role!: Option<String>= None<String>, store!: Option<DurableStateStore>= None<DurableStateStore>)
 cactor_cluster.membership :: ShardingSettings.public let acquireWarnAfter: Duration
 cactor_cluster.membership :: ShardingSettings.public let allocation: ShardAllocationStrategy
 cactor_cluster.membership :: ShardingSettings.public let bufferSize: Int64
@@ -520,6 +523,7 @@ cactor_cluster.membership :: ShardingSettings.public let passivateAfter: Option<
 cactor_cluster.membership :: ShardingSettings.public let rebalance: RebalancePolicy
 cactor_cluster.membership :: ShardingSettings.public let rememberEntities: Option<Replicator>
 cactor_cluster.membership :: ShardingSettings.public let role: Option<String>
+cactor_cluster.membership :: ShardingSettings.public let store: Option<DurableStateStore>
 cactor_cluster.membership :: ShardingSettings.public static func defaults(): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public static func passivating(idle: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public static func remembering(replicator: Replicator): ShardingSettings

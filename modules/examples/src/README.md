@@ -346,6 +346,8 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `ex59_graph_dsl` | ✅ 运行 | 自检退出码 0 |
 | `ex60_graph_balance_zip` | ✅ 运行 | 自检退出码 0 |
 | `ex61_stream_actor_fanout` | ✅ 运行 | 自检退出码 0 |
+| `ex62_shard_role_join` | ✅ 运行 | 自检退出码 0 |
+| `ex63_shard_assignment` | ✅ 运行 | 自检退出码 0 |
 | `functional_actor_demo` | ✅ 运行 | 自检退出码 0 |
 | `hello_world_demo` | ✅ 运行 | 自检退出码 0 |
 | `idle_probe` | — | measurement：空闲调度探测（3 秒采样），用于调参而非门禁 |
