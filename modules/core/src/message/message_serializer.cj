@@ -77,8 +77,17 @@ class ReusableByteBuffer {
         size += 4
     }
 
+    /**
+     * 取出已写入的字节。必须**拷贝**：仓颉的 Array.slice 返回的是共享底层存储的视图，
+     * 而这里的 data 是线程本地复用缓冲——直接切一片返回，下一次同线程序列化会原地改写，
+     * 让调用方已经拿到的帧被悄悄覆盖（测试 networkFrame 曾在第二次序列化后看到首字节变样）。
+     */
     func toArray(): Array<UInt8> {
-        data.slice(0, size)
+        let out = Array<UInt8>(size, repeat: 0)
+        for (i in 0..size) {
+            out[i] = data[i]
+        }
+        out
     }
 }
 

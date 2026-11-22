@@ -291,11 +291,12 @@ public class WireCompatTest {
         @Expect(((Int32(short[0]) << 24) | (Int32(short[1]) << 16) | (Int32(short[2]) << 8) | Int32(short[3])), -2)
         @Expect(short.size < full.size, true)
         @Expect(((ser.deserialize(short) as StringMessage).getOrThrow()).getContent(), "short-id-payload")
-        // 旧对端：不给类型表、能力保守 → 仍是"长度 + 完整类型名"
+        // 旧对端：不给类型表、能力保守 → 仍是"长度 + 完整类型名"（v1.2.x 线格式：长度就是类型名 UTF-8 字节数）
         let legacy = ser.serialize(StringMessage("short-id-payload"), WireProtocol.CAP_NONE,
             None<HashMap<String, UInt16>>)
-        @Expect(((Int32(legacy[0]) << 24) | (Int32(legacy[1]) << 16) | (Int32(legacy[2]) << 8) | Int32(legacy[3])), 14)
-        @Expect(String.fromUtf8(legacy[4..18]), "StringMessage")
+        @Expect(((Int32(legacy[0]) << 24) | (Int32(legacy[1]) << 16) | (Int32(legacy[2]) << 8) | Int32(legacy[3])),
+            Int32("StringMessage".toArray().size))
+        @Expect(String.fromUtf8(legacy[4..17]), "StringMessage")
         @Expect(((ser.deserialize(legacy) as StringMessage).getOrThrow()).getContent(), "short-id-payload")
         // 未知短 id：明确报"读不懂"，不是数据损坏
         let bogus = ArrayList<UInt8>()

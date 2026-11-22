@@ -32,6 +32,7 @@ func f5Node(settings: WireProtocolSettings): SimpleRemoteManager {
 }
 
 /** 高熵 ASCII 文本：避免被 deflate 压到阈值以下，从而真正走到分片路径 */
+@OverflowWrapping
 func incompressibleText(bytes: Int64): String {
     let out = ArrayList<UInt8>()
     var x: UInt64 = 0x9E3779B97F4A7C15
@@ -136,6 +137,69 @@ public class WireProtocolF5Test {
         } finally {
             try { raw.close() } catch (_: Exception) {}
             b.stop()
+        }
+    }
+
+    /** 达到 1 KiB 阈值才压缩，且只对宣告 CAP_COMPRESSION 的对端；小消息保持原样 */
+    @TestCase
+    public func compressionKicksInAboveThreshold(): Unit {
+        let a = f5Node(WireProtocolSettings.defaults())
+        let b = f5Node(WireProtocolSettings.defaults())
+        try {
+            let received = EventRecorder()
+            b.registerHandler("sink", { m: Message =>
+                match (m as StringMessage) {
+                    case Some(s) => received.record("${s.getContent().size}")
+                    case None => ()
+                }
+            })
+            let ref = a.remoteActorOf(b.getLocalAddress(), "sink")
+            ref.tell(StringMessage("small"))
+            @Expect(received.await("5", T5S), true)
+            // 8 KiB 重复字符：deflate 后远小于原长，发送侧应压缩
+            let big = String.fromUtf8(Array<UInt8>(8 * 1024, repeat: 65u8))
+            ref.tell(StringMessage(big))
+            @Expect(received.await("${big.size}", T5S), true)
+            @Expect(awaitCondition(T5S, { => b.compressedFrameCount() >= 1 }), true)
+            @Expect(b.oversizeFrameCount(), 0)
+        } finally {
+            a.stop()
+            b.stop()
+        }
+    }
+
+    /** 旧对端不支持分片：超过上限的消息明确失败（FrameTooLargeException），不静默丢弃 */
+    @TestCase
+    public func legacyPeerRejectsOversizedLoudly(): Unit {
+        let a = f5Node(WireProtocolSettings.defaults())
+        let old = f5Node(WireProtocolSettings.legacyEmulation())
+        try {
+            let received = EventRecorder()
+            old.registerHandler("sink", { m: Message =>
+                match (m as StringMessage) {
+                    case Some(s) => received.record(s.getContent())
+                    case None => ()
+                }
+            })
+            let ref = a.remoteActorOf(old.getLocalAddress(), "sink")
+            ref.tell(StringMessage("warmup"))
+            @Expect(received.await("warmup", T5S), true)
+            @Expect(awaitCondition(T5S, { => a.peerWireProfile(old.getLocalAddress()).isSome() }), true)
+            let big = incompressibleText(100 * 1024)
+            var threw = false
+            try {
+                ref.tell(StringMessage(big))
+            } catch (_: FrameTooLargeException) {
+                threw = true
+            }
+            @Expect(threw, true)
+            // 对端没有收到那条大消息（连接随后仍可用）
+            @Expect(received.count("${big.size}"), 0)
+            ref.tell(StringMessage("after"))
+            @Expect(received.await("after", T5S), true)
+        } finally {
+            a.stop()
+            old.stop()
         }
     }
 

@@ -77,8 +77,7 @@ public class SimpleRemoteSender {
         if (!isStarted.load()) {
             throw IllegalStateException("发送器未启动")
         }
-        let networkMessage = NetworkMessage(targetActor, message, sender,
-            sourceAddress: Some(transport.getLocalAddress().toString()))
+        let networkMessage = NetworkMessage(targetActor, message, sender)
         transmit(targetAddress, networkMessage, false)
         sentCount.fetchAdd(1)
     }
@@ -160,8 +159,7 @@ public class SimpleRemoteSender {
             let n = if (offset + chunkSize > data.size) { data.size - offset } else { chunkSize }
             let piece = data.slice(offset, n)
             let chunk = ChunkedPayload(id, index, total, target, piece)
-            let nm = NetworkMessage(target, chunk, None<String>,
-                sourceAddress: Some(transport.getLocalAddress().toString()))
+            let nm = NetworkMessage(target, chunk, None<String>)
             let bytes = networkMessageSerializer.serialize(nm, caps, table)
             if (bytes.size > maxFrame) {
                 throw FrameTooLargeException(bytes.size, maxFrame)
@@ -184,8 +182,7 @@ public class SimpleRemoteSender {
         if (!isStarted.load()) {
             throw IllegalStateException("发送器未启动")
         }
-        let networkMessage = NetworkMessage(targetActor, message, None<String>,
-            sourceAddress: Some(transport.getLocalAddress().toString()))
+        let networkMessage = NetworkMessage(targetActor, message, None<String>)
         transmit(targetAddress, networkMessage, true)
         sentCount.fetchAdd(1)
     }
@@ -329,6 +326,26 @@ public class SimpleRemoteReceiver {
 
     /** 解压 → 长度检查 → 反序列化 → 分片重组/分发；分片重组完成后递归进入本函数 */
     private func processFrame(raw: Array<UInt8>, allowChunks: Bool): Unit {
+        // 入站上限只约束**线上的单帧**：分片重组后的逻辑消息、以及压缩帧解压出的原文，
+        // 都可能大于单帧上限——这正是分片/压缩的意义。若在重组/解压后再查一次上限，
+        // 刚拼好的大消息会被判成超限并回 GoAway（F5 用例 handshakeNegotiatesMaxFrameBytes 的根因）。
+        if (allowChunks) {
+            let frameLimit = synchronized(mutex) { maxInboundFrame }
+            if (raw.size > frameLimit) {
+                // 先在可解析范围内尽量取出源地址，供 GoAway 回送；取不到也不静默：计数 + 告警
+                let source = try {
+                    if (raw.size <= MAX_DECOMPRESSED_FRAME) {
+                        networkMessageSerializer.deserialize(raw).sourceAddress
+                    } else {
+                        None<String>
+                    }
+                } catch (_: Exception) {
+                    None<String>
+                }
+                onOversizeFrame(raw.size, source)
+                return
+            }
+        }
         let data = try {
             if (isCompressedFrame(raw)) {
                 compressedFrames.fetchAdd(1)
@@ -339,21 +356,6 @@ public class SimpleRemoteReceiver {
         } catch (e: Exception) {
             decodeFailures.fetchAdd(1)
             log_simple_remote.error("解压远程帧失败: ${e.message}")
-            return
-        }
-        let limit = synchronized(mutex) { maxInboundFrame }
-        if (data.size > limit) {
-            // 先在可解析范围内尽量取出源地址，供 GoAway 回送；取不到也不静默：计数 + 告警
-            let source = try {
-                if (data.size <= MAX_DECOMPRESSED_FRAME) {
-                    networkMessageSerializer.deserialize(data).sourceAddress
-                } else {
-                    None<String>
-                }
-            } catch (_: Exception) {
-                None<String>
-            }
-            onOversizeFrame(data.size, source)
             return
         }
         let networkMessage = try {
@@ -401,8 +403,9 @@ public class SimpleRemoteReceiver {
 
     /** 收片；集齐后把重组出的原始帧按普通帧处理（不再接受嵌套分片） */
     private func onChunk(networkMessage: NetworkMessage, chunk: ChunkedPayload): Unit {
-        let source = networkMessage.sourceAddress ?? ""
-        let key = "${source}|${chunk.id}"
+        // 分片 id 已经包含发送方地址与序号（见 SimpleRemoteSender.sendChunked），
+        // 不再依赖帧尾的来源地址块——普通消息不为它多付字节。
+        let key = chunk.id
         let complete = synchronized(mutex) {
             let buf = match (reassembly.get(key)) {
                 case Some(b) => b

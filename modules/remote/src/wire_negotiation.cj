@@ -74,10 +74,10 @@ public struct WireProtocolSettings {
             WireProtocol.MIN_SUPPORTED_VERSION, WireProtocol.CAP_NONE, false)
     }
 
-    /** 演练：模拟引入协商之前的旧节点（见 emulateLegacy） */
+    /** 演练：模拟引入协商之前的旧节点（见 emulateLegacy）。旧节点只知道 typed-codec-v3，不会压缩/分片/短 id */
     public static func legacyEmulation(): WireProtocolSettings {
-        WireProtocolSettings(WireProtocol.LEGACY_VERSION, WireProtocol.LOCAL_CAPABILITIES,
-            WireProtocol.MIN_SUPPORTED_VERSION, WireProtocol.LOCAL_CAPABILITIES, true)
+        WireProtocolSettings(WireProtocol.LEGACY_VERSION, WireProtocol.CAP_TYPED_CODEC_V3,
+            WireProtocol.MIN_SUPPORTED_VERSION, WireProtocol.CAP_TYPED_CODEC_V3, true)
     }
 
     /** 拒绝协议版本低于 v 的对端 */
