@@ -7,7 +7,7 @@
  */
 package cactor_runtime
 
-import cactor_runtime.guardian.{ActorCellDispatcher, RunDurationMetrics}
+import cactor_runtime.guardian.{ActorCellDispatcher, RunDurationMetrics, BacklogMonitor}
 
 public struct DispatcherDiagnostics {
     /** 饥饿告警次数（进程内累计） */
@@ -52,5 +52,20 @@ public struct DispatcherDiagnostics {
     /** 直方图的 Prometheus 文本（A1b） */
     public static func runDurationPrometheus(): String {
         RunDurationMetrics.prometheusText()
+    }
+
+    /** 邮箱积压超阈值的告警次数（C5，进程内累计；只告警不丢弃） */
+    public static func backlogWarnings(): Int64 {
+        BacklogMonitor.warningCount()
+    }
+
+    /** 调整积压告警阈值（毫秒，0 关闭）；测试与调优用，生产用 CACTOR_MAILBOX_BACKLOG_WARN_SECONDS */
+    public static func setBacklogWarnMillis(ms: Int64): Unit {
+        BacklogMonitor.configure(ms)
+    }
+
+    /** 恢复为环境变量/默认值（测试收尾用） */
+    public static func resetBacklogWarnThreshold(): Unit {
+        BacklogMonitor.reset()
     }
 }

@@ -206,6 +206,7 @@ cactor_cluster.membership :: AcquisitionHealth.public let pendingMembers: Array<
 cactor_cluster.membership :: AcquisitionHealth.public let slow: Int64
 cactor_cluster.membership :: AcquisitionHealth.public let slowWarnings: Int64
 cactor_cluster.membership :: Cluster.public func awaitUp(timeout: Duration): Bool
+cactor_cluster.membership :: Cluster.public func dataCenter(): String
 cactor_cluster.membership :: Cluster.public func down(address: String): Unit
 cactor_cluster.membership :: Cluster.public func gossipCount(): Int64
 cactor_cluster.membership :: Cluster.public func installCoordinatedShutdown(waitForLeave!: Duration = Duration.second * 2, shardings!: Array<ClusterSharding>= Array<ClusterSharding>()): Unit
@@ -218,13 +219,14 @@ cactor_cluster.membership :: Cluster.public func leave(): Unit
 cactor_cluster.membership :: Cluster.public func members(): Array<Member>
 cactor_cluster.membership :: Cluster.public func membershipStats(): (Int64, Int64, Int64)
 cactor_cluster.membership :: Cluster.public func oldest(): Option<Member>
+cactor_cluster.membership :: Cluster.public func roles(): Array<String>
 cactor_cluster.membership :: Cluster.public func selfMember(): Option<Member>
 cactor_cluster.membership :: Cluster.public func selfUniqueAddress(): String
 cactor_cluster.membership :: Cluster.public func shutdown(): Unit
 cactor_cluster.membership :: Cluster.public func state(): ClusterSnapshot
 cactor_cluster.membership :: Cluster.public func stateAndTerminated(): (ClusterSnapshot, Bool)
 cactor_cluster.membership :: Cluster.public func subscribe(callback: (ClusterEvent)->Unit): Unit
-cactor_cluster.membership :: Cluster.public init(system: CActorSystem, remote: SimpleRemoteManager, seeds: Array<NetworkAddress>, settings: ClusterSettings)
+cactor_cluster.membership :: Cluster.public init(system: CActorSystem, remote: SimpleRemoteManager, seeds: Array<NetworkAddress>, settings: ClusterSettings, roles!: Array<String>= Array<String>(), dataCenter!: String = DEFAULT_DATA_CENTER)
 cactor_cluster.membership :: Cluster.public let selfAddress: String
 cactor_cluster.membership :: Cluster.public let selfUid: UInt64
 cactor_cluster.membership :: ClusterClient.public func members(): Array<String>
@@ -329,7 +331,11 @@ cactor_cluster.membership :: ClusterSingletonSettings.public let bufferSize: Int
 cactor_cluster.membership :: ClusterSingletonSettings.public let lease: Option<Lease>
 cactor_cluster.membership :: ClusterSingletonSettings.public let leaseRetryMax: Duration
 cactor_cluster.membership :: ClusterSingletonSettings.public let leaseRetryMin: Duration
+cactor_cluster.membership :: ClusterSnapshot.public func dataCenters(): Array<String>
+cactor_cluster.membership :: ClusterSnapshot.public func hasRole(address: String, role: String): Bool
 cactor_cluster.membership :: ClusterSnapshot.public func member(address: String): Option<Member>
+cactor_cluster.membership :: ClusterSnapshot.public func membersInDataCenter(dc: String): Array<Member>
+cactor_cluster.membership :: ClusterSnapshot.public func membersWithRole(role: String): Array<Member>
 cactor_cluster.membership :: ClusterSnapshot.public func statusOf(address: String): Option<MemberStatus>
 cactor_cluster.membership :: ClusterSnapshot.public func upCount(): Int64
 cactor_cluster.membership :: ClusterSnapshot.public let converged: Bool
@@ -386,13 +392,21 @@ cactor_cluster.membership :: Grains.public func withReminders(store: DurableStat
 cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration, numberOfShards: Int64, storage!: Option<GrainStorage>= None<GrainStorage>)
 cactor_cluster.membership :: Grains.public init(cluster: Cluster, system: CActorSystem, remote: SimpleRemoteManager, kind: String, factory: (String)->Grain, idleTimeout: Duration, storage!: Option<GrainStorage>= None<GrainStorage>)
 cactor_cluster.membership :: Grains.public let kind: String
+cactor_cluster.membership :: Member.public func hasRole(role: String): Bool
 cactor_cluster.membership :: Member.public func isOlderThan(other: Member): Bool
+cactor_cluster.membership :: Member.public func sameAs(other: Member): Bool
 cactor_cluster.membership :: Member.public func toString(): String
 cactor_cluster.membership :: Member.public func uniqueAddress(): String
+cactor_cluster.membership :: Member.public func withDataCenter(dc: String): Member
+cactor_cluster.membership :: Member.public func withRoles(r: Array<String>): Member
 cactor_cluster.membership :: Member.public func withStatus(s: MemberStatus): Member
 cactor_cluster.membership :: Member.public init(address: String, status: MemberStatus, upNumber: Int64)
 cactor_cluster.membership :: Member.public init(address: String, status: MemberStatus, upNumber: Int64, uid: UInt64)
+cactor_cluster.membership :: Member.public init(address: String, status: MemberStatus, upNumber: Int64, uid: UInt64, roles: Array<String>)
+cactor_cluster.membership :: Member.public init(address: String, status: MemberStatus, upNumber: Int64, uid: UInt64, roles: Array<String>, dataCenter: String)
 cactor_cluster.membership :: Member.public let address: String
+cactor_cluster.membership :: Member.public let dataCenter: String
+cactor_cluster.membership :: Member.public let roles: Array<String>
 cactor_cluster.membership :: Member.public let status: MemberStatus
 cactor_cluster.membership :: Member.public let uid: UInt64
 cactor_cluster.membership :: Member.public let upNumber: Int64
@@ -492,9 +506,10 @@ cactor_cluster.membership :: ShardingSettings.public func withLease(leases: Shar
 cactor_cluster.membership :: ShardingSettings.public func withLeaseRetry(min: Duration, max: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withPassivation(idle: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withRebalance(policy: RebalancePolicy): ShardingSettings
+cactor_cluster.membership :: ShardingSettings.public func withRole(role: String): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withStateStore(s: DurableStateStore): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public func withoutLease(): ShardingSettings
-cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10, lease!: Option<ShardLeases>= None<ShardLeases>, leaseRetryMin!: Duration = Duration.millisecond * 200, leaseRetryMax!: Duration = Duration.second * 5, allocation!: ShardAllocationStrategy = RendezvousAllocation())
+cactor_cluster.membership :: ShardingSettings.public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>, rebalance!: RebalancePolicy = RebalancePolicy(), acquireWarnAfter!: Duration = Duration.second * 10, lease!: Option<ShardLeases>= None<ShardLeases>, leaseRetryMin!: Duration = Duration.millisecond * 200, leaseRetryMax!: Duration = Duration.second * 5, allocation!: ShardAllocationStrategy = RendezvousAllocation(), role!: Option<String>= None<String>)
 cactor_cluster.membership :: ShardingSettings.public let acquireWarnAfter: Duration
 cactor_cluster.membership :: ShardingSettings.public let allocation: ShardAllocationStrategy
 cactor_cluster.membership :: ShardingSettings.public let bufferSize: Int64
@@ -504,6 +519,7 @@ cactor_cluster.membership :: ShardingSettings.public let leaseRetryMin: Duration
 cactor_cluster.membership :: ShardingSettings.public let passivateAfter: Option<Duration>
 cactor_cluster.membership :: ShardingSettings.public let rebalance: RebalancePolicy
 cactor_cluster.membership :: ShardingSettings.public let rememberEntities: Option<Replicator>
+cactor_cluster.membership :: ShardingSettings.public let role: Option<String>
 cactor_cluster.membership :: ShardingSettings.public static func defaults(): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public static func passivating(idle: Duration): ShardingSettings
 cactor_cluster.membership :: ShardingSettings.public static func remembering(replicator: Replicator): ShardingSettings
@@ -554,6 +570,7 @@ cactor_cluster.membership :: public interface GrainStorage
 cactor_cluster.membership :: public interface ShardAllocationStrategy
 cactor_cluster.membership :: public let CLUSTER_CLIENT_QUERY: String
 cactor_cluster.membership :: public let CLUSTER_GOSSIP_VERSION: String
+cactor_cluster.membership :: public let DEFAULT_DATA_CENTER: String
 cactor_cluster.membership :: public let SHARDING_HASH_VERSION: String
 cactor_cluster.membership :: public let SHARDING_PROTOCOL_VERSION: Int64
 cactor_cluster.membership :: public let SINGLETON_HANDOVER_GRACE_MS: Int64
@@ -576,12 +593,16 @@ cactor_cluster.ops :: public func shardingStatusJson(region: ClusterSharding): S
 cactor_cluster.ops :: public func singletonStatusJson(singleton: ClusterSingleton): String
 cactor_cluster.ops :: public func singletonsStatusJson(singletons: Array<ClusterSingleton>): String
 cactor_cluster.routing :: ClusterRouter.public func candidates(): Array<String>
+cactor_cluster.routing :: ClusterRouter.public func dataCenterFilter(): Option<String>
 cactor_cluster.routing :: ClusterRouter.public func ref(): RemoteActorRef
+cactor_cluster.routing :: ClusterRouter.public func roleFilter(): Option<String>
 cactor_cluster.routing :: ClusterRouter.public func route(): String
 cactor_cluster.routing :: ClusterRouter.public func stop(): Unit
 cactor_cluster.routing :: ClusterRouter.public func tell(message: Message): Unit
 cactor_cluster.routing :: ClusterRouter.public func tell(message: Message, sender: ActorRef): Unit
-cactor_cluster.routing :: ClusterRouter.public init(cluster: Cluster, remote: SimpleRemoteManager, actorName: String, strategy!: ClusterRouterStrategy = ClusterRouterStrategy.RoundRobin, loadOf!: (String)->Int64 = { _: String =>0 })
+cactor_cluster.routing :: ClusterRouter.public func withDataCenter(dc: String): ClusterRouter
+cactor_cluster.routing :: ClusterRouter.public func withRole(r: String): ClusterRouter
+cactor_cluster.routing :: ClusterRouter.public init(cluster: Cluster, remote: SimpleRemoteManager, actorName: String, strategy!: ClusterRouterStrategy = ClusterRouterStrategy.RoundRobin, loadOf!: (String)->Int64 = { _: String =>0 }, role!: Option<String>= None<String>)
 cactor_cluster.routing :: ClusterRouter.public prop name: String
 cactor_cluster.routing :: ClusterRouterStrategy.| LeastLoaded
 cactor_cluster.routing :: ClusterRouterStrategy.| RoundRobin

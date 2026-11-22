@@ -352,3 +352,33 @@ output-type = "executable"
 
 [package.package-configuration."cactor_examples.ex52_iot_devices"]
 output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex53_distributed_workers"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex54_remember_entities"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex55_role_routing"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex56_data_center"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex57_large_messages"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex58_shard_roles"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex59_graph_dsl"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex60_graph_balance_zip"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex61_stream_actor_fanout"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex62_shard_role_join"]
+output-type = "executable"

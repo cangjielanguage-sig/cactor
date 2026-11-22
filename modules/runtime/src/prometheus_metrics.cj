@@ -12,7 +12,7 @@ package cactor_runtime
 
 import std.collection.*
 import std.sort.*
-import cactor_runtime.guardian.{ActorCellDispatcher, SimpleUserActorRef, RunDurationMetrics}
+import cactor_runtime.guardian.{ActorCellDispatcher, SimpleUserActorRef, RunDurationMetrics, BacklogMonitor}
 
 /** 转义标签值中的反斜杠、双引号和换行 */
 public func escapePrometheusLabel(value: String): String {
@@ -88,6 +88,10 @@ extend CActorRuntime {
         w.metric("cactor_dispatcher_starvation_warnings_total", "counter",
             "Times a default-dispatcher worker was stuck in one actor run longer than CACTOR_STARVATION_WARN_MS",
             ActorCellDispatcher.starvationWarningCount())
+        // C5：邮箱积压超阈值的告警次数（只告警，不丢弃消息；阈值 CACTOR_MAILBOX_BACKLOG_WARN_SECONDS）
+        w.metric("cactor_actor_backlog_warnings_total", "counter",
+            "Actors whose mailbox backlog exceeded the warn threshold (messages are never dropped)",
+            BacklogMonitor.warningCount())
         w.metric("cactor_blocking_dispatcher_threads", "gauge", "Worker threads of the blocking dispatcher", ActorCellDispatcher.getBlockingWorkerCount())
         w.metric("cactor_thread_per_actor_threads", "gauge", "Live dedicated threads of the thread-per-actor dispatcher",
             ActorCellDispatcher.getThreadPerActorThreadCount())

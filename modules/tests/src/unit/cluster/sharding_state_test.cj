@@ -80,6 +80,22 @@ public class ShardingStateTest {
     }
 
     @TestCase
+    public func withStateStoreDoesNotMutateOriginal(): Unit {
+        let base = ShardingSettings.defaults()
+        @Expect(base.stateStore().isNone(), true)
+        let s1 = base.withStateStore(MemoryDurableStateStore())
+        @Expect(base.stateStore().isNone(), true)
+        @Expect(s1.stateStore().isSome(), true)
+        // 再链式换其它设置，存储不丢；原对象也不被改写
+        let s2 = s1.withRole("worker").withBufferSize(99)
+        @Expect(s2.stateStore().isSome(), true)
+        @Expect(s2.role, Some("worker"))
+        @Expect(s2.bufferSize, 99)
+        @Expect(base.bufferSize, 10000)
+        @Expect(base.role.isNone(), true)
+    }
+
+    @TestCase
     public func withoutStateStoreOverridesAreOnlyInMemory(): Unit {
         let nodes = startCluster(1, "shard-state-volatile", FAST)
         let n = nodes[0]

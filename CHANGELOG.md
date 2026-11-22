@@ -7,6 +7,139 @@
 
 ## [未发布]
 
+### ✨ 新增：ex62 分片角色动态可用性 + 无宿主告警
+
+- `ShardingSettings.withRole` 过滤后若没有任何可托管成员，区域只告警一次（恢复后重置），
+  避免"消息一直缓冲但没有任何信号"；`ex62_shard_role_join` 验证网关先缓冲 3 条、worker 加入后自动排空；
+- 顺带修复 `ShardingSettings.withStateStore`：原先直接修改 `this`，导致
+  `base.withStateStore(a)` 与 `base.withStateStore(b)` 共享最后一次写入；现在与其它 `withXxx`
+  一样返回新设置、不改原对象（`ShardingStateTest` 覆盖）。
+
+### 🧪 基准：F1 睡着会话的唤醒 p99 与内存口径（`tools/sleep_bench.sh`）
+
+- 新增 `SleepBenchTest`（默认小 N 冒烟、不因负载误判红）与 `tools/sleep_bench.sh`
+  （`CACTOR_SLEEP_BENCH_STRICT=1` 严格断言唤醒 p99 ≤10ms）；
+- 共享机器 N=200 实测唤醒 p50≈0.6–1.1ms、p99≈16–21ms，p99 达标需空闲机器复测；
+- 睡着内存用全局堆差在共享机器上被 GC 保留区/线程栈淹没（小 N 实测 59–100KB/个，非真实占用），
+  仅打印参考值；≤200B 目标需分配器级测量或堆分析后再断言。
+
+### ✨ 新增：邮箱积压超阈值告警与计数（C5，只告警不丢弃）
+
+- `cactor_actor_backlog_warnings_total`：Actor 邮箱最老待处理消息的等待时长超过阈值时累计告警；
+  阈值 `CACTOR_MAILBOX_BACKLOG_WARN_SECONDS`（默认 30 秒，0 关闭），
+  `DispatcherDiagnostics.backlogWarnings()` / `setBacklogWarnMillis()` 可读/可调；
+- 检测在 Cell 批边界：先看 `pending()`（原子读），只有确有积压才取时间戳（加邮箱锁）；
+  每个 Actor 在一个阈值窗口内最多告警一次（时间戳懒分配在 `CellExtras`，叶 Actor 零代价）；
+- **绝不丢弃消息**；用例 `BacklogWarningTest.backlogBeyondThresholdWarnsWithoutDropping`：
+  慢消费者 + 低阈值，告警计数上升且 120 条消息全部处理完。
+
+### ✨ 新增：GraphDSL 扇出编排（差距 4.8，对标 Akka GraphDSL 的 Broadcast / Partition / Balance / Zip）
+
+- `GraphDSL.broadcast(source, sinks)`：一个源广播到多个汇，各出口独立需求，最慢分支决定上游节奏；
+- `GraphDSL.partitionBy(source, partitions, keyOf, sinks)`：按 key 稳定分区（负数安全归一化）；
+- `GraphDSL.balance(source, sinks)`：按需轮询，只发给有需求的出口，元素只处理一次且分布均衡；
+- `GraphDSL.zip(left, right, sink)`：两路按位置配对，较短一侧结束即结束；
+- 引擎新增 `FanOutLogic` / `BalanceLogic` / `ZipLogic`，保持 Reactive Streams 语义：全部出口取消时取消上游；
+- 示例 `ex59_graph_dsl`、`ex60_graph_balance_zip`、`ex61_stream_actor_fanout`，测试 `GraphDslTest` 7 例：
+  广播/分区/负载均衡/配对/取消/异步边界。
+
+### 🐛 修复：GraphDSL 的三个边界问题
+
+- 上游完成时若还有未发出的缓冲元素（下游刚取消、需求短暂下降），原先直接 `completeStage()` 会丢元素；
+  改为 `upstreamDone` 标记，排空缓冲后再结束（broadcast/partitionBy/balance）；
+- 汇带 `async` 边界时会把 `GraphBuilder.current` 切到新岛，后续汇被错误地建在新岛、与 junction 的
+  出口跨岛；现在每个汇都从 junction 所在岛开始构建；
+- `zip` 两侧若各自以 `async` 边界结尾会分属两个岛，同一 junction 被并发调用；显式拒绝并给出错误信息。
+  新增用例 `asyncSinksStayInJunctionIsland`、`zipSupportsAsyncSide`。
+
+### ✨ 新增：带背压的 ask 组合接口（C2）+ `/metrics` 端到端用例（A1b）
+
+- `cactor_patterns.backpressure.askWithBackpressure(target, message, limit!, writableTimeout!)`：
+  在途达到水位时最多等 `writableTimeout`，仍不可写抛 `AskBackpressuredException(inFlight, limit)`
+  （与"发出后超时"区分）；可写时退化为 `AskInbox.ask`，目标照常 `context.reply`。
+  用例 `AskBackpressureTest` 2/2（饱和快速失败、可写时正常收发）。
+- 新增 `MetricsE2ETest.metricsExposeRunDurationAndThreadPerActorOverHttp`：真实 `ManagementServer`
+  上 `GET /metrics`，断言 `cactor_actor_run_duration_seconds_count{mode=default|blocking|thread-per-actor}`
+  与 `cactor_thread_per_actor_threads` 均存在（补齐 A1b 的端到端抓取）。
+
+### ✨ 新增：集群睡醒注册表（F1 迁移部分）+ 会话睡着即唤醒（P8）
+
+- `ClusterSleepRegistry(system, cluster, remote, name, factory, numberOfShards!, store!, policy!)`：
+  沿用 `SleepableActor` / `SleepPolicy`，按 `sessionId` 在 Up 成员上做与分片一致的 rendezvous 归属；
+  跨节点投递经 `cactor.ClusterSleepForwarded` 帧转发给归属节点，由它本地唤醒并投递；
+  节点宕机、成员视图收敛后归属自动落到幸存节点，按共享存储里的状态唤醒（状态不丢）。
+- `SessionRegistry(sleeper, typeName!)` / `SessionRegistry(sharding, sleeper)`：睡醒模式，
+  `tell` / `session<T>` 睡着即唤醒（`sessionWakesIfSleeping`）；该模式**不支持 `ask`**
+  （跨节点转发只带载荷、不携带回复方）。
+- 归属由成员视图**推导**（不落会过期的归属记录）；跨节点迁移要求 `DurableStateStore` 在节点间可见，
+  且各节点提供同一会话工厂（与分片要求各节点提供同一实体工厂是同一条约束）。
+- 用例 `ClusterSleepTest`：`sessionWakesIfSleeping`（单节点睡→唤醒状态连续）、
+  `sleepingSessionMigratesWhenOwnerDies`（2 真实节点 + `FAST_AUTODOWN`，owner 崩溃后幸存节点唤醒，计数 1→2）；
+  回归 `SleepableTest` 3/3、`SessionRegistryTest` 通过。
+
+### ✨ 新增：分片宿主角色（差距 4.3，对标 Akka `ClusterShardingSettings.withRole`）
+
+- `ShardingSettings.withRole("worker")`：分片归属计算与移交确认都只看带该角色的 Up 成员；
+- 不带角色的节点仍可创建区域并转发消息，但不会托管分片、也不创建实体（`localEntityCount` 为 0）；
+- `ShardingSettings.role` 可读；`withRole` 保留其它字段（钝化、缓冲、再平衡等）；
+- 示例 `ex58_shard_roles`、测试 `ShardingRolesTest`：64 分片只落 worker、网关托管 0、实体宿主只出现 worker 地址。
+
+### ✨ 新增：ex57 大消息压缩与分片验证（差距 4.9）
+
+- 真实 TCP、协商单帧上限 32 KiB：1 MiB 文本线上压缩、100 KiB 高熵文本分片重组；
+- 断言保留在接收端：长度与首尾字节一致、压缩/重组计数 > 0、超限帧与 GoAway 均为 0；
+- 该示例同时回归本轮修复的"重组帧被误判超限"问题。
+
+### ✨ 新增：数据中心属性与 DC 感知路由（差距 4.3 的部分实现）
+
+- `Cluster(..., dataCenter: "dc1")`：DC 随 gossip 以**第二个可选尾段**传播；旧读者忽略，无需升版本；
+- `Member.dataCenter` / `withDataCenter`；`Cluster.dataCenter()`、`ClusterSnapshot.dataCenters()` /
+  `membersInDataCenter(dc)`；
+- `ClusterRouter.withDataCenter(dc)`：只选该 DC 的 Up 成员，可与 `withRole` 叠加；
+- **范围说明**：跨 DC 成员仍在同一 gossip 圈（未做 C2a 的 DC 隔离与 DC 目录），文档与示例已标注；
+- 示例 `ex56_data_center`、测试 `DataCenterTest` 覆盖传播、默认值与 DC 过滤。
+
+### ✨ 新增：集群成员角色（差距 4.3 第一块，对标 Akka Member.roles）
+
+- `Cluster(..., roles: [...])`：本节点角色随 gossip 传播；`Cluster.roles()`、`Member.roles` / `hasRole`；
+- `ClusterSnapshot.membersWithRole(role)` / `hasRole(address, role)`；
+- 角色以**可选尾段**写进 gossip：旧读者读完固定字段即停，忽略尾段；新读者遇到无尾段按空角色处理，
+  不需要升 `cactor.cluster.gossip` 版本；合并时角色取并集，不会被无角色对端抹掉；
+- `ClusterRouter.withRole(role)`：候选只含具备该角色的 Up 成员；
+- 示例 `ex55_role_routing`、测试 `MemberRolesTest` 覆盖传播、合并与角色路由。
+
+### ✨ 新增：ex54 记住实体示例（对标 Akka Cluster Sharding remember-entities）
+
+- 3 节点、20 个订单实体：宕机后幸存节点**不收到新消息**也主动重新激活受害者持有的实体；
+- `restartedCount()` 可观测恢复数量；每个受害实体恰好两次激活且第二次在别的节点；
+- Lou `/pay`、`/state`；自检覆盖创建、恢复数、恢复位置与 HTTP 一致性。
+
+### 🐛 修复：帧缓冲区复用导致已返回的序列化结果被改写
+
+- `ReusableByteBuffer.toArray()` 原先 `data.slice(0, size)` 返回与线程本地复用缓冲共享底层存储的视图；
+  同一线程下一次序列化会原地覆盖上一帧 → 调用方（replicator 报文、远程帧）拿到已损坏的数据。
+  现象：ddata 反熵在空闲时退化为发送全量状态、`networkFrame` 类测试读到错位长度。
+- 修复为显式拷贝；全量测试 1020/1020 通过（此前 5 失败 + 1 ERROR）。
+
+### 🐛 修复：分片重组的逻辑消息被误判为超限帧
+
+- 入站 `maxInboundFrame` 只应约束**线上单帧**；原实现把解压后/分片重组后的帧再查一次上限，
+  100 KiB 消息刚拼好就被判超限并回 GoAway（`handshakeNegotiatesMaxFrameBytes` 的根因）。
+- 现在在 `processFrame` 入口只对收到的原始帧检查上限；重组/解压结果不再被判死（解压仍有
+  `MAX_DECOMPRESSED_FRAME` 防炸弹上限）。
+
+### ✅ 测试：修正旧格式类型名的长度断言
+
+- `shortTypeIdsAreNegotiatedAndLegacyStillGetsFullNames` 期望 14 字节并切片 `[4..18]`，
+  与实际 v1.2.x 线格式（类型名 UTF-8 字节数 13）不符；改为按类型名字节数断言。
+
+### ✨ 新增：ex53 分布式计算 Worker 示例（对标 Akka Distributed Workers）
+
+- 任务拆分后在本地 worker 与远端 worker 之间交替执行；
+- worker 用 `context.reply` 把结果送回收件方，跨节点时回复沿网络直接回到发起方（sender 引用）；
+- 结果按任务号去重，统计本地/远端执行数，便于发现分配倾斜；
+- Lou `/compute`；自检覆盖总和、两节点都参与、空任务与 HTTP 一致性。
+
 ### ✨ 新增：ex52 IoT 设备管理示例（对标 Akka 官方 IoT 示例）
 
 - 类型化 Actor 层级：组长 `ctx.actorOf` 按需创建设备子 Actor，重复注册明确拒绝；

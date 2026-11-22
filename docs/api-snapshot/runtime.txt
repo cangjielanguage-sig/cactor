@@ -29,6 +29,12 @@
 ? :: ActorStats.public let lastActiveTime: Int64
 ? :: ActorStats.public let mailboxSize: Int64
 ? :: ActorStats.public let processedMessages: UInt32
+? :: BacklogMonitor.public static func configure(thresholdMs: Int64): Unit
+? :: BacklogMonitor.public static func enabled(): Bool
+? :: BacklogMonitor.public static func recordWarning(): Unit
+? :: BacklogMonitor.public static func reset(): Unit
+? :: BacklogMonitor.public static func thresholdMillis(): Int64
+? :: BacklogMonitor.public static func warningCount(): Int64
 ? :: BaseGuardianActor.public func createChild(props: Props<Actor>, name: String): ActorRef
 ? :: BaseGuardianActor.public func findChild(name: String): Option<ActorRef>
 ? :: BaseGuardianActor.public func getChildren(): Array<ActorRef>
@@ -287,6 +293,7 @@
 ? :: public abstract class RunLink
 ? :: public class ActorCellDispatcher <: CellExecutor
 ? :: public class ActorFailureMessage <: Message
+? :: public class BacklogMonitor
 ? :: public class CellContext <: ActorContext
 ? :: public class CreateSystemActorMessage <: Message
 ? :: public class CreateUserActorMessage <: Message
@@ -377,9 +384,12 @@ cactor_runtime :: CActorRuntimeStats.public let systemName: String
 cactor_runtime :: CActorRuntimeStats.public let uptime: Int64
 cactor_runtime :: CActorRuntimeStats.public let userGuardianStats: GuardianStats
 cactor_runtime :: DispatcherDiagnostics.public static func affinityWorkerCount(): Int64
+cactor_runtime :: DispatcherDiagnostics.public static func backlogWarnings(): Int64
 cactor_runtime :: DispatcherDiagnostics.public static func lastStarvationPath(): Option<String>
+cactor_runtime :: DispatcherDiagnostics.public static func resetBacklogWarnThreshold(): Unit
 cactor_runtime :: DispatcherDiagnostics.public static func runCount(mode: String): Int64
 cactor_runtime :: DispatcherDiagnostics.public static func runDurationPrometheus(): String
+cactor_runtime :: DispatcherDiagnostics.public static func setBacklogWarnMillis(ms: Int64): Unit
 cactor_runtime :: DispatcherDiagnostics.public static func setThreadPerActorIdleMillis(ms: Int64): Unit
 cactor_runtime :: DispatcherDiagnostics.public static func starvationWarnings(): Int64
 cactor_runtime :: DispatcherDiagnostics.public static func threadPerActorCreated(): Int64

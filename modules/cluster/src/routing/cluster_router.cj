@@ -42,12 +42,17 @@ public class ClusterRouter {
     private let actorName: String
     private let strategy: ClusterRouterStrategy
     private let loadOf: (String) -> Int64
+    // 角色过滤（对标 Akka cluster router 的 role）：只为具备该角色的成员路由；None 表示不过滤
+    private var role: Option<String> = None<String>
+    // 数据中心过滤（4.3 的部分实现）：只为该 DC 的成员路由；None 表示不过滤
+    private var dataCenter: Option<String> = None<String>
     private let roundRobin = AtomicInt64(0)
     private let stopped = AtomicBool(false)
 
     public init(cluster: Cluster, remote: SimpleRemoteManager, actorName: String,
         strategy!: ClusterRouterStrategy = ClusterRouterStrategy.RoundRobin,
-        loadOf!: (String) -> Int64 = { _: String => 0 }) {
+        loadOf!: (String) -> Int64 = { _: String => 0 },
+        role!: Option<String> = None<String>) {
         if (actorName.isEmpty()) {
             throw IllegalArgumentException("路由目标名称不能为空")
         }
@@ -56,13 +61,42 @@ public class ClusterRouter {
         this.actorName = actorName
         this.strategy = strategy
         this.loadOf = loadOf
+        this.role = role
+    }
+
+    /** 只为具备该角色的成员路由（链式；空角色非法） */
+    public func withRole(r: String): ClusterRouter {
+        if (r.isEmpty()) {
+            throw IllegalArgumentException("路由角色不能为空")
+        }
+        role = Some<String>(r)
+        this
+    }
+
+    /** 当前的角色过滤（None 表示不过滤） */
+    public func roleFilter(): Option<String> {
+        role
+    }
+
+    /** 只为指定数据中心的成员路由（链式；空 DC 非法） */
+    public func withDataCenter(dc: String): ClusterRouter {
+        if (dc.isEmpty()) {
+            throw IllegalArgumentException("数据中心名不能为空")
+        }
+        dataCenter = Some<String>(dc)
+        this
+    }
+
+    /** 当前的数据中心过滤（None 表示不过滤） */
+    public func dataCenterFilter(): Option<String> {
+        dataCenter
     }
 
     public prop name: String {
         get() { actorName }
     }
 
-    /** 当前候选成员地址（Up 且集群未终止；排序后返回） */
+    /** 当前候选成员地址（Up、满足角色过滤、集群未终止；排序后返回） */
     public func candidates(): Array<String> {
         if (stopped.load() || cluster.isTerminated()) {
             return Array<String>()
@@ -70,7 +104,18 @@ public class ClusterRouter {
         let out = ArrayList<String>()
         for (m in cluster.state().members) {
             if (m.status == MemberStatus.Up) {
-                out.add(m.address)
+                var ok = true
+                match (role) {
+                    case Some(r) => ok = m.hasRole(r)
+                    case None => ()
+                }
+                match (dataCenter) {
+                    case Some(dc) => ok = ok && m.dataCenter == dc
+                    case None => ()
+                }
+                if (ok) {
+                    out.add(m.address)
+                }
             }
         }
         let arr = out.toArray()

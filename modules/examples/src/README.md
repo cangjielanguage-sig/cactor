@@ -337,6 +337,15 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `ex50_trace_chain` | ✅ 运行 | 自检退出码 0 |
 | `ex51_durable_pubsub` | ✅ 运行 | 自检退出码 0 |
 | `ex52_iot_devices` | ✅ 运行 | 自检退出码 0 |
+| `ex53_distributed_workers` | ✅ 运行 | 自检退出码 0 |
+| `ex54_remember_entities` | ✅ 运行 | 自检退出码 0 |
+| `ex55_role_routing` | ✅ 运行 | 自检退出码 0 |
+| `ex56_data_center` | ✅ 运行 | 自检退出码 0 |
+| `ex57_large_messages` | ✅ 运行 | 自检退出码 0 |
+| `ex58_shard_roles` | ✅ 运行 | 自检退出码 0 |
+| `ex59_graph_dsl` | ✅ 运行 | 自检退出码 0 |
+| `ex60_graph_balance_zip` | ✅ 运行 | 自检退出码 0 |
+| `ex61_stream_actor_fanout` | ✅ 运行 | 自检退出码 0 |
 | `functional_actor_demo` | ✅ 运行 | 自检退出码 0 |
 | `hello_world_demo` | ✅ 运行 | 自检退出码 0 |
 | `idle_probe` | — | measurement：空闲调度探测（3 秒采样），用于调参而非门禁 |

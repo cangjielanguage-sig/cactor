@@ -223,6 +223,21 @@ cactor_platform.kv :: public class DDataKvStore <: KvStore
 cactor_platform.kv :: public class KvReadConsistencyException <: Exception
 cactor_platform.kv :: public class MemoryKvStore <: KvStore
 cactor_platform.kv :: public interface KvStore
+cactor_platform.lifecycle :: ClusterSleepHandle.public func pathString(): String
+cactor_platform.lifecycle :: ClusterSleepHandle.public func sleep(): Unit
+cactor_platform.lifecycle :: ClusterSleepHandle.public func tell(message: Message): Unit
+cactor_platform.lifecycle :: ClusterSleepHandle.public func tell(message: Message, sender: ActorRef): Unit
+cactor_platform.lifecycle :: ClusterSleepHandle.public func toString(): String
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func deliver(key: String, message: Message, sender: Option<ActorRef>): Unit
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func handle(key: String): ClusterSleepHandle
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func localActiveCount(): Int64
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func localActiveKeys(): Array<String>
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func ownerCount(): Int64
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func ownerOf(key: String): Option<String>
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func pathOf(key: String): String
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func stats(): (Int64, Int64, Int64)
+cactor_platform.lifecycle :: ClusterSleepRegistry.public func stop(): Unit
+cactor_platform.lifecycle :: ClusterSleepRegistry.public init(system: CActorSystem, cluster: Cluster, remote: SimpleRemoteManager, name: String, factory: (String, Option<String>)->Actor, numberOfShards!: Int64 = 64, store!: DurableStateStore = MemoryDurableStateStore(), policy!: SleepPolicy = SleepPolicy.Explicit)
 cactor_platform.lifecycle :: SleepPolicy.| Explicit
 cactor_platform.lifecycle :: SleepPolicy.| Idle(Duration)
 cactor_platform.lifecycle :: SleepRegistry.public func handle(key: String, factory: (Option<String>)->Actor): SleepableHandle
@@ -242,6 +257,8 @@ cactor_platform.lifecycle :: SleepableHandle.public func tell(message: Message):
 cactor_platform.lifecycle :: SleepableHandle.public func tell(message: Message, sender: ActorRef): Unit
 cactor_platform.lifecycle :: SleepableHandle.public func toString(): String
 cactor_platform.lifecycle :: public abstract class SleepableActor <: Actor
+cactor_platform.lifecycle :: public class ClusterSleepHandle
+cactor_platform.lifecycle :: public class ClusterSleepRegistry
 cactor_platform.lifecycle :: public class SleepRegistry
 cactor_platform.lifecycle :: public class SleepableHandle
 cactor_platform.lifecycle :: public enum SleepPolicy
@@ -319,10 +336,13 @@ cactor_platform.session :: SessionRegistry.public func ask(sessionId: String, me
 cactor_platform.session :: SessionRegistry.public func localSessionCount(): Int64
 cactor_platform.session :: SessionRegistry.public func localSessionIds(): Array<String>
 cactor_platform.session :: SessionRegistry.public func ownerCount(): Int64
+cactor_platform.session :: SessionRegistry.public func ownerOf(sessionId: String): Option<String>
 cactor_platform.session :: SessionRegistry.public func pathOf(sessionId: String): String
 cactor_platform.session :: SessionRegistry.public func session<T>(sessionId: String): TypedActorRef<T>where T <: Message
 cactor_platform.session :: SessionRegistry.public func tell(sessionId: String, message: Message): Unit
 cactor_platform.session :: SessionRegistry.public func tell(sessionId: String, message: Message, sender: ActorRef): Unit
 cactor_platform.session :: SessionRegistry.public func typeName(): String
 cactor_platform.session :: SessionRegistry.public init(sharding: ClusterSharding)
+cactor_platform.session :: SessionRegistry.public init(sharding: ClusterSharding, sleeper: ClusterSleepRegistry)
+cactor_platform.session :: SessionRegistry.public init(sleeper: ClusterSleepRegistry, typeName!: String = "")
 cactor_platform.session :: public class SessionRegistry

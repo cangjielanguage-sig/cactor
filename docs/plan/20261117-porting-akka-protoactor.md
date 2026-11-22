@@ -32,13 +32,15 @@
 | `akka-sample-remote` | 远程 tell/ask/watch、序列化 | `SimpleRemoteManager`、`remoteActorOf`、`tellReliable`、`MessageSerializer` | `best08`、`ex03` | ✅ |
 | `akka-sample-cluster`（stats worker + listener） | gossip 成员、集群感知路由 | `Cluster`、`ClusterEvent`、`Receptionist`、`ClusterRouter` | `best09`、`ex02`、`ex31` | ✅ 差距 4.5 已补 |
 | `akka-sample-cluster-sharding` | 实体路由、remember-entities、passivation | `ClusterSharding`、`rememberedEntitiesKey`、`withPassivation` | `best09`、`ex02` | ✅ |
+| Akka sharding `withRole` | 只有指定角色节点托管分片 | `ShardingSettings.withRole(role)` | **`ex58`** | ✅ |
 | `akka-sample-cluster-singleton` | 唯一实例、故障接管 | `ClusterSingleton`、`isRunningHere`、`location` | **`ex08`** | ✅ |
 | `akka-sample-distributed-pub-sub` | 跨节点主题广播、退订 | `DistributedPubSub.subscribe/publish` | **`ex07`** | ✅ |
 | `akka-sample-distributed-data` | CRDT + Replicator + 一致性级别 | `GCounter/PNCounter/GSet/ORSet/LWWRegister/ORMap/LWWMap`、`Replicator` | `ex04`、`ex30`、`ddata_stress` | ✅（差距 4.6 已补 Map 系） |
 | `akka-sample-persistence` | PersistentActor、快照、恢复 | `EventSourcedBehavior`、`journal_v2`、`snapshot_store`、`RetentionCriteria` | `ex05`、`best07` | ✅（upcast 缺，差距 4.7） |
 | `akka-sample-fsm`（Buncher） | 状态机、状态超时、stash | `TypedBehaviors.receive` 返回新行为 + `withTimers` + `withStash` | **`ex10`**、`best04` | ✅ |
-| `akka-sample-streams` | Source/Flow/Sink、GraphDSL、背压 | `cactor_streams`（线性算子、async、buffer、kill switch） | **`ex12`**、`streams_demo`、`best05` | ✅ 线性算子；缺 GraphDSL（差距 4.8） |
+| `akka-sample-streams` | Source/Flow/Sink、GraphDSL、背压 | `cactor_streams`（线性算子、async、buffer、kill switch、`GraphDSL.broadcast/partitionBy/balance/zip`） | **`ex12`**、**`ex59`**、**`ex60`**、`streams_demo`、`best05` | ✅ 线性算子 + 常用 junction |
 | Akka Routers | pool/group、轮询、广播、动态目标 | 本地 `Routers.pool/group`；跨节点 `ClusterRouter` | **`ex11`**、`ex31` | ✅ |
+| Akka `Sink.actorRef` | 把流元素投递给 Actor | `Sinks.foreach({ x => ref.tell(x) })`（配合 `GraphDSL.broadcast` 扇出） | **`ex61`** | ✅ |
 | Akka CircuitBreaker | 快速失败、半开恢复 | `BasicCircuitBreaker` + `restartWithBackoff` | **`ex14`** | ✅ |
 | akka-sample-cluster-metrics | 自适应负载均衡 | `ClusterRouter` + 应用负载回调（`LeastLoaded`）；分片再平衡为 `RebalancePolicy` | `ex31`、`ex02` | ✅ 应用层可实现 |
 | Akka Multi-DC | roles、data-center、ClusterClient | 无 | — | ❌ 差距 4.1/4.3 |
@@ -73,13 +75,14 @@
 | `SupervisorStrategy` | `TypedBehaviors.supervise(...).onFailure(restart/resume/stop)`、`restartWithBackoff` | 默认策略与 Akka 一致 |
 | `OneForOne/OneForAll` | 类型化监督策略；经典 API 同名策略 | |
 | `ClusterSharding.entityRefFor` | `ClusterSharding.tell/ask` + `shardOf/shardOwner` | |
+| `ClusterShardingSettings.withRole` | `ShardingSettings.withRole(role)` | 区域/移交确认都只看该角色成员（ex58） |
 | `ClusterSingletonProxy` | `ClusterSingleton.tell/ask`（任意节点） | |
 | `DistributedPubSub`（classic） | `membership.DistributedPubSub`（基于 Replicator 的节点集合） | 消息需可序列化 |
 | `Replicator` update/get | `Replicator.incrementCounter/addToSet/getWith` | |
 | `PersistentActor.persist` | `EventSourcedBehavior.persist` + `thenRun` | `thenRun` 在落盘后执行副作用 |
 | `EventAdapter` + `upcast` | `EventAdapter`（无 upcast） | 差距 4.7 |
 | `FSM[S,D]` | "状态即行为" + `withTimers` | 无专用 FSM DSL，但语义等价 |
-| `GraphDSL` | 无组合子层 | 差距 4.8 |
+| `GraphDSL` | `GraphDSL.broadcast / partitionBy / balance / zip` | 常用 junction 已覆盖；无完整图 DSL 语法 |
 | `ActorSelection`（远程） | `SimpleRemoteManager.actorSelection` → `ActorSelection.tell/resolveNames/resolveOne` | 差距 4.1 已补（ex28）；通配 `*`/`?`，`$` 内部入口不可选中 |
 | `DowningProvider` | `DowningProvider` 接口 + `DowningStrategy.Custom`（ex29）；配置仍只认内置名 | 差距 4.2 已补；`decide` 须为纯函数 |
 
@@ -207,7 +210,7 @@ spawn { app.listen() }
 
 | 能力 | 判据 | 影响 | 建议 |
 |---|---|---|---|
-| Multi-DC / roles / ClusterClient | 差距 4.1/4.3 | 跨机房、外部进程访问集群 | 先做 `20261117.md` C1–C2 |
+| Multi-DC / roles / ClusterClient | 差距 4.1/4.3 | 跨机房、外部进程访问集群 | roles 已补（`Cluster(..., roles:)`、`ClusterRouter.withRole`，ex55）；ClusterClient 已补（ex36）；Multi-DC 仍缺 |
 | 分片协调状态持久化 | 差距 4.4 | 全灭重启后分片重排 | 显式放置覆盖已落盘（`withStateStore`，ex49）；自动分配全量映射仍缺，实体用 remember-entities + 事件溯源兜底 |
 | DData Map CRDT | 差距 4.6 | 分布式配置只能塞 `LWWRegister` | 用 `ORSet` 自拼或等 C4 |
 | Projection / Durable Subscriber | 差距 4.8/4.12 | 读模型、离线订阅重放 | Projection 已内建（`ex37`）；Durable Subscriber 已内建（`DurableTopic` ex41、`DistributedPubSub.withDurableLog` ex51） |
@@ -276,6 +279,11 @@ spawn { app.listen() }
 | ex50 | OTel context propagation (in-process) | 三跳 Actor 链共享 traceId、span 不同；无作用域不产生 traceId |
 | ex51 | Akka DistributedPubSub durable subscriber | 离线只进日志、按游标回放、在线扇出与落日志并存 |
 | ex52 | Akka IoT device management sample | 组→设备层级、重复注册拒绝、组内聚合、空组语义 |
+| ex53 | Akka Distributed Workers sample | 任务拆分、本地/远端交替执行、context.reply 跨节点回传 |
+| ex54 | Akka Cluster Sharding remember-entities | 宕机后不发新消息主动恢复、恢复数可观测、换节点 |
+| ex55 | Akka cluster-aware router roles | 角色随 gossip 传播、网关被排除、候选自动收敛 |
+| ex56 | Akka Multi-DC 的部分实现：DC 属性 + 就近路由 | DC 随 gossip 传播、只选同 DC 候选、跨 DC 零命中 |
+| ex57 | Akka Artery 压缩 / 大消息分片 | 1 MiB 压缩、100 KiB 分片、逐字节一致、无 GoAway |
 | ex14 | Akka CircuitBreaker / protoactor middleware | 2 次失败后 Open；Open 不调用下游；半开恢复；退避重启后可用 |
 
 复现命令：
@@ -298,7 +306,10 @@ for e in ex01_agent_runtime ex02_tenant_orders ex03_event_backbone ex04_edge_con
          ex42_agent_swarm ex43_inference_gateway ex44_agent_memory \
          ex45_edge_twin ex46_live_lakehouse ex47_grain_reminder \
          ex48_metrics_endpoint ex49_shard_state ex50_trace_chain \
-         ex51_durable_pubsub ex52_iot_devices; do
+         ex51_durable_pubsub ex52_iot_devices ex53_distributed_workers \
+         ex54_remember_entities ex55_role_routing ex56_data_center \
+         ex57_large_messages ex58_shard_roles ex59_graph_dsl ex60_graph_balance_zip \
+         ex61_stream_actor_fanout; do
   CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.$e || echo "FAIL: $e"
 done
 

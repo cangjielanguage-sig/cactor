@@ -321,6 +321,8 @@ class CellExtras {
     var stoppingChildCount: Option<AtomicInt64> = None<AtomicInt64>
     var loggerValue: Option<Logger> = None<Logger>
     var unstashIndex: Int64 = 0
+    // C5：最近一次积压告警的单调时刻（纳秒，0 = 从未告警），用于按阈值窗口限流
+    var lastBacklogWarnNanos: Int64 = 0
 }
 
 /**
@@ -1131,6 +1133,31 @@ public class SimpleUserActorRef <: RunLink & ActorRef & ActorContext {
         }
     }
 
+    /**
+     * C5：批边界检查积压。先看 `pending()`（原子读）——只有确实有积压才去取时间戳（加邮箱锁）；
+     * 每个阈值窗口最多告警一次（时间戳懒分配在 CellExtras）。**只告警，不丢弃消息。**
+     * 阈值见 `CACTOR_MAILBOX_BACKLOG_WARN_SECONDS`（默认 30s，0 关闭）。
+     */
+    private func warnIfBacklogged(): Unit {
+        if (!BacklogMonitor.enabled() || mailboxKind == MAILBOX_PRIORITY || pending() <= 0) {
+            return
+        }
+        let thresholdMs = BacklogMonitor.thresholdMillis()
+        let thresholdNanos = thresholdMs * 1000000
+        let backlogNanos = mboxBacklogNanos()
+        if (backlogNanos < thresholdNanos) {
+            return
+        }
+        let now = monoNanos()
+        let e = extras()
+        if (e.lastBacklogWarnNanos != 0 && now - e.lastBacklogWarnNanos < thresholdNanos) {
+            return
+        }
+        e.lastBacklogWarnNanos = now
+        BacklogMonitor.recordWarning()
+        cellLog.warn("Actor ${fullPath()} 邮箱积压 ${backlogNanos / 1000000} ms 超过阈值 ${thresholdMs} ms（C5：只告警，不丢弃）")
+    }
+
     /** 被监督重启的次数 */
     public func restarts(): Int64 {
         match (mboxAnomaliesIfAny()) {
@@ -1250,6 +1277,9 @@ public class SimpleUserActorRef <: RunLink & ActorRef & ActorContext {
         } catch (e: Error) {
             cellLog.error("Actor ${fullPath()} 消息循环发生 Error（已隔离，继续调度）: ${e}")
         } finally {
+            // C5：批边界检查积压告警（只告警，不丢弃）。必须在释放调度权之前，
+            // 因为 extras()/mboxBacklogNanos 只在 Cell 线程内安全访问。
+            warnIfBacklogged()
             releaseAndReschedule()
             // A1b：按调度模式记录一次 run 的时长；只加在批边界，不按消息计
             RunDurationMetrics.record(executor.mode(), (MonoTime.now() - startedAt).toNanoseconds())

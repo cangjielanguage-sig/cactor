@@ -102,6 +102,9 @@ public func uniqueAddressOf(address: String, uid: UInt64): String {
     "${address}#${uid}"
 }
 
+/** 未显式配置数据中心时的默认值（与旧节点的语义一致） */
+public let DEFAULT_DATA_CENTER: String = "default"
+
 /** 集群成员（不可变） */
 public class Member <: ToString {
     /** 远程地址 "host:port" */
@@ -111,20 +114,58 @@ public class Member <: ToString {
     public let upNumber: Int64
     /** 该地址上进程的启动标识（SimpleRemoteManager.selfUid）；同一地址重启后不同 */
     public let uid: UInt64
+    /**
+     * 节点角色（对标 Akka Member.roles）：用于集群感知路由/分片把请求限定到某一类节点。
+     * 角色随 gossip 传播；旧版本节点读不到该扩展段时会忽略，因此不需要升线协议版本。
+     * 始终排序去重，便于比较与展示。
+     */
+    public let roles: Array<String>
+    /**
+     * 数据中心标识（对标 Akka Multi-DC 的 dataCenter）：用于"就近路由"。
+     * 本实现只传播该属性并按它过滤路由候选，**尚未**把跨 DC 成员从 gossip 中隔离（C2a 的完整语义）。
+     * 旧节点读不到该扩展段时按 "default" 处理。
+     */
+    public let dataCenter: String
 
     public init(address: String, status: MemberStatus, upNumber: Int64) {
-        this(address, status, upNumber, 0)
+        this(address, status, upNumber, 0, [], DEFAULT_DATA_CENTER)
     }
 
     public init(address: String, status: MemberStatus, upNumber: Int64, uid: UInt64) {
+        this(address, status, upNumber, uid, [], DEFAULT_DATA_CENTER)
+    }
+
+    public init(address: String, status: MemberStatus, upNumber: Int64, uid: UInt64, roles: Array<String>) {
+        this(address, status, upNumber, uid, roles, DEFAULT_DATA_CENTER)
+    }
+
+    public init(address: String, status: MemberStatus, upNumber: Int64, uid: UInt64, roles: Array<String>,
+        dataCenter: String) {
         this.address = address
         this.status = status
         this.upNumber = upNumber
         this.uid = uid
+        this.roles = normalizeRoles(roles)
+        this.dataCenter = if (dataCenter.isEmpty()) { DEFAULT_DATA_CENTER } else { dataCenter }
     }
 
     public func withStatus(s: MemberStatus): Member {
-        Member(address, s, upNumber, uid)
+        Member(address, s, upNumber, uid, roles, dataCenter)
+    }
+
+    /** 替换角色（排序去重） */
+    public func withRoles(r: Array<String>): Member {
+        Member(address, status, upNumber, uid, r, dataCenter)
+    }
+
+    /** 替换数据中心 */
+    public func withDataCenter(dc: String): Member {
+        Member(address, status, upNumber, uid, roles, dc)
+    }
+
+    /** 是否具备某个角色 */
+    public func hasRole(role: String): Bool {
+        roles.contains(role)
     }
 
     /** "地址#uid" */
@@ -146,13 +187,52 @@ public class Member <: ToString {
         address < other.address
     }
 
-    func sameAs(other: Member): Bool {
-        address == other.address && uid == other.uid && status == other.status && upNumber == other.upNumber
+    /** 同一实例、同一状态、角色与数据中心（用于 gossip 合并与诊断） */
+    public func sameAs(other: Member): Bool {
+        address == other.address && uid == other.uid && status == other.status && upNumber == other.upNumber &&
+            dataCenter == other.dataCenter && sameRoles(roles, other.roles)
     }
 
     public func toString(): String {
-        "Member(${address}#${uid}, ${status}, up#${upNumber})"
+        let r = if (roles.isEmpty()) { "" } else { ", roles=${roles}" }
+        "Member(${address}#${uid}, ${status}, up#${upNumber}, dc=${dataCenter}${r})"
     }
+}
+
+func sameRoles(a: Array<String>, b: Array<String>): Bool {
+    if (a.size != b.size) {
+        return false
+    }
+    for (i in 0..a.size) {
+        if (a[i] != b[i]) {
+            return false
+        }
+    }
+    true
+}
+
+/** 角色排序去重（插入排序：角色数量很小，避免引入排序依赖） */
+func normalizeRoles(roles: Array<String>): Array<String> {
+    if (roles.isEmpty()) {
+        return Array<String>()
+    }
+    let uniq = ArrayList<String>()
+    for (r in roles) {
+        if (!r.isEmpty() && !uniq.contains(r)) {
+            uniq.add(r)
+        }
+    }
+    let out = uniq.toArray()
+    for (i in 1..out.size) {
+        let v = out[i]
+        var j = i - 1
+        while (j >= 0 && out[j] > v) {
+            out[j + 1] = out[j]
+            j--
+        }
+        out[j + 1] = v
+    }
+    out
 }
 
 // ======================= Gossip =======================
@@ -241,7 +321,24 @@ class Gossip {
         } else {
             min(x.upNumber, y.upNumber)
         }
-        Member(x.address, status, up, x.uid)
+        // 角色取并集：旧版节点发来的记录没有角色段，若简单取一侧会把新节点的角色抹掉
+        let all = ArrayList<String>()
+        for (r in x.roles) {
+            all.add(r)
+        }
+        for (r in y.roles) {
+            all.add(r)
+        }
+        // 数据中心：优先非默认值（旧节点发来的记录没有该段，不能把真实 DC 覆盖成 default）；
+        // 两侧都非默认且不同时取字典序较大者，保证合并确定
+        let dc = if (x.dataCenter == DEFAULT_DATA_CENTER) {
+            y.dataCenter
+        } else if (y.dataCenter == DEFAULT_DATA_CENTER) {
+            x.dataCenter
+        } else {
+            if (x.dataCenter >= y.dataCenter) { x.dataCenter } else { y.dataCenter }
+        }
+        Member(x.address, status, up, x.uid, all.toArray(), dc)
     }
 
     /** 墓碑里的实例一律视为 Removed */
@@ -404,6 +501,22 @@ class Gossip {
             w.put(t)
             w.put(at)
         }
+        // 角色扩展段（可选尾段）：旧读者按固定字段数读完就停，天然忽略；
+        // 新读者没有该段时按"无角色"处理，因此不需要升 gossip 版本。
+        w.put(members.size)
+        for ((addr, m) in members) {
+            w.put(addr)
+            w.put(m.roles.size)
+            for (role in m.roles) {
+                w.put(role)
+            }
+        }
+        // 数据中心扩展段（同样可选尾段；比角色段更晚加入，旧读者一律忽略）
+        w.put(members.size)
+        for ((addr, m) in members) {
+            w.put(addr)
+            w.put(m.dataCenter)
+        }
         w.done()
     }
 
@@ -439,6 +552,34 @@ class Gossip {
         for (_ in 0..nt) {
             let t = r.next()
             tomb[t] = r.nextInt()
+        }
+        // 角色扩展段：旧节点不会写；没有就保持空角色。未知地址（已移除/被替换）直接忽略
+        if (r.hasMore()) {
+            let roleEntries = r.nextInt()
+            for (_ in 0..roleEntries) {
+                let addr = r.next()
+                let k = r.nextInt()
+                let roles = ArrayList<String>()
+                for (_ in 0..k) {
+                    roles.add(r.next())
+                }
+                match (m.get(addr)) {
+                    case Some(prev) => m[addr] = prev.withRoles(roles.toArray())
+                    case None => ()
+                }
+            }
+        }
+        // 数据中心扩展段
+        if (r.hasMore()) {
+            let dcEntries = r.nextInt()
+            for (_ in 0..dcEntries) {
+                let addr = r.next()
+                let dc = r.next()
+                match (m.get(addr)) {
+                    case Some(prev) => m[addr] = prev.withDataCenter(dc)
+                    case None => ()
+                }
+            }
         }
         Gossip(m, seen, rows, tomb)
     }
@@ -749,6 +890,47 @@ public class ClusterSnapshot {
         }
         n
     }
+
+    /** 具备某角色的成员（按地址排序，与 members 一致；不区分状态，调用方可再按 status 过滤） */
+    public func membersWithRole(role: String): Array<Member> {
+        let out = ArrayList<Member>()
+        for (m in members) {
+            if (m.hasRole(role)) {
+                out.add(m)
+            }
+        }
+        out.toArray()
+    }
+
+    /** 某地址上的成员是否具备该角色（地址不存在时为 false） */
+    public func hasRole(address: String, role: String): Bool {
+        match (member(address)) {
+            case Some(m) => m.hasRole(role)
+            case None => false
+        }
+    }
+
+    /** 属于某数据中心的成员（与 members 同序） */
+    public func membersInDataCenter(dc: String): Array<Member> {
+        let out = ArrayList<Member>()
+        for (m in members) {
+            if (m.dataCenter == dc) {
+                out.add(m)
+            }
+        }
+        out.toArray()
+    }
+
+    /** 当前出现过的数据中心（排序去重） */
+    public func dataCenters(): Array<String> {
+        let set = HashSet<String>()
+        for (m in members) {
+            set.add(m.dataCenter)
+        }
+        let out = set.toArray()
+        sort(out)
+        out
+    }
 }
 
 // ======================= 守护 Actor =======================
@@ -837,7 +1019,7 @@ class ClusterDaemon <: Actor {
     var rejected: Option<String> = None
 
     init(selfAddress: String, selfUid: UInt64, seeds: Array<String>, remote: SimpleRemoteManager, settings: ClusterSettings,
-        shared: ClusterShared) {
+        shared: ClusterShared, roles: Array<String>, dataCenter: String) {
         this.selfAddress = selfAddress
         this.selfUid = selfUid
         this.seeds = seeds
@@ -845,7 +1027,7 @@ class ClusterDaemon <: Actor {
         this.settings = settings
         this.shared = shared
         let m = HashMap<String, Member>()
-        m[selfAddress] = Member(selfAddress, MemberStatus.Joining, 0, selfUid)
+        m[selfAddress] = Member(selfAddress, MemberStatus.Joining, 0, selfUid, roles, dataCenter)
         let seen = HashSet<String>()
         seen.add(selfAddress)
         this.gossip = Gossip(m, seen)
@@ -1468,7 +1650,9 @@ class ClusterDaemon <: Actor {
                 match (m.status) {
                     case Joining =>
                         maxUp++
-                        next[addr] = Member(addr, MemberStatus.Up, maxUp, m.uid)
+                        // 推进 Up 时必须保留角色：直接 new Member(...) 会把本节点自述的角色丢掉，
+                        // 其他节点靠并集还能记住，但本节点视图里就查不到自己的角色了
+                        next[addr] = Member(addr, MemberStatus.Up, maxUp, m.uid, m.roles, m.dataCenter)
                         changed = true
                     case Leaving =>
                         next[addr] = m.withStatus(MemberStatus.Exiting)
@@ -1725,7 +1909,12 @@ public class Cluster {
     private let system: CActorSystem
     private let shutdownInstalled = AtomicBool(false)
 
-    public init(system: CActorSystem, remote: SimpleRemoteManager, seeds: Array<NetworkAddress>, settings: ClusterSettings) {
+    /**
+     * @param roles 本节点角色（对标 Akka roles）：随 gossip 传播，供集群感知路由/分片筛选节点。
+     *              旧版本节点忽略角色扩展段，因此加入含旧节点的集群也安全。
+     */
+    public init(system: CActorSystem, remote: SimpleRemoteManager, seeds: Array<NetworkAddress>, settings: ClusterSettings,
+        roles!: Array<String> = Array<String>(), dataCenter!: String = DEFAULT_DATA_CENTER) {
         this.system = system
         this.selfAddress = remote.getLocalAddress().toString()
         this.selfUid = remote.selfUid()
@@ -1733,9 +1922,26 @@ public class Cluster {
         let me = selfAddress
         let uid = selfUid
         let sh = shared
-        this.daemon = system.actorOf({ => ClusterDaemon(me, uid, seedAddrs, remote, settings, sh) },
+        let r = normalizeRoles(roles)
+        this.daemon = system.actorOf({ => ClusterDaemon(me, uid, seedAddrs, remote, settings, sh, r, dataCenter) },
             "cluster-${me.replace(":", "_").replace(".", "_")}")
         remote.exposeActor("cluster", daemon)
+    }
+
+    /** 本节点的角色（与 Member.roles 一致，排序去重） */
+    public func roles(): Array<String> {
+        match (selfMember()) {
+            case Some(m) => m.roles
+            case None => Array<String>()
+        }
+    }
+
+    /** 本节点所属数据中心（未配置时为 "default"） */
+    public func dataCenter(): String {
+        match (selfMember()) {
+            case Some(m) => m.dataCenter
+            case None => DEFAULT_DATA_CENTER
+        }
     }
 
     public func state(): ClusterSnapshot {

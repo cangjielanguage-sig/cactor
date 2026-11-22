@@ -442,13 +442,13 @@ cactor → streams / xstate / platform / testkit
 | [best09_cluster_sharding](modules/examples/src/best09_cluster_sharding/main.cj) | 集群分片：gossip 成员协议 + `ClusterSharding` 路由到唯一实体（单进程三节点，带自检） |
 | [persistence_demo](modules/examples/src/persistence_demo/main.cj) | 事件溯源（原型） |
 
-### 真实应用示例（`ex01`–`ex52`）
+### 真实应用示例（`ex01`–`ex57`）
 
-这五十二个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
+这五十七个示例不是 API 教程，而是**带真实业务语义、真实故障模型、业务断言**的应用；
 设计与验收见 [docs/plan/2026117-lz.md](docs/plan/2026117-lz.md)，
 与 Akka / protoactor-go 官方示例的逐项对照见
 [docs/plan/20261117-porting-akka-protoactor.md](docs/plan/20261117-porting-akka-protoactor.md)。
-HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex52` 都提供 `serve <port>` 模式，可直接 `curl` 验证）。
+HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–`ex09`、`ex11`–`ex56` 都提供 `serve <port>` 模式，可直接 `curl` 验证；`ex57` 为线协议验证，无需 HTTP）。
 
 | 示例 | 内容 | 压到的能力 |
 |------|------|------|
@@ -504,6 +504,16 @@ HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–
 | [ex50_trace_chain](modules/examples/src/ex50_trace_chain/main.cj) | 本地 Actor 链路 trace 自动传播（差距 4.10 剩余部分）：三跳共享 traceId、span 各不相同、无作用域不产生 traceId | runtime 自动 `TracedMessage` 包装、`Mdc.currentTraceParent`（新增）、Lou |
 | [ex51_durable_pubsub](modules/examples/src/ex51_durable_pubsub/main.cj) | 持久发布订阅（差距 4.8 剩余部分）：离线只进日志、回放补齐、游标不重复、在线扇出与落日志并存 | `DistributedPubSub.withDurableLog`、`replayDurable`、`DurableTopic.replay`（新增）、Lou |
 | [ex52_iot_devices](modules/examples/src/ex52_iot_devices/main.cj) | IoT 设备管理（对标 Akka 官方 IoT 示例）：组→设备层级、重复注册拒绝、组内读数聚合、空组语义 | 类型化 Actor 层级（`TypedBehaviors.setup` + `ctx.actorOf`）、`TypedAsk`、Lou |
+| [ex53_distributed_workers](modules/examples/src/ex53_distributed_workers/main.cj) | 分布式计算 Worker（对标 Akka Distributed Workers）：任务拆分、本地/远端交替执行、`context.reply` 跨节点回传、执行节点可观测 | 经典 Actor、远程 sender 回复、`remoteActorOf`、Lou |
+| [ex54_remember_entities](modules/examples/src/ex54_remember_entities/main.cj) | 记住实体（对标 Akka remember-entities）：宕机后不发新消息也主动恢复实体、恢复数可观测、恢复后换节点 | `ShardingSettings.remembering`、`restartedCount`、Replicator、Lou |
+| [ex55_role_routing](modules/examples/src/ex55_role_routing/main.cj) | 按角色路由（对标 Akka cluster-aware router roles）：角色随 gossip 传播、网关不抢 worker 任务、候选自动收敛 | `Cluster(..., roles: ...)`、`membersWithRole`、`ClusterRouter.withRole`（新增）、Lou |
+| [ex56_data_center](modules/examples/src/ex56_data_center/main.cj) | 跨数据中心就近路由（差距 4.3 部分实现）：DC 随 gossip 传播、只选同 DC 候选、跨 DC 零命中 | `Cluster(..., dataCenter: ...)`、`dataCenters`、`ClusterRouter.withDataCenter`（新增）、Lou |
+| [ex57_large_messages](modules/examples/src/ex57_large_messages/main.cj) | 大消息压缩与分片（差距 4.9）：1 MiB 文本线上压缩、100 KiB 高熵文本按 32 KiB 分片、内容逐字节一致 | `configureWire(maxFrameBytes)`、压缩/重组计数、真实 TCP |
+| [ex58_shard_roles](modules/examples/src/ex58_shard_roles/main.cj) | 分片宿主角色（对标 Akka `ClusterShardingSettings.withRole`）：64 分片只落 worker、网关托管 0 但仍可转发、实体宿主可观测 | `ShardingSettings.withRole`（新增）、`Cluster(..., roles: ...)`、`shardStats`、Lou |
+| [ex59_graph_dsl](modules/examples/src/ex59_graph_dsl/main.cj) | 流扇出编排（对标 Akka GraphDSL 的 Broadcast/Partition）：一份数据三份落地、同 key 恒定同分区、全部出口取消则上游结束 | `GraphDSL.broadcast`、`GraphDSL.partitionBy`（新增）、Lou |
+| [ex60_graph_balance_zip](modules/examples/src/ex60_graph_balance_zip/main.cj) | 流负载均衡与配对（对标 Akka Balance/Zip）：元素只处理一次且分布均衡、两路按位置配对、长度不等按短侧结束 | `GraphDSL.balance`、`GraphDSL.zip`（新增）、Lou |
+| [ex61_stream_actor_fanout](modules/examples/src/ex61_stream_actor_fanout/main.cj) | 流扇出到 Actor（对标 Akka Sink.actorRef）：一份事件驱动审计/指标/归档三个 Actor，各自状态独立且计数一致 | `GraphDSL.broadcast` + `Sinks.foreach` + 经典 Actor、Lou |
+| [ex62_shard_role_join](modules/examples/src/ex62_shard_role_join/main.cj) | 分片角色的动态可用性：只有网关时消息缓冲不丢，worker 加入后自动排空；网关始终不托管 | `ShardingSettings.withRole`、`ClusterSharding.stats/ownerCount`、无宿主告警（新增）、Lou |
 
 ---
 

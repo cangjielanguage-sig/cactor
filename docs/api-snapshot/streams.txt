@@ -40,6 +40,10 @@ cactor_streams :: Flow.public func withSupervision(decider: Decider): Flow<In, O
 cactor_streams :: Flows.public static func create<T>(): Flow<T, T, Unit>
 cactor_streams :: Flows.public static func fromFunction<A, B>(f: (A)->B): Flow<A, B, Unit>
 cactor_streams :: Flows.public static func grouped<T>(n: Int64): Flow<T, Array<T>, Unit>
+cactor_streams :: GraphDSL.public static func balance<In, Mat, M>(source: Source<In, Mat>, sinks: Array<Sink<In, M>>): RunnableGraph<(Mat, Array<M>)>
+cactor_streams :: GraphDSL.public static func broadcast<In, Mat, M>(source: Source<In, Mat>, sinks: Array<Sink<In, M>>): RunnableGraph<(Mat, Array<M>)>
+cactor_streams :: GraphDSL.public static func partitionBy<In, Mat, M>(source: Source<In, Mat>, partitions: Int64, keyOf: (In)->Int64, sinks: Array<Sink<In, M>>): RunnableGraph<(Mat, Array<M>)>
+cactor_streams :: GraphDSL.public static func zip<A, B, M1, M2, M>(left: Source<A, M1>, right: Source<B, M2>, sink: Sink<(A, B), M>): RunnableGraph<(M1, M2, M)>
 cactor_streams :: KillSwitch.func abort(cause: Exception): Unit
 cactor_streams :: KillSwitch.func shutdown(): Unit
 cactor_streams :: KillSwitches.public static func shared(name: String): SharedKillSwitch
@@ -233,6 +237,7 @@ cactor_streams :: public func withSupervision<A, M>(decider: Decider): (Source<A
 cactor_streams :: public interface Cancellable
 cactor_streams :: public interface KillSwitch
 cactor_streams :: public struct Flows
+cactor_streams :: public struct GraphDSL
 cactor_streams :: public struct KillSwitches
 cactor_streams :: public struct Sinks
 cactor_streams :: public struct Sources

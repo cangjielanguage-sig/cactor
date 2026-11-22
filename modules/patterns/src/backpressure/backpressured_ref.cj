@@ -16,6 +16,7 @@ package cactor_patterns.backpressure
 import std.time.*
 import cactor_core.actor.{ActorRef}
 import cactor_core.message.{Message}
+import cactor_core.dsl.{AskInbox}
 
 /** offer 的结果：容量信息随失败一起返回，便于上游按 limit 调整速率（对标 Rivet 的 QueueFull{limit,capacity}） */
 public enum OfferResult {
@@ -163,4 +164,38 @@ public class BackpressuredRef<T> where T <: Message {
     public func targetRef(): ActorRef {
         target
     }
+}
+
+/** 下游在 wait 之后仍处于背压水位，ask 未发送（区别于"发出后超时"） */
+public class AskBackpressuredException <: Exception {
+    public let inFlight: Int64
+    public let limit: Int64
+
+    public init(inFlight: Int64, limit: Int64) {
+        super("下游忙（在途 ${inFlight}/${limit}），ask 未发送；请降速后重试，或对该目标改用 StreamRef 信用背压")
+        this.inFlight = inFlight
+        this.limit = limit
+    }
+}
+
+/**
+ * 带背压的经典 ask（C2 组合接口，与 `AskInbox.ask` 用法一致）：
+ * 先按水位判断——在途未达 `limit`（或目标已停止）才把消息投给 target 并返回收件箱；
+ * 水位已满时最多等 `writableTimeout`，仍不可写则抛 `AskBackpressuredException`，
+ * 而不是让请求在邮箱里排队到 ask 超时（那时错误信息只剩"没回信"，看不出是背压）。
+ *
+ * ```cangjie
+ * let reply = askWithBackpressure(worker, Query("x"), limit: 64).get(1.second)
+ * ```
+ *
+ * 阻塞等待（`whenWritable` 与随后的 `get`）只能在 Actor 之外使用；Actor 内请用定时器/pipeToSelf。
+ */
+public func askWithBackpressure(target: ActorRef, message: Message,
+    limit!: Int64 = 1024,
+    writableTimeout!: Duration = Duration.second): AskInbox {
+    let ref = BackpressuredRef<Message>(target, limit: limit)
+    if (!ref.whenWritable(writableTimeout)) {
+        throw AskBackpressuredException(ref.inFlight(), limit)
+    }
+    AskInbox.ask(target, message)
 }

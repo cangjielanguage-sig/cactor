@@ -389,6 +389,379 @@ abstract class FlowLogic<In, Out> <: StageLogic & InHandler & OutHandler {
     }
 }
 
+// ========== 多出口 junction（GraphDSL 的 broadcast / partitionBy） ==========
+
+/** junction 阶段接收某个出口的拉取/取消回调（出口本身无法带索引，用适配器转发） */
+interface JunctionParent {
+    func outletPull(idx: Int64): Unit
+
+    func outletCancel(idx: Int64): Unit
+}
+
+class JunctionOutletHandler <: OutHandler {
+    let parent: JunctionParent
+    let idx: Int64
+
+    init(parent: JunctionParent, idx: Int64) {
+        this.parent = parent
+        this.idx = idx
+    }
+
+    public func onPull(): Unit {
+        parent.outletPull(idx)
+    }
+
+    public func onDownstreamFinish(): Unit {
+        parent.outletCancel(idx)
+    }
+}
+
+/**
+ * 一进多出：把每个元素按 `route` 给出的出口索引分发。
+ *
+ * 背压采用保守语义——只有**所有仍打开**的出口都 pull 了，才向上游要下一个元素，
+ * 因此最慢的分支决定上游节奏（与 Akka Broadcast 一致）；某个出口取消后不再参与该判断，
+ * 全部出口取消时取消上游。`route` 必须是纯函数且索引在 [0, n) 内。
+ */
+class FanOutLogic<T> <: StageLogic & InHandler & JunctionParent {
+    let inlet: Conn<T>
+    let outlets: Array<Conn<T>>
+    let active: Array<Bool>
+    let demand: Array<Bool>
+    let route: (T) -> Array<Int64>
+    var buffered: Option<T> = None<T>
+    var upstreamDone = false
+
+    init(island: Island, inlet: Conn<T>, n: Int64, route: (T) -> Array<Int64>) {
+        super(island)
+        this.inlet = inlet
+        this.outlets = Array<Conn<T>>(n, { _ => Conn<T>(island) })
+        this.active = Array<Bool>(n, repeat: true)
+        this.demand = Array<Bool>(n, repeat: false)
+        this.route = route
+    }
+
+    public override func wire(): Unit {
+        inlet.setIn(this, this)
+        inPorts.add(inlet)
+        for (i in 0..outlets.size) {
+            outlets[i].setOut(JunctionOutletHandler(this, i), this)
+            outPorts.add(outlets[i])
+        }
+    }
+
+    private func allDemand(): Bool {
+        var any = false
+        for (i in 0..active.size) {
+            if (active[i]) {
+                any = true
+                if (!demand[i]) {
+                    return false
+                }
+            }
+        }
+        any
+    }
+
+    private func flush(): Unit {
+        if (let Some(x) <- buffered) {
+            if (!allDemand()) {
+                return
+            }
+            buffered = None<T>
+            for (idx in route(x)) {
+                if (idx >= 0 && idx < outlets.size && active[idx] && demand[idx]) {
+                    outlets[idx].push(x)
+                    demand[idx] = false
+                }
+            }
+            flush()
+            return
+        }
+        // 上游已结束且缓冲已排空才真正结束；否则等剩余出口 pull 后再发
+        if (upstreamDone) {
+            completeStage()
+            return
+        }
+        if (!inlet.hasBeenPulled() && !inlet.isClosedForIn() && allDemand()) {
+            inlet.pull()
+        }
+    }
+
+    public func outletPull(idx: Int64): Unit {
+        demand[idx] = true
+        flush()
+    }
+
+    public func outletCancel(idx: Int64): Unit {
+        active[idx] = false
+        demand[idx] = false
+        var anyActive = false
+        for (a in active) {
+            if (a) {
+                anyActive = true
+            }
+        }
+        if (!anyActive) {
+            inlet.cancel()
+            finish()
+        } else {
+            flush()
+        }
+    }
+
+    public func onPush(): Unit {
+        if (buffered.isSome()) {
+            throw IllegalStateException("junction 缓冲区已有元素")
+        }
+        buffered = Some<T>(inlet.grab())
+        flush()
+    }
+
+    public func onUpstreamFinish(): Unit {
+        upstreamDone = true
+        flush()
+    }
+
+    public func onUpstreamFailure(cause: Exception): Unit {
+        failStage(cause)
+    }
+}
+
+/** 多入口 junction 的输入回调适配器（InHandler 也不带索引） */
+interface JunctionInParent {
+    func inletPush(idx: Int64): Unit
+
+    func inletFinish(idx: Int64): Unit
+
+    func inletFailure(idx: Int64, cause: Exception): Unit
+}
+
+class JunctionInletHandler <: InHandler {
+    let parent: JunctionInParent
+    let idx: Int64
+
+    init(parent: JunctionInParent, idx: Int64) {
+        this.parent = parent
+        this.idx = idx
+    }
+
+    public func onPush(): Unit {
+        parent.inletPush(idx)
+    }
+
+    public func onUpstreamFinish(): Unit {
+        parent.inletFinish(idx)
+    }
+
+    public func onUpstreamFailure(cause: Exception): Unit {
+        parent.inletFailure(idx, cause)
+    }
+}
+
+/**
+ * 一进多出、按需轮询（balance）：元素只发给**当前有需求**的出口，从上次的位置开始找。
+ * 与广播不同，只要还有任一出口有需求就向上游要元素；全部出口取消时取消上游。
+ */
+class BalanceLogic<T> <: StageLogic & InHandler & JunctionParent {
+    let inlet: Conn<T>
+    let outlets: Array<Conn<T>>
+    let active: Array<Bool>
+    let demand: Array<Bool>
+    var nextIdx: Int64 = 0
+    var buffered: Option<T> = None<T>
+    var upstreamDone = false
+
+    init(island: Island, inlet: Conn<T>, n: Int64) {
+        super(island)
+        this.inlet = inlet
+        this.outlets = Array<Conn<T>>(n, { _ => Conn<T>(island) })
+        this.active = Array<Bool>(n, repeat: true)
+        this.demand = Array<Bool>(n, repeat: false)
+    }
+
+    public override func wire(): Unit {
+        inlet.setIn(this, this)
+        inPorts.add(inlet)
+        for (i in 0..outlets.size) {
+            outlets[i].setOut(JunctionOutletHandler(this, i), this)
+            outPorts.add(outlets[i])
+        }
+    }
+
+    private func anyDemand(): Bool {
+        for (i in 0..active.size) {
+            if (active[i] && demand[i]) {
+                return true
+            }
+        }
+        false
+    }
+
+    private func flush(): Unit {
+        if (let Some(x) <- buffered) {
+            var target: Int64 = -1
+            for (k in 0..outlets.size) {
+                let i = (nextIdx + k) % outlets.size
+                if (active[i] && demand[i]) {
+                    target = i
+                    break
+                }
+            }
+            if (target < 0) {
+                return
+            }
+            buffered = None<T>
+            outlets[target].push(x)
+            demand[target] = false
+            nextIdx = (target + 1) % outlets.size
+            flush()
+            return
+        }
+        if (upstreamDone) {
+            completeStage()
+            return
+        }
+        if (!inlet.hasBeenPulled() && !inlet.isClosedForIn() && anyDemand()) {
+            inlet.pull()
+        }
+    }
+
+    public func outletPull(idx: Int64): Unit {
+        demand[idx] = true
+        flush()
+    }
+
+    public func outletCancel(idx: Int64): Unit {
+        active[idx] = false
+        demand[idx] = false
+        var anyActive = false
+        for (a in active) {
+            if (a) {
+                anyActive = true
+            }
+        }
+        if (!anyActive) {
+            inlet.cancel()
+            finish()
+        } else {
+            flush()
+        }
+    }
+
+    public func onPush(): Unit {
+        if (buffered.isSome()) {
+            throw IllegalStateException("balance 缓冲区已有元素")
+        }
+        buffered = Some<T>(inlet.grab())
+        flush()
+    }
+
+    public func onUpstreamFinish(): Unit {
+        upstreamDone = true
+        flush()
+    }
+
+    public func onUpstreamFailure(cause: Exception): Unit {
+        failStage(cause)
+    }
+}
+
+/**
+ * 两入一出（zip）：两侧各取一个元素组成 pair 发往下游。
+ * 每个入口最多预取 1 个元素（有界）；任一侧在上游结束且已无待发元素时结束。
+ */
+class ZipLogic<A, B> <: StageLogic & OutHandler & JunctionInParent {
+    let inA: Conn<A>
+    let inB: Conn<B>
+    let outlet: Conn<(A, B)>
+    var slotA: Option<A> = None<A>
+    var slotB: Option<B> = None<B>
+    var doneA = false
+    var doneB = false
+    var outDemand = false
+
+    init(island: Island, inA: Conn<A>, inB: Conn<B>) {
+        super(island)
+        this.inA = inA
+        this.inB = inB
+        this.outlet = Conn<(A, B)>(island)
+    }
+
+    public override func wire(): Unit {
+        inA.setIn(JunctionInletHandler(this, 0), this)
+        inB.setIn(JunctionInletHandler(this, 1), this)
+        outlet.setOut(this, this)
+        inPorts.add(inA)
+        inPorts.add(inB)
+        outPorts.add(outlet)
+    }
+
+    public override func preStart(): Unit {
+        pump()
+    }
+
+    private func pump(): Unit {
+        if (outDemand && slotA.isSome() && slotB.isSome()) {
+            let a = slotA.getOrThrow()
+            let b = slotB.getOrThrow()
+            slotA = None<A>
+            slotB = None<B>
+            outDemand = false
+            outlet.push((a, b))
+            if ((doneA && slotA.isNone()) || (doneB && slotB.isNone())) {
+                completeStage()
+                return
+            }
+        }
+        if (slotA.isNone() && !inA.hasBeenPulled() && !inA.isClosedForIn()) {
+            inA.pull()
+        }
+        if (slotB.isNone() && !inB.hasBeenPulled() && !inB.isClosedForIn()) {
+            inB.pull()
+        }
+    }
+
+    public func onPull(): Unit {
+        outDemand = true
+        pump()
+    }
+
+    public func onDownstreamFinish(): Unit {
+        completeStage()
+    }
+
+    public func inletPush(idx: Int64): Unit {
+        if (idx == 0) {
+            slotA = Some<A>(inA.grab())
+        } else {
+            slotB = Some<B>(inB.grab())
+        }
+        pump()
+    }
+
+    public func inletFinish(idx: Int64): Unit {
+        if (idx == 0) {
+            doneA = true
+            if (slotA.isNone()) {
+                completeStage()
+                return
+            }
+        } else {
+            doneB = true
+            if (slotB.isNone()) {
+                completeStage()
+                return
+            }
+        }
+        pump()
+    }
+
+    public func inletFailure(idx: Int64, cause: Exception): Unit {
+        failStage(cause)
+    }
+}
+
 /** 只有一个输入的阶段（Sink） */
 abstract class SinkLogic<In> <: StageLogic & InHandler {
     let inlet: Conn<In>

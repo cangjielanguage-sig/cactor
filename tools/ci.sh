@@ -199,6 +199,16 @@ cactor_examples.ex49_shard_state
 cactor_examples.ex50_trace_chain
 cactor_examples.ex51_durable_pubsub
 cactor_examples.ex52_iot_devices
+cactor_examples.ex53_distributed_workers
+cactor_examples.ex54_remember_entities
+cactor_examples.ex55_role_routing
+cactor_examples.ex56_data_center
+cactor_examples.ex57_large_messages
+cactor_examples.ex58_shard_roles
+cactor_examples.ex59_graph_dsl
+cactor_examples.ex60_graph_balance_zip
+cactor_examples.ex61_stream_actor_fanout
+cactor_examples.ex62_shard_role_join
 "
 for ex in $EXAMPLES_SELF_CHECK; do
     CACTOR_LOG_LEVEL=error guard "./target/release/bin/${ex}" | tail -1

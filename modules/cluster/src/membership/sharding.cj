@@ -314,8 +314,16 @@ public class ShardingSettings {
     public let leaseRetryMax: Duration
     /** 分片分配策略（默认 rendezvous；见 ShardAllocationStrategy） */
     public let allocation: ShardAllocationStrategy
-    // 协调状态存储（差距 4.4）：放置覆盖（手动再平衡）落盘，区域重启后继续生效
-    private var store: Option<DurableStateStore> = None<DurableStateStore>
+    /**
+     * 分片宿主角色（对标 Akka ClusterShardingSettings.withRole）。Some 时只有带该角色的 Up 成员
+     * 参与分片归属计算与移交确认；没带该角色的节点仍可作为区域转发消息，但绝不托管分片。
+     */
+    public let role: Option<String>
+    /**
+     * 协调状态存储（差距 4.4）：放置覆盖（手动再平衡）落盘，区域重启后继续生效。
+     * 与其它字段一样是不可变的：`withStateStore` 返回新设置，不会修改原对象。
+     */
+    public let store: Option<DurableStateStore>
 
     public init(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
         rebalance!: RebalancePolicy = RebalancePolicy(),
@@ -323,7 +331,9 @@ public class ShardingSettings {
         lease!: Option<ShardLeases> = None<ShardLeases>,
         leaseRetryMin!: Duration = Duration.millisecond * 200,
         leaseRetryMax!: Duration = Duration.second * 5,
-        allocation!: ShardAllocationStrategy = RendezvousAllocation()) {
+        allocation!: ShardAllocationStrategy = RendezvousAllocation(),
+        role!: Option<String> = None<String>,
+        store!: Option<DurableStateStore> = None<DurableStateStore>) {
         if (bufferSize <= 0) {
             throw IllegalArgumentException("缓冲区大小必须为正数: ${bufferSize}")
         }
@@ -345,6 +355,8 @@ public class ShardingSettings {
         this.leaseRetryMin = leaseRetryMin
         this.leaseRetryMax = leaseRetryMax
         this.allocation = allocation
+        this.role = role
+        this.store = store
     }
 
     public static func defaults(): ShardingSettings {
@@ -362,34 +374,35 @@ public class ShardingSettings {
     // 所有 withXxx 经这一处构造：新增字段时只需改这里与各自的参数
     private func make(bufferSize: Int64, passivateAfter: Option<Duration>, rememberEntities: Option<Replicator>,
         rebalance: RebalancePolicy, acquireWarnAfter: Duration, lease: Option<ShardLeases>, leaseRetryMin: Duration,
-        leaseRetryMax: Duration, allocation: ShardAllocationStrategy): ShardingSettings {
+        leaseRetryMax: Duration, allocation: ShardAllocationStrategy, role: Option<String>,
+        store: Option<DurableStateStore>): ShardingSettings {
         ShardingSettings(bufferSize, passivateAfter, rememberEntities, rebalance: rebalance,
             acquireWarnAfter: acquireWarnAfter, lease: lease, leaseRetryMin: leaseRetryMin, leaseRetryMax: leaseRetryMax,
-            allocation: allocation)
+            allocation: allocation, role: role, store: store)
     }
 
     /** 换再平衡策略（链式：ShardingSettings.passivating(1.minutes).withRebalance(...)） */
     public func withRebalance(policy: RebalancePolicy): ShardingSettings {
-        make(bufferSize, passivateAfter, rememberEntities, policy, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation)
+        make(bufferSize, passivateAfter, rememberEntities, policy, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation, role, store)
     }
 
     public func withBufferSize(size: Int64): ShardingSettings {
-        make(size, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation)
+        make(size, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation, role, store)
     }
 
     public func withPassivation(idle: Duration): ShardingSettings {
-        make(bufferSize, Some(idle), None<Replicator>, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation)
+        make(bufferSize, Some(idle), None<Replicator>, rebalance, acquireWarnAfter, lease, leaseRetryMin, leaseRetryMax, allocation, role, store)
     }
 
     /** 换获取等待的告警阈值（只影响观测；链式与 withRebalance 一致） */
     public func withAcquireWarnAfter(after: Duration): ShardingSettings {
-        make(bufferSize, passivateAfter, rememberEntities, rebalance, after, lease, leaseRetryMin, leaseRetryMax, allocation)
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, after, lease, leaseRetryMin, leaseRetryMax, allocation, role, store)
     }
 
     /** 启用按分片租约（DA4）；leases 在本节点的区域与实体之间共享 */
     public func withLease(leases: ShardLeases): ShardingSettings {
         make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, Some(leases), leaseRetryMin,
-            leaseRetryMax, allocation)
+            leaseRetryMax, allocation, role, store)
     }
 
     /** 启用按分片租约：factory 收到租约名（shardLeaseName），返回本节点在该分片上的 Lease */
@@ -399,21 +412,21 @@ public class ShardingSettings {
 
     public func withoutLease(): ShardingSettings {
         make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, None<ShardLeases>,
-            leaseRetryMin, leaseRetryMax, allocation)
+            leaseRetryMin, leaseRetryMax, allocation, role, store)
     }
 
     /** 租约获取失败后的指数退避区间（默认 200 ms ~ 5 s，对标 Akka lease-retry-interval） */
     public func withLeaseRetry(min: Duration, max: Duration): ShardingSettings {
-        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, min, max, allocation)
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, min, max, allocation, role, store)
     }
 
     /**
      * 启用分片协调状态持久化（差距 4.4）：目前持久化"放置覆盖"（手动 rebalance 的 分片->地址），
-     * 区域重启后仍按覆盖分配。采用可变设置而非拷贝：`ShardingSettings.defaults().withStateStore(s)` 后直接传构造器。
+     * 区域重启后仍按覆盖分配。返回新设置，不修改原对象（与其它 withXxx 一致）。
      */
     public func withStateStore(s: DurableStateStore): ShardingSettings {
-        this.store = Some<DurableStateStore>(s)
-        this
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin,
+            leaseRetryMax, allocation, role, Some<DurableStateStore>(s))
     }
 
     /** 协调状态存储（未启用为 None） */
@@ -421,10 +434,16 @@ public class ShardingSettings {
         store
     }
 
+    /** 只让带该角色的成员托管分片（对标 Akka ClusterShardingSettings.withRole） */
+    public func withRole(role: String): ShardingSettings {
+        make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin,
+            leaseRetryMax, allocation, Some<String>(role), store)
+    }
+
     /** 换分片分配策略（差距 4.4 的 SPI；默认 rendezvous） */
     public func withAllocationStrategy(strategy: ShardAllocationStrategy): ShardingSettings {
         make(bufferSize, passivateAfter, rememberEntities, rebalance, acquireWarnAfter, lease, leaseRetryMin,
-            leaseRetryMax, strategy)
+            leaseRetryMax, strategy, role, store)
     }
 }
 
@@ -852,6 +871,8 @@ class ShardRegionActor <: Actor {
     var nextRound: Int64 = 0
     var ticks: Int64 = 0
     var restoreDue = false
+    // 已就"角色没有可托管成员"告警过一次（避免每 tick 刷日志；恢复后重置）
+    var warnedNoRoleOwner = false
     // 本节点已离开集群（离开、被 down、被脑裂处理停止）
     var left = false
     // ---- 按分片租约（DA4）：未启用时 leaseSlots 始终为空 ----
@@ -1031,6 +1052,14 @@ class ShardRegionActor <: Actor {
         let ups = ArrayList<String>()
         let ask = ArrayList<String>()
         for (m in s.members) {
+            // 角色限制：没带该角色的成员既不托管分片，也不必参与移交确认（它从未托管过）
+            let roleOk = match (settings.role) {
+                case Some(r) => m.hasRole(r)
+                case None => true
+            }
+            if (!roleOk) {
+                continue
+            }
             match (m.status) {
                 case Up =>
                     ups.add(m.address)
@@ -1045,6 +1074,19 @@ class ShardRegionActor <: Actor {
             }
         }
         let next = RegionView(ups.toArray(), ask.toArray(), HashSet<String>(s.unreachable))
+        // 角色过滤后可能一个可托管成员都没有：此时消息只会缓冲，必须让运维看见而不是静默卡住
+        match (settings.role) {
+            case Some(r) =>
+                if (next.ups.isEmpty()) {
+                    if (!warnedNoRoleOwner) {
+                        warnedNoRoleOwner = true
+                        log.warn("分片类型 ${typeName} 要求角色 '${r}'，但当前视图没有该角色的 Up 成员；消息将持续缓冲")
+                    }
+                } else {
+                    warnedNoRoleOwner = false
+                }
+            case None => ()
+        }
         let changed = match (view) {
             case Some(v) => !sameMembers(v.ups, next.ups)
             case None => true

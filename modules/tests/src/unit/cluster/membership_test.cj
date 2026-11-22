@@ -50,8 +50,9 @@ class CNode {
         remote.start()
     }
 
-    func join(seeds: Array<NetworkAddress>, settings: ClusterSettings): CNode {
-        let c = Cluster(kit.system, remote, seeds, settings)
+    func join(seeds: Array<NetworkAddress>, settings: ClusterSettings,
+        roles!: Array<String> = Array<String>()): CNode {
+        let c = Cluster(kit.system, remote, seeds, settings, roles: roles)
         let rec = events
         c.subscribe({ e => rec.record(e.toString()) })
         clusterValue = Some(c)
