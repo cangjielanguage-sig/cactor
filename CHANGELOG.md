@@ -7,6 +7,32 @@
 
 ## [未发布]
 
+### ✨ 新增：Party Profile 读取（F2 扩展：GetPartyProfile / GetPartySelfProfile / GetPartySelfSummary）
+
+- `PartyHost.profile()`（GetPartyProfile）：路径、主持人、公开性、成员数、空闲、创建时间（`PartyProfile`）；
+- `PartyHost.selfProfile(memberId)`（GetPartySelfProfile）：成员 id/role/加入时间/是否主持人，非成员返回 `None`；
+- `PartyHost.selfSummary(memberId)`（GetPartySelfSummary）：Party 概要 + 自己的成员信息（`PartySelfSummary`）；
+- 主持人转移后 `isHost` 随之变化；非成员仍可读概要但 `self` 为空；
+- 用例 `PartyProfileTest` 3/3（对外概要、自身信息、主持人转移）。
+
+### ✨ 新增：Party 空闲标记（F2 扩展：SetPartyToIdle）
+
+- `PartyHost.setIdle()`（SetPartyToIdle）：幂等；已空闲时 `ok=true, reason="already idle"`，空闲时刻不覆盖；
+- `PartyHost.isIdle()`；`PartySummary` 增加 `idle` / `idleSinceMillis`（构造参数带默认值，兼容旧调用）；
+- 空闲是状态标记，**不停止 Actor**：加入/离开/广播/通知/踢人/转移/邀请等成员活动自动唤醒；
+- 与计划原方案的偏离：Party 成员是本地/远程 `ActorRef`，无法序列化后原样恢复，F1 sleep 会丢成员关系，
+  故按 Rivet 的"空闲状态"语义实现；
+- 用例 `PartyIdleTest` 3/3（幂等与概要、成员活动唤醒、空 Party 空闲后加入唤醒）。
+
+### ✨ 新增：Party × Matchmaker 联动（F2 × F3）
+
+- `PartyHost.notify(text)`：非阻塞广播（内部 `tell`，不需要回复），用于匹配结果等异步通知；
+- `PartyMatchmaker.findLobbyForParty(mm, party, ticket, ttl:)`（FindMatchmakerLobbyForParty）与
+  `requestPlayer(...)`（RequestMatchmakerPlayer）：代表 Party 提交匹配票，配对/过期/失败时
+  把结果经 `PartyHost.notify` 广播给全体成员，回调线程只用 `tell`，不阻塞匹配；
+- 两者通知前缀分别为 `party.lobby.*` / `party.player.*`，便于区分来源；
+- 用例 `PartyMatchmakerTest` 3/3（配对通知、过期通知、requestPlayer 前缀）。
+
 ### ✨ 新增：Matchmaker ListLobbies 观测面（F3 扩展）
 
 - `Matchmaker.waitingByMode()`：按 mode 的等待票快照（只列仍有等待票的 mode）；

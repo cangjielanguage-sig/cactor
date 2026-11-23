@@ -96,22 +96,75 @@ public struct PartyAdminOutcome {
     }
 }
 
-/** Party 概要（GetPartySummary）：成员、主持人、公开性与未撤销邀请数 */
+/** Party 概要（GetPartySummary）：成员、主持人、公开性、未撤销邀请数与空闲状态 */
 public class PartySummary {
     public let memberIds: Array<String>
     public let hostId: String
     public let isPublic: Bool
     public let inviteCount: Int64
+    /** 是否处于空闲（SetPartyToIdle 后、下一条活动消息之前） */
+    public let idle: Bool
+    /** 进入空闲的时刻（毫秒时间戳）；非空闲为 0 */
+    public let idleSinceMillis: Int64
 
-    public init(memberIds: Array<String>, hostId: String, isPublic: Bool, inviteCount: Int64) {
+    public init(memberIds: Array<String>, hostId: String, isPublic: Bool, inviteCount: Int64,
+        idle!: Bool = false, idleSinceMillis!: Int64 = 0) {
         this.memberIds = memberIds
         this.hostId = hostId
         this.isPublic = isPublic
         this.inviteCount = inviteCount
+        this.idle = idle
+        this.idleSinceMillis = idleSinceMillis
     }
 
     public func memberCount(): Int64 {
         Int64(memberIds.size)
+    }
+}
+
+/** 成员自述信息（GetPartySelfProfile）：调用者本人在 Party 里的身份 */
+public class PartySelfProfile {
+    public let memberId: String
+    public let role: String
+    public let joinedAtMillis: Int64
+    public let isHost: Bool
+
+    public init(memberId: String, role: String, joinedAtMillis: Int64, isHost: Bool) {
+        this.memberId = memberId
+        this.role = role
+        this.joinedAtMillis = joinedAtMillis
+        this.isHost = isHost
+    }
+}
+
+/** Party 对外概要（GetPartyProfile）：只给公开元信息，不含成员明细 */
+public class PartyProfile {
+    public let path: String
+    public let hostId: String
+    public let isPublic: Bool
+    public let memberCount: Int64
+    public let idle: Bool
+    public let createdAtMillis: Int64
+
+    public init(path: String, hostId: String, isPublic: Bool, memberCount: Int64, idle: Bool,
+        createdAtMillis: Int64) {
+        this.path = path
+        this.hostId = hostId
+        this.isPublic = isPublic
+        this.memberCount = memberCount
+        this.idle = idle
+        this.createdAtMillis = createdAtMillis
+    }
+}
+
+/** 自身视角概要（GetPartySelfSummary）：Party 概要 + 调用者自己的成员信息（非成员时 self 为空） */
+public class PartySelfSummary {
+    public let summary: PartySummary
+    public let self: Option<PartySelfProfile>
+
+    public init(summary: PartySummary, self: Option<PartySelfProfile>) {
+        this.summary = summary
+        this.self = self
     }
 }
 
@@ -147,6 +200,17 @@ class PartyBroadcastCmd <: Message {
     }
 
     public func messageType(): String { "PartyBroadcast" }
+}
+
+/** 非阻塞广播（不需要回复；用于匹配结果等异步通知） */
+class PartyNotify <: Message {
+    let text: String
+
+    init(text: String) {
+        this.text = text
+    }
+
+    public func messageType(): String { "PartyNotify" }
 }
 
 class PartyMembersQuery <: Message {
@@ -309,6 +373,11 @@ class PartySetPublicity <: Message {
     public func messageType(): String { "PartySetPublicity" }
 }
 
+/** 把 Party 标记为空闲（SetPartyToIdle）；任何成员活动都会自动唤醒 */
+class PartySetIdle <: Message {
+    public func messageType(): String { "PartySetIdle" }
+}
+
 class PartySummaryQuery <: Message {
     public func messageType(): String { "PartySummaryQuery" }
 }
@@ -343,6 +412,40 @@ class PartySummaryReply <: Message {
     public func messageType(): String { "PartySummaryReply" }
 }
 
+class PartyProfileQuery <: Message {
+    public func messageType(): String { "PartyProfileQuery" }
+}
+
+class PartyProfileReply <: Message {
+    let profile: PartyProfile
+
+    init(profile: PartyProfile) {
+        this.profile = profile
+    }
+
+    public func messageType(): String { "PartyProfileReply" }
+}
+
+class PartySelfQuery <: Message {
+    let memberId: String
+
+    init(memberId: String) {
+        this.memberId = memberId
+    }
+
+    public func messageType(): String { "PartySelfQuery" }
+}
+
+class PartySelfReply <: Message {
+    let selfSummary: PartySelfSummary
+
+    init(selfSummary: PartySelfSummary) {
+        this.selfSummary = selfSummary
+    }
+
+    public func messageType(): String { "PartySelfReply" }
+}
+
 /** 维护成员表与主持者；所有状态只在本 Actor 线程上修改，无需锁 */
 class PartyActor <: Actor {
     private let maxMembers: Int64
@@ -357,6 +460,11 @@ class PartyActor <: Actor {
     // 显式指定的主持人（TransferPartyOwnership）；为空时回退到"最早加入的存活成员"
     private var hostOverride: Option<String> = None<String>
     private var isPublic: Bool = false
+    // SetPartyToIdle 标记；任何成员活动（加入/离开/广播/管理）都会清除
+    private var idle: Bool = false
+    private var idleSinceMillis: Int64 = 0
+    // Party 创建时刻（GetPartyProfile 用）
+    private var createdAtMillis: Int64 = 0
 
     init(maxMembers: Int64, secret: String) {
         this.maxMembers = maxMembers
@@ -365,10 +473,37 @@ class PartyActor <: Actor {
 
     public func onStarted(context: ActorContext): Unit {
         partyPath = context.self.path.toString()
+        createdAtMillis = nowMillis()
     }
 
     private func nowMillis(): Int64 {
         DateTime.now().toUnixTimeStamp().toMilliseconds()
+    }
+
+    /** 有成员活动：退出空闲。放在所有活动分支入口，避免逐处重复判断 */
+    private func markActive(): Unit {
+        if (idle) {
+            idle = false
+            idleSinceMillis = 0
+        }
+    }
+
+    private func buildSummary(): PartySummary {
+        let ids = ArrayList<String>()
+        for (m in members) {
+            ids.add(m.id)
+        }
+        PartySummary(ids.toArray(), hostId(), isPublic, Int64(invites.size),
+            idle: idle, idleSinceMillis: idleSinceMillis)
+    }
+
+    private func selfProfileOf(memberId: String): Option<PartySelfProfile> {
+        let idx = indexOf(memberId)
+        if (idx < 0) {
+            return None<PartySelfProfile>
+        }
+        let m = members[idx]
+        Some<PartySelfProfile>(PartySelfProfile(m.id, m.role, m.joinedAtMillis, m.id == hostId()))
     }
 
     /** 校验邀请：存在、未撤销、签名有效、未过期、绑定本 Party 且允许 call */
@@ -480,11 +615,14 @@ class PartyActor <: Actor {
     public func receive(message: Message, context: ActorContext): MessageResult {
         match (message) {
             case j: PartyJoin =>
+                markActive()
                 context.reply(PartyJoinReply(joinOutcome(j.member, context)))
             case ji: PartyJoinByInvite =>
                 let (token, reason) = verifyInvite(ji.inviteId)
                 match (token) {
-                    case Some(_) => context.reply(PartyJoinReply(joinOutcome(ji.member, context)))
+                    case Some(_) =>
+                        markActive()
+                        context.reply(PartyJoinReply(joinOutcome(ji.member, context)))
                     case None => context.reply(PartyJoinReply(PartyJoinOutcome(false, reason, hostId())))
                 }
             case ci: PartyCreateInvite =>
@@ -498,6 +636,7 @@ class PartyActor <: Actor {
                     context.reply(PartyCreateInviteReply(
                         PartyInviteOutcome(None<PartyInvite>, "invite ttl must be positive")))
                 } else {
+                    markActive()
                     let now = nowMillis()
                     let token = ScopedTokenCodec.issue(secret, ci.subject, partyPath, ["call"],
                         ttlMillis: ci.ttlMillis, nowMillis: now)
@@ -508,6 +647,7 @@ class PartyActor <: Actor {
                         PartyInviteOutcome(Some<PartyInvite>(PartyInvite(id, token, partyPath, now + ci.ttlMillis)), "")))
                 }
             case ri: PartyRevokeInvite =>
+                markActive()
                 let existed = invites.contains(ri.inviteId)
                 if (existed) {
                     invites.remove(ri.inviteId)
@@ -520,8 +660,10 @@ class PartyActor <: Actor {
                     case None => context.reply(PartyInviteQueryReply(None<String>, reason))
                 }
             case k: PartyKick =>
+                markActive()
                 context.reply(PartyAdminReply(kickOutcome(k.kickerId, k.targetId, context)))
             case tr: PartyTransfer =>
+                markActive()
                 if (indexOf(tr.targetId) < 0) {
                     context.reply(PartyAdminReply(PartyAdminOutcome(false, "target is not a member", hostId())))
                 } else {
@@ -529,16 +671,26 @@ class PartyActor <: Actor {
                     context.reply(PartyAdminReply(PartyAdminOutcome(true, "", hostId())))
                 }
             case sp: PartySetPublicity =>
+                markActive()
                 isPublic = sp.value
                 context.reply(PartyPublicityReply(isPublic))
-            case _: PartySummaryQuery =>
-                let ids = ArrayList<String>()
-                for (m in members) {
-                    ids.add(m.id)
+            case _: PartySetIdle =>
+                let wasIdle = idle
+                if (!idle) {
+                    idle = true
+                    idleSinceMillis = nowMillis()
                 }
-                context.reply(PartySummaryReply(PartySummary(ids.toArray(), hostId(), isPublic,
-                    Int64(invites.size))))
+                context.reply(PartyAdminReply(PartyAdminOutcome(true,
+                    if (wasIdle) { "already idle" } else { "" }, hostId())))
+            case _: PartySummaryQuery =>
+                context.reply(PartySummaryReply(buildSummary()))
+            case _: PartyProfileQuery =>
+                context.reply(PartyProfileReply(PartyProfile(partyPath, hostId(), isPublic,
+                    Int64(members.size), idle, createdAtMillis)))
+            case sq: PartySelfQuery =>
+                context.reply(PartySelfReply(PartySelfSummary(buildSummary(), selfProfileOf(sq.memberId))))
             case l: PartyLeave =>
+                markActive()
                 let idx = indexOf(l.memberId)
                 if (idx < 0) {
                     context.reply(PartyLeaveReply(false))
@@ -552,6 +704,7 @@ class PartyActor <: Actor {
                     context.reply(PartyLeaveReply(true))
                 }
             case b: PartyBroadcastCmd =>
+                markActive()
                 var delivered: Int64 = 0
                 for (m in members) {
                     let skip = match (b.exceptMemberId) {
@@ -564,6 +717,12 @@ class PartyActor <: Actor {
                     }
                 }
                 context.reply(PartyBroadcastReply(delivered))
+            case n: PartyNotify =>
+                // 非阻塞广播：异步通知没有调用方等待回复，逐成员 tell 即可
+                markActive()
+                for (m in members) {
+                    m.ref.tell(StringMessage(n.text))
+                }
             case q: PartyMembersQuery =>
                 let ids = ArrayList<String>()
                 for (m in members) {
@@ -571,6 +730,7 @@ class PartyActor <: Actor {
                 }
                 context.reply(PartyMembersReply(ids.toArray(), hostId()))
             case t: Terminated =>
+                markActive()
                 let path = t.actor.path.toString()
                 for (i in 0..members.size) {
                     if (members[i].ref.path.toString() == path) {
@@ -671,6 +831,46 @@ public class PartyHost {
         }
     }
 
+    /**
+     * 把 Party 标记为空闲（SetPartyToIdle）。幂等：已空闲时 ok=true、reason="already idle"。
+     * 空闲只是状态标记，任何成员活动（加入/离开/广播/管理）都会自动清除，不需要显式唤醒。
+     */
+    public func setIdle(): PartyAdminOutcome {
+        match (AskInbox.ask(ref, PartySetIdle()).get(timeout) as PartyAdminReply) {
+            case Some(r) => r.outcome
+            case None => throw IllegalStateException("Party.setIdle 收到了非预期回复")
+        }
+    }
+
+    /** 当前是否空闲（读 Party 概要） */
+    public func isIdle(): Bool {
+        summary().idle
+    }
+
+    /** Party 对外概要（GetPartyProfile）：路径、主持人、公开性、成员数、空闲、创建时间 */
+    public func profile(): PartyProfile {
+        match (AskInbox.ask(ref, PartyProfileQuery()).get(timeout) as PartyProfileReply) {
+            case Some(r) => r.profile
+            case None => throw IllegalStateException("Party.profile 收到了非预期回复")
+        }
+    }
+
+    /** 成员自述（GetPartySelfProfile）：调用者本人在 Party 里的身份，非成员返回 None */
+    public func selfProfile(memberId: String): Option<PartySelfProfile> {
+        match (AskInbox.ask(ref, PartySelfQuery(memberId)).get(timeout) as PartySelfReply) {
+            case Some(r) => r.selfSummary.self
+            case None => throw IllegalStateException("Party.selfProfile 收到了非预期回复")
+        }
+    }
+
+    /** 自身视角概要（GetPartySelfSummary）：Party 概要 + 自己的成员信息（非成员时 self 为空） */
+    public func selfSummary(memberId: String): PartySelfSummary {
+        match (AskInbox.ask(ref, PartySelfQuery(memberId)).get(timeout) as PartySelfReply) {
+            case Some(r) => r.selfSummary
+            case None => throw IllegalStateException("Party.selfSummary 收到了非预期回复")
+        }
+    }
+
     /** Party 概要（GetPartySummary）：成员、主持人、公开性、未撤销邀请数 */
     public func summary(): PartySummary {
         match (AskInbox.ask(ref, PartySummaryQuery()).get(timeout) as PartySummaryReply) {
@@ -699,6 +899,11 @@ public class PartyHost {
             case Some(r) => r.delivered
             case None => throw IllegalStateException("Party.broadcast 收到了非预期回复")
         }
+    }
+
+    /** 非阻塞广播：发完即返回，不等待 Actor 回复（用于匹配结果等异步通知） */
+    public func notify(text: String): Unit {
+        ref.tell(PartyNotify(text))
     }
 
     /** 当前成员 id（按加入顺序） */
