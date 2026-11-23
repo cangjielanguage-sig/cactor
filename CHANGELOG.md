@@ -7,6 +7,37 @@
 
 ## [未发布]
 
+### ✨ 新增：Durable Streams 协议上限（G3：MAX_BODY_BYTES / MAX_READ_BYTES / MAX_TTL_SECONDS）
+
+- `append` 拒绝超过 `MAX_BODY_BYTES`（1,000,000 字节）的消息体，抛 `IllegalArgumentException`，不消耗 offset；
+- `read` 受 `MAX_READ_BYTES`（4MB）约束：达到上限即停在该条之前，`nextOffset` 留给下一次续读
+  （仍受 `MAX_READ_ROWS`=128 约束，两个上限取先到者）；
+- `stream` 的 TTL 受 `MAX_TTL_SECONDS`（7 天）约束，负数/超限明确抛错；
+- `producer-id` 只写入记录，不单独跟踪 producer 状态保留期（文档已注明）；
+- 用例 `DurableStreamLimitsTest` 3/3。
+
+### ✨ 新增：实时聊天 ChatService（对照 rivet-chat：线程/历史/订阅/输入中/已读）
+
+- 新包 `cactor_platform.chat`：`ChatService`（线程安全，单节点；历史可随 `DurableStateStore` 持久化）；
+- `directThread(a, b, topic:)`（GetDirectThread）：线程 id 规范化 + 十六进制转义，幂等且对称；
+- `send` / `history(fromOffset, maxRows)` / `watch(fromOffset, timeout)`（SendChatMessage / GetThreadHistory /
+  WatchThread）：历史复用 G3 `DurableStream`（offset 单调、游标续读、长轮询），watch 期间不持有服务锁；
+- `topic`（GetThreadTopic）、`setTyping` / `typingStatus`（SetTypingStatus，带 TTL，发送即清除输入中）、
+  `markRead` / `readState`（SetThreadRead，默认读到最新、越界夹到末尾）；
+- 失败显式：未知线程、非线程成员、空消息、自己与自己建线程均抛 `IllegalArgumentException`；
+- 用例 `ChatServiceTest` 6/6（分页、watch、输入中 TTL、已读夹取、非法输入、同 store 重启后历史仍在）。
+
+### ✨ 新增：Matchmaker Lobby 大厅（F3 扩展：FindLobby/JoinLobby/LobbyReady/SetLobbyClosed/PlayerConnected/PlayerDisconnected）
+
+- `LobbyRegistry`：创建大厅（容量）、加入/离开、就绪、连接状态、关闭、查找、列表，全部线程安全并返回
+  不可变 `LobbyInfo` / `LobbyPlayer` 快照；
+- `find(mode, attrs)`（FindLobby）只返回未关闭、属性兼容且未满的大厅；`list(openOnly:)` 对应 ListLobbies；
+- 拒绝原因明确：`lobby not found` / `lobby is closed` / `lobby is full` / `player already in lobby` /
+  `player not in lobby`；`ready` = 当前成员全部就绪（不要求满员）；
+- `PartyMatchmaker.joinLobbyForParty(registry, party, lobbyId)`（JoinMatchmakerLobbyForParty）：Party 全员加入，
+  任一成员失败即回滚已加入成员，并把结果广播给 Party；
+- 用例 `LobbyRegistryTest` 4/4 + `PartyLobbyTest` 2/2。
+
 ### ✨ 新增：Party Profile 读取（F2 扩展：GetPartyProfile / GetPartySelfProfile / GetPartySelfSummary）
 
 - `PartyHost.profile()`（GetPartyProfile）：路径、主持人、公开性、成员数、空闲、创建时间（`PartyProfile`）；

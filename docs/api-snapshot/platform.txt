@@ -34,6 +34,49 @@ cactor_platform.auth :: public enum ScopedTokenResult
 cactor_platform.auth :: public func accessOpName(op: AccessOp): String
 cactor_platform.auth :: public interface TokenAuthorizer
 cactor_platform.auth :: public struct ScopedTokenCodec
+cactor_platform.chat :: ChatHistory.public func isEmpty(): Bool
+cactor_platform.chat :: ChatHistory.public init(threadId: String, messages: Array<ChatMessage>, nextOffset: Int64)
+cactor_platform.chat :: ChatHistory.public let messages: Array<ChatMessage>
+cactor_platform.chat :: ChatHistory.public let nextOffset: Int64
+cactor_platform.chat :: ChatHistory.public let threadId: String
+cactor_platform.chat :: ChatMessage.public init(threadId: String, senderId: String, text: String, sentAtMillis: Int64, offset: Int64)
+cactor_platform.chat :: ChatMessage.public let id: String
+cactor_platform.chat :: ChatMessage.public let offset: Int64
+cactor_platform.chat :: ChatMessage.public let senderId: String
+cactor_platform.chat :: ChatMessage.public let sentAtMillis: Int64
+cactor_platform.chat :: ChatMessage.public let text: String
+cactor_platform.chat :: ChatMessage.public let threadId: String
+cactor_platform.chat :: ChatReadState.public init(threadId: String, playerId: String, lastReadOffset: Int64, updatedAtMillis: Int64)
+cactor_platform.chat :: ChatReadState.public let lastReadOffset: Int64
+cactor_platform.chat :: ChatReadState.public let playerId: String
+cactor_platform.chat :: ChatReadState.public let threadId: String
+cactor_platform.chat :: ChatReadState.public let updatedAtMillis: Int64
+cactor_platform.chat :: ChatService.public func directThread(a: String, b: String, topic!: String = ""): ChatThreadInfo
+cactor_platform.chat :: ChatService.public func history(threadId: String, fromOffset!: Int64 = 0, maxRows!: Int64 = 50): ChatHistory
+cactor_platform.chat :: ChatService.public func markRead(threadId: String, playerId: String, offset!: Int64 = -1): ChatReadState
+cactor_platform.chat :: ChatService.public func readState(threadId: String, playerId: String): ChatReadState
+cactor_platform.chat :: ChatService.public func send(threadId: String, senderId: String, text: String): ChatMessage
+cactor_platform.chat :: ChatService.public func setTyping(threadId: String, playerId: String, typing!: Bool = true): ChatTypingState
+cactor_platform.chat :: ChatService.public func threadInfo(threadId: String): Option<ChatThreadInfo>
+cactor_platform.chat :: ChatService.public func topic(threadId: String): String
+cactor_platform.chat :: ChatService.public func typingStatus(threadId: String): Array<ChatTypingState>
+cactor_platform.chat :: ChatService.public func watch(threadId: String, fromOffset!: Int64 = 0, timeout!: Duration = Duration.second * 2, maxRows!: Int64 = 50): ChatHistory
+cactor_platform.chat :: ChatService.public static func create(store!: DurableStateStore = MemoryDurableStateStore(), typingTtl!: Duration = Duration.second * 10): ChatService
+cactor_platform.chat :: ChatThreadInfo.public init(id: String, memberIds: Array<String>, topic: String, createdAtMillis: Int64)
+cactor_platform.chat :: ChatThreadInfo.public let createdAtMillis: Int64
+cactor_platform.chat :: ChatThreadInfo.public let id: String
+cactor_platform.chat :: ChatThreadInfo.public let memberIds: Array<String>
+cactor_platform.chat :: ChatThreadInfo.public let topic: String
+cactor_platform.chat :: ChatTypingState.public init(playerId: String, typing: Bool, updatedAtMillis: Int64)
+cactor_platform.chat :: ChatTypingState.public let playerId: String
+cactor_platform.chat :: ChatTypingState.public let typing: Bool
+cactor_platform.chat :: ChatTypingState.public let updatedAtMillis: Int64
+cactor_platform.chat :: public class ChatHistory
+cactor_platform.chat :: public class ChatMessage
+cactor_platform.chat :: public class ChatReadState
+cactor_platform.chat :: public class ChatService
+cactor_platform.chat :: public class ChatThreadInfo
+cactor_platform.chat :: public class ChatTypingState
 cactor_platform.durable :: DurableRequest.public init(method: String, path: String, headers!: HashMap<String, String>= HashMap<String, String>(), body!: String = "")
 cactor_platform.durable :: DurableRequest.public let body: String
 cactor_platform.durable :: DurableRequest.public let headers: HashMap<String, String>
@@ -87,7 +130,10 @@ cactor_platform.durable :: public let HEADER_NEXT_OFFSET: String
 cactor_platform.durable :: public let HEADER_PRODUCER_ID: String
 cactor_platform.durable :: public let HEADER_SEQ: String
 cactor_platform.durable :: public let HEADER_TTL: String
+cactor_platform.durable :: public let MAX_BODY_BYTES: Int64
+cactor_platform.durable :: public let MAX_READ_BYTES: Int64
 cactor_platform.durable :: public let MAX_READ_ROWS: Int64
+cactor_platform.durable :: public let MAX_TTL_SECONDS: Int64
 cactor_platform.durable :: public let ZERO_OFFSET: Int64
 cactor_platform.durable :: public struct DurableRequest
 cactor_platform.durable :: public struct DurableResponse
@@ -262,6 +308,38 @@ cactor_platform.lifecycle :: public class ClusterSleepRegistry
 cactor_platform.lifecycle :: public class SleepRegistry
 cactor_platform.lifecycle :: public class SleepableHandle
 cactor_platform.lifecycle :: public enum SleepPolicy
+cactor_platform.matchmaker :: LobbyInfo.public func isFull(): Bool
+cactor_platform.matchmaker :: LobbyInfo.public func playerCount(): Int64
+cactor_platform.matchmaker :: LobbyInfo.public init(id: String, mode: String, attrs: HashMap<String, String>, capacity: Int64, players: Array<LobbyPlayer>, ready: Bool, closed: Bool, createdAtMillis: Int64)
+cactor_platform.matchmaker :: LobbyInfo.public let attrs: HashMap<String, String>
+cactor_platform.matchmaker :: LobbyInfo.public let capacity: Int64
+cactor_platform.matchmaker :: LobbyInfo.public let closed: Bool
+cactor_platform.matchmaker :: LobbyInfo.public let createdAtMillis: Int64
+cactor_platform.matchmaker :: LobbyInfo.public let id: String
+cactor_platform.matchmaker :: LobbyInfo.public let mode: String
+cactor_platform.matchmaker :: LobbyInfo.public let players: Array<LobbyPlayer>
+cactor_platform.matchmaker :: LobbyInfo.public let ready: Bool
+cactor_platform.matchmaker :: LobbyOutcome.public init(ok: Bool, reason: String, lobby: Option<LobbyInfo>)
+cactor_platform.matchmaker :: LobbyOutcome.public let lobby: Option<LobbyInfo>
+cactor_platform.matchmaker :: LobbyOutcome.public let ok: Bool
+cactor_platform.matchmaker :: LobbyOutcome.public let reason: String
+cactor_platform.matchmaker :: LobbyPlayer.public init(playerId: String, ready: Bool, connected: Bool, joinedAtMillis: Int64)
+cactor_platform.matchmaker :: LobbyPlayer.public let connected: Bool
+cactor_platform.matchmaker :: LobbyPlayer.public let joinedAtMillis: Int64
+cactor_platform.matchmaker :: LobbyPlayer.public let playerId: String
+cactor_platform.matchmaker :: LobbyPlayer.public let ready: Bool
+cactor_platform.matchmaker :: LobbyRegistry.public func close(lobbyId: String): LobbyOutcome
+cactor_platform.matchmaker :: LobbyRegistry.public func count(): Int64
+cactor_platform.matchmaker :: LobbyRegistry.public func createLobby(mode: String, attrs: HashMap<String, String>, capacity!: Int64 = 2): LobbyInfo
+cactor_platform.matchmaker :: LobbyRegistry.public func find(mode: String, attrs: HashMap<String, String>): Option<LobbyInfo>
+cactor_platform.matchmaker :: LobbyRegistry.public func get(lobbyId: String): Option<LobbyInfo>
+cactor_platform.matchmaker :: LobbyRegistry.public func join(lobbyId: String, playerId: String): LobbyOutcome
+cactor_platform.matchmaker :: LobbyRegistry.public func leave(lobbyId: String, playerId: String): LobbyOutcome
+cactor_platform.matchmaker :: LobbyRegistry.public func list(openOnly!: Bool = true): Array<LobbyInfo>
+cactor_platform.matchmaker :: LobbyRegistry.public func playerConnected(lobbyId: String, playerId: String, connected!: Bool = true): LobbyOutcome
+cactor_platform.matchmaker :: LobbyRegistry.public func remove(lobbyId: String): Bool
+cactor_platform.matchmaker :: LobbyRegistry.public func setReady(lobbyId: String, playerId: String, ready!: Bool = true): LobbyOutcome
+cactor_platform.matchmaker :: LobbyRegistry.public init()
 cactor_platform.matchmaker :: MatchResult.| Expired(MatchTicket)
 cactor_platform.matchmaker :: MatchResult.| Matched(MatchTicket, MatchTicket)
 cactor_platform.matchmaker :: MatchTicket.public init(id: String, mode: String, attrs: HashMap<String, String>, rank!: Float64 = 0.0)
@@ -276,9 +354,13 @@ cactor_platform.matchmaker :: Matchmaker.public func waitingByMode(): Map<String
 cactor_platform.matchmaker :: Matchmaker.public func waitingCount(): Int64
 cactor_platform.matchmaker :: Matchmaker.public func waitingCountOf(mode: String): Int64
 cactor_platform.matchmaker :: Matchmaker.public static func create(rankTolerance!: Float64 = 0.0, sweepInterval!: Duration = Duration.millisecond * 50): Matchmaker
+cactor_platform.matchmaker :: public class LobbyInfo
+cactor_platform.matchmaker :: public class LobbyPlayer
+cactor_platform.matchmaker :: public class LobbyRegistry
 cactor_platform.matchmaker :: public class MatchTicket
 cactor_platform.matchmaker :: public class Matchmaker
 cactor_platform.matchmaker :: public enum MatchResult
+cactor_platform.matchmaker :: public struct LobbyOutcome
 cactor_platform.mcp :: McpCallContext.public func expired(): Bool
 cactor_platform.mcp :: McpCallContext.public func remaining(): Duration
 cactor_platform.mcp :: McpCallContext.public init(toolName: String, timeout: Duration)
@@ -352,6 +434,7 @@ cactor_platform.party :: PartyJoinOutcome.public let accepted: Bool
 cactor_platform.party :: PartyJoinOutcome.public let hostId: String
 cactor_platform.party :: PartyJoinOutcome.public let reason: String
 cactor_platform.party :: PartyMatchmaker.public static func findLobbyForParty(mm: Matchmaker, party: PartyHost, ticket: MatchTicket, ttl!: Duration = Duration.second * 5): TypedPromise<MatchResult>
+cactor_platform.party :: PartyMatchmaker.public static func joinLobbyForParty(registry: LobbyRegistry, party: PartyHost, lobbyId: String): LobbyOutcome
 cactor_platform.party :: PartyMatchmaker.public static func requestPlayer(mm: Matchmaker, party: PartyHost, ticket: MatchTicket, ttl!: Duration = Duration.second * 5): TypedPromise<MatchResult>
 cactor_platform.party :: PartyMember.public init(id: String, role: String, ref: ActorRef, joinedAtMillis: Int64)
 cactor_platform.party :: PartyMember.public let id: String

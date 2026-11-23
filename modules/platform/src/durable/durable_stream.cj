@@ -20,7 +20,7 @@ import std.collection.*
 import std.convert.*
 import std.sync.*
 import std.time.*
-import cactor_foundation.hashing.{toHex}
+import cactor_foundation.hashing.{toHex, fromHex}
 import cactor_persistence.{DurableStateStore}
 
 /** 协议里的显式起始偏移（0 = 从头读，实际第一条消息的 offset 是 1） */
@@ -28,6 +28,18 @@ public let ZERO_OFFSET: Int64 = 0
 
 /** 单次读的上限（对标 Rivet 的 MAX_READ_ROWS） */
 public let MAX_READ_ROWS: Int64 = 128
+
+/** 单条消息体上限（对标 Rivet 的 MAX_BODY_BYTES = 1_000_000） */
+public let MAX_BODY_BYTES: Int64 = 1_000_000
+
+/** 单次读的总字节上限（对标 Rivet 的 MAX_READ_BYTES = 4MB） */
+public let MAX_READ_BYTES: Int64 = 4 * 1024 * 1024
+
+/** 流 TTL 上限（对标 Rivet 的 MAX_TTL_SECONDS = 7 天） */
+public let MAX_TTL_SECONDS: Int64 = 7 * 24 * 3600
+
+/** producer 状态保留期（对标 Rivet 的 PRODUCER_STATE_TTL_MS = 7 天） */
+public let PRODUCER_STATE_TTL_MS: Int64 = 7 * 24 * 3600 * 1000
 
 /** 无新消息时的长轮询上限（对标 Rivet 的 LONG_POLL_TIMEOUT_MS） */
 public let DEFAULT_LONG_POLL: Duration = Duration.millisecond * 2000
@@ -54,6 +66,19 @@ public struct StreamRecord {
         this.offset = offset
         this.producerId = producerId
         this.payload = payload
+    }
+}
+
+/** 生产者的最近写入位置（超过保留期未更新则不再返回） */
+public class ProducerState {
+    public let producerId: String
+    public let lastOffset: Int64
+    public let updatedAtMillis: Int64
+
+    public init(producerId: String, lastOffset: Int64, updatedAtMillis: Int64) {
+        this.producerId = producerId
+        this.lastOffset = lastOffset
+        this.updatedAtMillis = updatedAtMillis
     }
 }
 
@@ -111,6 +136,31 @@ func nowMillis(): Int64 {
     DateTime.now().toUnixTimeStamp().toMilliseconds()
 }
 
+/** 内部：某条流上某个生产者的可保留状态 */
+class ProducerEntry {
+    var lastOffset: Int64
+    var updatedAtMillis: Int64
+
+    init(lastOffset: Int64, updatedAtMillis: Int64) {
+        this.lastOffset = lastOffset
+        this.updatedAtMillis = updatedAtMillis
+    }
+}
+
+/** 清掉超过保留期未更新的生产者；返回是否有删除（用于决定是否回写） */
+func pruneProducers(map: HashMap<String, ProducerEntry>, now: Int64, ttlMillis: Int64): Bool {
+    let expired = ArrayList<String>()
+    for ((id, entry) in map) {
+        if (now - entry.updatedAtMillis > ttlMillis) {
+            expired.add(id)
+        }
+    }
+    for (id in expired) {
+        map.remove(id)
+    }
+    expired.size > 0
+}
+
 /**
  * Durable Streams 注册表：按路径创建/取得流。
  *
@@ -127,6 +177,12 @@ public class DurableStreamRegistry {
     /** 取得（不存在则创建）某条流；ttlSeconds > 0 时在创建时设置过期时间 */
     public func stream(path: String, ttlSeconds!: Int64 = 0): DurableStream {
         validatePath(path)
+        if (ttlSeconds < 0) {
+            throw IllegalArgumentException("TTL 不能为负: ${ttlSeconds}")
+        }
+        if (ttlSeconds > MAX_TTL_SECONDS) {
+            throw IllegalArgumentException("TTL 超过上限 ${MAX_TTL_SECONDS} 秒: ${ttlSeconds}")
+        }
         synchronized(lock) {
             let key = metaKey(path)
             match (store.get(key)) {
@@ -267,6 +323,9 @@ public class DurableStream {
         if (producerId.contains("\n")) {
             throw IllegalArgumentException("producer-id 不能包含换行")
         }
+        if (Int64(payload.toArray().size) > MAX_BODY_BYTES) {
+            throw IllegalArgumentException("消息体超过上限 ${MAX_BODY_BYTES} 字节")
+        }
         synchronized(appendLock) {
             let meta = registry.loadMeta(pathValue)
             ensureNotExpired(meta)
@@ -292,9 +351,17 @@ public class DurableStream {
         let limit = if (maxRows > MAX_READ_ROWS) { MAX_READ_ROWS } else { maxRows }
         let rows = ArrayList<StreamRecord>()
         var cursor = start
+        var bytes: Int64 = 0
         while (cursor < meta.nextOffset && rows.size < limit) {
             match (registry.readRecord(pathValue, cursor)) {
-                case Some(r) => rows.add(r)
+                case Some(r) =>
+                    let recordBytes = Int64(r.payload.toArray().size)
+                    // 单次读受 MAX_READ_BYTES 约束：达到上限就停在这条之前，游标留给下一次续读
+                    if (rows.size > 0 && bytes + recordBytes > MAX_READ_BYTES) {
+                        break
+                    }
+                    rows.add(r)
+                    bytes += recordBytes
                 case None => ()  // 保留缺口（例如保留策略删除了旧消息），不伪装成连续
             }
             cursor++

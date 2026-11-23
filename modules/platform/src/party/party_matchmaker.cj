@@ -32,6 +32,41 @@ public class PartyMatchmaker {
         notifyOnResult(mm.submit(ticket, ttl: ttl), party, "party.player", ticket.mode)
     }
 
+    /**
+     * Party 整体加入一个已存在的大厅（JoinMatchmakerLobbyForParty）：每个成员作为一个玩家加入。
+     * 任一成员加入失败则回滚已加入的成员（大厅保持加入前的状态），并把原因广播给 Party。
+     */
+    public static func joinLobbyForParty(registry: LobbyRegistry, party: PartyHost,
+        lobbyId: String): LobbyOutcome {
+        let members = party.memberIds()
+        if (members.size == 0) {
+            let out = LobbyOutcome(false, "party has no members", None<LobbyInfo>)
+            party.notify("party.lobby.join_failed lobby=${lobbyId} reason=${out.reason}")
+            return out
+        }
+        let joined = ArrayList<String>()
+        var last = LobbyOutcome(false, "lobby not found", None<LobbyInfo>)
+        for (memberId in members) {
+            let r = registry.join(lobbyId, memberId)
+            if (!r.ok) {
+                // 回滚：组队加入要么全进、要么都不进，避免大厅里留下半个 Party
+                for (id in joined) {
+                    registry.leave(lobbyId, id)
+                }
+                party.notify("party.lobby.join_failed lobby=${lobbyId} player=${memberId} reason=${r.reason}")
+                return r
+            }
+            joined.add(memberId)
+            last = r
+        }
+        match (last.lobby) {
+            case Some(info) =>
+                party.notify("party.lobby.joined lobby=${lobbyId} players=${info.playerCount()}")
+            case None => ()
+        }
+        last
+    }
+
     /** 在票完成时按 kind 前缀广播结果；回调可能在匹配线程上执行，notify 只用 tell 不阻塞 */
     private static func notifyOnResult(promise: TypedPromise<MatchResult>, party: PartyHost,
         kind: String, mode: String): TypedPromise<MatchResult> {
