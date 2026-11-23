@@ -7,6 +7,79 @@
 
 ## [未发布]
 
+### ✨ 新增：Matchmaker ListLobbies 观测面（F3 扩展）
+
+- `Matchmaker.waitingByMode()`：按 mode 的等待票快照（只列仍有等待票的 mode）；
+- `Matchmaker.waitingCountOf(mode)`：单个 mode 的等待票数；
+- `ListRegions` 无需新代码：直接用 `ClusterSnapshot.dataCenters()`（角色/数据中心已在 4.3 实现）；
+- 用例 `MatchmakerLobbiesTest`：等待票快照、配对后消失、停止时未匹配票以 Expired 完成。
+
+### ✨ 新增：Party 管理操作（F2 扩展：踢人/转移主持人/公开性/概要）
+
+- `PartyHost.kick(kickerId, targetId)`（KickMember）：仅主持人可踢、不能踢自己、目标须存在，
+  拒绝带明确 `reason`（`only host can kick` / `cannot kick self` / `member not found`）；
+- `PartyHost.transferOwnership(targetId)`（TransferPartyOwnership）：目标须为当前成员；
+  主持人离开/被移除后覆盖失效，自动回退到最早加入的存活成员；
+- `PartyHost.setPublicity(value)`（SetPartyPublicity）与 `PartyHost.summary()`（GetPartySummary：
+  成员、主持人、公开性、未撤销邀请数）；公开类型 `PartyAdminOutcome` / `PartySummary`；
+- 用例 `PartyAdminTest` 2/2（转移+踢人、公开性+概要）；回归 `PartyTest` 3/3、`PartyInviteTest` 3/3。
+
+### ✨ 新增：Party 邀请（F2 扩展，复用 G1 ScopedToken）
+
+- `PartyHost.createInvite(inviterId, subject, ttl)` / `revokeInvite` / `partyOfInvite`（GetPartyFromInvite）/
+  `joinByInvite`（SendJoinRequest）；`PartyHost.start(..., secret)` 传签名密钥（默认空 = 不启用邀请）；
+- 邀请令牌复用 `ScopedTokenCodec`（HMAC、绑定本 Party 路径、scope=call、带过期），仅 Party 现有成员可签发；
+- 撤销后不可加入且重复撤销返回 `false`；过期 / 非成员签发 / 未配置密钥都返回明确 `reason`；
+- 用例 `PartyInviteTest` 3/3（加入→撤销→拒绝、过期、无密钥）；回归 `PartyTest` 3/3。
+
+### 🐛 修复：ex33 集群指标自检偶发失败（自动再平衡与实体计数）
+
+- `ex33_cluster_metrics` 断言"12 个实体创建后三节点 entities_local 合计 == 12"，但默认开启的
+  按负载再平衡可能在消息之间迁走一个分片：源节点停止实体、新宿主在收到该分片的下一条消息前
+  不重建，合计会短暂少 1（实测在机器高负载时偶发）。
+- 该示例统计的是"已创建实体数"而非迁移过程中的瞬态，改为
+  `ShardingSettings.defaults().withRebalance(RebalancePolicy.disabled())`，连续 3 次运行通过；
+  全部 96 个自检示例复跑 96/96 通过。
+
+### ✨ 新增：属性匹配示例（ex68，平台 matchmaker）
+
+- `Matchmaker.submit`：同 mode、共同属性相同、rank 在容差内的两张票才配对；TTL 到期明确 Expired；
+- 并发安全由内部锁保证，等待队列可按 mode 观测（`waitingByMode`）；
+- 示例 `ex68_matchmaker`：`POST /join`、`GET /result`、`GET /lobbies`，自检覆盖配对/属性不匹配/
+  rank 超容差/TTL 过期，外部 curl 验证。
+
+### ✨ 新增：睡眠会话示例（ex67，平台 lifecycle）
+
+- `SleepRegistry` + `SleepableActor`：显式 sleep 后存活 Actor 数下降、状态落盘到
+  `FileDurableStateStore`，下一条消息唤醒并恢复 `count|total` 状态继续；
+- 同时演示 `SleepPolicy.Idle(200ms)` 自动睡与多会话隔离；
+- 示例 `ex67_sleep_sessions`：Lou `POST /add`、`POST /sleep`、`GET /state`；
+  自检 + 外部 curl 验证"加购 2 → 50 → 睡 → 唤醒后 60"。
+
+### ✨ 新增：DData 共享 KV 示例（ex66，平台 kv）
+
+- `DDataKvStore`（LWWMap + PNCounter）：任意节点 put，其他节点反熵可见；计数器跨节点累加为合并值；
+- 删除传播、`list(prefix)`、`getMajority` 读多数均验证；
+- 示例 `ex66_kv_ddata`：3 节点两两 join 的 `Replicator`，Lou 提供 `PUT/GET/DELETE /kv`、
+  `POST /incr`、`GET /keys`，以及从指定节点读的 `/remote`；自检 + 外部 curl 验证。
+
+### ✨ 新增：Scoped Token 鉴权网关示例（ex65，平台 auth）
+
+- `ScopedTokenCodec.issue/verify` + `AuthGate.check`：自包含令牌、HMAC 签名、过期与篡改可区分；
+- 无令牌/过期/篡改 → 401，有身份无权限 → 403，路径覆盖带边界（`/data` 不覆盖 `/database`）；
+- 示例 `ex65_auth_gateway`：`POST /token` 签发，`GET/POST /data`、`GET /admin` 校验 scope，
+  Lou 读取 `Authorization` 头；自检 + 外部 curl 验证。
+- 踩坑记录：令牌含 `|` 不能直接放 query（stdx URL 会拒绝），示例改用 `HttpRequestBuilder` 设置头。
+
+### ✨ 新增：MCP 工具服务挂载在 Lou（ex64，平台能力首个示例）
+
+- `cactor_platform.mcp.McpServer.handle(path, body)` 直接挂在 Lou 的 `POST /mcp` 上，
+  不重复起 HTTP 栈；示例实现 `add_item/list_items` 两个工具：
+  - initialize / tools/list / tools/call 全通；参数不合法 → `result.isError=true`（业务失败）；
+  - 未知工具 → JSON-RPC `-32602`；
+- 示例 `ex64_mcp_lou` 自检 + 外部 curl 验证；`modules/examples` 新增 `cactor_platform` 依赖
+  （首个使用平台模块的示例，补齐平台能力无示例的空白）。
+
 ### ✨ 新增：分片协调状态全量归属持久化（差距 4.4 收尾）
 
 - 区域启动时从 `DurableStateStore` 恢复"分片 -> 宿主"全量映射（`shard-assignments-<type>`）；

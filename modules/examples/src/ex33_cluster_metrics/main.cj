@@ -38,7 +38,8 @@ import cactor_core.message.{Message, MessageResult, StringMessage}
 import cactor_foundation.monitoring.{GaugeMetric}
 import cactor_foundation.network.{NetworkAddress, TransportProtocol}
 import cactor_remote.SimpleRemoteManager
-import cactor_cluster.membership.{Cluster, ClusterMetrics, ClusterSettings, ClusterSharding}
+import cactor_cluster.membership.{Cluster, ClusterMetrics, ClusterSettings, ClusterSharding, RebalancePolicy,
+    ShardingSettings}
 
 let WAIT = Duration.second * 25
 
@@ -76,8 +77,9 @@ class Node {
             case None => remote.getLocalAddress()
         }
         this.cluster = Cluster(system, remote, [bootstrap], settings)
+        // 关闭按负载自动再平衡：本示例统计"已创建实体数"，迁移会在新宿主的首条消息前不重建实体
         this.region = ClusterSharding(cluster, system, remote, "metrics-entity", 8,
-            { id => Entity(id) })
+            { id => Entity(id) }, ShardingSettings.defaults().withRebalance(RebalancePolicy.disabled()))
         this.metrics = ClusterMetrics(cluster, remote).attachSharding(region)
     }
 

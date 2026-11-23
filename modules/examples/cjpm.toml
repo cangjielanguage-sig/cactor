@@ -16,6 +16,7 @@ cactor_streams = { path = "../streams" }
 cactor_persistence = { path = "../persistence" }
 cactor_remote = { path = "../remote" }
 cactor_cluster = { path = "../cluster" }
+cactor_platform = { path = "../platform" }
 cactor_xstate = { path = "../xstate" }
 cactor_testkit = { path = "../testkit" }
 # 真实示例（ex01–ex05）需要对外 HTTP/SSE 能力：直接复用已实现的 Lou Web 框架，
@@ -384,4 +385,19 @@ output-type = "executable"
 output-type = "executable"
 
 [package.package-configuration."cactor_examples.ex63_shard_assignment"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex64_mcp_lou"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex65_auth_gateway"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex66_kv_ddata"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex67_sleep_sessions"]
+output-type = "executable"
+
+[package.package-configuration."cactor_examples.ex68_matchmaker"]
 output-type = "executable"

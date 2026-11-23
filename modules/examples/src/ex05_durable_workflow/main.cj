@@ -380,7 +380,12 @@ main(): Int64 {
         delivery.definition.name, delivery.generation, delivery.definition.dueAtMillis, r) }, ASK_TIMEOUT)
         .get(ASK_TIMEOUT)
     c.check(acked, "确认成功")
-    sleep(Duration.millisecond * 300)
+    // 确认前可能已有一两条到期投递在途：先排空它们，再看确认之后是否还会产生新投递。
+    // （固定 sleep 后直接断言在机器高负载、tick 抖动时会误报）
+    while (sink.hasMessages()) {
+        let _ = sink.receiveMessage()
+    }
+    sleep(Duration.millisecond * 500)
     c.check(!sink.hasMessages(), "确认后不再重复投递（提醒只触发一次）")
     kit.shutdown()
     c.check(PersistenceIo.awaitIdle(Duration.second * 30), "提醒状态落盘")

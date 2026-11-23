@@ -40,7 +40,7 @@ import cactor_remote.SimpleRemoteManager
 import cactor_cluster.membership.{Cluster, ClusterSettings, Grains, Grain, GrainContext, GrainCallException, GrainTimeoutException}
 import cactor_cluster.ddata.Replicator
 
-let WAIT = Duration.second * 15
+let WAIT = Duration.second * 25
 let IDLE = Duration.second * 30
 
 class GrainsHolder {

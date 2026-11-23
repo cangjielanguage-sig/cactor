@@ -272,7 +272,9 @@ cactor_platform.matchmaker :: MatchTicket.public let rank: Float64
 cactor_platform.matchmaker :: Matchmaker.public func expireNow(): Unit
 cactor_platform.matchmaker :: Matchmaker.public func stop(): Unit
 cactor_platform.matchmaker :: Matchmaker.public func submit(ticket: MatchTicket, ttl!: Duration = Duration.second * 5): TypedPromise<MatchResult>
+cactor_platform.matchmaker :: Matchmaker.public func waitingByMode(): Map<String, Int64>
 cactor_platform.matchmaker :: Matchmaker.public func waitingCount(): Int64
+cactor_platform.matchmaker :: Matchmaker.public func waitingCountOf(mode: String): Int64
 cactor_platform.matchmaker :: Matchmaker.public static func create(rankTolerance!: Float64 = 0.0, sweepInterval!: Duration = Duration.millisecond * 50): Matchmaker
 cactor_platform.matchmaker :: public class MatchTicket
 cactor_platform.matchmaker :: public class Matchmaker
@@ -311,14 +313,34 @@ cactor_platform.mcp :: public let MCP_PARSE_ERROR: Int64
 cactor_platform.mcp :: public let MCP_PROTOCOL_VERSION: String
 cactor_platform.mcp :: public struct McpHttpResponse
 cactor_platform.mcp :: public struct ToolDescriptor
+cactor_platform.party :: PartyAdminOutcome.public init(ok: Bool, reason: String, hostId: String)
+cactor_platform.party :: PartyAdminOutcome.public let hostId: String
+cactor_platform.party :: PartyAdminOutcome.public let ok: Bool
+cactor_platform.party :: PartyAdminOutcome.public let reason: String
 cactor_platform.party :: PartyHost.public func broadcast(text: String, exceptMemberId!: Option<String>= None): Int64
+cactor_platform.party :: PartyHost.public func createInvite(inviterId: String, subject: String, ttl: Duration): PartyInviteOutcome
 cactor_platform.party :: PartyHost.public func hostId(): String
 cactor_platform.party :: PartyHost.public func join(member: PartyMember): PartyJoinOutcome
+cactor_platform.party :: PartyHost.public func joinByInvite(inviteId: String, member: PartyMember): PartyJoinOutcome
+cactor_platform.party :: PartyHost.public func kick(kickerId: String, targetId: String): PartyAdminOutcome
 cactor_platform.party :: PartyHost.public func leave(memberId: String): Bool
 cactor_platform.party :: PartyHost.public func memberCount(): Int64
 cactor_platform.party :: PartyHost.public func memberIds(): Array<String>
+cactor_platform.party :: PartyHost.public func partyOfInvite(inviteId: String): Option<String>
+cactor_platform.party :: PartyHost.public func revokeInvite(inviteId: String): Bool
+cactor_platform.party :: PartyHost.public func setPublicity(value: Bool): Bool
 cactor_platform.party :: PartyHost.public func stop(): Unit
-cactor_platform.party :: PartyHost.public static func start(system: CActorSystem, name: String, maxMembers!: Int64 = 16, timeout!: Duration = Duration.second * 5): PartyHost
+cactor_platform.party :: PartyHost.public func summary(): PartySummary
+cactor_platform.party :: PartyHost.public func transferOwnership(targetId: String): PartyAdminOutcome
+cactor_platform.party :: PartyHost.public static func start(system: CActorSystem, name: String, maxMembers!: Int64 = 16, secret!: String = "", timeout!: Duration = Duration.second * 5): PartyHost
+cactor_platform.party :: PartyInvite.public init(id: String, token: String, partyPath: String, expiresAtMillis: Int64)
+cactor_platform.party :: PartyInvite.public let expiresAtMillis: Int64
+cactor_platform.party :: PartyInvite.public let id: String
+cactor_platform.party :: PartyInvite.public let partyPath: String
+cactor_platform.party :: PartyInvite.public let token: String
+cactor_platform.party :: PartyInviteOutcome.public init(invite: Option<PartyInvite>, reason: String)
+cactor_platform.party :: PartyInviteOutcome.public let invite: Option<PartyInvite>
+cactor_platform.party :: PartyInviteOutcome.public let reason: String
 cactor_platform.party :: PartyJoinOutcome.public init(accepted: Bool, reason: String, hostId: String)
 cactor_platform.party :: PartyJoinOutcome.public let accepted: Bool
 cactor_platform.party :: PartyJoinOutcome.public let hostId: String
@@ -329,8 +351,18 @@ cactor_platform.party :: PartyMember.public let joinedAtMillis: Int64
 cactor_platform.party :: PartyMember.public let ref: ActorRef
 cactor_platform.party :: PartyMember.public let role: String
 cactor_platform.party :: PartyMember.public static func create(id: String, role: String, ref: ActorRef): PartyMember
+cactor_platform.party :: PartySummary.public func memberCount(): Int64
+cactor_platform.party :: PartySummary.public init(memberIds: Array<String>, hostId: String, isPublic: Bool, inviteCount: Int64)
+cactor_platform.party :: PartySummary.public let hostId: String
+cactor_platform.party :: PartySummary.public let inviteCount: Int64
+cactor_platform.party :: PartySummary.public let isPublic: Bool
+cactor_platform.party :: PartySummary.public let memberIds: Array<String>
 cactor_platform.party :: public class PartyHost
+cactor_platform.party :: public class PartyInvite
 cactor_platform.party :: public class PartyMember
+cactor_platform.party :: public class PartySummary
+cactor_platform.party :: public struct PartyAdminOutcome
+cactor_platform.party :: public struct PartyInviteOutcome
 cactor_platform.party :: public struct PartyJoinOutcome
 cactor_platform.session :: SessionRegistry.public func ask(sessionId: String, message: Message, timeout: Duration): TypedPromise<Message>
 cactor_platform.session :: SessionRegistry.public func localSessionCount(): Int64

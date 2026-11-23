@@ -515,6 +515,11 @@ HTTP/SSE 由 [Lou](https://gitcode.com/catorai/lou) Web 框架承载（`ex06`–
 | [ex61_stream_actor_fanout](modules/examples/src/ex61_stream_actor_fanout/main.cj) | 流扇出到 Actor（对标 Akka Sink.actorRef）：一份事件驱动审计/指标/归档三个 Actor，各自状态独立且计数一致 | `GraphDSL.broadcast` + `Sinks.foreach` + 经典 Actor、Lou |
 | [ex62_shard_role_join](modules/examples/src/ex62_shard_role_join/main.cj) | 分片角色的动态可用性：只有网关时消息缓冲不丢，worker 加入后自动排空；网关始终不托管 | `ShardingSettings.withRole`、`ClusterSharding.stats/ownerCount`、无宿主告警（新增）、Lou |
 | [ex63_shard_assignment](modules/examples/src/ex63_shard_assignment/main.cj) | 分片协调状态（全量归属）恢复（差距 4.4 收尾）：预置 10 分片 9/1，两个区域都加载并按存储托管 | `ShardingSettings.withStateStore`、`ClusterSharding.assignmentKey/loadedAssignmentOf`（新增）、Lou |
+| [ex64_mcp_lou](modules/examples/src/ex64_mcp_lou/main.cj) | MCP 工具服务挂载在 Lou（对标 protoactor-go web + MCP）：initialize/tools list/call、业务失败 isError、未知工具 -32602，HTTP 全部走 Lou | `cactor_platform.mcp.McpServer.handle`、`McpToolProvider`、Lou `POST /mcp` |
+| [ex65_auth_gateway](modules/examples/src/ex65_auth_gateway/main.cj) | Scoped Token 鉴权网关（平台 auth + Lou）：无令牌 401、过期/篡改可区分、无权限 403、路径覆盖有边界、`*` 通配 | `ScopedTokenCodec`、`AuthGate.check`、`AccessOp`、Lou `Authorization` |
+| [ex66_kv_ddata](modules/examples/src/ex66_kv_ddata/main.cj) | 基于 DData 的共享 KV（平台 kv + Lou）：双向反熵、PNCounter 合并、删除传播、前缀列举、读多数 | `DDataKvStore`、`Replicator`、Lou `PUT/GET/DELETE /kv` |
+| [ex67_sleep_sessions](modules/examples/src/ex67_sleep_sessions/main.cj) | 睡眠会话（平台 lifecycle + Lou）：空闲会话不占 Actor、状态落盘、唤醒后从断点继续、多会话隔离 | `SleepRegistry`、`SleepableActor`、`SleepPolicy.Explicit/Idle`、Lou |
+| [ex68_matchmaker](modules/examples/src/ex68_matchmaker/main.cj) | 属性匹配（平台 matchmaker + Lou）：同 mode/属性才配、rank 容差、TTL Expired、按 mode 观测等待数 | `Matchmaker.submit/expireNow/waitingByMode`、Lou |
 
 ---
 

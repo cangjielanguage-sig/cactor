@@ -348,6 +348,11 @@ cjpm run --name cactor_examples.advanced_dispatcher_examples
 | `ex61_stream_actor_fanout` | ✅ 运行 | 自检退出码 0 |
 | `ex62_shard_role_join` | ✅ 运行 | 自检退出码 0 |
 | `ex63_shard_assignment` | ✅ 运行 | 自检退出码 0 |
+| `ex64_mcp_lou` | ✅ 运行 | 自检退出码 0 |
+| `ex65_auth_gateway` | ✅ 运行 | 自检退出码 0 |
+| `ex66_kv_ddata` | ✅ 运行 | 自检退出码 0 |
+| `ex67_sleep_sessions` | ✅ 运行 | 自检退出码 0 |
+| `ex68_matchmaker` | ✅ 运行 | 自检退出码 0 |
 | `functional_actor_demo` | ✅ 运行 | 自检退出码 0 |
 | `hello_world_demo` | ✅ 运行 | 自检退出码 0 |
 | `idle_probe` | — | measurement：空闲调度探测（3 秒采样），用于调参而非门禁 |

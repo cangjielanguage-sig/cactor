@@ -36,6 +36,7 @@
 | `akka-sample-cluster-singleton` | 唯一实例、故障接管 | `ClusterSingleton`、`isRunningHere`、`location` | **`ex08`** | ✅ |
 | `akka-sample-distributed-pub-sub` | 跨节点主题广播、退订 | `DistributedPubSub.subscribe/publish` | **`ex07`** | ✅ |
 | `akka-sample-distributed-data` | CRDT + Replicator + 一致性级别 | `GCounter/PNCounter/GSet/ORSet/LWWRegister/ORMap/LWWMap`、`Replicator` | `ex04`、`ex30`、`ddata_stress` | ✅（差距 4.6 已补 Map 系） |
+| Akka DData 作为共享 KV | LWWMap + PNCounter 的键值门面 | `cactor_platform.kv.DDataKvStore` | **`ex66`** | ✅ |
 | `akka-sample-persistence` | PersistentActor、快照、恢复 | `EventSourcedBehavior`、`journal_v2`、`snapshot_store`、`RetentionCriteria` | `ex05`、`best07` | ✅（upcast 缺，差距 4.7） |
 | `akka-sample-fsm`（Buncher） | 状态机、状态超时、stash | `TypedBehaviors.receive` 返回新行为 + `withTimers` + `withStash` | **`ex10`**、`best04` | ✅ |
 | `akka-sample-streams` | Source/Flow/Sink、GraphDSL、背压 | `cactor_streams`（线性算子、async、buffer、kill switch、`GraphDSL.broadcast/partitionBy/balance/zip`） | **`ex12`**、**`ex59`**、**`ex60`**、`streams_demo`、`best05` | ✅ 线性算子 + 常用 junction |
@@ -94,6 +95,7 @@
 |---|---|---|---|---|
 | `helloworld` | Spawn + Tell | `system.actorOf` / `typedActorOf` + `tell` | `best01`、`hello_world_demo` | ✅ |
 | `web` | 每请求一个 Actor / HTTP + 消息 | Lou + `TypedAsk`；存储 Actor 串行 | **`ex06`** | ✅ |
+| protoactor `web` + MCP | HTTP 上暴露工具服务 | Lou + `cactor_platform.mcp.McpServer.handle` | **`ex64`** | ✅ |
 | `chat` | 房间广播、跨节点 | `DistributedPubSub` + Lou SSE | **`ex07`** | ✅ |
 | `cluster-grain` | 虚拟 Actor（Identity/Kind） | `Grains` + `Grain.onCall` | **`ex09`** | ✅ |
 | `cluster-sharding` | 分片实体 | `ClusterSharding` | `best09`、`ex02` | ✅ |
@@ -309,7 +311,9 @@ for e in ex01_agent_runtime ex02_tenant_orders ex03_event_backbone ex04_edge_con
          ex51_durable_pubsub ex52_iot_devices ex53_distributed_workers \
          ex54_remember_entities ex55_role_routing ex56_data_center \
          ex57_large_messages ex58_shard_roles ex59_graph_dsl ex60_graph_balance_zip \
-         ex61_stream_actor_fanout ex62_shard_role_join ex63_shard_assignment; do
+         ex61_stream_actor_fanout ex62_shard_role_join ex63_shard_assignment \
+         ex64_mcp_lou ex65_auth_gateway ex66_kv_ddata ex67_sleep_sessions \
+         ex68_matchmaker; do
   CACTOR_LOG_LEVEL=error ./target/release/bin/cactor_examples.$e || echo "FAIL: $e"
 done
 

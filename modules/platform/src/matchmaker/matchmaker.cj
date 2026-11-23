@@ -216,4 +216,30 @@ public class Matchmaker {
             n
         }
     }
+
+    /**
+     * 按 mode 的等待票数快照（对标 Rivet 的 `ListLobbies` 观测面）。
+     * 只包含仍有等待票的 mode；已配对/过期清空的 mode 不出现。
+     */
+    public func waitingByMode(): Map<String, Int64> {
+        synchronized(lock) {
+            let out = HashMap<String, Int64>()
+            for ((mode, list) in waiting) {
+                if (list.size > 0) {
+                    out[mode] = Int64(list.size)
+                }
+            }
+            out
+        }
+    }
+
+    /** 某个 mode 的等待票数（ListLobbies 的单项查询） */
+    public func waitingCountOf(mode: String): Int64 {
+        synchronized(lock) {
+            match (waiting.get(mode)) {
+                case Some(list) => Int64(list.size)
+                case None => 0
+            }
+        }
+    }
 }
