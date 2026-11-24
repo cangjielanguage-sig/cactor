@@ -7,13 +7,29 @@
 
 ## [未发布]
 
+### ✨ 新增：会话级事件存储隔离 ScopedEventStore（对标"每 actor 一个库"）
+
+- 新类型 `cactor_platform.session.ScopedEventStore(inner, scope)`：给 persistenceId / actorId 加
+  "长度:值"前缀后委托给共享 `EventStore`，同名标识跨会话互不可见；
+- `replay` / `getEvents` 对调用方还原原标识；`persistenceIds()` / `scopedIds()` 只列本会话并去前缀；
+- `deleteScope()` 一次删除本会话全部事件；`close()` 是空操作（底层 store 由多个作用域共享）；
+- 长度前缀编码保证 scope/id 内含分隔符时也不会对撞；
+- 用例 `ScopedEventStoreTest` 4/4（隔离与还原、旧接口隔离、deleteScope、分隔符不对撞）。
+
+### ✨ 新增：Durable Streams producer 状态（PRODUCER_STATE_TTL_MS）
+
+- `append` 按 `producer-id` 记录最近写入 offset 与更新时间，状态随 `DurableStateStore` 持久化；
+- `producerState(id)` / `producers()` 查询；超过 `PRODUCER_STATE_TTL_MS`（7 天）未更新时读取即清理；
+- `DurableStreamRegistry(store, producerStateTtlMillis:)` 可注入保留期（测试用），负数/0 拒绝；
+- fork 时把源流的 producer 位置带到新流；
+- 用例 `DurableStreamProducerTest` 3/3（跨实例读回、TTL 过期、fork 复制）。
+
 ### ✨ 新增：Durable Streams 协议上限（G3：MAX_BODY_BYTES / MAX_READ_BYTES / MAX_TTL_SECONDS）
 
 - `append` 拒绝超过 `MAX_BODY_BYTES`（1,000,000 字节）的消息体，抛 `IllegalArgumentException`，不消耗 offset；
 - `read` 受 `MAX_READ_BYTES`（4MB）约束：达到上限即停在该条之前，`nextOffset` 留给下一次续读
   （仍受 `MAX_READ_ROWS`=128 约束，两个上限取先到者）；
 - `stream` 的 TTL 受 `MAX_TTL_SECONDS`（7 天）约束，负数/超限明确抛错；
-- `producer-id` 只写入记录，不单独跟踪 producer 状态保留期（文档已注明）；
 - 用例 `DurableStreamLimitsTest` 3/3。
 
 ### ✨ 新增：实时聊天 ChatService（对照 rivet-chat：线程/历史/订阅/输入中/已读）

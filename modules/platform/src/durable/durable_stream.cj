@@ -169,9 +169,19 @@ func pruneProducers(map: HashMap<String, ProducerEntry>, now: Int64, ttlMillis: 
 public class DurableStreamRegistry {
     private let store: DurableStateStore
     private let lock = Mutex()
+    private let producerTtlMillis: Int64
 
-    public init(store: DurableStateStore) {
+    /** @param producerStateTtlMillis producer 状态保留期（测试可缩短；默认 PRODUCER_STATE_TTL_MS） */
+    public init(store: DurableStateStore, producerStateTtlMillis!: Int64 = PRODUCER_STATE_TTL_MS) {
+        if (producerStateTtlMillis <= 0) {
+            throw IllegalArgumentException("producer 状态保留期必须为正")
+        }
         this.store = store
+        this.producerTtlMillis = producerStateTtlMillis
+    }
+
+    func producerStateTtl(): Int64 {
+        producerTtlMillis
     }
 
     /** 取得（不存在则创建）某条流；ttlSeconds > 0 时在创建时设置过期时间 */
@@ -226,6 +236,9 @@ public class DurableStreamRegistry {
             // 按读上限分块复制 1..atOffset（read 单次最多 MAX_READ_ROWS 条）
             var copied: Int64 = 0
             var from: Int64 = ZERO_OFFSET
+            // fork 出的新流重新登记生产者位置；先在内存里合并，循环结束统一写一次
+            let targetProducers = HashMap<String, ProducerEntry>()
+            let now = nowMillis()
             while (copied < atOffset) {
                 let chunk = src.read(fromOffset: from, maxRows: MAX_READ_ROWS)
                 if (chunk.isEmpty()) {
@@ -236,12 +249,14 @@ public class DurableStreamRegistry {
                         break
                     }
                     writeRecord(target, meta.nextOffset, r.producerId, r.payload)
+                    targetProducers[r.producerId] = ProducerEntry(meta.nextOffset, now)
                     meta.nextOffset++
                     copied++
                 }
                 from = chunk.nextOffset
             }
             saveMeta(target, meta)
+            saveProducers(target, targetProducers)
             DurableStream(this, store, target)
         }
     }
@@ -276,6 +291,69 @@ public class DurableStreamRegistry {
                 }
             case None => None<StreamRecord>
         }
+    }
+
+    /** 生产者状态：一行缩略索引，`hex(id),lastOffset,updatedAt;` 重复 */
+    func loadProducers(path: String): HashMap<String, ProducerEntry> {
+        let map = HashMap<String, ProducerEntry>()
+        let state = match (store.get(producerKey(path))) {
+            case Some(r) => r.state
+            case None => ""
+        }
+        if (state.isEmpty()) {
+            return map
+        }
+        for (part in state.split(";")) {
+            if (part.isEmpty()) {
+                continue
+            }
+            let fields = part.split(",")
+            if (fields.size != 3) {
+                continue
+            }
+            match (fromHex(fields[0])) {
+                case Some(bytes) =>
+                    let id = String.fromUtf8(bytes)
+                    let last = Int64.tryParse(fields[1]) ?? 0
+                    let updated = Int64.tryParse(fields[2]) ?? 0
+                    map[id] = ProducerEntry(last, updated)
+                case None => ()
+            }
+        }
+        map
+    }
+
+    func saveProducers(path: String, map: HashMap<String, ProducerEntry>): Unit {
+        let key = producerKey(path)
+        let revision = store.revisionOf(key) + 1
+        let sb = StringBuilder()
+        for ((id, entry) in map) {
+            sb.append(toHex(id.toArray()))
+            sb.append(",")
+            sb.append(entry.lastOffset.toString())
+            sb.append(",")
+            sb.append(entry.updatedAtMillis.toString())
+            sb.append(";")
+        }
+        store.upsert(key, revision, sb.toString())
+    }
+
+    /** 记下某生产者写到了第几条（append/fork 内调用） */
+    func recordProducer(path: String, producerId: String, offset: Int64): Unit {
+        let now = nowMillis()
+        let map = loadProducers(path)
+        pruneProducers(map, now, producerTtlMillis)
+        map[producerId] = ProducerEntry(offset, now)
+        saveProducers(path, map)
+    }
+
+    /** 取生产者状态并顺带清理过期项（读路径） */
+    func producersOf(path: String): HashMap<String, ProducerEntry> {
+        let map = loadProducers(path)
+        if (pruneProducers(map, nowMillis(), producerTtlMillis)) {
+            saveProducers(path, map)
+        }
+        map
     }
 }
 
@@ -333,8 +411,29 @@ public class DurableStream {
             registry.writeRecord(pathValue, offset, producerId, payload)
             meta.nextOffset = offset + 1
             registry.saveMeta(pathValue, meta)
+            // 生产者状态与消息同一临界区更新；过期项顺带清理
+            registry.recordProducer(pathValue, producerId, offset)
             offset
         }
+    }
+
+    /** 某生产者的最近写入位置；超过 PRODUCER_STATE_TTL_MS 未更新返回 None */
+    public func producerState(producerId: String): Option<ProducerState> {
+        let map = registry.producersOf(pathValue)
+        match (map.get(producerId)) {
+            case Some(e) => Some<ProducerState>(ProducerState(producerId, e.lastOffset, e.updatedAtMillis))
+            case None => None<ProducerState>
+        }
+    }
+
+    /** 当前活跃（未超过保留期）的生产者列表 */
+    public func producers(): Array<ProducerState> {
+        let map = registry.producersOf(pathValue)
+        let out = ArrayList<ProducerState>()
+        for ((id, e) in map) {
+            out.add(ProducerState(id, e.lastOffset, e.updatedAtMillis))
+        }
+        out.toArray()
     }
 
     /**
@@ -420,6 +519,10 @@ func metaKey(path: String): String {
 
 func recordKey(path: String, offset: Int64): String {
     "ds-msg-${hexOf(path)}-${offset}"
+}
+
+func producerKey(path: String): String {
+    "ds-producer-${hexOf(path)}"
 }
 
 // ---------------- 协议适配层（头名与 Rivet Durable Streams 对齐） ----------------
